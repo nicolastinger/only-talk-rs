@@ -1,0 +1,14 @@
+[package]
+name = "rust_my_app"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+quinn = {version = "0.10.2"}
+rustls = { version = "0.21.0" ,features = ["dangerous_configuration"]}
+rcgen = "0.11.1"
+tokio ={ version = "1.0.0",features = ["full"]}
+serde_json = "1.0.128"
+fast_log = "1.7.4" #使用简单的异步日志库
+log = "0.4" # 日志库
+tracing = "0.1"
