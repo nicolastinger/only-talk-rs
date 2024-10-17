@@ -1986,6 +1986,7 @@ dependencies = [
  "rcgen",
  "redis 0.22.3",
  "rustls 0.21.12",
+ "rustls-pemfile 1.0.4",
  "serde",
  "serde_json",
  "sqlx",

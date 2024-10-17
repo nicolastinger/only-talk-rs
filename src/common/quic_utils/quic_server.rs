@@ -51,11 +51,11 @@ async fn handle_conn(conn: quinn::Connection) {
                 send_stream.write_all("你在干什么".as_bytes()).await.expect("TODO: panic message");
             }
             Ok(None) => {
-                info!("[服务端] 流关闭");
+                info!("[服务端] 流关闭 {}",recv_stream.id());
                 break;
             }
             Err(e) => {
-                error!("[服务端] 读取错误: {}", e);
+                error!("[服务端] 读取错误: {},退出流{}", e,recv_stream.id());
                 break;
             }
         }

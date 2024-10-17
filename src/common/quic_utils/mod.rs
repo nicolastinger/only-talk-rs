@@ -1,42 +1,33 @@
 use std::error::Error;
+use std::fs::File;
+use std::io::BufReader;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use quinn::{ClientConfig, Endpoint, ServerConfig};
+use rustls::{Certificate, PrivateKey, RootCertStore};
+use rustls_pemfile::{certs, ec_private_keys, rsa_private_keys};
 
 pub(crate) mod quic_server;
 pub(crate) mod quic_client;
 
-/// 自定义证书验证器，将任何证书视为有效。
-/// 注意：这种验证容易受到中间人攻击，但便于测试。
-struct SkipServerVerification;
-
-impl SkipServerVerification {
-    fn new() -> Arc<Self> {
-        Arc::new(Self)
-    }
-}
-
-impl rustls::client::ServerCertVerifier for SkipServerVerification {
-    fn verify_server_cert(
-        &self,
-        _end_entity: &rustls::Certificate,
-        _intermediates: &[rustls::Certificate],
-        _server_name: &rustls::ServerName,
-        _scts: &mut dyn Iterator<Item=&[u8]>,
-        _ocsp_response: &[u8],
-        _now: std::time::SystemTime,
-    ) -> Result<rustls::client::ServerCertVerified, rustls::Error> {
-        // 返回成功验证结果
-        Ok(rustls::client::ServerCertVerified::assertion())
-    }
-}
-
 /// 配置客户端使用的QUIC设置。
 fn configure_client() -> ClientConfig {
-    // 构建TLS配置，使用安全默认值，自定义证书验证器，不进行客户端认证
+    // 构建TLS配置，使用安全默认值，信任系统证书库
+    let mut root_store = RootCertStore::empty();
+
+    let mut cert_file2 = BufReader::new(File::open("config/TLS/DigiCertGlobalRootCA.crt.pem").expect("打开pem文件失败"));
+    let ca_certs:Vec<Certificate> = certs(&mut cert_file2)
+        .map(|certs| certs.into_iter().map(Certificate).collect())
+        .map_err(|_| "无法解析证书文件").expect("解析失败");
+
+    // 添加CA证书到根证书存储
+    for cert in ca_certs {
+        root_store.add(&cert).expect("存储证书失败");
+    }
+
     let crypto = rustls::ClientConfig::builder()
         .with_safe_defaults()
-        .with_custom_certificate_verifier(SkipServerVerification::new())
+        .with_root_certificates(root_store)
         .with_no_client_auth();
 
     // 创建QUIC客户端配置
@@ -59,21 +50,29 @@ pub fn make_server_endpoint(bind_addr: SocketAddr) -> Result<(Endpoint, Vec<u8>)
 
 /// 返回默认的服务器配置及其证书。
 fn configure_server() -> Result<(ServerConfig, Vec<u8>), Box<dyn Error>> {
-    // 生成自签名证书
-    let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
-    let cert_der = cert.serialize_der().unwrap();
-    let priv_key = cert.serialize_private_key_der();
-    let priv_key = rustls::PrivateKey(priv_key);
-    let cert_chain = vec![rustls::Certificate(cert_der.clone())];
+    // 从.pem文件加载证书
+    let mut cert_file = BufReader::new(File::open("config/TLS/onlytalk.cn.pem").expect("打开pem文件失败"));
+    let cert_chain:Vec<Certificate> = certs(&mut cert_file)
+        .map(|certs| certs.into_iter().map(Certificate).collect())
+        .map_err(|_| "无法解析证书文件")?;
+
+    // 从.key文件加载私钥
+    let mut key_file = BufReader::new(File::open("config/TLS/onlytalk.cn.key").expect("打开key文件失败"));
+    let mut keys = rsa_private_keys(&mut key_file).or_else(|_| ec_private_keys(&mut key_file))
+        .map_err(|_| "无法解析私钥文件")?;
+    if keys.is_empty() {
+        return Err("私钥文件为空".into());
+    }
+    let key = PrivateKey(keys.remove(0));
+
+    // 克隆第一个证书
+    let cert_der = cert_chain.first().cloned().ok_or("证书链为空")?.0;
 
     // 创建服务器配置
-    let mut server_config = ServerConfig::with_single_cert(cert_chain, priv_key)?;
+    let mut server_config = ServerConfig::with_single_cert(cert_chain.clone(), key)?;
     let transport_config = Arc::get_mut(&mut server_config.transport).unwrap();
     transport_config.max_concurrent_uni_streams(0_u8.into()); // 设置最大并发单向流数量
 
+    // 返回服务器配置和证书
     Ok((server_config, cert_der))
 }
-
-/// QUIC协议的ALPN标识符。
-#[allow(unused)]
-pub const ALPN_QUIC_HTTP: &[&[u8]] = &[b"hq-29"];

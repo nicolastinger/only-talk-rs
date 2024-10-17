@@ -9,6 +9,8 @@ use log::{error, info, LevelFilter};
 use deadpool_redis::{Pool, PoolError,Config as dp_config, Runtime};
 use deadpool_redis::redis::cmd;
 use deadpool_redis::redis::ExpireOption::NONE;
+use rbatis::RBatis;
+use rbdc_mysql::MysqlDriver;
 
 struct AppState {
     redis_pool: Arc<Pool>,
@@ -24,6 +26,14 @@ fn init_redis() -> AppState {
     };
     m
 }
+
+fn init_db() -> Arc<RBatis> {
+    let rb = RBatis::new();
+    rb.init(MysqlDriver{}, "mysql://rust_dev:REDACTED_DB_PASSWORD_REMOTE#@175.178.17.158:10222/test")
+        .expect("Failed to initialize database connection");
+    Arc::new(rb)
+}
+
 
 //初始化异步web容器
 pub async fn start_server() -> std::io::Result<()> {
@@ -55,17 +65,8 @@ pub async fn home() -> String {
 #[get("/user/{username}")]
 async fn redis_example(state: web::Data<AppState>, path: web::Path<String>) -> impl Responder {
     info!("请求进来了");
-
     let username = path.into_inner();
-    let mut res = state.redis_pool.get().await;
-
-    let mut conn = match res {
-        Ok(c) => c,
-        Err(e) => {
-            error!("打开redis连接失败 {}", e.to_string());
-            return  HttpResponse::InternalServerError().finish();
-        }
-    };
+    let mut conn = state.redis_pool.get().await.expect("打开redis连接失败");
 
     // 查询 Redis 中的值
     let info: Result<String, _> = cmd("GET").arg(&username).query_async(&mut conn).await;

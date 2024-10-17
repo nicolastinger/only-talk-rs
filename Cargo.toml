@@ -21,3 +21,4 @@ redis = { version = "0.22" ,features = ["tokio-comp"]}
 actix-web = "4.6.0" # 请根据实际情况调整版本
 sqlx = { version = "0.8", features = ["mysql", "runtime-tokio-native-tls"] }
 deadpool-redis = "0.18.0"
+rustls-pemfile = "1.0.4"
