@@ -42,8 +42,6 @@ pub async fn run_client(server_addr: SocketAddr) -> Result<Endpoint, Box<dyn Err
 
     send_stream1.write("我是蔡徐坤".as_bytes()).await.unwrap();
 
-    handle_res.await?;
-
     tokio::time::sleep(Duration::from_secs(1)).await;
     send_stream1.finish().await?;
 

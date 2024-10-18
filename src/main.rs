@@ -12,13 +12,9 @@ use fast_log::Config;
 async fn main() {
     fast_log::init(Config::new().console().level(LevelFilter::Info).file("target/test.log").chan_len(Some(100000))).unwrap();
 
-
     quic_utils::quic_server::init_server();
     // 定义服务器监听地址
     let addr = "127.0.0.1:4433".parse().unwrap();
-    quic_utils::quic_client::run_client(addr).await.unwrap();
-
-    tokio::time::sleep(Duration::from_secs(10)).await;
 
     quic_utils::quic_client::run_client(addr).await.unwrap();
     init_web::start_server().await.expect("初始化失败!");

@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 quinn = {version = "0.10.2"}
-rustls = { version = "0.21.0" ,features = ["dangerous_configuration"]}
+rustls = { version = "0.21" }
 rcgen = "0.11.1"
 tokio ={ version = "1.0.0",features = ["full"]}
 serde_json = "1.0.128"
@@ -18,7 +18,8 @@ rbdc-mysql={version="4.5"}
 serde = { version = "1", features = ["derive"] }
 lazy_static = "1.4"
 redis = { version = "0.22" ,features = ["tokio-comp"]}
-actix-web = "4.6.0" # 请根据实际情况调整版本
+actix-web = { version = "4.9", features = ["rustls-0_21"] } # 请根据实际情况调整版本
 sqlx = { version = "0.8", features = ["mysql", "runtime-tokio-native-tls"] }
 deadpool-redis = "0.18.0"
 rustls-pemfile = "1.0.4"
+tokio-rustls = "0.23.4"

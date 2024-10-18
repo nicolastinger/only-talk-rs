@@ -1,4 +1,5 @@
 use std::fs::File;
+use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::sync::Arc;
 use actix_web::{get, middleware, post, web, App, HttpResponse, HttpServer, Responder};
 use fast_log::Config;
@@ -11,7 +12,9 @@ use deadpool_redis::redis::cmd;
 use deadpool_redis::redis::ExpireOption::NONE;
 use rbatis::RBatis;
 use rbdc_mysql::MysqlDriver;
-
+use rustls::{Certificate, PrivateKey, ServerConfig};
+use rustls::server::NoClientAuth;
+use rustls_pemfile::{certs, ec_private_keys, rsa_private_keys, pkcs8_private_keys};
 struct AppState {
     redis_pool: Arc<Pool>,
 }
@@ -37,6 +40,51 @@ fn init_db() -> Arc<RBatis> {
 
 //初始化异步web容器
 pub async fn start_server() -> std::io::Result<()> {
+    // 加载证书
+    let cert_file = &mut BufReader::new(File::open("config/TLS/onlytalk.cn.pem")?);
+    let key_file = &mut BufReader::new(File::open("config/TLS/onlytalk.cn.key")?);
+
+    // 读取证书链
+    let cert_chain = match certs(cert_file) {
+        Ok(certs) => {
+            eprintln!("读取到 {} 个证书", certs.len());
+            certs.into_iter().map(Certificate).collect()
+        },
+        Err(e) => {
+            eprintln!("无法读取证书文件: {}", e);
+            return Err(std::io::Error::new(std::io::ErrorKind::Other, "无法读取证书文件"));
+        }
+    };
+
+    // 读取私钥
+    let mut key_content = String::new();
+    key_file.read_to_string(&mut key_content)?;
+    eprintln!("私钥文件内容:\n{}", key_content);
+
+    key_file.seek(SeekFrom::Start(0)).expect("无法重置文件读取位置");
+
+    // 从.key文件加载私钥
+    let mut key_file = BufReader::new(File::open("config/TLS/onlytalk.cn.key").expect("打开key文件失败"));
+    let mut keys = rsa_private_keys(&mut key_file).or_else(|_| ec_private_keys(&mut key_file))
+        .map_err(|_| "无法解析私钥文件").unwrap();
+
+    if keys.is_empty() {
+        eprintln!("私钥文件中没有找到有效的私钥");
+        return Err(std::io::Error::new(std::io::ErrorKind::Other, "私钥文件中没有找到有效的私钥"));
+    }
+
+    let key = PrivateKey(keys.remove(0));
+
+    // 配置 TLS
+    let config = ServerConfig::builder()
+        .with_safe_defaults()
+        .with_no_client_auth()
+        .with_single_cert(cert_chain, key)
+        .map_err(|e| {
+            eprintln!("无法设置证书和私钥: {}", e);
+            std::io::Error::new(std::io::ErrorKind::Other, "无法设置证书和私钥")
+        })?;
+
     HttpServer::new(move || {
         App::new()
             .app_data(web::Data::new(init_redis()))
@@ -49,7 +97,7 @@ pub async fn start_server() -> std::io::Result<()> {
             })
         // 这里可以继续添加其他路由
     })
-        .bind("127.0.0.1:8090")?
+        .bind_rustls_021("127.0.0.1:8443",config)? // 绑定到 HTTPS 端口
         .run()
         .await
 }
