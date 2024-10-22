@@ -23,3 +23,5 @@ sqlx = { version = "0.8", features = ["mysql", "runtime-tokio-native-tls"] }
 deadpool-redis = "0.18.0"
 rustls-pemfile = "1.0.4"
 tokio-rustls = "0.23.4"
+uuid = { version = "1", features = ["v4"] }
+time = "0.3.4"

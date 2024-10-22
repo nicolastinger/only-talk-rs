@@ -2,21 +2,36 @@ mod module;
 mod common;
 use module::*;
 use common::*;
+use quic_network_service::quic_connection::QuicConnection;
 use log::{error, info, warn, LevelFilter};
 use std::{error::Error, net::SocketAddr};
+use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
 use fast_log::Config;
-
+use lazy_static::lazy_static;
+use tokio::sync::RwLock as TokioRwLock;
+use quic_network_service::quic_client;
+// 创建一个quic服务器维护列表全局变量，使用 RwLock 包装
+// 使用 lazy_static 初始化全局共享变量
+lazy_static! {
+    pub static ref GLOBAL_QUIC_SERVER_LIST: Arc<TokioRwLock<HashMap<String, QuicConnection>>> = Arc::new(TokioRwLock::new(HashMap::new()));
+}
 // 主函数入口点，使用Tokio异步运行时
 #[actix_web::main]
 async fn main() {
-    fast_log::init(Config::new().console().level(LevelFilter::Info).file("target/test.log").chan_len(Some(100000))).unwrap();
+    fast_log::init(Config::new().console().level(LevelFilter::Info).file("target/rust_im.log").chan_len(Some(10))).unwrap();
 
-    quic_utils::quic_server::init_server();
+    quic_network_service::quic_server::init_server();
     // 定义服务器监听地址
     let addr = "127.0.0.1:4433".parse().unwrap();
 
-    quic_utils::quic_client::run_client(addr).await.unwrap();
+    tokio::time::sleep(Duration::from_secs(1)).await;
+
+    tokio::spawn(async move{
+        quic_client::run_client(addr).await;
+    });
+
     init_web::start_server().await.expect("初始化失败!");
     info!("运行结束!")
 }

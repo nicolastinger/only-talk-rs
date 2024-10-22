@@ -3,12 +3,15 @@ use std::fs::File;
 use std::io::BufReader;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use quinn::{ClientConfig, Endpoint, ServerConfig};
+use std::time::Duration;
+use quinn::{ClientConfig, Endpoint, ServerConfig, TransportConfig};
 use rustls::{Certificate, PrivateKey, RootCertStore};
 use rustls_pemfile::{certs, ec_private_keys, rsa_private_keys};
 
 pub(crate) mod quic_server;
 pub(crate) mod quic_client;
+pub(crate) mod quic_msg;
+pub(crate) mod quic_connection;
 
 /// 配置客户端使用的QUIC设置。
 fn configure_client() -> ClientConfig {
@@ -31,7 +34,12 @@ fn configure_client() -> ClientConfig {
         .with_no_client_auth();
 
     // 创建QUIC客户端配置
-    ClientConfig::new(Arc::new(crypto))
+   let mut config = ClientConfig::new(Arc::new(crypto));
+    let mut time_out_config = TransportConfig::default();
+    time_out_config.max_idle_timeout(Some(Duration::from_secs(1800).try_into().unwrap()));
+    // 获取传输配置并设置最大空闲超时时间（例如3分钟）
+    config.transport_config(Arc::from(time_out_config));
+    config
 }
 /// 构造一个QUIC端点，配置为监听特定地址和端口上的传入连接。
 ///
@@ -72,7 +80,7 @@ fn configure_server() -> Result<(ServerConfig, Vec<u8>), Box<dyn Error>> {
     let mut server_config = ServerConfig::with_single_cert(cert_chain.clone(), key)?;
     let transport_config = Arc::get_mut(&mut server_config.transport).unwrap();
     transport_config.max_concurrent_uni_streams(0_u8.into()); // 设置最大并发单向流数量
-
+    transport_config.max_idle_timeout(Some(Duration::from_secs(1800).try_into().unwrap()));
     // 返回服务器配置和证书
     Ok((server_config, cert_der))
 }

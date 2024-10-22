@@ -3,12 +3,12 @@ use std::net::SocketAddr;
 use std::time::Duration;
 use log::{error, info};
 use quinn::{Connection, Endpoint, SendStream};
-use crate::common::quic_utils::configure_client;
+use crate::common::quic_network_service::configure_client;
 
 // 客户端异步函数，尝试与服务器建立QUIC连接
-pub async fn run_client(server_addr: SocketAddr) -> Result<Endpoint, Box<dyn Error>> {
+pub async fn run_client(server_addr: SocketAddr) {
     // 创建客户端端点
-    let mut endpoint = Endpoint::client("127.0.0.1:0".parse().unwrap())?;
+    let mut endpoint = Endpoint::client("127.0.0.1:0".parse().unwrap()).expect("infallible");
     endpoint.set_default_client_config(configure_client()); // 设置默认客户端配置
 
     // 尝试连接到服务器
@@ -16,11 +16,11 @@ pub async fn run_client(server_addr: SocketAddr) -> Result<Endpoint, Box<dyn Err
     info!("[client] connected: addr={}", connection.remote_address()); // 打印连接成功的服务器地址
 
     // 开启一个双向流
-    let (mut send_stream1, mut _recv_stream) = connection.open_bi().await?;
-    send_stream1.set_priority(0)?; // 设置优先级
+    let (mut send_stream1, mut _recv_stream) = connection.open_bi().await.unwrap();
+    send_stream1.set_priority(0).unwrap(); // 设置优先级
 
     // 异步处理流中的数据
-   let mut handle_res = tokio::spawn(async move {
+    tokio::spawn(async move {
         let mut buffer = vec![0u8; 1024 * 8];
         loop {
             match _recv_stream.read(&mut buffer).await {
@@ -38,18 +38,16 @@ pub async fn run_client(server_addr: SocketAddr) -> Result<Endpoint, Box<dyn Err
         }
     });
     // 发送消息给服务器
-    send_stream1.write("我是谁".as_bytes()).await.unwrap();
+    send_stream1.write_all("我是谁".as_bytes()).await.unwrap();
 
-    send_stream1.write("我是蔡徐坤".as_bytes()).await.unwrap();
+    send_stream1.write_all("我是蔡徐坤".as_bytes()).await.unwrap();
 
-    tokio::time::sleep(Duration::from_secs(1)).await;
+    /*tokio::time::sleep(Duration::from_secs(1)).await;
     send_stream1.finish().await?;
 
     tokio::time::sleep(Duration::from_secs(1)).await;
     // 等待所有任务完成
-    endpoint.wait_idle().await;
-
-    Ok(endpoint)
+    endpoint.wait_idle().await;*/
 }
 
 /*pub async fn send_text_msg(send_stream:SendStream) -> Result<(), Box<dyn Error>> {

@@ -40,6 +40,7 @@ fn init_db() -> Arc<RBatis> {
 
 //初始化异步web容器
 pub async fn start_server() -> std::io::Result<()> {
+    info!("Starting server");
     // 加载证书
     let cert_file = &mut BufReader::new(File::open("config/TLS/onlytalk.cn.pem")?);
     let key_file = &mut BufReader::new(File::open("config/TLS/onlytalk.cn.key")?);
@@ -47,11 +48,11 @@ pub async fn start_server() -> std::io::Result<()> {
     // 读取证书链
     let cert_chain = match certs(cert_file) {
         Ok(certs) => {
-            eprintln!("读取到 {} 个证书", certs.len());
+            info!("读取到 {} 个证书", certs.len());
             certs.into_iter().map(Certificate).collect()
         },
         Err(e) => {
-            eprintln!("无法读取证书文件: {}", e);
+            error!("无法读取证书文件: {}", e);
             return Err(std::io::Error::new(std::io::ErrorKind::Other, "无法读取证书文件"));
         }
     };
@@ -59,7 +60,6 @@ pub async fn start_server() -> std::io::Result<()> {
     // 读取私钥
     let mut key_content = String::new();
     key_file.read_to_string(&mut key_content)?;
-    eprintln!("私钥文件内容:\n{}", key_content);
 
     key_file.seek(SeekFrom::Start(0)).expect("无法重置文件读取位置");
 
