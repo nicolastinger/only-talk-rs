@@ -10,7 +10,7 @@ use crate::GLOBAL_QUIC_SERVER_LIST;
 
 pub(crate) fn init_server(){
     // 定义服务器监听地址
-    let addr = "127.0.0.1:4433".parse().unwrap();
+    let addr = "[::1]:4433".parse().unwrap();
 
     tokio::spawn(run_server(addr));
 }

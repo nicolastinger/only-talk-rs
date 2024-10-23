@@ -24,7 +24,7 @@ async fn main() {
 
     quic_network_service::quic_server::init_server();
     // 定义服务器监听地址
-    let addr = "127.0.0.1:4433".parse().unwrap();
+    let addr = "[::1]:4433".parse().unwrap();
 
     tokio::time::sleep(Duration::from_secs(1)).await;
 

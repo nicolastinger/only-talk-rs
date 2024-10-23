@@ -118,7 +118,6 @@ async fn redis_example(state: web::Data<AppState>, path: web::Path<String>) -> i
 
     // 查询 Redis 中的值
     let info: Result<String, _> = cmd("GET").arg(&username).query_async(&mut conn).await;
-
     match info {
         Ok(info) => {
             // 将 Redis 中的值解析为 User 实体

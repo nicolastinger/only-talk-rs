@@ -8,7 +8,7 @@ use crate::common::quic_network_service::configure_client;
 // 客户端异步函数，尝试与服务器建立QUIC连接
 pub async fn run_client(server_addr: SocketAddr) {
     // 创建客户端端点
-    let mut endpoint = Endpoint::client("127.0.0.1:0".parse().unwrap()).expect("infallible");
+    let mut endpoint = Endpoint::client("[::1]:0".parse().unwrap()).expect("infallible");
     endpoint.set_default_client_config(configure_client()); // 设置默认客户端配置
 
     // 尝试连接到服务器

@@ -33,4 +33,7 @@ impl QuicConnection {
 
 // quic初始包
 #[derive(Debug, Serialize, Deserialize)]
-pub struct FirstQuicMsg {}
+pub struct FirstQuicMsg {
+    pub ipv4addr: String,  //客户端的ipv4地址
+    pub ipv6addr: String,  //客户端的ipv6地址
+}
