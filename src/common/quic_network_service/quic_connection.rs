@@ -2,6 +2,7 @@ use std::sync::Arc;
 use quinn::{RecvStream, SendStream, Connection};
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
+use tokio::sync::RwLock;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum ConnectionType {
@@ -19,8 +20,8 @@ pub struct QuicConnection {
     pub connection: Connection,
     pub user_id: String,
     pub connection_type: ConnectionType,
-    pub send_stream: Arc<Mutex<SendStream>>,
-    pub recv_stream: Arc<Mutex<RecvStream>>,
+    pub send_stream: Arc<RwLock<SendStream>>,
+    pub recv_stream: Arc<RwLock<RecvStream>>,
     pub create_time: i64,
     pub update_time: i64,
     pub ipv4addr: String,
