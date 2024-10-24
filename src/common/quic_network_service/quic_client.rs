@@ -41,6 +41,8 @@ pub async fn run_client(server_addr: SocketAddr) {
     // 发送消息给服务器
     send_stream1.write_all("我是谁".as_bytes()).await.unwrap();
 
+    tokio::time::sleep(Duration::from_secs(1)).await;
+
     send_stream1.write_all("我是蔡徐坤".as_bytes()).await.unwrap();
 
     /*tokio::time::sleep(Duration::from_secs(1)).await;
