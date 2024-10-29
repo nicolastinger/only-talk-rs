@@ -1,9 +1,12 @@
 use std::error::Error;
 use std::net::SocketAddr;
+use std::sync::{Arc};
 use std::time::Duration;
 use log::{error, info};
 use quinn::{Connection, Endpoint, SendStream};
+use tokio::sync::Mutex;
 use crate::common::quic_network_service::configure_client;
+use crate::common::quic_network_service::quic_connection::FirstQuicMsg;
 
 // 客户端异步函数，尝试与服务器建立QUIC连接
 pub async fn run_client(server_addr: SocketAddr) {
@@ -16,9 +19,8 @@ pub async fn run_client(server_addr: SocketAddr) {
     info!("[client] connected: addr={}", connection.remote_address()); // 打印连接成功的服务器地址
 
     // 开启一个双向流
-    let (mut send_stream1, mut _recv_stream) = connection.open_bi().await.unwrap();
-    send_stream1.set_priority(0).unwrap(); // 设置优先级
-
+    let (mut send_stream, mut _recv_stream) = connection.open_bi().await.unwrap();
+    send_stream.set_priority(0).unwrap(); // 设置优先级
     // 异步处理流中的数据
     tokio::spawn(async move {
         let mut buffer = vec![0u8; 1024 * 8];
@@ -38,19 +40,48 @@ pub async fn run_client(server_addr: SocketAddr) {
             }
         }
     });
+    match init_send_msg(send_stream).await{
+        Ok(_) => {
+            info!("客户端初始化连接成功")
+        }
+        Err(_) => {
+            error!("客户端初始化连接失败")
+        }
+    }
+}
+
+async fn init_send_msg(mut send_stream: SendStream)->Result<(), Box<dyn Error>>{
     // 发送消息给服务器
-    send_stream1.write_all("我是谁".as_bytes()).await.unwrap();
+
+    let mut first_quic_msg = FirstQuicMsg::new();
+    first_quic_msg.user_id = "huangjinsheng".to_string();
+    first_quic_msg.text_serde_struct = "user_chat_json".to_string();
+    send_stream.write_all(serde_json::to_string(&first_quic_msg).unwrap().as_bytes()).await.unwrap();
 
     tokio::time::sleep(Duration::from_secs(1)).await;
 
-    send_stream1.write_all("我是蔡徐坤".as_bytes()).await.unwrap();
+    let mut send_stream = Arc::new(Mutex::new(send_stream));
+    let mut send = send_stream.clone();
+    tokio::spawn(
+        async move{
+            send.lock().await.write_all("我是蔡徐坤".as_bytes()).await.unwrap();
+        }
+    );
 
+
+    tokio::time::sleep(Duration::from_secs(10)).await;
+
+    send_stream.lock().await.write_all("我是蔡徐坤2".as_bytes()).await.unwrap();
+
+    tokio::time::sleep(Duration::from_secs(100)).await;
     /*tokio::time::sleep(Duration::from_secs(1)).await;
     send_stream1.finish().await?;
 
     tokio::time::sleep(Duration::from_secs(1)).await;
     // 等待所有任务完成
     endpoint.wait_idle().await;*/
+
+    Ok(())
 }
 
 /*pub async fn send_text_msg(send_stream:SendStream) -> Result<(), Box<dyn Error>> {

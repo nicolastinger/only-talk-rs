@@ -6,6 +6,7 @@ use quic_network_service::quic_connection::QuicConnection;
 use log::{error, info, warn, LevelFilter};
 use std::{error::Error, net::SocketAddr};
 use std::collections::HashMap;
+use std::string::ToString;
 use std::sync::Arc;
 use std::time::Duration;
 use fast_log::Config;
@@ -17,6 +18,7 @@ use quic_network_service::quic_client;
 lazy_static! {
     pub static ref GLOBAL_QUIC_SERVER_LIST: Arc<TokioRwLock<HashMap<String, QuicConnection>>> = Arc::new(TokioRwLock::new(HashMap::new()));
 }
+static QUIC_MSG_SPLIT: &str = "#$#";   //quic服务解析间隔符
 // 主函数入口点，使用Tokio异步运行时
 #[actix_web::main]
 async fn main() {
