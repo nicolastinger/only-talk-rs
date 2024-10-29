@@ -6,7 +6,7 @@ use log::{error, info};
 use quinn::{Connection, Endpoint, SendStream};
 use tokio::sync::Mutex;
 use crate::common::quic_network_service::configure_client;
-use crate::common::quic_network_service::quic_connection::FirstQuicMsg;
+use crate::common::quic_network_service::quic_connection::{FirstQuicMsg, TextQuicMsg};
 
 // 客户端异步函数，尝试与服务器建立QUIC连接
 pub async fn run_client(server_addr: SocketAddr) {
@@ -62,9 +62,15 @@ async fn init_send_msg(mut send_stream: SendStream)->Result<(), Box<dyn Error>>{
 
     let mut send_stream = Arc::new(Mutex::new(send_stream));
     let mut send = send_stream.clone();
+
     tokio::spawn(
         async move{
-            send.lock().await.write_all("我是蔡徐坤".as_bytes()).await.unwrap();
+            let text_quic_msg = TextQuicMsg {
+                text_type: "chat".to_string(),
+                raw: "我是大帅哥".to_string(),
+                recv_user: "huangjinsheng".to_string(),
+            };
+            send.lock().await.write_all(serde_json::to_string(&text_quic_msg).unwrap().as_bytes()).await.unwrap();
         }
     );
 

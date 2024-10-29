@@ -1,15 +1,17 @@
+use std::collections::HashMap;
 use std::error::Error;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use anyhow::{Context, Result};
+use backtrace::Backtrace;
 use log::{error, info};
 use quinn::SendStream;
 use redis::Msg;
-use serde::de::Unexpected::Option;
 use tokio::sync::{Mutex, RwLock};
 use crate::common::quic_network_service::make_server_endpoint;
 use crate::common::quic_network_service::quic_connection::{ConnectionType, FirstQuicMsg, QuicConnection, TextQuicMsg};
-use crate::GLOBAL_QUIC_SERVER_LIST;
+use crate::{GLOBAL_QUIC_SERVER_LIST, QUIC_MSG_SPLIT};
 
 pub(crate) fn init_server() {
     // 定义服务器监听地址
@@ -80,7 +82,9 @@ async fn handle_conn(conn: quinn::Connection) {
 
     let connection_key = "QUIC:SERVER:".to_string() + &*first_quic_msg.user_id.clone() + ":" + &*first_quic_msg.msg_type.clone().to_string();
 
+
     let connection_key = connection_key.to_uppercase();
+    info!("connection_key {}",connection_key);
     let close_key = connection_key.clone();
 
     //通过原子计数和异步锁共享变量
@@ -113,9 +117,9 @@ async fn handle_conn(conn: quinn::Connection) {
     info!("当前的客户端列表 {}",GLOBAL_QUIC_SERVER_LIST.read().await.len());
     info!("[server] 流已接受: ID={}", recv_stream.id()); // 打印流ID*/
 
-    // 异步处理流中的数据
-    let mut buffer = vec![0u8; 1024 * 1024];  //设置缓冲区为1MB
     loop {
+        // 异步处理流中的数据
+        let mut buffer = vec![0u8; 1024 * 10];  //设置缓冲区为10KB
         match recv_stream.read(&mut buffer).await {
             Ok(Some(length)) => {
                 info!("[服务端] 长度为 {} 流数据: {:?}", length, String::from_utf8_lossy(&buffer[0..length]));
@@ -126,7 +130,7 @@ async fn handle_conn(conn: quinn::Connection) {
                 match process_rec_msg(msg, new_close_key, msg_type).await {
                     Ok(_) => {}
                     Err(error) => {
-                        error!("处理信息失败! {}",error)
+                        error!("处理信息失败! {:#}", error);
                     }
                 }
             }
@@ -149,7 +153,7 @@ async fn handle_conn(conn: quinn::Connection) {
     info!("[服务器] 处理完成 {}",GLOBAL_QUIC_SERVER_LIST.read().await.len());
 }
 
-async fn process_rec_msg(msg: String, close_key: String, msg_type: ConnectionType) -> Result<(), Box<dyn Error>> {
+async fn process_rec_msg(msg: String, close_key: String, msg_type: ConnectionType) -> Result<()> {
     info!("获取读锁");
     let mut my_send_stream =
         {
@@ -158,10 +162,16 @@ async fn process_rec_msg(msg: String, close_key: String, msg_type: ConnectionTyp
             send.send_stream.clone()
         };
     info!("释放读锁");
-
+    match msg.as_str() {
+        "ping" => {
+            my_send_stream.write().await.write_all("ping".as_bytes()).await?;
+            return Ok(());
+        }
+        _ => {}
+    }
     match msg_type {
         ConnectionType::Text => {
-            process_text_msg(my_send_stream, msg, &close_key).await?;
+            process_text_msg(my_send_stream, msg, &close_key).await.context("错误西瓯宁县哦")?;
         }
         ConnectionType::Img => {}
         ConnectionType::Video => {}
@@ -171,13 +181,49 @@ async fn process_rec_msg(msg: String, close_key: String, msg_type: ConnectionTyp
     Ok(())
 }
 
-async fn process_text_msg(mut send_stream: Arc<RwLock<SendStream>>, msg: String, close_key: &str) -> Result<(), Box<dyn Error>> {
+async fn process_text_msg(mut send_stream: Arc<RwLock<SendStream>>, msg: String, close_key: &str) -> Result<()> {
     info!("[服务器] 收到的信息为 {}",msg);
+    let msg = msg.trim_end_matches('\0');
+    let split: Vec<&str> = msg.split(QUIC_MSG_SPLIT).collect();
+    let mut msg_hash_map = HashMap::<String, String>::new();
+    info!("实体 {:?}", split);
+    //根据收到的消息依次转发
+    for single_msg in split.iter() {
+        //info!("实体 {:?}", single_msg);
+        let text_msg: TextQuicMsg = serde_json::from_str(single_msg).context("序列化json失败")?;
+
+        let user = text_msg.recv_user;
+        // 使用 entry API 简化累加操作
+        msg_hash_map.entry(user)
+            .and_modify(|e| *e += &format!("{}{}", text_msg.raw, QUIC_MSG_SPLIT))
+            .or_insert_with(|| format!("{}{}", text_msg.raw, QUIC_MSG_SPLIT));
+    }
+
+    for (key, val) in msg_hash_map.iter() {
+        info!("获取读锁");
+        let user_key = "QUIC:SERVER:".to_string() + &*key + ":" + &*ConnectionType::Text.to_string();
+        let user_key = user_key.to_uppercase();
+        let mut my_send_stream: Option<Arc<RwLock<SendStream>>> = {
+            let bind = GLOBAL_QUIC_SERVER_LIST.read().await;
+            match bind.get(&user_key) {
+                Some(s) => Some(s.send_stream.clone()),
+                None => {
+                    error!("当前用户不在线: {}", user_key);
+                    None
+                }
+            }
+        };
+
+        if let Some(mut current_send_stream) = my_send_stream {
+            current_send_stream.write().await.write_all(val.as_bytes()).await?;
+            info!("释放读锁");
+        } else {
+            // 处理 my_send_stream 为 None 的情况
+            info!("用户不在线，无法发送消息: {}", user_key);
+            // 这里可以添加其他处理逻辑
+        }
+    }
     send_stream.write().await.write_all("这是服务端发送的信息1111".as_bytes()).await?;
-    let text_msg: TextQuicMsg = serde_json::from_str(msg.as_str())?;
-
-    let user = text_msg.recv_user;
-
 
     Ok(())
 }
