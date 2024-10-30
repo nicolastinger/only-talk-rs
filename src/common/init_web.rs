@@ -10,11 +10,13 @@ use log::{error, info, LevelFilter};
 use deadpool_redis::{Pool, PoolError,Config as dp_config, Runtime};
 use deadpool_redis::redis::cmd;
 use deadpool_redis::redis::ExpireOption::NONE;
-use rbatis::RBatis;
 use rbdc_mysql::MysqlDriver;
 use rustls::{Certificate, PrivateKey, ServerConfig};
 use rustls::server::NoClientAuth;
 use rustls_pemfile::{certs, ec_private_keys, rsa_private_keys, pkcs8_private_keys};
+use sqlx::mysql::MySqlPoolOptions;
+use sqlx::MySqlPool;
+
 struct AppState {
     redis_pool: Arc<Pool>,
 }
@@ -30,17 +32,16 @@ fn init_redis() -> AppState {
     m
 }
 
-fn init_db() -> Arc<RBatis> {
-    let rb = RBatis::new();
-    rb.init(MysqlDriver{}, "mysql://rust_dev:REDACTED_DB_PASSWORD_REMOTE#@175.178.17.158:10222/test")
-        .expect("Failed to initialize database connection");
-    Arc::new(rb)
-}
-
 
 //初始化异步web容器
 pub async fn start_server() -> std::io::Result<()> {
-    info!("Starting server");
+    // 创建连接池
+    let database_url = "mysql://root:REDACTED_DB_PASSWORD_LOCAL@localhost:3306/";
+    let pool = MySqlPoolOptions::new()
+        .max_connections(10) // 设置最大连接数
+        .connect(database_url)
+        .await.expect("初始化连接失败");
+
     // 加载证书
     let cert_file = &mut BufReader::new(File::open("config/TLS/onlytalk.cn.pem")?);
     let key_file = &mut BufReader::new(File::open("config/TLS/onlytalk.cn.key")?);
@@ -88,6 +89,7 @@ pub async fn start_server() -> std::io::Result<()> {
     HttpServer::new(move || {
         App::new()
             .app_data(web::Data::new(init_redis()))
+            .app_data(web::Data::new(pool.clone()))
             // 设置中间件，让actix-web打印日志
             .wrap(middleware::Logger::default())
             .route("/", web::get().to(home))

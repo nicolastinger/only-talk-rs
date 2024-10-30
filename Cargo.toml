@@ -12,8 +12,6 @@ serde_json = "1.0.128"
 fast_log = "1.7.4" #使用简单的异步日志库
 log = "0.4" # 日志库
 tracing = "0.1"
-rbs = { version = "4.5"}
-rbatis = { version = "4.5"}
 rbdc-mysql={version="4.5"}
 serde = { version = "1", features = ["derive"] }
 lazy_static = "1.4"

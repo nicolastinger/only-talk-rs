@@ -223,7 +223,6 @@ async fn process_text_msg(mut send_stream: Arc<RwLock<SendStream>>, msg: String,
             // 这里可以添加其他处理逻辑
         }
     }
-    send_stream.write().await.write_all("这是服务端发送的信息1111".as_bytes()).await?;
 
     Ok(())
 }
