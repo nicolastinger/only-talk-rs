@@ -16,6 +16,8 @@ use rustls::server::NoClientAuth;
 use rustls_pemfile::{certs, ec_private_keys, rsa_private_keys, pkcs8_private_keys};
 use sqlx::mysql::MySqlPoolOptions;
 use sqlx::MySqlPool;
+use module::user_mod::controller::user_service;
+use crate::module;
 
 struct AppState {
     redis_pool: Arc<Pool>,
@@ -97,6 +99,7 @@ pub async fn start_server() -> std::io::Result<()> {
             .configure(|cfg: &mut web::ServiceConfig| {
                 cfg.service(web::scope("/etc").configure(config_service));
             })
+            .configure(module::configure_routes)
         // 这里可以继续添加其他路由
     })
         .bind_rustls_021("127.0.0.1:8443",config)? // 绑定到 HTTPS 端口

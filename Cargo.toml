@@ -25,3 +25,4 @@ uuid = { version = "1", features = ["v4"] }
 time = "0.3.4"
 backtrace = "0.3.74"
 anyhow = "1.0"
+validator = "0.16"
