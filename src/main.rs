@@ -27,10 +27,6 @@ async fn main() {
     fast_log::init(Config::new().console().level(LevelFilter::Info).file("target/rust_im.log").chan_len(Some(10))).unwrap();
 
     quic_network_service::quic_server::init_server();
-
-    let str = "{\"text_type\":\"chat\",\"raw\":\"我是大帅哥\",\"recv_user\":\"123123\"}".to_string();
-    let split:Vec<&str> = str.split(QUIC_MSG_SPLIT).collect();
-    info!("wei {:?}",split);
     // 定义服务器监听地址
     let addr = "127.0.0.1:4433".parse().unwrap();
 

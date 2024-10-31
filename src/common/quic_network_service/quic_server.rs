@@ -123,11 +123,10 @@ async fn handle_conn(conn: quinn::Connection) {
         match recv_stream.read(&mut buffer).await {
             Ok(Some(length)) => {
                 info!("[服务端] 长度为 {} 流数据: {:?}", length, String::from_utf8_lossy(&buffer[0..length]));
-                let msg: String = std::str::from_utf8(&buffer).unwrap().to_string();
                 let msg_type = msg_type.clone();
                 let new_close_key = close_key.clone();
 
-                match process_rec_msg(msg, new_close_key, msg_type).await {
+                match process_rec_msg(&buffer, length, new_close_key, msg_type).await {
                     Ok(_) => {}
                     Err(error) => {
                         error!("处理信息失败! {:#}", error);
@@ -153,7 +152,7 @@ async fn handle_conn(conn: quinn::Connection) {
     info!("[服务器] 处理完成 {}",GLOBAL_QUIC_SERVER_LIST.read().await.len());
 }
 
-async fn process_rec_msg(msg: String, close_key: String, msg_type: ConnectionType) -> Result<()> {
+async fn process_rec_msg(buffer: &Vec<u8> ,length : usize,close_key: String, msg_type: ConnectionType) -> Result<()> {
     info!("获取读锁");
     let mut my_send_stream =
         {
@@ -162,6 +161,8 @@ async fn process_rec_msg(msg: String, close_key: String, msg_type: ConnectionTyp
             send.send_stream.clone()
         };
     info!("释放读锁");
+    let msg = String::from_utf8_lossy(&buffer[0..length]).to_string();
+    info!("收到消息为 {}",msg);
     match msg.as_str() {
         "ping" => {
             my_send_stream.write().await.write_all("ping".as_bytes()).await?;
@@ -171,7 +172,7 @@ async fn process_rec_msg(msg: String, close_key: String, msg_type: ConnectionTyp
     }
     match msg_type {
         ConnectionType::Text => {
-            process_text_msg(my_send_stream, msg, &close_key).await.context("错误西瓯宁县哦")?;
+            process_text_msg(my_send_stream, msg, &close_key).await.context("处理文本信息出错")?;
         }
         ConnectionType::Img => {}
         ConnectionType::Video => {}
