@@ -16,37 +16,26 @@ use rustls::{Certificate, PrivateKey, ServerConfig};
 use rustls::server::NoClientAuth;
 use rustls_pemfile::{certs, ec_private_keys, rsa_private_keys, pkcs8_private_keys};
 use sqlx::mysql::MySqlPoolOptions;
-use sqlx::MySqlPool;
+use sqlx::{MySql, MySqlPool};
+use crate::common::quic_network_service;
 use crate::module;
 
 pub(crate) struct AppState {
     pub(crate) redis_pool: Arc<Pool>,
 }
 
-fn init_redis() -> AppState {
+fn init_redis() -> Pool {
     // 创建 Redis 连接池
     let mut config = dp_config::from_url("redis://:REDACTED_REDIS_PASSWORD@175.178.17.158:10279/");
     let pool = config.create_pool(Some(Runtime::Tokio1)).expect("Failed to create Redis pool");
 
-    let m = AppState {
-        redis_pool: Arc::new(pool),
-    };
-    m
+    pool
 }
 
-
-//初始化异步web容器
-pub async fn start_server() -> std::io::Result<()> {
-    // 创建连接池
-    let database_url = "mysql://rust_dev:REDACTED_DB_PASSWORD_REMOTE@175.178.17.158:10222/rust_dev";
-    let pool = MySqlPoolOptions::new()
-        .max_connections(10) // 设置最大连接数
-        .connect(database_url)
-        .await.expect("初始化连接失败");
-
+fn init_cert_file() -> (Vec<Certificate>,PrivateKey) {
     // 加载证书
-    let cert_file = &mut BufReader::new(File::open("config/TLS/onlytalk.cn.pem")?);
-    let key_file = &mut BufReader::new(File::open("config/TLS/onlytalk.cn.key")?);
+    let cert_file = &mut BufReader::new(File::open("config/TLS/onlytalk.cn.pem").expect("找不到TLS证书"));
+    let key_file = &mut BufReader::new(File::open("config/TLS/onlytalk.cn.key").expect("找不到TLS证书密钥"));
 
     // 读取证书链
     let cert_chain = match certs(cert_file) {
@@ -55,14 +44,13 @@ pub async fn start_server() -> std::io::Result<()> {
             certs.into_iter().map(Certificate).collect()
         },
         Err(e) => {
-            error!("无法读取证书文件: {}", e);
-            return Err(std::io::Error::new(std::io::ErrorKind::Other, "无法读取证书文件"));
+            panic!("无法读取证书文件: {}", e);
         }
     };
 
     // 读取私钥
     let mut key_content = String::new();
-    key_file.read_to_string(&mut key_content)?;
+    key_file.read_to_string(&mut key_content).unwrap();
 
     key_file.seek(SeekFrom::Start(0)).expect("无法重置文件读取位置");
 
@@ -72,11 +60,28 @@ pub async fn start_server() -> std::io::Result<()> {
         .map_err(|_| "无法解析私钥文件").unwrap();
 
     if keys.is_empty() {
-        eprintln!("私钥文件中没有找到有效的私钥");
-        return Err(std::io::Error::new(std::io::ErrorKind::Other, "私钥文件中没有找到有效的私钥"));
+        panic!("私钥文件中没有找到有效的私钥");
     }
 
     let key = PrivateKey(keys.remove(0));
+    (cert_chain, key)
+}
+
+async fn init_sql_pool() -> sqlx::Pool<MySql> {
+    // 创建连接池
+    let database_url = "mysql://rust_dev:REDACTED_DB_PASSWORD_REMOTE@175.178.17.158:10222/rust_dev";
+    let pool = MySqlPoolOptions::new()
+        .max_connections(10) // 设置最大连接数
+        .connect(database_url)
+        .await.expect("初始化连接失败");
+    pool
+}
+
+//初始化异步web容器
+pub async fn start_server() -> std::io::Result<()> {
+    let pool = init_sql_pool().await;
+
+    let (cert_chain, key) = init_cert_file();
 
     // 配置 TLS
     let config = ServerConfig::builder()
@@ -88,9 +93,12 @@ pub async fn start_server() -> std::io::Result<()> {
             std::io::Error::new(std::io::ErrorKind::Other, "无法设置证书和私钥")
         })?;
 
+    let redis_pool = init_redis();
+    quic_network_service::quic_server::init_server(redis_pool.clone());
+
     HttpServer::new(move || {
         App::new()
-            .app_data(web::Data::new(init_redis()))
+            .app_data(web::Data::new(init_redis().clone()))
             .app_data(web::Data::new(pool.clone()))
             // 设置中间件，让actix-web打印日志
             .wrap(middleware::Logger::default())

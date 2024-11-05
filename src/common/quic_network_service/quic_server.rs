@@ -5,6 +5,8 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use anyhow::{Context, Result};
 use backtrace::Backtrace;
+use deadpool_redis::Pool;
+use deadpool_redis::redis::AsyncCommands;
 use log::{error, info};
 use quinn::SendStream;
 use redis::Msg;
@@ -13,36 +15,38 @@ use crate::common::quic_network_service::make_server_endpoint;
 use crate::common::quic_network_service::quic_connection::{ConnectionType, FirstQuicMsg, QuicConnection, TextQuicMsg};
 use crate::{GLOBAL_QUIC_SERVER_LIST, QUIC_MSG_SPLIT};
 
-pub(crate) fn init_server() {
+pub(crate) fn init_server(redis: Pool) {
     // 定义服务器监听地址
     let addr = "0.0.0.0:4433".parse().unwrap();
 
-    tokio::spawn(run_server(addr));
+    tokio::spawn(run_server(addr, redis));
 }
 
 /// 启动并运行QUIC服务器，持续监听新连接
-async fn run_server(addr: SocketAddr) {
+async fn run_server(addr: SocketAddr,redis: Pool) {
     // 创建服务器端点和证书
     let (endpoint, _server_cert) = make_server_endpoint(addr).unwrap();
     info!("quic服务器启动成功,使用地址为: {}", addr);
+
 
     // 持续监听新的连接请求
     loop {
         let incoming_conn = endpoint.accept().await.unwrap(); // 接收新的连接请求
         let conn = incoming_conn.await.unwrap(); // 确认连接建立
 
+        let new_pool = redis.clone();
         info!(
             "[服务端] 连接已接受: 地址={}",
             conn.remote_address() // 打印客户端地址
         );
         tokio::spawn(async move {
             // 异步处理每个连接
-            handle_conn(conn).await;
+            handle_conn(conn,new_pool).await;
         });
     }
 }
 
-async fn handle_conn(conn: quinn::Connection) {
+async fn handle_conn(conn: quinn::Connection, redis: Pool) {
     // 打开双向流
     let (mut send_stream, mut recv_stream) = match conn.accept_bi().await {
         Ok((send, recv)) => (send, recv),
@@ -110,7 +114,14 @@ async fn handle_conn(conn: quinn::Connection) {
     info!("插入写锁");
     {
         let mut server_book = GLOBAL_QUIC_SERVER_LIST.write().await;
-        server_book.insert(connection_key, new_connection);
+        server_book.insert(connection_key.clone(), new_connection);
+    }
+    {
+        let mut conn = redis.get().await.expect("打开redis连接失败");
+        match conn.set::<&str, &str, ()>(&connection_key,"SERVER_1").await{
+            Ok(_)=>info!("添加成功"),
+            Err(_)=>error!("添加失败")
+        }
     }
     info!("释放写锁");
 
@@ -197,7 +208,7 @@ async fn process_text_msg(mut send_stream: Arc<RwLock<SendStream>>, msg: String,
         // 使用 entry API 简化累加操作
         msg_hash_map.entry(user)
             .and_modify(|e| *e += &format!("{}{}", text_msg.raw, QUIC_MSG_SPLIT))
-            .or_insert_with(|| format!("{}{}", text_msg.raw, QUIC_MSG_SPLIT));
+            .or_insert_with(|| format!("{}{}", single_msg, QUIC_MSG_SPLIT));
     }
 
     for (key, val) in msg_hash_map.iter() {

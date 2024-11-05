@@ -69,6 +69,7 @@ async fn init_send_msg(mut send_stream: SendStream)->Result<(), Box<dyn Error>>{
                 text_type: "chat".to_string(),
                 raw: "我是大帅哥".to_string(),
                 recv_user: "huangjinsheng".to_string(),
+                send_user: "蔡徐坤".to_string(),
             };
             send.lock().await.write_all(serde_json::to_string(&text_quic_msg).unwrap().as_bytes()).await.unwrap();
         }

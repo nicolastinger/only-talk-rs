@@ -26,8 +26,9 @@ static QUIC_MSG_SPLIT: &str = "#$#";   //quic服务解析间隔符
 async fn main() {
     fast_log::init(Config::new().console().level(LevelFilter::Info).file("target/rust_im.log").chan_len(Some(10))).unwrap();
 
-    quic_network_service::quic_server::init_server();
+    //quic_network_service::quic_server::init_server();
     // 定义服务器监听地址
+    //let addr = "175.178.17.158:4433".parse().unwrap();
     let addr = "127.0.0.1:4433".parse().unwrap();
 
     tokio::time::sleep(Duration::from_secs(1)).await;

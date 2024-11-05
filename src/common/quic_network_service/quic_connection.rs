@@ -71,5 +71,6 @@ impl FirstQuicMsg {
 pub struct TextQuicMsg {
     pub text_type: String,
     pub raw: String,
-    pub recv_user: String  //接收用户
+    pub recv_user: String,  //接收用户
+    pub send_user: String   //发送用户
 }

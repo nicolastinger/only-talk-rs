@@ -1,4 +1,5 @@
 use actix_web::{get, post, web, HttpResponse, Responder};
+use deadpool_redis::Pool;
 use deadpool_redis::redis::{cmd, RedisResult};
 use log::info;
 use crate::common::init_web::AppState;
@@ -16,10 +17,10 @@ pub async fn post_test() -> impl Responder {
 
 
 #[get("/online_user/redis/{path}")]
-async fn get_online_user_by_redis(state: web::Data<AppState>, path: web::Path<String>) -> impl Responder {
+async fn get_online_user_by_redis(state: web::Data<Pool>, path: web::Path<String>) -> impl Responder {
     info!("请求进来了");
     let username = path.into_inner();
-    let mut conn = state.redis_pool.get().await.expect("打开redis连接失败");
+    let mut conn = state.get().await.expect("打开redis连接失败");
 
     // 查询 Redis 中的值
     let info: RedisResult<String> = cmd("GET").arg(&username).query_async(&mut conn).await;
