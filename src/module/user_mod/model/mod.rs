@@ -1,1 +1,1 @@
-mod basic_user;
+pub mod basic_user;

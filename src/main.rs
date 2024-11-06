@@ -1,6 +1,7 @@
 mod module;
 mod common;
 mod marcos;
+mod utils;
 
 use module::*;
 use common::*;
@@ -10,7 +11,7 @@ use std::{error::Error, net::SocketAddr};
 use std::collections::HashMap;
 use std::string::ToString;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use fast_log::Config;
 use lazy_static::lazy_static;
 use tokio::sync::RwLock as TokioRwLock;
@@ -24,15 +25,12 @@ static QUIC_MSG_SPLIT: &str = "#$#";   //quic服务解析间隔符
 // 主函数入口点，使用Tokio异步运行时
 #[actix_web::main]
 async fn main() {
-    fast_log::init(Config::new().console().level(LevelFilter::Info).file("target/rust_im.log").chan_len(Some(10))).unwrap();
+    fast_log::init(Config::new().console().level(LevelFilter::Info).file("log/rust_im.log").chan_len(Some(10))).unwrap();
 
     //quic_network_service::quic_server::init_server();
     // 定义服务器监听地址
     //let addr = "175.178.17.158:4433".parse().unwrap();
     let addr = "127.0.0.1:4433".parse().unwrap();
-
-    tokio::time::sleep(Duration::from_secs(1)).await;
-
     tokio::spawn(async move{
         quic_client::run_client(addr).await;
     });

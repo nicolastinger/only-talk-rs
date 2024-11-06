@@ -17,7 +17,6 @@ serde = { version = "1", features = ["derive"] }
 lazy_static = "1.4"
 redis = { version = "0.22" ,features = ["tokio-comp"]}
 actix-web = { version = "4.9", features = ["rustls-0_21"] } # 请根据实际情况调整版本
-sqlx = { version = "0.8", features = ["mysql", "runtime-tokio-native-tls"] }
 deadpool-redis = "0.18.0"
 rustls-pemfile = "1.0.4"
 tokio-rustls = "0.23.4"
@@ -26,3 +25,4 @@ time = "0.3.4"
 backtrace = "0.3.74"
 anyhow = "1.0"
 validator = "0.16"
+sea-orm = { version = "0.9", features = ["runtime-tokio-native-tls", "mysql"] }

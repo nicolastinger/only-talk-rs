@@ -1,3 +1,4 @@
+use std::env;
 use std::fs::File;
 use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::sync::Arc;
@@ -70,6 +71,8 @@ fn init_cert_file() -> (Vec<Certificate>,PrivateKey) {
 async fn init_sql_pool() -> sqlx::Pool<MySql> {
     // 创建连接池
     let database_url = "mysql://rust_dev:REDACTED_DB_PASSWORD_REMOTE@175.178.17.158:10222/rust_dev";
+    // 动态设置环境变量
+    env::set_var("DATABASE_URL", &database_url);
     let pool = MySqlPoolOptions::new()
         .max_connections(10) // 设置最大连接数
         .connect(database_url)
