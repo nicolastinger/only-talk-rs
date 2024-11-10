@@ -212,7 +212,7 @@ async fn process_text_msg(mut send_stream: Arc<RwLock<SendStream>>, msg: String,
     }
 
     for (key, val) in msg_hash_map.iter() {
-        info!("获取读锁");
+        info!("获取读锁 {}",key);
         let user_key = "QUIC:SERVER:".to_string() + &*key + ":" + &*ConnectionType::Text.to_string();
         let user_key = user_key.to_uppercase();
         let mut my_send_stream: Option<Arc<RwLock<SendStream>>> = {

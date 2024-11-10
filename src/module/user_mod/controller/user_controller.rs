@@ -2,7 +2,9 @@ use actix_web::{get, post, web, HttpResponse, Responder};
 use deadpool_redis::Pool;
 use deadpool_redis::redis::{cmd, RedisResult};
 use log::info;
+use rbatis::RBatis;
 use crate::common::init_web::AppState;
+use crate::module::user_mod::service::local_user_service::get_user_raw;
 #[get("/user_test")]
 pub async fn user_test() -> impl Responder {
     HttpResponse::Ok()
@@ -55,3 +57,11 @@ async fn create_online_user(
     }
 }
 
+#[post("/online_user/raw_sql_test")]
+pub async fn post_online_user(
+    state: web::Data<RBatis>
+) -> impl Responder { 
+    info!("新增用户请求进来了");
+    get_user_raw(state).await;
+    HttpResponse::Ok().body("something")
+}

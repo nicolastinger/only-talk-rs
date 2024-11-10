@@ -1,28 +1,38 @@
+use rbatis::{crud, impl_delete, impl_select, impl_select_page, impl_update};
 use serde::{Deserialize, Serialize};
 
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(Clone, Deserialize, Serialize, Debug)]
 pub struct BasicUser {
-    pub username: String,
-    pub account: String
+    pub username: Option<String>,
+    pub account: Option<String>,
+    icon: Option<String>,
+    info: Option<String>
 }
 
-#[derive(Deserialize, Serialize, Debug)]
+crud!(BasicUser {});  //crud = insert+select_by_column+update_by_column+delete_by_column
+impl_select!(BasicUser{select_all_by_id(username:&str,account:&str) => "`where username = #{username} and account = #{account}`"});
+impl_select!(BasicUser{select_by_id(id:String) -> Option => "`where id = #{id} limit 1`"});
+impl_update!(BasicUser{update_by_name(name:&str) => "`where id = 1`"});
+impl_delete!(BasicUser {delete_by_name(name:&str) => "`where name= '2'`"});
+impl_select_page!(BasicUser{select_page(name:&str) => "`where name != #{name}`"});
+
+#[derive(Clone, Deserialize, Serialize, Debug)]
 struct UserInfo {
-    username: String,
-    account: String,
-    icon: Option<String>,
-    password: String,
-    gender: u8,  //0-m,1-s,2-男,3-女,4-机器人,5-other,etc
-    age: u8,
-    note: Option<String>,
-    create_time: i64,
-    update_time: i64,
-    last_login_time: i64,
+    username: Option<String>,
+    account: Option<String>,
+    icon: Option<String>,  //头像的base64字符串
+    password: Option<String>,
+    gender: Option<u8>,  //0-m,1-s,2-男,3-女,4-机器人,5-other,etc
+    age: Option<u8>,
+    info: Option<String>,  //简介
+    create_time: Option<i64>,
+    update_time: Option<i64>,
+    last_login_time: Option<i64>,
     last_login_equipment: Option<String>,  //最后登录的设备
     last_login_ipv4: Option<String>,
     last_login_ipv6: Option<String>,
     phone: Option<String>,
     email: Option<String>,
     address: Option<String>,
-    is_active: bool
+    is_active: Option<bool>
 }

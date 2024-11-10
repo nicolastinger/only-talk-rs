@@ -1,1 +1,1 @@
-mod local_user_service;
+pub mod local_user_service;

@@ -1,1 +1,1 @@
-mod local_user_dao;
+pub mod local_user_dao;
