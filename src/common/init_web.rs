@@ -11,13 +11,12 @@ use log::{error, info, LevelFilter};
 use deadpool_redis::{Pool, PoolError,Config as dp_config, Runtime};
 use deadpool_redis::redis::{cmd, RedisResult};
 use deadpool_redis::redis::ExpireOption::NONE;
+use rbatis::RBatis;
 use rbdc_mysql::MysqlDriver;
 use redis::RedisError;
 use rustls::{Certificate, PrivateKey, ServerConfig};
 use rustls::server::NoClientAuth;
 use rustls_pemfile::{certs, ec_private_keys, rsa_private_keys, pkcs8_private_keys};
-use sqlx::mysql::MySqlPoolOptions;
-use sqlx::{MySql, MySqlPool};
 use crate::common::quic_network_service;
 use crate::module;
 
@@ -68,16 +67,12 @@ fn init_cert_file() -> (Vec<Certificate>,PrivateKey) {
     (cert_chain, key)
 }
 
-async fn init_sql_pool() -> sqlx::Pool<MySql> {
+async fn init_sql_pool() -> RBatis {
+    let rb = RBatis::new();
     // 创建连接池
     let database_url = "mysql://rust_dev:REDACTED_DB_PASSWORD_REMOTE@175.178.17.158:10222/rust_dev";
-    // 动态设置环境变量
-    env::set_var("DATABASE_URL", &database_url);
-    let pool = MySqlPoolOptions::new()
-        .max_connections(10) // 设置最大连接数
-        .connect(database_url)
-        .await.expect("初始化连接失败");
-    pool
+    rb.init(MysqlDriver{},database_url).unwrap();
+    rb
 }
 
 //初始化异步web容器

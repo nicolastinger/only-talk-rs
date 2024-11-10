@@ -12,7 +12,6 @@ serde_json = "1.0.128"
 fast_log = "1.7.4" #使用简单的异步日志库
 log = "0.4" # 日志库
 tracing = "0.1"
-rbdc-mysql={version="4.5"}
 serde = { version = "1", features = ["derive"] }
 lazy_static = "1.4"
 redis = { version = "0.22" ,features = ["tokio-comp"]}
@@ -25,4 +24,6 @@ time = "0.3.4"
 backtrace = "0.3.74"
 anyhow = "1.0"
 validator = "0.16"
-sea-orm = { version = "0.9", features = ["runtime-tokio-native-tls", "mysql"] }
+rbs = { version = "4.5"}
+rbatis = { version = "4.5"}
+rbdc-mysql={version="4.5"}
