@@ -1,4 +1,5 @@
-use std::env;
+use std::{env, fs};
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::sync::Arc;
@@ -17,8 +18,9 @@ use redis::RedisError;
 use rustls::{Certificate, PrivateKey, ServerConfig};
 use rustls::server::NoClientAuth;
 use rustls_pemfile::{certs, ec_private_keys, rsa_private_keys, pkcs8_private_keys};
+use toml::Value;
 use crate::common::quic_network_service;
-use crate::module;
+use crate::{module, read_config};
 
 pub(crate) struct AppState {
     pub(crate) redis_pool: Arc<Pool>,
@@ -67,17 +69,25 @@ fn init_cert_file() -> (Vec<Certificate>,PrivateKey) {
     (cert_chain, key)
 }
 
-async fn init_sql_pool() -> RBatis {
+async fn init_sql_pool(url:&str) -> RBatis {
     let rb = RBatis::new();
     // 创建连接池
-    let database_url = "mysql://rust_dev:REDACTED_DB_PASSWORD_REMOTE@175.178.17.158:10222/rust_dev";
-    rb.init(MysqlDriver{},database_url).unwrap();
+    rb.init(MysqlDriver{}, url).unwrap();
     rb
 }
 
 //初始化异步web容器
 pub async fn start_server() -> std::io::Result<()> {
-    let pool = init_sql_pool().await;
+    // 读取配置文件内容
+    let config_content = fs::read_to_string("config/app_config.toml")?;
+    // 解析配置文件内容
+    let config_value: Value = config_content.parse().unwrap();
+
+    // 将解析后的配置转换为 HashMap
+    let config_map: HashMap<String, Value> = config_value.try_into().unwrap();
+    let url = read_config!(config_map,("database"),"url");
+
+    let pool = init_sql_pool(url).await;
 
     let (cert_chain, key) = init_cert_file();
 
@@ -94,6 +104,8 @@ pub async fn start_server() -> std::io::Result<()> {
     let redis_pool = init_redis();
     quic_network_service::quic_server::init_server(redis_pool.clone());
 
+    let address = read_config!(config_map,("server"),"address");
+
     HttpServer::new(move || {
         App::new()
             .app_data(web::Data::new(init_redis().clone()))
@@ -104,7 +116,7 @@ pub async fn start_server() -> std::io::Result<()> {
             .configure(module::configure_routes)
         // 这里可以继续添加其他路由
     })
-        .bind_rustls_021("127.0.0.1:8443",config)? // 绑定到 HTTPS 端口
+        .bind_rustls_021(address,config)? // 绑定到 HTTPS 端口
         .run()
         .await
 }

@@ -1,4 +1,6 @@
-use rbatis::{crud, impl_delete, impl_select, impl_select_page, impl_update};
+use std::collections::HashMap;
+use actix_web::web;
+use rbatis::{crud, impl_delete, impl_select, impl_select_page, impl_update, RBatis};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Deserialize, Serialize, Debug)]
@@ -15,6 +17,20 @@ impl_select!(BasicUser{select_by_id(id:String) -> Option => "`where id = #{id} l
 impl_update!(BasicUser{update_by_name(name:&str) => "`where id = 1`"});
 impl_delete!(BasicUser {delete_by_name(name:&str) => "`where name= '2'`"});
 impl_select_page!(BasicUser{select_page(name:&str) => "`where name != #{name}`"});
+
+pub async fn get_raw_sql(rb: web::Data<RBatis>) {
+    let table: Option<Vec<HashMap<String,serde_json::Value>>> = rb
+        .query_decode("select * from rust_user_test where id = ? limit ?", vec![rbs::to_value!("huangjinsheng"), rbs::to_value!(1)])
+        .await
+        .unwrap();
+    if let Some(t) = table {
+        for i in t.iter() {
+            for (k,v) in i.iter() {
+                println!("{}: {}", k, serde_json::to_string_pretty(&v).unwrap());
+            }
+        }
+    }
+}
 
 #[derive(Clone, Deserialize, Serialize, Debug)]
 struct UserInfo {

@@ -26,4 +26,5 @@ anyhow = "1.0"
 validator = "0.16"
 rbs = { version = "4.5"}
 rbatis = { version = "4.5"}
+toml = "0.8.19"
 rbdc-mysql={version="4.5"}
