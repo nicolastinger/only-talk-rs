@@ -1,6 +1,6 @@
 use actix_web::web;
 use crate::module::user_mod::controller::user_controller;
-use crate::module::user_mod::controller::user_controller::{create_online_user, get_online_user_by_redis,post_online_user};
+use crate::module::user_mod::controller::user_controller::{create_online_user, get_online_user_by_rbatis, get_online_user_by_redis, post_online_user};
 
 mod service;
 mod model;
@@ -11,5 +11,6 @@ pub fn user_service(cfg: &mut web::ServiceConfig) {
         .service(get_online_user_by_redis)
         .service(create_online_user)
        .service(user_controller::post_test)
+        .service(get_online_user_by_rbatis)
        .service(post_online_user);
 }

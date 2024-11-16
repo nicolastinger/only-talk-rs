@@ -4,7 +4,7 @@ use deadpool_redis::redis::{cmd, RedisResult};
 use log::info;
 use rbatis::RBatis;
 use crate::common::init_web::AppState;
-use crate::module::user_mod::service::local_user_service::get_user_raw;
+use crate::module::user_mod::service::local_user_service::{get_user_raw, test_sql};
 #[get("/user_test")]
 pub async fn user_test() -> impl Responder {
     HttpResponse::Ok()
@@ -64,4 +64,11 @@ pub async fn post_online_user(
     info!("新增用户请求进来了");
     get_user_raw(state).await;
     HttpResponse::Ok().body("something")
+}
+
+#[get("/online_user/rbatis_test")]
+pub async fn get_online_user_by_rbatis(state: web::Data<RBatis>) -> impl Responder {
+    info!("测试rbatis");
+    let res = test_sql(state.get_ref()).await;
+    HttpResponse::Ok().json(res)
 }

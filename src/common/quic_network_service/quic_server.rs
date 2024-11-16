@@ -116,6 +116,7 @@ async fn handle_conn(conn: quinn::Connection, redis: Pool) {
         let mut server_book = GLOBAL_QUIC_SERVER_LIST.write().await;
         server_book.insert(connection_key.clone(), new_connection);
     }
+    info!("释放写锁");
     {
         let mut conn = redis.get().await.expect("打开redis连接失败");
         match conn.set::<&str, &str, ()>(&connection_key,"SERVER_1").await{
@@ -123,8 +124,7 @@ async fn handle_conn(conn: quinn::Connection, redis: Pool) {
             Err(_)=>error!("添加失败")
         }
     }
-    info!("释放写锁");
-
+    
     info!("当前的客户端列表 {}",GLOBAL_QUIC_SERVER_LIST.read().await.len());
     info!("[server] 流已接受: ID={}", recv_stream.id()); // 打印流ID*/
 
@@ -164,25 +164,24 @@ async fn handle_conn(conn: quinn::Connection, redis: Pool) {
 }
 
 async fn process_rec_msg(buffer: &Vec<u8> ,length : usize,close_key: String, msg_type: ConnectionType) -> Result<()> {
-    info!("获取读锁");
     let mut my_send_stream =
         {
             let bind = GLOBAL_QUIC_SERVER_LIST.read().await;
             let send = bind.get(&close_key).unwrap();
             send.send_stream.clone()
         };
-    info!("释放读锁");
-    let msg = String::from_utf8_lossy(&buffer[0..length]).to_string();
-    info!("收到消息为 {}",msg);
-    match msg.as_str() {
-        "ping" => {
-            my_send_stream.write().await.write_all("ping".as_bytes()).await?;
-            return Ok(());
-        }
-        _ => {}
-    }
+
     match msg_type {
         ConnectionType::Text => {
+            let msg = String::from_utf8_lossy(&buffer[0..length]).to_string();
+            info!("收到消息为 {}",msg);
+            match msg.as_str() {
+                "ping" => {
+                    my_send_stream.write().await.write_all("pong".as_bytes()).await?;
+                    return Ok(());
+                }
+                _ => {}
+            }
             process_text_msg(my_send_stream, msg, &close_key).await.context("处理文本信息出错")?;
         }
         ConnectionType::Img => {}
