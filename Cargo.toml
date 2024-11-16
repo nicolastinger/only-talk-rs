@@ -28,3 +28,4 @@ rbs = { version = "4.5"}
 rbatis = { version = "4.5"}
 toml = "0.8.19"
 rbdc-mysql={version="4.5"}
+rbdc-pool-deadpool="4.5"

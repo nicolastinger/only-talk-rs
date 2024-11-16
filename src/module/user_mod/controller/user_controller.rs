@@ -4,7 +4,7 @@ use deadpool_redis::redis::{cmd, RedisResult};
 use log::info;
 use rbatis::RBatis;
 use crate::common::init_web::AppState;
-use crate::module::user_mod::service::local_user_service::{get_user_raw, test_sql};
+use crate::module::user_mod::service::local_user_service::{get_exit_user, get_user_raw, test_sql};
 #[get("/user_test")]
 pub async fn user_test() -> impl Responder {
     HttpResponse::Ok()
@@ -71,4 +71,11 @@ pub async fn get_online_user_by_rbatis(state: web::Data<RBatis>) -> impl Respond
     info!("测试rbatis");
     let res = test_sql(state.get_ref()).await;
     HttpResponse::Ok().json(res)
+}
+
+#[post("/get_exit_user_flag/is_exit")]
+pub async fn get_exit_user_flag(state: web::Data<RBatis>, account: String) -> impl Responder {
+    info!("获取到值 {}" ,account);
+    let res = get_exit_user(state.get_ref(), account).await;
+    HttpResponse::Ok().body(res.to_string())
 }

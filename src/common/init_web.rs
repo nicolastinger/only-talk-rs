@@ -3,17 +3,22 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::sync::Arc;
+use std::time::Duration;
 use actix_web::{get, middleware, post, web, App, HttpResponse, HttpServer, Responder};
 use fast_log::Config;
 use fast_log::consts::LogSize;
 use fast_log::plugin::file_split::RollingType;
 use fast_log::plugin::packer::LogPacker;
 use log::{error, info, LevelFilter};
-use deadpool_redis::{Pool, PoolError,Config as dp_config, Runtime};
+use deadpool_redis::{Pool, PoolError, Config as dp_config, Runtime};
 use deadpool_redis::redis::{cmd, RedisResult};
 use deadpool_redis::redis::ExpireOption::NONE;
-use rbatis::RBatis;
+use rbatis::{rbdc, Error, RBatis};
+use rbatis::rbdc::db::ConnectOptions;
+use rbatis::rbdc::pool::conn_manager::ConnManager;
 use rbdc_mysql::MysqlDriver;
+use rbdc_mysql::options::MySqlConnectOptions;
+use rbdc_pool_deadpool::DeadPool;
 use redis::RedisError;
 use rustls::{Certificate, PrivateKey, ServerConfig};
 use rustls::server::NoClientAuth;
@@ -21,6 +26,7 @@ use rustls_pemfile::{certs, ec_private_keys, rsa_private_keys, pkcs8_private_key
 use toml::Value;
 use crate::common::quic_network_service;
 use crate::{module, read_config};
+use rbdc::pool::Pool as rdbc_pool;
 
 pub(crate) struct AppState {
     pub(crate) redis_pool: Arc<Pool>,
@@ -70,9 +76,24 @@ fn init_cert_file() -> (Vec<Certificate>,PrivateKey) {
 }
 
 async fn init_sql_pool(url:&str) -> RBatis {
-    let rb = RBatis::new();
+    let rb=RBatis::new();
+
+    let mut opts =MySqlConnectOptions::new();
+    opts.set_uri(url).expect("TODO: panic message");
+
+    //let manager:ConnManager = ConnManager::new_arc(Arc::new(Box::new(MysqlDriver{})), Arc::new(Box::new(opts)));
+    let pool = DeadPool::new(ConnManager::new_arc(Arc::new(Box::new(MysqlDriver{})), Arc::new(Box::new(opts)))).expect("初始化连接池失败");
+    // 创建连接池并设置空闲连接时长
+    pool.set_conn_max_lifetime(Some(Duration::from_secs(180))).await;
+    pool.set_timeout(Some(Duration::from_secs(2))).await;
+    rb.pool
+        .set(Box::new(pool))
+        .map_err(|_e| Error::from("pool set fail!")).expect("初始化连接池失败!");
+
+    //let _ = rb.init_option::<MysqlDriver, MySqlConnectOptions, DeadPool>(MysqlDriver{},opts);
     // 创建连接池
-    rb.init(MysqlDriver{}, url).unwrap();
+    //rb.init(MysqlDriver{}, url).unwrap();
+
     rb
 }
 
@@ -102,7 +123,9 @@ pub async fn start_server() -> std::io::Result<()> {
         })?;
 
     let redis_pool = init_redis();
-    quic_network_service::quic_server::init_server(redis_pool.clone());
+    // 定义服务器监听地址
+    let addr = read_config!(config_map,("quic_server"),"address");
+    quic_network_service::quic_server::init_server(redis_pool.clone(), addr.parse().unwrap());
 
     let address = read_config!(config_map,("server"),"address");
 
@@ -117,6 +140,7 @@ pub async fn start_server() -> std::io::Result<()> {
         // 这里可以继续添加其他路由
     })
         .bind_rustls_021(address,config)? // 绑定到 HTTPS 端口
+        //.bind(address)?
         .run()
         .await
 }

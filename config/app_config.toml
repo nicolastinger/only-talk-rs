@@ -2,4 +2,7 @@
 url = "mysql://rust_dev:REDACTED_DB_PASSWORD_REMOTE@175.178.17.158:10222/rust_dev"
 
 [server]
-address="127.0.0.1:8443"
+address="0.0.0.0:8443"
+
+[quic_server]
+address="0.0.0.0:4433"

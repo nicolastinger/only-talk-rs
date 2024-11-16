@@ -571,6 +571,18 @@ dependencies = [
 
 [[package]]
 name = "deadpool"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fb84100978c1c7b37f09ed3ce3e5f843af02c2a2c431bae5b19230dad2c1b490"
+dependencies = [
+ "async-trait",
+ "deadpool-runtime",
+ "num_cpus",
+ "tokio",
+]
+
+[[package]]
+name = "deadpool"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6541a3916932fe57768d4be0b1ffb5ec7cbf74ca8c903fdfd5c0fe8aa958f0ed"
@@ -586,7 +598,7 @@ version = "0.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bfae6799b68a735270e4344ee3e834365f707c72da09c9a8bb89b45cc3351395"
 dependencies = [
- "deadpool",
+ "deadpool 0.12.1",
  "redis 0.27.4",
 ]
 
@@ -1570,6 +1582,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "rbdc-pool-deadpool"
+version = "4.5.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5013a2d84b26df79463595644b268536416dac1b83c4deb7e7ffc2b58f0bcb56"
+dependencies = [
+ "async-trait",
+ "deadpool 0.10.0",
+ "futures-core",
+ "rbdc",
+ "rbs",
+]
+
+[[package]]
 name = "rbdc-pool-fast"
 version = "4.5.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1755,6 +1780,7 @@ dependencies = [
  "quinn",
  "rbatis",
  "rbdc-mysql",
+ "rbdc-pool-deadpool",
  "rbs",
  "rcgen",
  "redis 0.22.3",

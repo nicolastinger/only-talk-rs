@@ -15,10 +15,7 @@ use crate::common::quic_network_service::make_server_endpoint;
 use crate::common::quic_network_service::quic_connection::{ConnectionType, FirstQuicMsg, QuicConnection, TextQuicMsg};
 use crate::{GLOBAL_QUIC_SERVER_LIST, QUIC_MSG_SPLIT};
 
-pub(crate) fn init_server(redis: Pool) {
-    // 定义服务器监听地址
-    let addr = "0.0.0.0:4433".parse().unwrap();
-
+pub(crate) fn init_server(redis: Pool,addr: SocketAddr) {
     tokio::spawn(run_server(addr, redis));
 }
 
