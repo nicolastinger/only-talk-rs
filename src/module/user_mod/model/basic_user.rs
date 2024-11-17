@@ -1,16 +1,28 @@
 use std::collections::HashMap;
 use actix_web::web;
+use once_cell::sync::Lazy;
 use rbatis::{crud, impl_delete, impl_select, impl_select_page, impl_update, RBatis};
 use serde::{Deserialize, Serialize};
+use validator::{Validate, ValidationError};
 
-#[derive(Clone, Deserialize, Serialize, Debug)]
+use regex::Regex;
+
+static PASSWORD_REGEX: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"^[a-zA-Z\d]{14,}$").unwrap()
+});
+
+#[derive(Clone, Deserialize, Serialize, Debug, Validate)]
 pub struct BasicUser {
     pub uuid: Option<String>,
     pub id: Option<i64>,
+    #[validate(required(message = "需要输入名称"), length(min = 5, message = "账号长度必须大于5"))]
     pub username: Option<String>,
+    #[validate(required(message = "需要输入id"), length(min = 5, message = "账号长度必须大于5"))]
     pub account: Option<String>,
     pub icon: Option<String>,
-    pub info: Option<String>
+    pub info: Option<String>,
+    #[validate(required(message = "需要输入密码"), regex(path = "PASSWORD_REGEX", message = "密码必须包含大小写字母和数字"))]
+    pub password: Option<String>
 }
 
 crud!(BasicUser {});  //crud = insert+select_by_column+update_by_column+delete_by_column

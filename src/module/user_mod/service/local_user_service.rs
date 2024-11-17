@@ -1,6 +1,8 @@
+use std::future::Future;
 use actix_web::{web, HttpResponse};
 use log::{error, info};
 use rbatis::RBatis;
+use rbatis::rbdc::db::ExecResult;
 use rbs::Error;
 use crate::module::user_mod::model::basic_user::{get_raw_sql, BasicUser};
 
@@ -27,7 +29,25 @@ pub async fn get_exit_user (rb: &RBatis,account:String) -> bool{
         Ok(user) => user.is_some(),
         Err(error) => {
             error!("查询用户是否存在出错 {}", error);
-            false
+            true
+        }
+    }
+}
+
+pub async fn add_new_basic_user_service (rb: &RBatis,basic_user: BasicUser) -> Result<String,String>{
+    match get_exit_user(rb, basic_user.account.clone().unwrap()).await {
+        true => {
+          Err("该账号已存在!".parse().unwrap())
+        }
+        false => {
+           match  BasicUser::insert(rb,&basic_user).await {
+               Ok(_) => {
+                   Ok("新增账号成功!".to_string())
+               }
+               Err(_) => {
+                   Err("新增账号失败!".parse().unwrap())
+               }
+           }
         }
     }
 }

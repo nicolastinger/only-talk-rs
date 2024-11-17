@@ -3,8 +3,12 @@ use deadpool_redis::Pool;
 use deadpool_redis::redis::{cmd, RedisResult};
 use log::info;
 use rbatis::RBatis;
+use validator::Validate;
 use crate::common::init_web::AppState;
-use crate::module::user_mod::service::local_user_service::{get_exit_user, get_user_raw, test_sql};
+use crate::module::user_mod::model::basic_user::BasicUser;
+use crate::module::user_mod::service::local_user_service::{add_new_basic_user_service, get_exit_user, get_user_raw, test_sql};
+use crate::validate_and_respond;
+
 #[get("/user_test")]
 pub async fn user_test() -> impl Responder {
     HttpResponse::Ok()
@@ -78,4 +82,15 @@ pub async fn get_exit_user_flag(state: web::Data<RBatis>, account: String) -> im
     info!("获取到值 {}" ,account);
     let res = get_exit_user(state.get_ref(), account).await;
     HttpResponse::Ok().body(res.to_string())
+}
+
+#[post("/add_new/basic_user")]
+pub async fn add_new_basic_user(state: web::Data<RBatis>, basic_user: web::Json<BasicUser>) -> impl Responder{
+    //let basic_user = basic_user.into_inner();
+    let basic_user = validate_and_respond!(basic_user);
+    info!("读取到的值 {:?}",basic_user);
+    match add_new_basic_user_service(state.get_ref(),basic_user).await{
+        Ok(t)=>HttpResponse::Ok().body(t),
+        Err(t)=>HttpResponse::BadRequest().body(t)
+    }
 }
