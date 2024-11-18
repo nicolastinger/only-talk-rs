@@ -86,7 +86,6 @@ pub async fn get_exit_user_flag(state: web::Data<RBatis>, account: String) -> im
 
 #[post("/add_new/basic_user")]
 pub async fn add_new_basic_user(state: web::Data<RBatis>, basic_user: web::Json<BasicUser>) -> impl Responder{
-    //let basic_user = basic_user.into_inner();
     let basic_user = validate_and_respond!(basic_user);
     info!("读取到的值 {:?}",basic_user);
     match add_new_basic_user_service(state.get_ref(),basic_user).await{

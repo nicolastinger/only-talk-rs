@@ -1,1 +1,1 @@
-mod text_msg_controller;
+pub mod text_msg_controller;

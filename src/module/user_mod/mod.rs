@@ -10,9 +10,9 @@ pub fn user_service(cfg: &mut web::ServiceConfig) {
     cfg.service(user_controller::user_test)
         .service(get_online_user_by_redis)
         .service(create_online_user)
-       .service(user_controller::post_test)
+        .service(user_controller::post_test)
         .service(get_online_user_by_rbatis)
         .service(get_exit_user_flag)
         .service(add_new_basic_user)
-       .service(post_online_user);
+        .service(post_online_user);
 }
