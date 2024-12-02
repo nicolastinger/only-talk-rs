@@ -5,6 +5,7 @@ use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::sync::Arc;
 use std::time::Duration;
 use actix_web::{get, middleware, post, web, App, HttpResponse, HttpServer, Responder};
+use actix_web::middleware::from_fn;
 use fast_log::Config;
 use fast_log::consts::LogSize;
 use fast_log::plugin::file_split::RollingType;
@@ -27,6 +28,7 @@ use toml::Value;
 use crate::common::quic_network_service;
 use crate::{module, read_config};
 use rbdc::pool::Pool as rdbc_pool;
+use crate::utils::record_bad_http::error_record_middleware;
 
 pub(crate) struct AppState {
     pub(crate) redis_pool: Arc<Pool>,
@@ -131,6 +133,7 @@ pub async fn start_server() -> std::io::Result<()> {
 
     HttpServer::new(move || {
         App::new()
+            .wrap(from_fn(error_record_middleware))
             .app_data(web::Data::new(init_redis().clone()))
             .app_data(web::Data::new(pool.clone()))
             // 设置中间件，让actix-web打印日志

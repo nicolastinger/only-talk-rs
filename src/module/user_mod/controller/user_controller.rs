@@ -7,6 +7,7 @@ use validator::Validate;
 use crate::common::init_web::AppState;
 use crate::module::user_mod::model::basic_user::BasicUser;
 use crate::module::user_mod::service::local_user_service::{add_new_basic_user_service, get_exit_user, get_user_raw, test_sql};
+use crate::utils::jwt_util::{decode_jwt, get_jwt};
 use crate::validate_and_respond;
 
 #[get("/user_test")]
@@ -84,6 +85,16 @@ pub async fn get_exit_user_flag(state: web::Data<RBatis>, account: String) -> im
     HttpResponse::Ok().body(res.to_string())
 }
 
+#[post("/test_token/get")]
+pub async fn get_token(account:String) -> impl Responder {
+    HttpResponse::Ok().body(get_jwt(account.into()).unwrap())
+}
+
+#[post("/test_token/check")]
+pub async fn check_token(token:String) -> impl Responder {
+    HttpResponse::Ok().body(decode_jwt(token).unwrap())
+}
+
 #[post("/add_new/basic_user")]
 pub async fn add_new_basic_user(state: web::Data<RBatis>, basic_user: web::Json<BasicUser>) -> impl Responder{
     let basic_user = validate_and_respond!(basic_user);
@@ -93,3 +104,4 @@ pub async fn add_new_basic_user(state: web::Data<RBatis>, basic_user: web::Json<
         Err(t)=>HttpResponse::BadRequest().body(t)
     }
 }
+

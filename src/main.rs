@@ -30,10 +30,10 @@ async fn main() {
     //quic_network_service::quic_server::init_server();
     // 定义服务器监听地址
     //let addr = "175.178.17.158:4433".parse().unwrap();
-    let addr = "127.0.0.1:4433".parse().unwrap();
+    /*let addr = "127.0.0.1:4433".parse().unwrap();
     tokio::spawn(async move{
         quic_client::run_client(addr).await;
-    });
+    });*/
 
     init_web::start_server().await.expect("初始化失败!");
     info!("运行结束!")

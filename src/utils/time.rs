@@ -2,7 +2,7 @@ use std::io;
 use std::time::{SystemTime, UNIX_EPOCH};
 use log::error;
 
-fn get_now_time_stamp_as_millis() -> Result<i64, io::Error> {
+pub fn get_now_time_stamp_as_millis() -> Result<i64, io::Error> {
     // 获取当前时间
     let start = SystemTime::now();
 
