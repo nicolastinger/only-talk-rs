@@ -32,6 +32,14 @@ impl_update!(BasicUser{update_by_name(name:&str) => "`where id = 1`"});
 impl_delete!(BasicUser {delete_by_name(name:&str) => "`where name= '2'`"});
 impl_select_page!(BasicUser{select_page(name:&str) => "`where name != #{name}`"});
 
+#[derive(Clone, Deserialize, Serialize, Debug)]
+pub struct BasicUserSalt {
+    pub uuid: String,
+    pub sign_up_salt: String
+}
+
+crud!(BasicUserSalt {});
+
 pub async fn get_raw_sql(rb: web::Data<RBatis>) {
     let table: Option<Vec<HashMap<String,serde_json::Value>>> = rb
         .query_decode("select * from rust_user_test where id = ? limit ?", vec![rbs::to_value!("huangjinsheng"), rbs::to_value!(1)])

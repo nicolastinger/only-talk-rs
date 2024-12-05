@@ -1,5 +1,20 @@
+use std::collections::{HashMap, HashSet};
+use std::sync::RwLock;
 use actix_web::{body::MessageBody, dev::{ServiceRequest, ServiceResponse}, middleware::{Next}, Error, HttpMessage};
+use lazy_static::lazy_static;
+use log::info;
 use crate::utils::jwt_util::{decode_jwt};
+
+lazy_static! {
+    static ref IGNORED_PATHS: RwLock<HashSet<String>> = {
+        let mut m = HashSet::new();
+        m.insert("/user/sign_up".to_string());
+        m.insert("/user/sign_in".to_string());
+        m.insert("/user/test_token/get".to_string());
+        RwLock::new(m)
+    };
+}
+
 
 pub async fn error_record_middleware(
     req: ServiceRequest,
@@ -11,8 +26,10 @@ pub async fn error_record_middleware(
     let method = req.method().clone();
     let path = req.path().to_string();
 
-    if path.contains("user/test_token/get") {
-       return next.call(req).await;
+    info!("{} 路径 {}", method, path);
+    // 检查路径是否在忽略列表中
+    if IGNORED_PATHS.read().unwrap().contains(&path) {
+        return next.call(req).await;
     }
 
     let authorization = req.headers().clone();
@@ -24,7 +41,8 @@ pub async fn error_record_middleware(
         }
         Some(token) => token.to_str().unwrap().to_string(),
     };
-    let account = decode_jwt(token)?;
+    //校验token
+    decode_jwt(token)?;
     // 如果需要读取请求体，可以使用 `take_payload` 方法
     // 注意：这会消耗请求体，所以只有在必要时才这样做
     // let payload = req.take_payload();
@@ -32,7 +50,7 @@ pub async fn error_record_middleware(
     // 调用下一个中间件或处理程序
     let res = next.call(req).await?;
 
-    // post-processing
+    /* post-processing
 
     // 访问响应的状态码
     let status = res.status();
@@ -43,7 +61,7 @@ pub async fn error_record_middleware(
     // 如果你需要访问响应体，可以使用 `response.into_body()` 方法
     // 注意：这会消耗响应体，所以只有在必要时才这样做
     // let body = res.into_body();
-    // let bytes = body.try_into_bytes().unwrap_or_else(|_| Bytes::new());
+    // let bytes = body.try_into_bytes().unwrap_or_else(|_| Bytes::new());*/
 
     // 返回原始响应
     Ok(res)
