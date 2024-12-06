@@ -20,7 +20,6 @@ pub fn user_service(cfg: &mut web::ServiceConfig) {
         .service(post_test)
         .service(get_online_user_by_rbatis)
         .service(get_exit_user_flag)
-        .service(add_new_basic_user)
         .service(get_token)
         .service(check_token)
         .service(sign_in)
@@ -115,22 +114,14 @@ pub async fn check_token(token:String) -> impl Responder {
     HttpResponse::Ok().body(decode_jwt(token).unwrap())
 }
 
-#[post("/add_new/basic_user")]
-pub async fn add_new_basic_user(state: web::Data<RBatis>, basic_user: web::Json<BasicUser>) -> impl Responder{
-    let basic_user = validate_and_respond!(basic_user);
-
-    info!("读取到的值 {:?}",basic_user);
-    match add_new_basic_user_service(state.get_ref(),basic_user).await{
-        Ok(t)=>HttpResponse::Ok().body(t),
-        Err(t)=>HttpResponse::BadRequest().body(t)
-    }
-}
-
 #[post("/sign_up")]
 pub async fn sign_up(state: web::Data<RBatis>,basic_user:web::Json<BasicUser>) -> impl Responder {
     let basic_user = validate_and_respond!(basic_user);
     let res = add_new_basic_user_service(state.get_ref(),basic_user).await;
-    HttpResponse::Ok().body(res.unwrap())
+    match res {
+        Ok(t)=>HttpResponse::Ok().body(serde_json::to_string(&CommonResponse::success(t)).unwrap()),
+        Err(t)=>HttpResponse::BadRequest().body(serde_json::to_string(&CommonResponse::error(t,"error".to_string())).unwrap())
+    }
 }
 
 #[post("/sign_in")]
