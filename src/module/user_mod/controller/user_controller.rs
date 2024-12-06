@@ -8,21 +8,22 @@ use validator::Validate;
 use crate::common::init_web::AppState;
 use crate::module::user_mod::controller::user_controller;
 use crate::module::user_mod::model::basic_user::BasicUser;
-use crate::module::user_mod::service::local_user_service::{add_new_basic_user_service, get_exit_user, get_user_raw, test_sql};
+use crate::module::user_mod::service::local_user_service::{add_new_basic_user_service, get_exit_user, get_user_raw, test_sql, user_sign_in};
 use crate::utils::http_response::CommonResponse;
 use crate::utils::jwt_util::{decode_jwt, get_jwt};
 use crate::validate_and_respond;
 
 pub fn user_service(cfg: &mut web::ServiceConfig) {
-    cfg.service(user_controller::user_test)
+    cfg.service(user_test)
         .service(get_online_user_by_redis)
         .service(create_online_user)
-        .service(user_controller::post_test)
+        .service(post_test)
         .service(get_online_user_by_rbatis)
         .service(get_exit_user_flag)
         .service(add_new_basic_user)
         .service(get_token)
         .service(check_token)
+        .service(sign_in)
         .service(sign_up)
         .service(post_online_user);
 }
@@ -131,5 +132,16 @@ pub async fn sign_up(state: web::Data<RBatis>,basic_user:web::Json<BasicUser>) -
     let res = add_new_basic_user_service(state.get_ref(),basic_user).await;
     HttpResponse::Ok().body(res.unwrap())
 }
+
+#[post("/sign_in")]
+pub async fn sign_in(state: web::Data<RBatis>,basic_user:web::Json<BasicUser>) -> impl Responder {
+    let basic_user = validate_and_respond!(basic_user);
+    let res =  user_sign_in(state.get_ref(),basic_user).await;
+    match res{
+        Ok(t)=>HttpResponse::Ok().body(serde_json::to_string(&CommonResponse::success(t)).unwrap()),
+        Err(t)=>HttpResponse::BadRequest().body(serde_json::to_string(&CommonResponse::error(t,"error".to_string())).unwrap())
+    }
+}
+
 
 

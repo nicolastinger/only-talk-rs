@@ -7,6 +7,7 @@ use rbatis::RBatis;
 use rbs::Error;
 use std::future::Future;
 use uuid::Uuid;
+use crate::utils::jwt_util::get_jwt;
 
 pub async fn get_user_raw(rb: web::Data<RBatis>) {
     get_raw_sql(rb).await
@@ -48,9 +49,8 @@ pub async fn add_new_basic_user_service(
     let uuid_v4 = Uuid::new_v4();
     basic_user.uuid = Option::from(uuid_v4.to_string());
     let random_str = generate_random_string(16);
-    info!("random_str {:?}", random_str);
-    let password = hash_with_salt("WoShiDashabi123123", &random_str);
-    info!("password {:?}", password);
+    let password = hash_with_salt(basic_user.password.as_ref().unwrap(), &random_str);
+    basic_user.password = Option::from(password);
     match get_exit_user(rb, basic_user.account.clone().unwrap()).await {
         true => Err("该账号已存在!".parse().unwrap()),
         false => {
@@ -68,5 +68,42 @@ pub async fn add_new_basic_user_service(
                 Err(_) => Err("新增账号失败!".parse().unwrap()),
             }
         }
+    }
+}
+
+pub async fn user_sign_in(rb: &RBatis, basic_user: BasicUser) -> Result<String, String> {
+    // 解构 basic_user 以获取 account 和 password 的引用
+    let BasicUser { account, password, .. } = basic_user;
+
+    // 验证 account 和 password 是否存在
+    let account_str = account.as_ref().ok_or("账号为空")?;
+    let password_str = password.as_ref().ok_or("密码为空")?;
+
+    // 查询用户
+    let basic_user_vec = BasicUser::select_by_column(rb, "account", account_str)
+        .await
+        .map_err(|_| "用户查询失败!".to_string())?;
+
+    // 检查用户是否存在
+    let basic_user_exit = basic_user_vec.first().ok_or("用户不存在!".to_string())?;
+
+    // 查询盐值信息
+    let salt_vec = BasicUserSalt::select_by_column(rb, "uuid", &basic_user_exit.uuid)
+        .await
+        .map_err(|_| "用户密码查询失败!".to_string())?;
+
+    // 检查盐值是否存在
+    let salt = salt_vec.first().ok_or("密码不存在!".to_string())?;
+
+    // 哈希输入密码
+    let hashed_password = hash_with_salt(password_str, salt.sign_up_salt.as_ref());
+
+    // 比较哈希后的密码
+    if basic_user_exit.password.as_deref() == Some(&hashed_password) {
+        // 生成 JWT
+        get_jwt(account_str.clone())
+            .map_err(|_| "生成token失败!".to_string())
+    } else {
+        Err("用户或密码不正确!".to_string())
     }
 }
