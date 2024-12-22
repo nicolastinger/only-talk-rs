@@ -21,7 +21,7 @@ pub struct BasicUser {
     pub account: Option<String>,
     pub icon: Option<String>,
     pub info: Option<String>,
-    #[validate(required(message = "需要输入密码"), regex(path = "PASSWORD_REGEX", message = "密码必须包含大小写字母和数字"))]
+    #[validate(required(message = "需要输入密码"), regex(path = "PASSWORD_REGEX", message = "密码必须包含大小写字母和数字,并且长度在14以上"))]
     pub password: Option<String>
 }
 

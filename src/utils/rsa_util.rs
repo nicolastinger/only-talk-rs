@@ -1,13 +1,10 @@
 use std::error::Error;
 use std::fs;
-use jsonwebtoken::{DecodingKey, EncodingKey};
-use log::info;
 use rand::distributions::Alphanumeric;
 use rand::Rng;
 use sha2::{Sha256, Digest};
 use rsa::{RsaPrivateKey, RsaPublicKey};
-use rsa::pkcs1::DecodeRsaPrivateKey;
-use rsa::pkcs8::{DecodePrivateKey, DecodePublicKey, EncodePrivateKey};
+use rsa::pkcs8::{DecodePrivateKey};
 
 pub fn generate_rsa_keys() ->Result<(RsaPrivateKey, RsaPublicKey),Box<dyn Error>>{
     let private_key_str = fs::read_to_string("config/jwt/private.key")?;

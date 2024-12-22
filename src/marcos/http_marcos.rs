@@ -10,3 +10,28 @@ macro_rules! validate_and_respond {
         value
     }};
 }
+
+#[macro_export]
+macro_rules! respond_to_json {
+    ($model:expr) => {{
+        use crate::utils::http_response::CommonResponse;
+
+        match $model {
+            Ok(t) => actix_web::HttpResponse::Ok()
+                .body(serde_json::to_string(&CommonResponse::success(t)).unwrap()),
+            Err(t) => HttpResponse::BadRequest().body(
+                serde_json::to_string(&CommonResponse::error(t, "error".to_string())).unwrap(),
+            ),
+        }
+    }};
+    ($model:expr, $error_str:expr) => {{
+        use crate::utils::http_response::CommonResponse;
+
+        match $model {
+            Ok(t) => actix_web::HttpResponse::Ok()
+                .body(serde_json::to_string(&CommonResponse::success(t)).unwrap()),
+            Err(t) => HttpResponse::BadRequest()
+                .body(serde_json::to_string(&CommonResponse::error(t, $error_str)).unwrap()),
+        }
+    }};
+}

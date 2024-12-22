@@ -14,8 +14,9 @@ use tokio::sync::{Mutex, RwLock};
 use crate::common::quic_network_service::make_server_endpoint;
 use crate::common::quic_network_service::quic_connection::{ConnectionType, FirstQuicMsg, QuicConnection, TextQuicMsg};
 use crate::{GLOBAL_QUIC_SERVER_LIST, QUIC_MSG_SPLIT};
+use crate::utils::jwt_util::decode_jwt;
 
-pub(crate) fn init_server(redis: Pool,addr: SocketAddr) {
+pub(crate) fn init_server(redis: Pool, addr: SocketAddr) {
     tokio::spawn(run_server(addr, redis));
 }
 
@@ -78,6 +79,20 @@ async fn handle_conn(conn: quinn::Connection, redis: Pool) {
             error!("[服务端] 初始化读取元数据错误: {},退出流{}", e,conn.remote_address());
         }
     }
+
+    match decode_jwt(first_quic_msg.token.as_ref()).map_err(|_| "解析token失败") {
+        Ok(t) => {
+            if t != first_quic_msg.user_id {
+                error!("令牌跟账号不匹配！");
+                send_stream.finish().await.expect("发送终止信号失败");
+            }
+        }
+        Err(_) => {
+            error!("解析令牌失败");
+            send_stream.finish().await.expect("发送终止信号失败");
+        }
+    }
+
 
     let msg_type = first_quic_msg.msg_type.clone();
 

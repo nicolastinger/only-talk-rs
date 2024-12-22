@@ -11,7 +11,7 @@ use crate::module::user_mod::model::basic_user::BasicUser;
 use crate::module::user_mod::service::local_user_service::{add_new_basic_user_service, get_exit_user, get_user_raw, test_sql, user_sign_in};
 use crate::utils::http_response::CommonResponse;
 use crate::utils::jwt_util::{decode_jwt, get_jwt};
-use crate::validate_and_respond;
+use crate::{respond_to_json, validate_and_respond};
 
 pub fn user_service(cfg: &mut web::ServiceConfig) {
     cfg.service(user_test)
@@ -111,27 +111,22 @@ pub async fn get_token(account:String) -> impl Responder {
 
 #[post("/test_token/check")]
 pub async fn check_token(token:String) -> impl Responder {
-    HttpResponse::Ok().body(decode_jwt(token).unwrap())
+    HttpResponse::Ok().body(decode_jwt(token.as_ref()).unwrap())
 }
 
 #[post("/sign_up")]
 pub async fn sign_up(state: web::Data<RBatis>,basic_user:web::Json<BasicUser>) -> impl Responder {
     let basic_user = validate_and_respond!(basic_user);
     let res = add_new_basic_user_service(state.get_ref(),basic_user).await;
-    match res {
-        Ok(t)=>HttpResponse::Ok().body(serde_json::to_string(&CommonResponse::success(t)).unwrap()),
-        Err(t)=>HttpResponse::BadRequest().body(serde_json::to_string(&CommonResponse::error(t,"error".to_string())).unwrap())
-    }
+    println!("{:?}", res);
+    respond_to_json!(res)
 }
 
 #[post("/sign_in")]
 pub async fn sign_in(state: web::Data<RBatis>,basic_user:web::Json<BasicUser>) -> impl Responder {
     let basic_user = validate_and_respond!(basic_user);
     let res =  user_sign_in(state.get_ref(),basic_user).await;
-    match res{
-        Ok(t)=>HttpResponse::Ok().body(serde_json::to_string(&CommonResponse::success(t)).unwrap()),
-        Err(t)=>HttpResponse::BadRequest().body(serde_json::to_string(&CommonResponse::error(t,"error".to_string())).unwrap())
-    }
+    respond_to_json!(res, "normal".to_string())
 }
 
 

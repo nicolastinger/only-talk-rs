@@ -49,11 +49,11 @@ pub fn get_jwt(account: String) -> Result<String, Box<dyn Error>> {
     Ok(token)
 }
 
-pub fn decode_jwt(token: String) -> Result<String, Box<dyn Error>> {
+pub fn decode_jwt(token: &str) -> Result<String, Box<dyn Error>> {
     let (_, decoding_key) = generate_keys()?;
     // 使用 RSA 算法解码 JWT
     let validation = Validation::new(jsonwebtoken::Algorithm::RS256);
-    let decoded = decode::<Claims>(&token, &decoding_key, &validation)?;
+    let decoded = decode::<Claims>(token, &decoding_key, &validation)?;
     info!("Decoded claims: {:?}", decoded.claims);
     let now = get_now_time_stamp_as_millis()?;
     match now < decoded.claims.exp {

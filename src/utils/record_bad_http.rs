@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::str::FromStr;
 use std::sync::RwLock;
 use actix_web::{body::MessageBody, dev::{ServiceRequest, ServiceResponse}, middleware::{Next}, Error, HttpMessage};
 use lazy_static::lazy_static;
@@ -42,7 +43,8 @@ pub async fn error_record_middleware(
         Some(token) => token.to_str().unwrap().to_string(),
     };
     //校验token
-    decode_jwt(token)?;
+    decode_jwt(&token)?;
+
     // 如果需要读取请求体，可以使用 `take_payload` 方法
     // 注意：这会消耗请求体，所以只有在必要时才这样做
     // let payload = req.take_payload();
