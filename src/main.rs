@@ -5,7 +5,7 @@ mod utils;
 
 use module::*;
 use common::*;
-use quic_network_service::quic_connection::QuicConnection;
+use common::quic_network_service::models::quic_connection::QuicConnection;
 use log::{error, info, warn, LevelFilter};
 use std::{error::Error, net::SocketAddr};
 use std::collections::HashMap;
@@ -27,13 +27,11 @@ static QUIC_MSG_SPLIT: &str = "#$#";   //quic服务解析间隔符
 #[actix_web::main]
 async fn main() {
     fast_log::init(Config::new().console().level(LevelFilter::Info).file("log/rust_im.log").chan_len(Some(10))).unwrap();
-    //quic_network_service::quic_server::init_server();
-    // 定义服务器监听地址
-    //let addr = "175.178.17.158:4433".parse().unwrap();
-    /*let addr = "127.0.0.1:4433".parse().unwrap();
+
+    let addr = "127.0.0.1:4433".parse().unwrap();
     tokio::spawn(async move{
         quic_client::run_client(addr).await;
-    });*/
+    });
 
     init_web::start_server().await.expect("初始化失败!");
     info!("运行结束!")

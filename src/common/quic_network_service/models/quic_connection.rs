@@ -36,7 +36,6 @@ pub struct QuicConnection {
     pub update_time: u64,
     pub ipv4addr: String,
     pub ipv6addr: String,
-    pub first_quic_msg: FirstQuicMsg
 }
 
 // quic初始包
@@ -47,9 +46,8 @@ pub struct FirstQuicMsg {
     pub msg_type: ConnectionType,  //流数据类型,文字，图文，视频，其他实现。
     pub text_serde_struct: String,  //文字类型序列化的struct
     pub dyn_buffer_size: usize,  //缓冲区大小
-    pub file_size: usize,  //图文大小
-    pub file_name: String,  //图文名称
-    pub raw_head: String  //视频帧头部
+    pub dyn_header_size: usize,  //头部大小
+    pub split_symbol: String,  //消息分隔符
 }
 
 impl FirstQuicMsg {
@@ -60,17 +58,8 @@ impl FirstQuicMsg {
             msg_type: ConnectionType::Text,
             text_serde_struct: "".to_string(),
             dyn_buffer_size: 0,
-            file_size: 0,
-            file_name: "".to_string(),
-            raw_head: "".to_string(),
+            dyn_header_size: 0,
+            split_symbol: "".to_string(),
         }
     }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct TextQuicMsg {
-    pub text_type: String,
-    pub raw: String,
-    pub recv_user: String,  //接收用户
-    pub send_user: String   //发送用户
 }

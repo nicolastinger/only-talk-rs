@@ -10,8 +10,8 @@ use rustls_pemfile::{certs, ec_private_keys, rsa_private_keys};
 
 pub(crate) mod quic_server;
 pub(crate) mod quic_client;
-pub(crate) mod quic_msg;
-pub(crate) mod quic_connection;
+pub mod models;
+mod msg_service;
 
 /// 配置客户端使用的QUIC设置。
 fn configure_client() -> ClientConfig {
