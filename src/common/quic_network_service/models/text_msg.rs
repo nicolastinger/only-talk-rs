@@ -5,6 +5,11 @@ pub trait TextMsg {
    fn get_bytes(&self) -> Result<Vec<u8>, String>;
 }
 
+pub struct TextMsgCombination {
+    pub header: HeadMsg,
+    pub body: TextQuicMsg
+}
+
 //头部消息
 #[derive(Debug, Serialize, Deserialize)]
 pub struct HeadMsg {
@@ -19,7 +24,8 @@ pub struct TextQuicMsg {
     pub text_type: String,
     pub raw: String,
     pub recv_user: String,  //接收用户
-    pub send_user: String   //发送用户
+    pub send_user: String,   //发送用户
+    pub timestamp: i64
 }
 
 impl TextMsg for HeadMsg {

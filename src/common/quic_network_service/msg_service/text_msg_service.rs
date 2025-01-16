@@ -16,6 +16,7 @@ pub fn generate_text_msg(
         raw,
         recv_user,
         send_user,
+        timestamp: get_now_time_stamp_as_millis().unwrap_or_else(|_| 0),
     };
     let mut meta_data = text_quic_msg.get_bytes()?;
 

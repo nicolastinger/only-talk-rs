@@ -1,11 +1,8 @@
 use crate::module::user_mod::model::basic_user::{get_raw_sql, BasicUser, BasicUserSalt};
 use crate::utils::rsa_util::{generate_random_string, hash_with_salt};
-use actix_web::{web, HttpResponse};
+use actix_web::{web};
 use log::{error, info};
-use rbatis::rbdc::db::ExecResult;
 use rbatis::RBatis;
-use rbs::Error;
-use std::future::Future;
 use uuid::Uuid;
 use crate::utils::jwt_util::get_jwt;
 

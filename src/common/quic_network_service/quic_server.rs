@@ -276,13 +276,18 @@ async fn process_text_msg(
 
         if let Some(mut current_send_stream) = my_send_stream {
             tokio::spawn(async move {
-                current_send_stream
-                    .write()
-                    .await
-                    .write_all(res.as_ref())
-                    .await.expect("发送消息失败!");
-                info!("释放读锁");
+                {
+                    current_send_stream
+                        .write()
+                        .await
+                        .write_all(res.as_ref())
+                        .await.expect("发送消息失败!");
+
+                    info!("释放读锁");
+                }
+
             });
+            tokio::time::sleep(Duration::from_secs(1)).await;
         } else {
             // 处理 my_send_stream 为 None 的情况
             info!("用户不在线，无法发送消息: {}", user_key);
