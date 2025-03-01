@@ -124,8 +124,7 @@ pub async fn sign_up(state: web::Data<RBatis>,basic_user:web::Json<BasicUser>) -
 
 #[post("/sign_in")]
 pub async fn sign_in(state: web::Data<RBatis>,basic_user:web::Json<BasicUser>) -> impl Responder {
-    let basic_user = validate_and_respond!(basic_user);
-    let res =  user_sign_in(state.get_ref(),basic_user).await;
+    let res =  user_sign_in(state.get_ref(),basic_user.into_inner()).await;
     respond_to_json!(res, "normal".to_string())
 }
 

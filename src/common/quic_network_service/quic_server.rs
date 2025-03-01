@@ -99,13 +99,13 @@ async fn handle_conn(conn: quinn::Connection, redis: Pool) {
             if t != first_quic_msg.user_id {
                 error!("令牌跟账号不匹配！");
                 send_stream.finish().await.expect("发送终止信号失败");
-                //return;
+                return;
             }
         }
         Err(_) => {
             error!("解析令牌失败");
             send_stream.finish().await.expect("发送终止信号失败");
-            //return;
+            return;
         }
     }
 
@@ -282,8 +282,6 @@ async fn process_text_msg(
                         .await
                         .write_all(res.as_ref())
                         .await.expect("发送消息失败!");
-
-                    info!("释放读锁");
                 }
 
             });

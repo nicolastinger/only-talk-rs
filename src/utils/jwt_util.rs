@@ -1,11 +1,8 @@
 use crate::utils::rsa_util::generate_rsa_keys;
 use crate::utils::time::get_now_time_stamp_as_millis;
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
-use log::info;
-use rand::rngs::OsRng;
 use rsa::pkcs1::EncodeRsaPublicKey;
-use rsa::pkcs8::{EncodePrivateKey, EncodePublicKey};
-use rsa::{Pkcs1v15Encrypt, RsaPrivateKey, RsaPublicKey};
+use rsa::pkcs8::{EncodePrivateKey};
 use serde::{Deserialize, Serialize};
 use std::error::Error;
 use std::fs;
@@ -54,7 +51,7 @@ pub fn decode_jwt(token: &str) -> Result<String, Box<dyn Error>> {
     // 使用 RSA 算法解码 JWT
     let validation = Validation::new(jsonwebtoken::Algorithm::RS256);
     let decoded = decode::<Claims>(token, &decoding_key, &validation)?;
-    info!("Decoded claims: {:?}", decoded.claims);
+
     let now = get_now_time_stamp_as_millis()?;
     match now < decoded.claims.exp {
         true => Ok(decoded.claims.account),
