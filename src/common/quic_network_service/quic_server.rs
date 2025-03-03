@@ -3,7 +3,7 @@ use crate::common::quic_network_service::models::quic_connection::{
     ConnectionType, FirstQuicMsg, QuicConnection
 };
 use crate::utils::jwt_util::decode_jwt;
-use crate::{GLOBAL_QUIC_SERVER_LIST, QUIC_MSG_SPLIT};
+use crate::{GLOBAL_QUIC_SERVER_LIST};
 use anyhow::{Context, Result};
 use backtrace::Backtrace;
 use deadpool_redis::redis::AsyncCommands;
@@ -256,7 +256,6 @@ async fn process_text_msg(
 
 
     for text_msg in text_quic_msg.into_iter() {
-        info!("获取读锁 {}", text_msg.send_user);
         let user_key =
             "QUIC:SERVER:".to_string() + &text_msg.send_user + ":" + &*ConnectionType::Text.to_string();
         let user_key = user_key.to_uppercase();
@@ -283,9 +282,7 @@ async fn process_text_msg(
                         .write_all(res.as_ref())
                         .await.expect("发送消息失败!");
                 }
-
             });
-            tokio::time::sleep(Duration::from_secs(1)).await;
         } else {
             // 处理 my_send_stream 为 None 的情况
             info!("用户不在线，无法发送消息: {}", user_key);

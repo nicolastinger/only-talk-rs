@@ -17,12 +17,14 @@ use lazy_static::lazy_static;
 use regex::Regex;
 use tokio::sync::RwLock as TokioRwLock;
 use quic_network_service::quic_client;
+use rust_i18n::t;
+rust_i18n::i18n!("locales");
 // 创建一个quic服务器维护列表全局变量，使用 RwLock 包装
 // 使用 lazy_static 初始化全局共享变量
 lazy_static! {
     pub static ref GLOBAL_QUIC_SERVER_LIST: Arc<TokioRwLock<HashMap<String, QuicConnection>>> = Arc::new(TokioRwLock::new(HashMap::new()));
 }
-static QUIC_MSG_SPLIT: &str = "#$#";   //quic服务解析间隔符
+
 // 主函数入口点，使用Tokio异步运行时
 #[actix_web::main]
 async fn main() {
@@ -33,7 +35,7 @@ async fn main() {
         quic_client::run_client(addr).await;
     });
 
-    init_web::start_server().await.expect("初始化失败!");
+    init_server::start_server().await.expect("初始化失败!");
     info!("运行结束!")
 }
 

@@ -5,7 +5,7 @@ use log::info;
 use rbatis::RBatis;
 use uuid::Uuid;
 use validator::Validate;
-use crate::common::init_web::AppState;
+use crate::common::init_server::AppState;
 use crate::module::user_mod::controller::user_controller;
 use crate::module::user_mod::model::basic_user::BasicUser;
 use crate::module::user_mod::service::local_user_service::{add_new_basic_user_service, get_exit_user, get_user_raw, test_sql, user_sign_in};

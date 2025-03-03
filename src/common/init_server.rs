@@ -29,6 +29,7 @@ use crate::common::quic_network_service;
 use crate::{module, read_config};
 use rbdc::pool::Pool as rdbc_pool;
 use crate::utils::record_bad_http::error_record_middleware;
+use rust_i18n::t;
 
 pub(crate) struct AppState {
     pub(crate) redis_pool: Arc<Pool>,
@@ -54,7 +55,8 @@ fn init_cert_file() -> (Vec<Certificate>,PrivateKey) {
             certs.into_iter().map(Certificate).collect()
         },
         Err(e) => {
-            panic!("无法读取证书文件: {}", e);
+            error!("{}",t!("noTls"));
+            panic!("noTls: {}", e);
         }
     };
 
@@ -91,15 +93,10 @@ async fn init_sql_pool(url:&str) -> RBatis {
     rb.pool
         .set(Box::new(pool))
         .map_err(|_e| Error::from("pool set fail!")).expect("初始化连接池失败!");
-
-    //let _ = rb.init_option::<MysqlDriver, MySqlConnectOptions, DeadPool>(MysqlDriver{},opts);
-    // 创建连接池
-    //rb.init(MysqlDriver{}, url).unwrap();
-
     rb
 }
 
-//初始化异步web容器
+///初始化服务
 pub async fn start_server() -> std::io::Result<()> {
     // 读取配置文件内容
     let config_content = fs::read_to_string("config/app_config.toml")?;
@@ -109,6 +106,10 @@ pub async fn start_server() -> std::io::Result<()> {
     // 将解析后的配置转换为 HashMap
     let config_map: HashMap<String, Value> = config_value.try_into().unwrap();
     let url = read_config!(config_map,("database"),"url");
+
+    let locales = read_config!(config_map, ("server"), "locales");
+    rust_i18n::set_locale(locales);
+    info!("加载语言 {}",t!("hello"));
 
     let pool = init_sql_pool(url).await;
 
@@ -120,7 +121,7 @@ pub async fn start_server() -> std::io::Result<()> {
         .with_no_client_auth()
         .with_single_cert(cert_chain, key)
         .map_err(|e| {
-            eprintln!("无法设置证书和私钥: {}", e);
+            error!("无法设置证书和私钥: {}", e);
             std::io::Error::new(std::io::ErrorKind::Other, "无法设置证书和私钥")
         })?;
 

@@ -3,6 +3,8 @@ url = "mysql://rust_dev:REDACTED_DB_PASSWORD_REMOTE@175.178.17.158:10222/rust_de
 
 [server]
 address="0.0.0.0:8443"
+locales="zh-CN"
 
 [quic_server]
 address="0.0.0.0:4433"
+
