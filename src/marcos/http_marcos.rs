@@ -9,6 +9,23 @@ macro_rules! validate_and_respond {
         }
         value
     }};
+    ($model:expr, $model_type:expr) => {{
+        use validator::Validate;
+        let value = $model.into_inner();
+
+        match &value.data{
+            Some(data) => {
+                if let Err(errors) = data.validate() {
+                  return actix_web::HttpResponse::BadRequest().json(errors);
+                }
+                value
+            },
+            None => {
+                return actix_web::HttpResponse::InternalServerError().finish();
+            }
+        }
+
+    }};
 }
 
 #[macro_export]
