@@ -52,3 +52,31 @@ macro_rules! respond_to_json {
         }
     }};
 }
+
+#[macro_export]
+macro_rules! respond_json {
+    ($model:expr) => {{
+        match $model {
+            Ok(t) => actix_web::HttpResponse::Ok().body(t),
+            Err(t) => HttpResponse::BadRequest().body(t)
+        }
+    }};
+}
+
+#[macro_export]
+macro_rules! serde_json_to_string {
+   ($model:expr) => {{
+        use rust_i18n::t;
+        use log::error;
+
+        match serde_json::to_string($model) {
+        Ok(t) => {
+            Ok(t)
+        }
+        Err(t) => {
+            error!("{}",t.to_string());
+            Err(t!("json_serialize_error").to_string())
+        }
+      }
+  }};
+}

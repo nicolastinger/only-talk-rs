@@ -3,13 +3,11 @@ use actix_web::web;
 use once_cell::sync::Lazy;
 use rbatis::{crud, impl_delete, impl_select, impl_select_page, impl_update, RBatis};
 use serde::{Deserialize, Serialize};
-use validator::{Validate, ValidationError};
+use validator::{Validate};
 
 use regex::Regex;
 
-static PASSWORD_REGEX: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"^[a-zA-Z\d]{14,}$").unwrap()
-});
+
 
 #[derive(Clone, Deserialize, Serialize, Debug, Validate)]
 pub struct BasicUser {
@@ -21,7 +19,7 @@ pub struct BasicUser {
     pub account: Option<String>,
     pub icon: Option<String>,
     pub info: Option<String>,
-    #[validate(required(message = "需要输入密码"), regex(path = "PASSWORD_REGEX", message = "密码必须包含大小写字母和数字,并且长度在14以上"))]
+    #[validate(required(message = "需要输入密码"), regex(path = "crate::utils::validators::PASSWORD_REGEX", message = "密码必须包含大小写字母和数字,并且长度在14以上"))]
     pub password: Option<String>
 }
 

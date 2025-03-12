@@ -2,5 +2,6 @@
   "_version": 1,
   "hello": "你好，世界",
   "messages.hello": "你好, %{name}",
-  "noTls": "无法读取证书文件"
+  "noTls": "无法读取证书文件",
+  "json_serialize_error": "json序列化失败!"
 }

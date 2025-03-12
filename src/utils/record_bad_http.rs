@@ -4,6 +4,7 @@ use std::sync::RwLock;
 use actix_web::{body::MessageBody, dev::{ServiceRequest, ServiceResponse}, middleware::{Next}, Error, HttpMessage};
 use lazy_static::lazy_static;
 use log::info;
+use crate::utils::dto::AuthAccount;
 use crate::utils::jwt_util::{decode_jwt};
 
 lazy_static! {
@@ -43,7 +44,9 @@ pub async fn error_record_middleware(
         Some(token) => token.to_str().unwrap().to_string(),
     };
     //校验token
-    decode_jwt(&token)?;
+    let account = decode_jwt(&token)?;
+
+    req.extensions_mut().insert(AuthAccount(account));
 
     // 如果需要读取请求体，可以使用 `take_payload` 方法
     // 注意：这会消耗请求体，所以只有在必要时才这样做

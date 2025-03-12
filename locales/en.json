@@ -2,5 +2,6 @@
   "_version": 1,
   "hello": "Hello world",
   "messages.hello": "Hello, %{name}",
-  "noTls": "no tls"
+  "noTls": "no tls",
+  "json_serialize_error": "json serialize error!"
 }

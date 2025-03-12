@@ -152,6 +152,5 @@ pub async fn start_server() -> std::io::Result<()> {
 
 // 假设有一个结构体来表示用户信息，这里简化处理，直接返回一个静态字符串
 pub async fn home() -> String {
-    info!("Home");
-    "hello,world!".to_string()
+    t!("hello").to_string()
 }

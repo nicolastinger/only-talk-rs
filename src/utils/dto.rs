@@ -7,3 +7,7 @@ pub struct ReqList <T> {
     pub page_size: Option<u32>,
     pub data: Option<T>,
 }
+
+///请求的account
+#[derive(Clone, Debug)]
+pub struct AuthAccount(pub String);

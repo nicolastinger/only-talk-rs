@@ -3,15 +3,13 @@ use deadpool_redis::Pool;
 use deadpool_redis::redis::{cmd, RedisResult};
 use log::info;
 use rbatis::RBatis;
-use uuid::Uuid;
-use validator::Validate;
 use crate::common::init_server::AppState;
-use crate::module::user_mod::controller::user_controller;
 use crate::module::user_mod::model::basic_user::BasicUser;
 use crate::module::user_mod::service::local_user_service::{add_new_basic_user_service, get_exit_user, get_user_raw, test_sql, user_sign_in};
 use crate::utils::http_response::CommonResponse;
 use crate::utils::jwt_util::{decode_jwt, get_jwt};
-use crate::{respond_to_json, validate_and_respond};
+use crate::{respond_json, respond_to_json, serde_json_to_string, validate_and_respond};
+use crate::module::user_mod::dto::basic_user_dto::SignInBasicUserDTO;
 
 pub fn user_service(cfg: &mut web::ServiceConfig) {
     cfg.service(user_test)
@@ -24,6 +22,7 @@ pub fn user_service(cfg: &mut web::ServiceConfig) {
         .service(check_token)
         .service(sign_in)
         .service(sign_up)
+        .service(sign_test)
         .service(post_online_user);
 }
 
@@ -126,6 +125,13 @@ pub async fn sign_up(state: web::Data<RBatis>,basic_user:web::Json<BasicUser>) -
 pub async fn sign_in(state: web::Data<RBatis>,basic_user:web::Json<BasicUser>) -> impl Responder {
     let res =  user_sign_in(state.get_ref(),basic_user.into_inner()).await;
     respond_to_json!(res, "normal".to_string())
+}
+
+#[post("/sign_in_test")]
+pub async fn sign_test(basic_user:web::Json<SignInBasicUserDTO>) -> impl Responder {
+    let basic_user = validate_and_respond!(basic_user);
+
+    respond_json!(serde_json_to_string!(&basic_user))
 }
 
 

@@ -6,6 +6,7 @@ mod service;
 mod model;
 mod controller;
 mod dto;
+mod vo;
 
 pub fn init_user_service(cfg: &mut web::ServiceConfig) {
     user_service(cfg)

@@ -1,19 +1,30 @@
-use actix_web::{get, post, web, HttpResponse, Responder};
+use actix_web::{get, post, web, HttpMessage, HttpRequest, HttpResponse, Responder};
+use log::info;
 use rbatis::RBatis;
-use crate::module::user_mod::model::basic_user::BasicUser;
-use crate::module::user_mod::service::local_user_service::add_new_basic_user_service;
-use crate::{respond_to_json, validate_and_respond};
-use crate::module::user_mod::dto::friend_dto::Friend;
-use crate::utils::dto::ReqList;
-use crate::utils::jwt_util::decode_jwt;
+use crate::{respond_json, respond_to_json, serde_json_to_string, validate_and_respond};
+use crate::module::user_mod::dto::friend_dto::{FriendDTO};
+use crate::module::user_mod::service::friend::get_friend_by_id;
+use crate::utils::dto::{AuthAccount, ReqList};
+use crate::utils::http_response::CommonResponse;
 
 pub fn friend_service(cfg: &mut web::ServiceConfig) {
-    cfg.service(qry_friend_list);
+    cfg.service(qry_friend_list)
+        .service(qry_friend_test);
 }
 
+
 #[post("/friend_list")]
-pub async fn qry_friend_list(state: web::Data<RBatis>,friend: web::Json<ReqList<Friend>>) -> impl Responder {
+pub async fn qry_friend_list(req: HttpRequest, state: web::Data<RBatis>,friend: web::Json<ReqList<FriendDTO>>) -> impl Responder {
     let friend = validate_and_respond!(friend,"2");
     println!("{:?}", friend);
+    let mut map = req.extensions();
+    let account = map.get::<AuthAccount>().unwrap();
+    info!("账号 {:?}", account);
     HttpResponse::Ok().body("not implemented")
 }
+
+#[get("/friend_test")]
+pub async fn qry_friend_test(req: HttpRequest, state: web::Data<RBatis>,friend: web::Json<ReqList<FriendDTO>>) -> impl Responder {
+    respond_json!(get_friend_by_id(state.as_ref()).await)
+}
+
