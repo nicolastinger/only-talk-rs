@@ -159,7 +159,7 @@ async fn handle_conn(conn: quinn::Connection, redis: Pool) {
 
     loop {
         // 循环处理流中的数据
-        let mut buffer = vec![0u8; 100]; //设置缓冲区为10KB
+        let mut buffer = vec![0u8; 1024 * 10]; //设置缓冲区为10KB
         let change_buffer = &mut buffer;
         match recv_stream.read(change_buffer).await {
             Ok(Some(length)) => {
@@ -253,11 +253,9 @@ async fn process_text_msg(
     text_quic_msg: Vec<TextQuicMsg>,
     close_key: &str,
 ) -> Result<()> {
-
-
     for text_msg in text_quic_msg.into_iter() {
         let user_key =
-            "QUIC:SERVER:".to_string() + &text_msg.send_user + ":" + &*ConnectionType::Text.to_string();
+            "QUIC:SERVER:".to_string() + &text_msg.recv_user + ":" + &*ConnectionType::Text.to_string();
         let user_key = user_key.to_uppercase();
         let mut my_send_stream: Option<Arc<RwLock<SendStream>>> = {
             let bind = GLOBAL_QUIC_SERVER_LIST.read().await;
@@ -293,11 +291,3 @@ async fn process_text_msg(
     Ok(())
 }
 
-async fn send_text_msg(send_stream: Arc<Mutex<SendStream>>, mut text: String) {
-    send_stream
-        .lock()
-        .await
-        .write_all(text.as_bytes())
-        .await
-        .expect("报错了哥们")
-}

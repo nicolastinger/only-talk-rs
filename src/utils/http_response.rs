@@ -48,8 +48,8 @@ pub struct CommonResponseRef<'a, T>
 where
     T: Serialize,
 {
-    pub(crate) code: u32,
-    pub(crate) data: &'a T,
+    pub(crate) code: u16,
+    pub(crate) data: Option<&'a T>,
     pub(crate) message: &'a str,
 }
 
@@ -57,20 +57,24 @@ impl<'a, T> CommonResponseRef<'a, T>
 where
     T: Serialize,
 {
-    pub fn new(code: u32, data: &'a T, message: &'a str) -> CommonResponseRef<'a, T> {
-        CommonResponseRef {
+    pub fn new(code: u16, data: Option<&'a T>, message: &'a str) -> Self {
+        Self {
             code,
             data,
-            message,
+            message: message.into(),
         }
     }
 
+    pub fn success_empty() -> Self {
+        Self::new(204, None, "Success")
+    }
+
     pub fn success(data: &'a T) -> CommonResponseRef<'a, T> {
-        CommonResponseRef::new(200, data, "Success")
+        CommonResponseRef::new(200, Option::from(data), "Success")
     }
 
     pub fn error(data: &'a T, message: &'a str) -> CommonResponseRef<'a, T> {
-        CommonResponseRef::new(500, data, message)
+        CommonResponseRef::new(500, Option::from(data), message)
     }
 
     pub fn success_json(data: &'a T) -> Result<String, String> {

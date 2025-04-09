@@ -97,7 +97,7 @@ pub async fn get_online_user_by_rbatis(state: web::Data<RBatis>) -> impl Respond
 #[post("/get_exit_user_flag/is_exit")]
 pub async fn get_exit_user_flag(state: web::Data<RBatis>, account: String) -> impl Responder {
     info!("获取到值 {}" ,account);
-    let res = get_exit_user(state.get_ref(), account).await;
+    let res = get_exit_user(state.get_ref(), &account).await;
     HttpResponse::Ok().body(res.to_string())
 }
 
@@ -122,8 +122,19 @@ pub async fn sign_up(state: web::Data<RBatis>,basic_user:web::Json<BasicUser>) -
 }
 
 #[post("/sign_in")]
-pub async fn sign_in(state: web::Data<RBatis>,basic_user:web::Json<BasicUser>) -> impl Responder {
-    let res =  user_sign_in(state.get_ref(),basic_user.into_inner()).await;
+pub async fn sign_in(state: web::Data<RBatis>,basic_user_dto:web::Json<SignInBasicUserDTO>) -> impl Responder {
+    let basic_user_dto: SignInBasicUserDTO = validate_and_respond!(basic_user_dto);
+
+    let basic_user = BasicUser {
+        uuid: None,
+        id: None,
+        username: None,
+        account: Some(basic_user_dto.account.unwrap_or_default()),
+        icon: None,
+        info: None,
+        password: Some(basic_user_dto.password.unwrap_or_default()),
+    };
+    let res =  user_sign_in(state.get_ref(),basic_user).await;
     respond_to_json!(res, "normal".to_string())
 }
 

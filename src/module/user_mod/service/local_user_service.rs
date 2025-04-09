@@ -28,7 +28,7 @@ pub async fn test_sql(rb: &RBatis) -> Vec<BasicUser> {
     basic_user_all
 }
 
-pub async fn get_exit_user(rb: &RBatis, account: String) -> bool {
+pub async fn get_exit_user(rb: &RBatis, account: &str) -> bool {
     match BasicUser::select_by_account(rb, account).await {
         Ok(user) => user.is_some(),
         Err(error) => {
@@ -48,7 +48,9 @@ pub async fn add_new_basic_user_service(
     let random_str = generate_random_string(16);
     let password = hash_with_salt(basic_user.password.as_ref().unwrap(), &random_str);
     basic_user.password = Option::from(password);
-    match get_exit_user(rb, basic_user.account.clone().unwrap()).await {
+
+    let account_ref: &str = basic_user.account.as_ref().map(|s| s.as_str()).unwrap_or("");
+    match get_exit_user(rb, &account_ref).await {
         true => Err("该账号已存在!".parse().unwrap()),
         false => {
             BasicUserSalt::insert(
@@ -58,8 +60,7 @@ pub async fn add_new_basic_user_service(
                     sign_up_salt: random_str.to_string(),
                 },
             )
-            .await
-            .unwrap();
+            .await.map_err(|e| e.to_string())?;
             match BasicUser::insert(rb, &basic_user).await {
                 Ok(_) => Ok("新增账号成功!".to_string()),
                 Err(_) => Err("新增账号失败!".parse().unwrap()),

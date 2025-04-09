@@ -10,7 +10,7 @@ use std::fs;
 // 定义 JWT 的 Claims 结构体
 #[derive(Debug, Serialize, Deserialize)]
 struct Claims {
-    sub: String,     // 主题 (subject)
+    sub: u64,     // 主题 (subject) 前3个数字表示语言
     account: String, // 账号
     exp: i64,        // 过期时间 (Unix 时间戳)
 }
@@ -36,7 +36,7 @@ fn generate_keys() -> Result<(EncodingKey, DecodingKey), Box<dyn Error>> {
 pub fn get_jwt(account: String) -> Result<String, Box<dyn Error>> {
     let (encoding_key, _) = generate_keys()?;
     let claims = Claims {
-        sub: "123123".to_string(),
+        sub: 123123,
         account,
         exp: get_now_time_stamp_as_millis().unwrap() + (3600000 * 24),
     };
