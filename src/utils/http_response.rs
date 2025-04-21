@@ -66,10 +66,6 @@ where
         }
     }
 
-    pub fn success_empty() -> Self {
-        Self::new(204, None, "Success")
-    }
-
     pub fn success(data: &'a T) -> CommonResponseRef<'a, T> {
         CommonResponseRef::new(200, Option::from(data), "Success")
     }
@@ -85,13 +81,17 @@ where
 
 
 #[derive(Serialize)]
-pub struct CommonResponseErrorRef<'a>
+pub struct CommonResponseNoDataRef<'a>
 {
     pub(crate) code: u16,
     pub(crate) message: &'a str,
 }
-impl<'a> CommonResponseErrorRef<'a> {
+impl<'a> CommonResponseNoDataRef<'a> {
     pub fn error_json(message: &'a str) -> String {
-        serde_json::to_string(&CommonResponseErrorRef { code: 500, message }).unwrap_or_else(|_| "{code:500,message:\"json Panic!\"}".to_string())
+        serde_json::to_string(&CommonResponseNoDataRef { code: 500, message }).unwrap_or_else(|_| "{code:500,message:\"json Panic!\"}".to_string())
+    }
+
+    pub fn success_empty() -> String {
+        serde_json::to_string(&CommonResponseNoDataRef { code: 204, message: "" }).unwrap_or_else(|_| "{code:500,message:\"json Panic!\"}".to_string())
     }
 }

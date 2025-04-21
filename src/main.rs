@@ -30,13 +30,12 @@ lazy_static! {
 async fn main() {
     fast_log::init(Config::new().console().level(LevelFilter::Info).file("log/rust_im.log").chan_len(Some(10))).unwrap();
 
-    let addr = "127.0.0.1:4433".parse().unwrap();
-    tokio::spawn(async move{
-        quic_client::run_client(addr).await;
-    });
+    // let addr = "127.0.0.1:4433".parse().unwrap();
+    // tokio::spawn(async move{
+    //     quic_client::run_client(addr).await;
+    // });
 
-    init_server::start_server().await.expect("初始化失败!");
-    info!("运行结束!")
+    init_server::start_server().await.unwrap_or_else(|err| error!("错误信息 {}, 堆栈信息 {:?}", err, err.backtrace()));
 }
 
 

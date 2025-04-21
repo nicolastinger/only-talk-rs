@@ -24,6 +24,7 @@ pub async fn run_client(server_addr: SocketAddr) {
         .connect(server_addr, "onlytalk.cn")
         .unwrap()
         .await
+        .map_err(|_| "Failed to connect to server".to_string())
         .unwrap();
     info!("[client] connected: addr={}", connection.remote_address()); // 打印连接成功的服务器地址
 

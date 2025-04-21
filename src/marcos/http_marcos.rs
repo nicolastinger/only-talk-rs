@@ -15,18 +15,17 @@ macro_rules! validate_and_respond {
         use validator::Validate;
         let value = $model.into_inner();
 
-        match &value.data{
+        match &value.data {
             Some(data) => {
                 if let Err(errors) = data.validate() {
-                  return actix_web::HttpResponse::BadRequest().json(errors);
+                    return actix_web::HttpResponse::BadRequest().json(errors);
                 }
                 value
-            },
+            }
             None => {
                 return actix_web::HttpResponse::InternalServerError().finish();
             }
         }
-
     }};
 }
 
@@ -60,7 +59,7 @@ macro_rules! respond_json {
     ($model:expr) => {{
         match $model {
             Ok(t) => actix_web::HttpResponse::Ok().body(t),
-            Err(t) => HttpResponse::BadRequest().body(t)
+            Err(t) => HttpResponse::BadRequest().body(t),
         }
     }};
 }
@@ -71,10 +70,9 @@ macro_rules! respond_json_any {
         match $model {
             Ok(t) => actix_web::HttpResponse::Ok().body(t),
             Err(t) => {
-                use crate::utils::http_response::CommonResponseErrorRef;
                 error!("err_context {:?}", t);
                 error!("{}", t.backtrace());
-                HttpResponse::BadRequest().body(CommonResponseErrorRef::error_json(&t.to_string()))
+                HttpResponse::BadRequest().body(CommonResponseNoDataRef::error_json(&t.to_string()))
             }
         }
     }};
@@ -82,18 +80,27 @@ macro_rules! respond_json_any {
 
 #[macro_export]
 macro_rules! serde_json_to_string {
-   ($model:expr) => {{
-        use rust_i18n::t;
+    ($model:expr) => {{
         use log::error;
+        use rust_i18n::t;
 
         match serde_json::to_string($model) {
-        Ok(t) => {
-            Ok(t)
+            Ok(t) => Ok(t),
+            Err(t) => {
+                error!("{}", t.to_string());
+                Err(t!("json_serialize_error").to_string())
+            }
         }
-        Err(t) => {
-            error!("{}",t.to_string());
-            Err(t!("json_serialize_error").to_string())
+    }};
+}
+
+#[macro_export]
+macro_rules! get_account_from_header {
+    ($model:expr) => {{
+        let mut map = $model.extensions();
+        match map.get::<AuthAccount>() {
+            None => None,
+            Some(T) => Some(T.to_owned().0),
         }
-      }
-  }};
+    }};
 }

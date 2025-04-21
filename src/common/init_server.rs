@@ -97,11 +97,11 @@ async fn init_sql_pool(url:&str) -> RBatis {
 }
 
 ///初始化服务
-pub async fn start_server() -> std::io::Result<()> {
+pub async fn start_server() -> anyhow::Result<()> {
     // 读取配置文件内容
     let config_content = fs::read_to_string("config/app_config.toml")?;
     // 解析配置文件内容
-    let config_value: Value = config_content.parse().unwrap();
+    let config_value: Value = config_content.parse()?;
 
     // 将解析后的配置转换为 HashMap
     let config_map: HashMap<String, Value> = config_value.try_into().unwrap();
@@ -146,7 +146,8 @@ pub async fn start_server() -> std::io::Result<()> {
         .bind_rustls_021(address,config)? // 绑定到 HTTPS 端口
         //.bind(address)?
         .run()
-        .await
+        .await?;
+    Ok(())
 }
 
 

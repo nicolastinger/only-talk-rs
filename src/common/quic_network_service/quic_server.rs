@@ -9,7 +9,7 @@ use backtrace::Backtrace;
 use deadpool_redis::redis::AsyncCommands;
 use deadpool_redis::Pool;
 use log::{error, info};
-use quinn::SendStream;
+use quinn::{Connection, ConnectionError, SendStream};
 use redis::Msg;
 use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
@@ -36,7 +36,13 @@ async fn run_server(addr: SocketAddr, redis: Pool) {
     // 持续监听新的连接请求
     loop {
         let incoming_conn = endpoint.accept().await.unwrap(); // 接收新的连接请求
-        let conn = incoming_conn.await.unwrap(); // 确认连接建立
+        let conn = match incoming_conn.await{
+            Ok(t) => t,
+            Err(e) => {
+                error!("建立链接失败 {}", e.to_string());
+                continue;
+            }
+        };; // 确认连接建立
 
         let new_pool = redis.clone();
         info!(

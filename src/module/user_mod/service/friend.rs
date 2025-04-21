@@ -1,15 +1,17 @@
+use crate::module::user_mod::model::friend::{Friend, FriendLink, FriendLinkInfo};
+use crate::module::user_mod::vo::friend_vo::FriendVO;
+use crate::serde_json_to_string;
+use crate::utils::dto::AuthAccount;
+use crate::utils::http_response::{CommonResponseNoDataRef, CommonResponseRef};
+use crate::utils::time::get_now_time_stamp_as_millis;
 use rbatis::{Error, RBatis};
 use serde::Serialize;
 use uuid::{NoContext, Timestamp};
-use crate::module::user_mod::model::friend::{Friend, FriendLink};
-use crate::module::user_mod::vo::friend_vo::FriendVO;
-use crate::serde_json_to_string;
-use crate::utils::http_response::CommonResponseRef;
 
 pub async fn get_friend_by_id(rb: &RBatis) -> Result<String, anyhow::Error> {
     let friend: Result<Vec<Friend>, Error> = Friend::select_by_column(rb, "uuid", "123").await;
 
-    let friend_vo = FriendVO{
+    let friend_vo = FriendVO {
         uuid: "friend not found",
     };
 
@@ -18,15 +20,44 @@ pub async fn get_friend_by_id(rb: &RBatis) -> Result<String, anyhow::Error> {
     Ok(common_response_ref?)
 }
 
+///发起好友申请
+pub async fn add_friend(
+    rb: &RBatis,
+    request_user: Option<String>,
+    accept_user: Option<String>,
+) -> Result<String, anyhow::Error> {
+    let uuid = uuid::Uuid::now_v7().to_string();
+    // 开启事务
+    let mut tx = rb.acquire_begin().await?;
 
-pub async fn fn_add_friend(rb: &RBatis) -> Result<String, anyhow::Error> {
-    let friend_link = FriendLink{
-        uuid: Some(uuid::Uuid::now_v7()),
-        request_user: Some("caixukun".to_string()),
-        accept_user: Some("huangxiaoming".to_string()),
-        enable: Some(true)
-    };
-    log::info!("friend link {:?}", friend_link);
-    FriendLink::insert(rb, &friend_link).await?;
-    Ok(format!("Added friend with id {:?}", friend_link.uuid))
+    // 使用事务块包裹逻辑
+    let result = async {
+        let friend_link = FriendLink {
+            uuid: Some(uuid.parse()?),
+            request_user,
+            accept_user,
+            enable: Some(false),
+        };
+
+        FriendLink::insert(rb, &friend_link).await?;
+
+        let now = get_now_time_stamp_as_millis()?;
+        let friend_link_info: FriendLinkInfo = FriendLinkInfo {
+            uuid: friend_link.uuid,
+            accept_status: Some(0),
+            create_at_time: Some(now),
+            update_at_time: Some(now),
+            request_message: None,
+        };
+
+        FriendLinkInfo::insert(rb, &friend_link_info).await?;
+        tx.commit().await?;
+        Ok(CommonResponseNoDataRef::success_empty())
+    }
+    .await;
+    // 如果事务中有错误，回滚事务
+    if result.is_err() {
+        let _ = tx.rollback().await;
+    }
+    result
 }
