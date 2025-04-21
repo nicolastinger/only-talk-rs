@@ -1,5 +1,5 @@
 [database]
-url = "mysql://rust_dev:REDACTED_DB_PASSWORD_REMOTE@175.178.17.158:10222/rust_dev"
+url = "pg://admin:REDACTED_DB_PASSWORD@@124.220.82.185:22303/postgres"
 
 [server]
 address="0.0.0.0:8443"

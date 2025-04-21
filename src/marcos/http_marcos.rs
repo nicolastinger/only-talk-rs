@@ -1,3 +1,5 @@
+use log::error;
+
 //http传入实体校验
 #[macro_export]
 macro_rules! validate_and_respond {
@@ -59,6 +61,21 @@ macro_rules! respond_json {
         match $model {
             Ok(t) => actix_web::HttpResponse::Ok().body(t),
             Err(t) => HttpResponse::BadRequest().body(t)
+        }
+    }};
+}
+
+#[macro_export]
+macro_rules! respond_json_any {
+    ($model:expr) => {{
+        match $model {
+            Ok(t) => actix_web::HttpResponse::Ok().body(t),
+            Err(t) => {
+                use crate::utils::http_response::CommonResponseErrorRef;
+                error!("err_context {:?}", t);
+                error!("{}", t.backtrace());
+                HttpResponse::BadRequest().body(CommonResponseErrorRef::error_json(&t.to_string()))
+            }
         }
     }};
 }

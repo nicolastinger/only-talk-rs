@@ -17,8 +17,8 @@ use deadpool_redis::redis::ExpireOption::NONE;
 use rbatis::{rbdc, Error, RBatis};
 use rbatis::rbdc::db::ConnectOptions;
 use rbatis::rbdc::pool::conn_manager::ConnManager;
-use rbdc_mysql::MysqlDriver;
-use rbdc_mysql::options::MySqlConnectOptions;
+use rbdc_pg::{Driver, PgDriver};
+use rbdc_pg::options::PgConnectOptions;
 use rbdc_pool_deadpool::DeadPool;
 use redis::RedisError;
 use rustls::{Certificate, PrivateKey, ServerConfig};
@@ -82,11 +82,11 @@ fn init_cert_file() -> (Vec<Certificate>,PrivateKey) {
 async fn init_sql_pool(url:&str) -> RBatis {
     let rb=RBatis::new();
 
-    let mut opts =MySqlConnectOptions::new();
+    let mut opts =PgConnectOptions::new();
     opts.set_uri(url).expect("TODO: panic message");
 
     //let manager:ConnManager = ConnManager::new_arc(Arc::new(Box::new(MysqlDriver{})), Arc::new(Box::new(opts)));
-    let pool = DeadPool::new(ConnManager::new_arc(Arc::new(Box::new(MysqlDriver{})), Arc::new(Box::new(opts)))).expect("初始化连接池失败");
+    let pool = DeadPool::new(ConnManager::new_arc(Arc::new(Box::new(PgDriver{})), Arc::new(Box::new(opts)))).expect("初始化连接池失败");
     // 创建连接池并设置空闲连接时长
     pool.set_conn_max_lifetime(Some(Duration::from_secs(180))).await;
     pool.set_timeout(Some(Duration::from_secs(2))).await;
@@ -109,7 +109,7 @@ pub async fn start_server() -> std::io::Result<()> {
 
     let locales = read_config!(config_map, ("server"), "locales");
     rust_i18n::set_locale(locales);
-    info!("加载语言 {}",t!("hello"));
+    info!("loading language {}",t!("hello"));
 
     let pool = init_sql_pool(url).await;
 

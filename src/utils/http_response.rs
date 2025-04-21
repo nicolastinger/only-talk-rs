@@ -2,6 +2,7 @@ use std::iter::Successors;
 //创建统一返回对象
 use crate::serde_json_to_string;
 use serde::{Serialize};
+use serde_json;
 
 // 定义响应体结构
 #[derive(Serialize)]
@@ -34,12 +35,12 @@ where
         CommonResponse::new(500, data, message)
     }
 
-    pub fn success_json(data: T) -> Result<String, String> {
-        serde_json_to_string!(&CommonResponse::success(data))
+    pub fn success_json(data: T) -> serde_json::Result<String> {
+        serde_json::to_string(&CommonResponse::success(data))
     }
 
-    pub fn error_json(data: T, message: String) -> Result<String, String> {
-        serde_json_to_string!(&CommonResponse::error(data, message))
+    pub fn error_json(data: T, message: String) -> serde_json::Result<String> {
+        serde_json::to_string(&CommonResponse::error(data, message))
     }
 }
 
@@ -77,11 +78,20 @@ where
         CommonResponseRef::new(500, Option::from(data), message)
     }
 
-    pub fn success_json(data: &'a T) -> Result<String, String> {
-        serde_json_to_string!(&CommonResponseRef::success(data))
+    pub fn success_json(data: &'a T) -> serde_json::Result<String> {
+        serde_json::to_string(&CommonResponseRef::success(data))
     }
+}
 
-    pub fn error_json(data: &'a T, message: &'a str) -> Result<String, String> {
-        serde_json_to_string!(&CommonResponseRef::error(data, message))
+
+#[derive(Serialize)]
+pub struct CommonResponseErrorRef<'a>
+{
+    pub(crate) code: u16,
+    pub(crate) message: &'a str,
+}
+impl<'a> CommonResponseErrorRef<'a> {
+    pub fn error_json(message: &'a str) -> String {
+        serde_json::to_string(&CommonResponseErrorRef { code: 500, message }).unwrap_or_else(|_| "{code:500,message:\"json Panic!\"}".to_string())
     }
 }

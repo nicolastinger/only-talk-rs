@@ -69,7 +69,7 @@ async fn init_send_msg(mut send_stream: SendStream) -> Result<(), Box<dyn Error>
     first_quic_msg.dyn_header_size = 17;
     first_quic_msg.user_id = "huangxiaoming".to_string();
     first_quic_msg.text_serde_struct = "user_chat_json".to_string();
-    first_quic_msg.token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxMjMxMjMiLCJhY2NvdW50IjoiaHVhbmd4aWFvbWluZyIsImV4cCI6MTc0MTE2NjMyOTQ0M30.G0ehd2ZSmoJoSDWZkdQ6oaQU1oFIZtmmzFCXGy1_dbNr3AeSnDpy1Dp_ot0YPqLM2QOQGdhpIVTiOtqgHqNTLL-NS7E9a8NcklPvJGDvysTwkZ9Fwxm8JAqKMqk6ZOhYuAOC1_RT3QVTTaKOqIe2mbD0rLJA6BlIdLXEVCyJmqqJVUTbxHeF1nk1P1p9AUG6-PunXl-5CHa3oDRcLxgeOxWuEud8w5uR1pU0nVUXsAlIHcjdjsaRpVT89CtHRsin_IweUg76n8pvFtswdyk5MpIsScdKZriXY2T8D5fukktJ4EGgigF2BOkVBClkEiLUYTHYzo1AorPV-x2vFny73A".to_string();
+    first_quic_msg.token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJzdWIiOjEyMzEyMywiYWNjb3VudCI6Imh1YW5neGlhb21pbmciLCJleHAiOjE3NDQ4ODQwOTc5MTF9.DFvAsDDgvaTn_UBBfe0Lx6ZrrVCijP8ybB2rDklQ1TQv7HF5e2JPJBHFTYRCDqsJlERZ-ZZRXvNUVz2H4r-z6os7zWY3gR0c-DO020dmbVwdyXHb8Ef3F0YpHiRznGcfBZDndC2ody5gAzQHWv2mlVrvlMh0jAtTmTKZMCpXzMzu-E_PqhVi8AFxtDNmhIbvF0Odpafd9uhCZ83KkkD7qFQNp0eyn92hR27l-gjTqNfeTa1iuFT9y6H3GH52D4s1tXKLr5OIMYQTs5cmvTRgNC32VFcyuGvSKKEJfyRgw6JVFCAgOAqsGDHjLedHVwNsCEza4hDB2JweR7adtPw3gw".to_string();
     send_stream
         .write_all(serde_json::to_string(&first_quic_msg).unwrap().as_bytes())
         .await

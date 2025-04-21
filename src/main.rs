@@ -19,13 +19,13 @@ use tokio::sync::RwLock as TokioRwLock;
 use quic_network_service::quic_client;
 use rust_i18n::t;
 rust_i18n::i18n!("locales");
-// 创建一个quic服务器维护列表全局变量，使用 RwLock 包装
+// 创建一个quic服务器维护列表全局变量，使用 RwLock 包装，后期采用dashMap
 // 使用 lazy_static 初始化全局共享变量
 lazy_static! {
     pub static ref GLOBAL_QUIC_SERVER_LIST: Arc<TokioRwLock<HashMap<String, QuicConnection>>> = Arc::new(TokioRwLock::new(HashMap::new()));
 }
 
-// 主函数入口点，使用Tokio异步运行时
+/// 主函数入口点，使用Tokio异步运行时
 #[actix_web::main]
 async fn main() {
     fast_log::init(Config::new().console().level(LevelFilter::Info).file("log/rust_im.log").chan_len(Some(10))).unwrap();
