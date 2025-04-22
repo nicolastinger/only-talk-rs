@@ -2,16 +2,13 @@ use crate::common::quic_network_service::configure_client;
 use crate::common::quic_network_service::models::quic_connection::FirstQuicMsg;
 use crate::common::quic_network_service::models::text_msg::{HeadMsg, TextMsg, TextQuicMsg};
 use crate::common::quic_network_service::msg_service::text_msg_service::{generate_text_msg, get_text_msg};
-use crate::utils::time::get_now_time_stamp_as_millis;
 use log::{error, info};
-use quinn::{Connection, Endpoint, SendStream};
+use quinn::{Endpoint, SendStream};
 use std::error::Error;
 use std::net::SocketAddr;
-use std::ops::Deref;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
-use validator::HasLen;
 
 // 客户端异步函数，尝试与服务器建立QUIC连接
 pub async fn run_client(server_addr: SocketAddr) {
@@ -67,8 +64,8 @@ async fn init_send_msg(mut send_stream: SendStream) -> Result<(), Box<dyn Error>
     // 发送消息给服务器
 
     let mut first_quic_msg = FirstQuicMsg::new();
-    first_quic_msg.dyn_header_size = 17;
-    first_quic_msg.user_id = "huangxiaoming".to_string();
+    first_quic_msg.dyn_header_size = 9;
+    first_quic_msg.user_id = "caixukun".to_string();
     first_quic_msg.text_serde_struct = "user_chat_json".to_string();
     first_quic_msg.token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJzdWIiOjEyMzEyMywiYWNjb3VudCI6ImNhaXh1a3VuIiwiZXhwIjoxNzQ1NDEzMjYzNTk5fQ.GRvrRyo8y4fwXdebxugvcORiKm3RsLDwVcvPj7p8yc6VHbAM_A2YpcRQbv79UpUuwplhVx0ar6F8nUpBmuqWXHcIHa0NJq_1_bDCHQL3av8ZRPPPtkbQNXrIK_fWIfRQbOt67F5Wf5yqfhz-HV5tteCxhG9t0m9w_tc1Iehb51tNvCVESzKZ0mC4nX2fqauBbTTZGRr6x154_vo7fciM7T_L0lXnr8R2DzoB8IQKadAbLRRA3mYPAEP_caLldlrLZtVw-bnTX0jUpRmPRyQvpr2Nw8n8ipmXXlG6AQJqMthmA0BbH-hEwoceRYYYAyCEHmJjxveNwKh99a8F7o7SNw".to_string();
     send_stream
@@ -83,7 +80,7 @@ async fn init_send_msg(mut send_stream: SendStream) -> Result<(), Box<dyn Error>
     let test_msg = generate_text_msg(
         "1".to_string(),
         "上山打老虎".to_string(),
-        "liangchaowei".to_string(),
+        "caixukun".to_string(),
         "huangxiaoming".to_string(),
     )?;
 
@@ -94,11 +91,11 @@ async fn init_send_msg(mut send_stream: SendStream) -> Result<(), Box<dyn Error>
         "huangxiaoming".to_string(),
     )?;
 
-    send_msg(test_msg, send_stream.clone()).await.unwrap();
-    send_msg(test_msg2.clone(), send_stream.clone()).await.unwrap();
-    send_msg(test_msg2.clone(), send_stream.clone()).await.unwrap();
-    send_msg(test_msg2.clone(), send_stream.clone()).await.unwrap();
-    send_msg(test_msg2, send_stream.clone()).await.unwrap();
+    send_msg(test_msg, send_stream.clone()).await?;
+    send_msg(test_msg2.clone(), send_stream.clone()).await?;
+    send_msg(test_msg2.clone(), send_stream.clone()).await?;
+    send_msg(test_msg2.clone(), send_stream.clone()).await?;
+    send_msg(test_msg2, send_stream.clone()).await?;
 
     tokio::time::sleep(Duration::from_secs(10000)).await;
     Ok(())
