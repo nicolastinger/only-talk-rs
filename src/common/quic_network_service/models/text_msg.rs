@@ -2,20 +2,14 @@ use bincode::Options;
 use serde::{Deserialize, Serialize};
 
 pub trait TextMsg {
-   fn get_bytes(&self) -> Result<Vec<u8>, String>;
-}
-
-pub struct TextMsgCombination {
-    pub header: HeadMsg,
-    pub body: TextQuicMsg
+   fn get_bytes(&self) -> anyhow::Result<Vec<u8>>;
 }
 
 //头部消息
 #[derive(Debug, Serialize, Deserialize)]
 pub struct HeadMsg {
     pub(crate) body_len: u64,       // 消息体长度
-    pub(crate) message_type: u8,    // 消息类型
-    pub(crate) timestamp: i64,      // 时间戳
+    pub(crate) message_type: u8,    // 消息类型, 1-好友单聊
 }
 
 //文本信息消息体
@@ -29,13 +23,13 @@ pub struct TextQuicMsg {
 }
 
 impl TextMsg for HeadMsg {
-    fn get_bytes(&self) -> Result<Vec<u8>, String> {
-        bincode::serialize(self).map_err(|e| e.to_string())
+    fn get_bytes(&self) -> anyhow::Result<Vec<u8>> {
+        Ok(bincode::serialize(self)?)
     }
 }
 
 impl TextMsg for TextQuicMsg {
-    fn get_bytes(&self) -> Result<Vec<u8>, String> {
-        bincode::serialize(self).map_err(|e| e.to_string())
+    fn get_bytes(&self) -> anyhow::Result<Vec<u8>> {
+        Ok(bincode::serialize(self)?)
     }
 }

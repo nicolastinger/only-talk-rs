@@ -6,7 +6,7 @@ use sha2::{Sha256, Digest};
 use rsa::{RsaPrivateKey, RsaPublicKey};
 use rsa::pkcs8::{DecodePrivateKey};
 
-pub fn generate_rsa_keys() ->Result<(RsaPrivateKey, RsaPublicKey),Box<dyn Error>>{
+pub fn generate_rsa_keys() ->Result<(RsaPrivateKey, RsaPublicKey),anyhow::Error>{
     let private_key_str = fs::read_to_string("config/jwt/private.key")?;
     let public_key_str = fs::read_to_string("config/jwt/public.key")?;
 

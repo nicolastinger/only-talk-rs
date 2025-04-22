@@ -10,27 +10,27 @@ pub fn generate_text_msg(
     raw: String,
     recv_user: String,
     send_user: String,
-) -> Result<Vec<u8>, String> {
+) -> anyhow::Result<Vec<u8>> {
+    let now = get_now_time_stamp_as_millis().unwrap_or_else(|_| -99999999999);
     let text_quic_msg = TextQuicMsg {
         text_type,
         raw,
         recv_user,
         send_user,
-        timestamp: get_now_time_stamp_as_millis().unwrap_or_else(|_| 0),
+        timestamp: now,
     };
     let mut meta_data = text_quic_msg.get_bytes()?;
 
     let head_msg = HeadMsg {
         body_len: meta_data.len() as u64, // 消息体长度
-        message_type: 1,                  // 消息类型
-        timestamp: get_now_time_stamp_as_millis().unwrap_or_else(|_| 0),
+        message_type: 1                  // 消息类型
     };
 
     build_text_msg(&head_msg, &text_quic_msg)
 }
 
 //组装头部+消息体
-pub fn build_text_msg<H: TextMsg, G: TextMsg>(text_head: &H, text_msg: &G) -> Result<Vec<u8>, String> {
+pub fn build_text_msg<H: TextMsg, G: TextMsg>(text_head: &H, text_msg: &G) -> anyhow::Result<Vec<u8>> {
     let mut head_byte = text_head.get_bytes()?;
     let mut msg_byte = text_msg.get_bytes()?;
     head_byte.append(&mut msg_byte);

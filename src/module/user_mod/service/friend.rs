@@ -36,7 +36,7 @@ pub async fn add_friend(
             uuid: Some(uuid.parse()?),
             request_user,
             accept_user,
-            enable: Some(false),
+            enable: Some(false)
         };
 
         FriendLink::insert(rb, &friend_link).await?;
@@ -47,7 +47,7 @@ pub async fn add_friend(
             accept_status: Some(0),
             create_at_time: Some(now),
             update_at_time: Some(now),
-            request_message: None,
+            request_message: None
         };
 
         FriendLinkInfo::insert(rb, &friend_link_info).await?;

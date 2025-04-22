@@ -274,8 +274,7 @@ async fn process_text_msg(
             }
         };
 
-        let res = generate_text_msg(text_msg.text_type,text_msg.raw,text_msg.recv_user,text_msg.send_user)
-            .map_err(|e| anyhow::anyhow!(e))?;
+        let res = generate_text_msg(text_msg.text_type,text_msg.raw,text_msg.recv_user,text_msg.send_user)?;
 
         if let Some(mut current_send_stream) = my_send_stream {
             tokio::spawn(async move {

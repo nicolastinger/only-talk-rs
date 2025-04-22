@@ -31,7 +31,7 @@ pub async fn run_client(server_addr: SocketAddr) {
     // 开启一个双向流
     let (mut send_stream, mut _recv_stream) = connection.open_bi().await.unwrap();
     send_stream.set_priority(0).unwrap(); // 设置优先级
-    let head_length = 17;
+    let head_length = 9;
     let buffer_msg: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
     // 异步处理流中的数据
     tokio::spawn(async move {
@@ -70,7 +70,7 @@ async fn init_send_msg(mut send_stream: SendStream) -> Result<(), Box<dyn Error>
     first_quic_msg.dyn_header_size = 17;
     first_quic_msg.user_id = "huangxiaoming".to_string();
     first_quic_msg.text_serde_struct = "user_chat_json".to_string();
-    first_quic_msg.token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJzdWIiOjEyMzEyMywiYWNjb3VudCI6Imh1YW5neGlhb21pbmciLCJleHAiOjE3NDQ4ODQwOTc5MTF9.DFvAsDDgvaTn_UBBfe0Lx6ZrrVCijP8ybB2rDklQ1TQv7HF5e2JPJBHFTYRCDqsJlERZ-ZZRXvNUVz2H4r-z6os7zWY3gR0c-DO020dmbVwdyXHb8Ef3F0YpHiRznGcfBZDndC2ody5gAzQHWv2mlVrvlMh0jAtTmTKZMCpXzMzu-E_PqhVi8AFxtDNmhIbvF0Odpafd9uhCZ83KkkD7qFQNp0eyn92hR27l-gjTqNfeTa1iuFT9y6H3GH52D4s1tXKLr5OIMYQTs5cmvTRgNC32VFcyuGvSKKEJfyRgw6JVFCAgOAqsGDHjLedHVwNsCEza4hDB2JweR7adtPw3gw".to_string();
+    first_quic_msg.token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJzdWIiOjEyMzEyMywiYWNjb3VudCI6ImNhaXh1a3VuIiwiZXhwIjoxNzQ1NDEzMjYzNTk5fQ.GRvrRyo8y4fwXdebxugvcORiKm3RsLDwVcvPj7p8yc6VHbAM_A2YpcRQbv79UpUuwplhVx0ar6F8nUpBmuqWXHcIHa0NJq_1_bDCHQL3av8ZRPPPtkbQNXrIK_fWIfRQbOt67F5Wf5yqfhz-HV5tteCxhG9t0m9w_tc1Iehb51tNvCVESzKZ0mC4nX2fqauBbTTZGRr6x154_vo7fciM7T_L0lXnr8R2DzoB8IQKadAbLRRA3mYPAEP_caLldlrLZtVw-bnTX0jUpRmPRyQvpr2Nw8n8ipmXXlG6AQJqMthmA0BbH-hEwoceRYYYAyCEHmJjxveNwKh99a8F7o7SNw".to_string();
     send_stream
         .write_all(serde_json::to_string(&first_quic_msg).unwrap().as_bytes())
         .await

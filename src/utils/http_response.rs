@@ -70,10 +70,6 @@ where
         CommonResponseRef::new(200, Option::from(data), "Success")
     }
 
-    pub fn error(data: &'a T, message: &'a str) -> CommonResponseRef<'a, T> {
-        CommonResponseRef::new(500, Option::from(data), message)
-    }
-
     pub fn success_json(data: &'a T) -> serde_json::Result<String> {
         serde_json::to_string(&CommonResponseRef::success(data))
     }

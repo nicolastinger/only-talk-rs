@@ -1,16 +1,14 @@
 use std::collections::HashMap;
 use actix_web::web;
-use once_cell::sync::Lazy;
 use rbatis::{crud, impl_delete, impl_select, impl_select_page, impl_update, RBatis};
+use rbatis::rbdc::Uuid;
 use serde::{Deserialize, Serialize};
 use validator::{Validate};
 
 
-
 #[derive(Clone, Deserialize, Serialize, Debug, Validate)]
 pub struct BasicUser {
-    pub uuid: Option<String>,
-    pub id: Option<i64>,
+    pub uuid: Option<Uuid>,
     #[validate(required(message = "需要输入名称"), length(min = 5, message = "账号长度必须大于5"))]
     pub username: Option<String>,
     #[validate(required(message = "需要输入id"), length(min = 5, message = "账号长度必须大于5"))]
@@ -30,8 +28,8 @@ impl_select_page!(BasicUser{select_page(name:&str) => "`where name != #{name}`"}
 
 #[derive(Clone, Deserialize, Serialize, Debug)]
 pub struct BasicUserSalt {
-    pub uuid: String,
-    pub sign_up_salt: String
+    pub uuid: Option<Uuid>,
+    pub sign_up_salt: Option<String>
 }
 
 crud!(BasicUserSalt {});

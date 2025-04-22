@@ -1,9 +1,11 @@
 use crate::module::user_mod::model::basic_user::{get_raw_sql, BasicUser, BasicUserSalt};
 use crate::utils::rsa_util::{generate_random_string, hash_with_salt};
 use actix_web::{web};
+use anyhow::anyhow;
 use log::{error, info};
 use rbatis::RBatis;
 use uuid::Uuid;
+use crate::module::user_mod::dto::basic_user_dto::SignInBasicUserDTO;
 use crate::utils::jwt_util::get_jwt;
 
 pub async fn get_user_raw(rb: web::Data<RBatis>) {
@@ -41,67 +43,71 @@ pub async fn get_exit_user(rb: &RBatis, account: &str) -> bool {
 pub async fn add_new_basic_user_service(
     rb: &RBatis,
     mut basic_user: BasicUser,
-) -> Result<String, String> {
-    // 生成一个版本 4 的 UUID
-    let uuid_v4 = Uuid::new_v4();
-    basic_user.uuid = Option::from(uuid_v4.to_string());
+) -> Result<String, anyhow::Error> {
+    basic_user.uuid = Some(Uuid::now_v7().to_string().parse()?);
     let random_str = generate_random_string(16);
     let password = hash_with_salt(basic_user.password.as_ref().unwrap(), &random_str);
     basic_user.password = Option::from(password);
 
     let account_ref: &str = basic_user.account.as_ref().map(|s| s.as_str()).unwrap_or("");
     match get_exit_user(rb, &account_ref).await {
-        true => Err("该账号已存在!".parse().unwrap()),
+        true => Err(anyhow!("该账号已存在!".to_string())),
         false => {
             BasicUserSalt::insert(
                 rb,
                 &BasicUserSalt {
-                    uuid: uuid_v4.to_string(),
-                    sign_up_salt: random_str.to_string(),
+                    uuid: basic_user.uuid.clone(),
+                    sign_up_salt: Option::from(random_str.to_string()),
                 },
             )
-            .await.map_err(|e| e.to_string())?;
+            .await?;
             match BasicUser::insert(rb, &basic_user).await {
                 Ok(_) => Ok("新增账号成功!".to_string()),
-                Err(_) => Err("新增账号失败!".parse().unwrap()),
+                Err(_) => Err(anyhow!("新增账号失败!".to_string())),
             }
         }
     }
 }
 
-pub async fn user_sign_in(rb: &RBatis, basic_user: BasicUser) -> Result<String, String> {
+pub async fn user_sign_in(rb: &RBatis, basic_user_dto: SignInBasicUserDTO) -> Result<String, anyhow::Error> {
     // 解构 basic_user 以获取 account 和 password 的引用
+    let basic_user = BasicUser{
+        uuid: None,
+        username: None,
+        account: basic_user_dto.account,
+        icon: None,
+        info: None,
+        password: basic_user_dto.password,
+    };
+
     let BasicUser { account, password, .. } = basic_user;
 
     // 验证 account 和 password 是否存在
-    let account_str = account.as_ref().ok_or("账号为空")?;
-    let password_str = password.as_ref().ok_or("密码为空")?;
+    let account_str = account.as_ref().ok_or(anyhow!("账号为空".to_string()))?;
+    let password_str = password.as_ref().ok_or(anyhow!("密码为空".to_string()))?;
 
     // 查询用户
     let basic_user_vec = BasicUser::select_by_column(rb, "account", account_str)
-        .await
-        .map_err(|_| "用户查询失败!".to_string())?;
+        .await?;
 
     // 检查用户是否存在
-    let basic_user_exit = basic_user_vec.first().ok_or("用户不存在!".to_string())?;
+    let basic_user_exit = basic_user_vec.first().ok_or(anyhow!("用户不存在!".to_string()))?;
 
     // 查询盐值信息
     let salt_vec = BasicUserSalt::select_by_column(rb, "uuid", &basic_user_exit.uuid)
-        .await
-        .map_err(|_| "用户密码查询失败!".to_string())?;
+        .await?;
 
     // 检查盐值是否存在
-    let salt = salt_vec.first().ok_or("密码不存在!".to_string())?;
+    let salt = salt_vec.first().ok_or(anyhow!("密码不存在!".to_string()))?;
 
     // 哈希输入密码
-    let hashed_password = hash_with_salt(password_str, salt.sign_up_salt.as_ref());
+    let hashed_password = hash_with_salt(password_str, salt.sign_up_salt.as_ref().ok_or(anyhow!("加密盐查询失败".to_string()))?);
 
     // 比较哈希后的密码
     if basic_user_exit.password.as_deref() == Some(&hashed_password) {
         // 生成 JWT
-        get_jwt(account_str.clone())
-            .map_err(|_| "生成token失败!".to_string())
+        Ok(get_jwt(account_str.clone())?)
     } else {
-        Err("用户或密码不正确!".to_string())
+        Err(anyhow!("用户或密码不正确!"))
     }
 }

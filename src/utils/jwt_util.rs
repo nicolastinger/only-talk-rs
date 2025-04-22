@@ -15,7 +15,7 @@ struct Claims {
     exp: i64,        // 过期时间 (Unix 时间戳)
 }
 
-fn generate_keys() -> Result<(EncodingKey, DecodingKey), Box<dyn Error>> {
+fn generate_keys() -> Result<(EncodingKey, DecodingKey), anyhow::Error> {
     let (private_key, public_key) = generate_rsa_keys()?;
     let private_key_pem = private_key.to_pkcs8_pem(Default::default())?;
     let private_key_str = private_key_pem.to_string();
@@ -33,12 +33,12 @@ fn generate_keys() -> Result<(EncodingKey, DecodingKey), Box<dyn Error>> {
     Ok((encoding_key, decoding_key))
 }
 
-pub fn get_jwt(account: String) -> Result<String, Box<dyn Error>> {
+pub fn get_jwt(account: String) -> Result<String, anyhow::Error> {
     let (encoding_key, _) = generate_keys()?;
     let claims = Claims {
         sub: 123123,
         account,
-        exp: get_now_time_stamp_as_millis().unwrap() + (3600000 * 24),
+        exp: get_now_time_stamp_as_millis()? + (3600000 * 24),
     };
     // 使用 RSA 算法生成 JWT
     let header = Header::new(jsonwebtoken::Algorithm::RS256);

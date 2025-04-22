@@ -1,14 +1,14 @@
 use actix_web::{get, post, web, HttpResponse, Responder};
 use deadpool_redis::Pool;
 use deadpool_redis::redis::{cmd, RedisResult};
-use log::info;
+use log::{info,error};
 use rbatis::RBatis;
 use crate::common::init_server::AppState;
 use crate::module::user_mod::model::basic_user::BasicUser;
 use crate::module::user_mod::service::local_user_service::{add_new_basic_user_service, get_exit_user, get_user_raw, test_sql, user_sign_in};
 use crate::utils::http_response::CommonResponse;
 use crate::utils::jwt_util::{decode_jwt, get_jwt};
-use crate::{respond_json, respond_to_json, serde_json_to_string, validate_and_respond};
+use crate::{respond_json, respond_json_any, respond_to_json, serde_json_to_string, validate_and_respond};
 use crate::module::user_mod::dto::basic_user_dto::SignInBasicUserDTO;
 
 pub fn user_service(cfg: &mut web::ServiceConfig) {
@@ -117,25 +117,14 @@ pub async fn check_token(token:String) -> impl Responder {
 pub async fn sign_up(state: web::Data<RBatis>,basic_user:web::Json<BasicUser>) -> impl Responder {
     let basic_user = validate_and_respond!(basic_user);
     let res = add_new_basic_user_service(state.get_ref(),basic_user).await;
-    println!("{:?}", res);
-    respond_to_json!(res)
+    respond_json_any!(res)
 }
 
 #[post("/sign_in")]
 pub async fn sign_in(state: web::Data<RBatis>,basic_user_dto:web::Json<SignInBasicUserDTO>) -> impl Responder {
     let basic_user_dto: SignInBasicUserDTO = validate_and_respond!(basic_user_dto);
-
-    let basic_user = BasicUser {
-        uuid: None,
-        id: None,
-        username: None,
-        account: Some(basic_user_dto.account.unwrap_or_default()),
-        icon: None,
-        info: None,
-        password: Some(basic_user_dto.password.unwrap_or_default()),
-    };
-    let res =  user_sign_in(state.get_ref(),basic_user).await;
-    respond_to_json!(res, "normal".to_string())
+    let res =  user_sign_in(state.get_ref(),basic_user_dto).await;
+    respond_json_any!(res)
 }
 
 #[post("/sign_in_test")]
