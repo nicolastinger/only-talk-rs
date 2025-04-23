@@ -6,6 +6,7 @@ use rsa::pkcs8::{EncodePrivateKey};
 use serde::{Deserialize, Serialize};
 use std::error::Error;
 use std::fs;
+use anyhow::anyhow;
 
 // 定义 JWT 的 Claims 结构体
 #[derive(Debug, Serialize, Deserialize)]
@@ -46,7 +47,7 @@ pub fn get_jwt(account: String) -> Result<String, anyhow::Error> {
     Ok(token)
 }
 
-pub fn decode_jwt(token: &str) -> Result<String, Box<dyn Error>> {
+pub fn decode_jwt(token: &str) -> Result<String, anyhow::Error> {
     let (_, decoding_key) = generate_keys()?;
     // 使用 RSA 算法解码 JWT
     let validation = Validation::new(jsonwebtoken::Algorithm::RS256);
@@ -55,6 +56,6 @@ pub fn decode_jwt(token: &str) -> Result<String, Box<dyn Error>> {
     let now = get_now_time_stamp_as_millis()?;
     match now < decoded.claims.exp {
         true => Ok(decoded.claims.account),
-        false => Err("token超时".into()),
+        false => Err(anyhow!("token超时")),
     }
 }

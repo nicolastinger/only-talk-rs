@@ -1,5 +1,5 @@
 use crate::common::quic_network_service::configure_client;
-use crate::common::quic_network_service::models::quic_connection::FirstQuicMsg;
+use crate::common::quic_network_service::models::quic_connection::{ConnectionType, FirstQuicMsg};
 use crate::common::quic_network_service::models::text_msg::{HeadMsg, TextMsg, TextQuicMsg};
 use crate::common::quic_network_service::msg_service::text_msg_service::{generate_text_msg, get_text_msg};
 use log::{error, info};
@@ -36,8 +36,12 @@ pub async fn run_client(server_addr: SocketAddr) {
         loop {
             match _recv_stream.read(&mut buffer).await {
                 Ok(Some(length)) => {
-                    let text_vec = get_text_msg(&mut buffer, length, buffer_msg.clone(), head_length).await.unwrap();
-                    info!("服务器返回的消息为 {:?}", text_vec);
+                    match process_rec_msg(&mut buffer, length, &ConnectionType::Text,buffer_msg.clone(), head_length).await {
+                        Ok(_) => {}
+                        Err(e) => {
+                            error!("[client] Failed to process_rec_msg {}", e);
+                        }
+                    };
                 }
                 Ok(None) => {
                     info!("[客户端]没有接收到数据");
@@ -60,22 +64,22 @@ pub async fn run_client(server_addr: SocketAddr) {
     }
 }
 
-async fn init_send_msg(mut send_stream: SendStream) -> Result<(), Box<dyn Error>> {
+async fn init_send_msg(mut send_stream: SendStream) -> Result<(), anyhow::Error> {
     // 发送消息给服务器
 
     let mut first_quic_msg = FirstQuicMsg::new();
     first_quic_msg.dyn_header_size = 9;
     first_quic_msg.user_id = "caixukun".to_string();
     first_quic_msg.text_serde_struct = "user_chat_json".to_string();
-    first_quic_msg.token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJzdWIiOjEyMzEyMywiYWNjb3VudCI6ImNhaXh1a3VuIiwiZXhwIjoxNzQ1NDEzMjYzNTk5fQ.GRvrRyo8y4fwXdebxugvcORiKm3RsLDwVcvPj7p8yc6VHbAM_A2YpcRQbv79UpUuwplhVx0ar6F8nUpBmuqWXHcIHa0NJq_1_bDCHQL3av8ZRPPPtkbQNXrIK_fWIfRQbOt67F5Wf5yqfhz-HV5tteCxhG9t0m9w_tc1Iehb51tNvCVESzKZ0mC4nX2fqauBbTTZGRr6x154_vo7fciM7T_L0lXnr8R2DzoB8IQKadAbLRRA3mYPAEP_caLldlrLZtVw-bnTX0jUpRmPRyQvpr2Nw8n8ipmXXlG6AQJqMthmA0BbH-hEwoceRYYYAyCEHmJjxveNwKh99a8F7o7SNw".to_string();
+    first_quic_msg.token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJzdWIiOjEyMzEyMywiYWNjb3VudCI6ImNhaXh1a3VuIiwiZXhwIjoxNzQ1NTAzMzY5MTgyfQ.KePe3O_rWKa1azp8Vtufn2H3Fy52nUjlShUDtbUBBBg8ZqX2oBhPBQigqnmJfjUo5KGq9eKYhYy6CMN_dQN2pVIQAanPBEaNDvokaEN4COqqinIj2nPtmsov-0gmpdZsHgBTnPV07iNUC-CjADmjIpmoVsHQLs-JgQorR9xgK9g2JfLqR1u-mss7V0C-3iG0zS4cAZSkcnd8lUStxlYKsL-xgwzcbwjXO2s2JkzghO-8kjUlJwQafr78H_VL4xTJk3p0Pi9_Q8phRKcPBM_UGo4saoYYvc41cRgBhCQUcfeK743mVkY-Yumf0rgZHIPrYCCUTMHnCZjAjXBYuspzBA".to_string();
     send_stream
-        .write_all(serde_json::to_string(&first_quic_msg).unwrap().as_bytes())
+        .write_all(serde_json::to_string(&first_quic_msg)?.as_bytes())
         .await
         .unwrap();
 
     tokio::time::sleep(Duration::from_secs(1)).await;  //初始化一秒，防止连发元数据
 
-    let mut send_stream = Arc::new(Mutex::new(send_stream));
+    let send_stream = Arc::new(Mutex::new(send_stream));
 
     let test_msg = generate_text_msg(
         "1".to_string(),
@@ -97,7 +101,22 @@ async fn init_send_msg(mut send_stream: SendStream) -> Result<(), Box<dyn Error>
     send_msg(test_msg2.clone(), send_stream.clone()).await?;
     send_msg(test_msg2, send_stream.clone()).await?;
 
-    tokio::time::sleep(Duration::from_secs(10000)).await;
+    let send_stream_ping = send_stream.clone();
+    tokio::spawn(async move {
+        loop {
+            //一分钟发送心跳
+            tokio::time::sleep(Duration::from_secs(6)).await;
+            info!("发送心跳");
+            match send_stream_ping.lock().await.write_all("ping".as_bytes()).await {
+              Ok(_) => {
+                  info!("发送成功");
+              },
+              Err(e) => {
+                  error!("发送心跳失败 {}", e);
+              }
+            };
+        }
+    });
     Ok(())
 }
 
@@ -105,12 +124,41 @@ async fn init_send_msg(mut send_stream: SendStream) -> Result<(), Box<dyn Error>
 async fn send_msg(
     text_msg: Vec<u8>,
     send_stream: Arc<Mutex<SendStream>>,
-) -> Result<String, String> {
+) -> Result<String, anyhow::Error> {
     send_stream
         .lock()
         .await
         .write_all(&text_msg)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
     Ok("success".to_string())
+}
+
+async fn process_rec_msg(
+    buffer: &mut Vec<u8>,
+    length: usize,
+    msg_type: &ConnectionType,
+    buffer_msg: Arc<Mutex<Vec<u8>>>,
+    head_length: usize
+) -> anyhow::Result<()>{
+    match msg_type {
+        ConnectionType::Text => {
+            if length < 16 {
+                let msg = String::from_utf8_lossy(&buffer[0..length]).to_string();
+                match msg.as_str() {
+                    "pong" => {
+                        info!("接受心跳信息");
+                        return Ok(());
+                    }
+                    _ => {}
+                }
+            }
+            let text_vec = get_text_msg(buffer, length, buffer_msg, head_length).await?;
+            info!("服务器返回的消息为 {:?}", text_vec);
+        }
+        ConnectionType::Img => {}
+        ConnectionType::Video => {}
+        ConnectionType::File => {}
+        ConnectionType::Other => {}
+    }
+    Ok(())
 }

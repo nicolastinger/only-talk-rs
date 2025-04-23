@@ -44,7 +44,12 @@ pub async fn error_record_middleware(
         Some(token) => token.to_str().unwrap().to_string(),
     };
     //校验token
-    let account = decode_jwt(&token)?;
+    let account = match decode_jwt(&token) {
+        Ok(t) => t,
+        Err(_) => {
+            return Err(actix_web::error::ErrorUnauthorized("Unauthorized"));
+        }
+    };
 
     req.extensions_mut().insert(AuthAccount(account));
 

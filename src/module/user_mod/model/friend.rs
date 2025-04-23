@@ -31,3 +31,14 @@ pub struct FriendLinkInfo {
 }
 
 crud!(FriendLinkInfo {});
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct FriendList {
+    pub uuid: Option<Uuid>,
+    pub create_at_time: Option<i64>,
+    pub update_at_time: Option<i64>,
+    //版本id
+    pub version: Option<Uuid>  
+}
+
+crud!(FriendList {});

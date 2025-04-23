@@ -4,7 +4,7 @@ use crate::common::quic_network_service::models::quic_connection::{
 };
 use crate::utils::jwt_util::decode_jwt;
 use crate::{GLOBAL_QUIC_SERVER_LIST};
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use backtrace::Backtrace;
 use deadpool_redis::redis::AsyncCommands;
 use deadpool_redis::Pool;
@@ -169,20 +169,21 @@ async fn handle_conn(conn: quinn::Connection, redis: Pool) {
         let change_buffer = &mut buffer;
         match recv_stream.read(change_buffer).await {
             Ok(Some(length)) => {
-                let msg_type = msg_type.clone();
                 let new_close_key = close_key.clone();
 
                 match process_rec_msg(
                     change_buffer,
                     length,
                     new_close_key,
-                    msg_type,
+                    &msg_type,
                     buffer_msg.clone(),
                     head_length
                 )
                 .await
                 {
-                    Ok(_) => {}
+                    Ok(_) => {
+                        info!("处理消息完成")
+                    }
                     Err(error) => {
                         error!("处理信息失败! {:#}", error);
                     }
@@ -214,20 +215,21 @@ async fn process_rec_msg(
     buffer: &mut Vec<u8>,
     length: usize,
     close_key: String,
-    msg_type: ConnectionType,
+    msg_type: &ConnectionType,
     buffer_msg: Arc<Mutex<Vec<u8>>>,
     head_length: usize
 ) -> Result<()> {
-    let mut my_send_stream = {
+    let my_send_stream = {
         let bind = GLOBAL_QUIC_SERVER_LIST.read().await;
-        let send = bind.get(&close_key).unwrap();
+        let send = bind.get(&close_key).ok_or(anyhow!("连接不可用"))?;
         send.send_stream.clone()
     };
 
     match msg_type {
         ConnectionType::Text => {
-            if buffer.len() < 16 {
+            if length < 16 {
                 let msg = String::from_utf8_lossy(&buffer[0..length]).to_string();
+
                 match msg.as_str() {
                     "ping" => {
                         my_send_stream
@@ -235,6 +237,7 @@ async fn process_rec_msg(
                             .await
                             .write_all("pong".as_bytes())
                             .await?;
+                        info!("接受心跳");
                         return Ok(());
                     }
                     _ => {}
