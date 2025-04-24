@@ -9,7 +9,7 @@ use backtrace::Backtrace;
 use deadpool_redis::redis::AsyncCommands;
 use deadpool_redis::Pool;
 use log::{error, info};
-use quinn::{Connection, ConnectionError, SendStream};
+use quinn::{Connection, ConnectionError, RecvStream, SendStream};
 use redis::Msg;
 use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
@@ -18,6 +18,7 @@ use std::net::SocketAddr;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use futures_util::StreamExt;
 use tokio::sync::{Mutex, MutexGuard, RwLock};
 use crate::common::quic_network_service::models::text_msg::{HeadMsg, TextMsg, TextQuicMsg};
 use crate::common::quic_network_service::msg_service::text_msg_service::{generate_text_msg, get_text_msg};
@@ -51,23 +52,36 @@ async fn run_server(addr: SocketAddr, redis: Pool) {
         );
         tokio::spawn(async move {
             // 异步处理每个连接
-            handle_conn(conn, new_pool).await;
+            handle_connection(conn, new_pool).await.expect("打开双向流失败");
         });
     }
 }
 
-async fn handle_conn(conn: quinn::Connection, redis: Pool) {
-    // 打开双向流
-    let (mut send_stream, mut recv_stream) = match conn.accept_bi().await {
-        Ok((send, recv)) => (send, recv),
-        Err(e) => {
-            error!("打开双向流失败: {}", e);
-            return;
-        }
-    };
+// 单个连接的多流处理函数
+async fn handle_connection(mut conn: Connection, redis: Pool) -> Result<(), anyhow::Error> {
+        println!("New connection from: {:?}", conn.remote_address());
 
-    let address = conn.remote_address().to_string().clone();
+        // 4. 循环接受该连接的双向流
+        loop {
+            match conn.accept_bi().await {
+                Ok((send_stream, recv_stream)) => {
+                    // 5. 为每个流生成独立异步任务
+                    let redis = redis.clone();
+                    let address = conn.remote_address().to_string().clone();
+                    tokio::spawn(async move {
+                        handle_conn(send_stream, recv_stream, redis, address)
+                    });
+                }
+                Err(e) => {
+                    error!("Connection error: {:?}", e);
+                    break;
+                }
+            }
+    }
+    Ok(())
+}
 
+async fn handle_conn(mut send_stream: SendStream, mut recv_stream: RecvStream, redis: Pool, address: String) {
     //接收流元数据，确认消息类型以及头部长度
     let mut first_quic_msg = FirstQuicMsg::new();
     let mut first_buffer = vec![0u8; 1024 * 10]; //10k缓冲区
@@ -87,14 +101,14 @@ async fn handle_conn(conn: quinn::Connection, redis: Pool) {
             };
         }
         Ok(None) => {
-            error!("[服务端] 发送流初始化元数据失败: {}", conn.remote_address());
+            error!("[服务端] 发送流初始化元数据失败: {}", address);
             //return;
         }
         Err(e) => {
             error!(
                 "[服务端] 初始化读取元数据错误: {},退出流{}",
                 e,
-                conn.remote_address()
+                address.as_str()
             );
         }
     }
@@ -130,9 +144,9 @@ async fn handle_conn(conn: quinn::Connection, redis: Pool) {
     let send_stream = Arc::new(RwLock::new(send_stream));
 
     let now = get_now_time_stamp_as_millis().unwrap_or_else(|_| 0);
+    let close_now = now.clone();
     let new_connection = QuicConnection {
         is_online: true,
-        connection: conn,
         user_id: first_quic_msg.user_id,
         connection_type: ConnectionType::Text,
         send_stream: send_stream.clone(),
@@ -202,7 +216,12 @@ async fn handle_conn(conn: quinn::Connection, redis: Pool) {
 
     {
         let mut server_book = GLOBAL_QUIC_SERVER_LIST.write().await;
-        server_book.remove(&close_key);
+        if let Some(book) = server_book.get_mut(&close_key) {
+            let now = book.update_time;
+            if now == close_now as u64 {
+                server_book.remove(&close_key);
+            }
+        }
     }
 
     info!(

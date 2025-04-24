@@ -28,7 +28,6 @@ impl ConnectionType {
 #[derive(Debug)]
 pub struct QuicConnection {
     pub is_online: bool,
-    pub connection: Connection,
     pub user_id: String,
     pub connection_type: ConnectionType,
     pub send_stream: Arc<RwLock<SendStream>>,

@@ -26,7 +26,8 @@ lazy_static! {
 async fn main() {
     fast_log::init(Config::new().console().level(LevelFilter::Info).file("log/rust_im.log").chan_len(Some(10))).unwrap();
 
-     let addr = "127.0.0.1:4433".parse().unwrap();
+    let addr = "124.220.82.185:4433".parse().unwrap();
+    //let addr = "127.0.0.1:4433".parse().unwrap();
      tokio::spawn(async move{
          quic_client::run_client(addr).await;
      });

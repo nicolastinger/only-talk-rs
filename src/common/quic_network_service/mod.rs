@@ -80,7 +80,7 @@ fn configure_server() -> Result<(ServerConfig, Vec<u8>), Box<dyn Error>> {
     let mut server_config = ServerConfig::with_single_cert(cert_chain.clone(), key)?;
     let transport_config = Arc::get_mut(&mut server_config.transport).unwrap();
     transport_config.max_concurrent_uni_streams(0_u8.into()); // 设置最大并发单向流数量
-    transport_config.max_idle_timeout(Some(Duration::from_secs(1800).try_into().unwrap()));
+    transport_config.max_idle_timeout(Some(Duration::from_secs(190).try_into().unwrap()));  //最大容忍三次连接超时
     // 返回服务器配置和证书
     Ok((server_config, cert_der))
 }
