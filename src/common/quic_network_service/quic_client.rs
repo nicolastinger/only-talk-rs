@@ -6,9 +6,9 @@ use log::{error, info};
 use quinn::{Endpoint, SendStream};
 use std::error::Error;
 use std::net::SocketAddr;
-use std::sync::Arc;
+use std::sync::{Arc};
+use tokio::sync::{Mutex, RwLock};
 use std::time::Duration;
-use tokio::sync::Mutex;
 
 // 客户端异步函数，尝试与服务器建立QUIC连接
 pub async fn run_client(server_addr: SocketAddr) {
@@ -79,7 +79,7 @@ async fn init_send_msg(mut send_stream: SendStream) -> Result<(), anyhow::Error>
 
     tokio::time::sleep(Duration::from_secs(1)).await;  //初始化一秒，防止连发元数据
 
-    let send_stream = Arc::new(Mutex::new(send_stream));
+    let send_stream = Arc::new(RwLock::new(send_stream));
 
     let test_msg = generate_text_msg(
         "1".to_string(),
@@ -107,7 +107,7 @@ async fn init_send_msg(mut send_stream: SendStream) -> Result<(), anyhow::Error>
             //一分钟发送心跳
             tokio::time::sleep(Duration::from_secs(6)).await;
             info!("发送心跳");
-            match send_stream_ping.lock().await.write_all("ping".as_bytes()).await {
+            match send_stream_ping.write().await.write_all("ping".as_bytes()).await {
               Ok(_) => {
                   info!("发送成功");
               },
@@ -123,10 +123,10 @@ async fn init_send_msg(mut send_stream: SendStream) -> Result<(), anyhow::Error>
 //发送文本信息
 async fn send_msg(
     text_msg: Vec<u8>,
-    send_stream: Arc<Mutex<SendStream>>,
+    send_stream: Arc<RwLock<SendStream>>,
 ) -> Result<String, anyhow::Error> {
     send_stream
-        .lock()
+        .write()
         .await
         .write_all(&text_msg)
         .await?;
