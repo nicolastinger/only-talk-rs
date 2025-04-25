@@ -20,25 +20,27 @@ pub struct FriendLink {
 crud!(FriendLink {});
 
 
+
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct FriendLinkInfo {
     pub uuid: Option<Uuid>,
     /// 0-已发起未处理,1-已接受,2-不接受,3-已拒绝再发起,4-拉入黑名单
     pub accept_status: Option<u8>,
-    pub create_at_time: Option<i64>,
-    pub update_at_time: Option<i64>,
+    pub create_at: Option<i64>,
+    pub update_at: Option<i64>,
     pub request_message: Option<String>
 }
 
 crud!(FriendLinkInfo {});
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct FriendList {
+pub struct FriendListRecord {
     pub uuid: Option<Uuid>,
-    pub create_at_time: Option<i64>,
-    pub update_at_time: Option<i64>,
+    pub create_at: Option<i64>,
+    pub update_at: Option<i64>,
     //版本id
     pub version: Option<Uuid>  
 }
 
-crud!(FriendList {});
+crud!(FriendListRecord {});

@@ -50,21 +50,23 @@ pub async fn get_raw_sql(rb: web::Data<RBatis>) {
 
 #[derive(Clone, Deserialize, Serialize, Debug)]
 struct UserInfo {
+    uuid: Option<Uuid>,
     username: Option<String>,
     account: Option<String>,
-    icon: Option<String>,  //头像的base64字符串
+    icon: Option<String>,  //头像的超链接
     password: Option<String>,
     gender: Option<u8>,  //0-m,1-s,2-男,3-女,4-机器人,5-other,etc
     age: Option<u8>,
+    birthday: Option<i64>,
     info: Option<String>,  //简介
-    create_time: Option<i64>,
-    update_time: Option<i64>,
-    last_login_time: Option<i64>,
+    create_at: Option<i64>,
+    update_at: Option<i64>,
+    last_login_at: Option<i64>,
     last_login_equipment: Option<String>,  //最后登录的设备
     last_login_ipv4: Option<String>,
     last_login_ipv6: Option<String>,
     phone: Option<String>,
     email: Option<String>,
     address: Option<String>,
-    is_active: Option<bool>
+    status: Option<u8>
 }

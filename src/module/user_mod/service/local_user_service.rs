@@ -6,6 +6,7 @@ use log::{error, info};
 use rbatis::RBatis;
 use uuid::Uuid;
 use crate::module::user_mod::dto::basic_user_dto::SignInBasicUserDTO;
+use crate::utils::http_response::CommonResponseRef;
 use crate::utils::jwt_util::get_jwt;
 
 pub async fn get_user_raw(rb: web::Data<RBatis>) {
@@ -62,13 +63,14 @@ pub async fn add_new_basic_user_service(
             )
             .await?;
             match BasicUser::insert(rb, &basic_user).await {
-                Ok(_) => Ok("新增账号成功!".to_string()),
+                Ok(_) => Ok(CommonResponseRef::<String>::success_json(&"新增账号成功".to_string())?),
                 Err(_) => Err(anyhow!("新增账号失败!".to_string())),
             }
         }
     }
 }
 
+/// 用户登录
 pub async fn user_sign_in(rb: &RBatis, basic_user_dto: SignInBasicUserDTO) -> Result<String, anyhow::Error> {
     // 解构 basic_user 以获取 account 和 password 的引用
     let basic_user = BasicUser{
@@ -106,7 +108,7 @@ pub async fn user_sign_in(rb: &RBatis, basic_user_dto: SignInBasicUserDTO) -> Re
     // 比较哈希后的密码
     if basic_user_exit.password.as_deref() == Some(&hashed_password) {
         // 生成 JWT
-        Ok(get_jwt(account_str.clone())?)
+        Ok(CommonResponseRef::<String>::success_json(&get_jwt(account_str.clone())?)?)
     } else {
         Err(anyhow!("用户或密码不正确!"))
     }
