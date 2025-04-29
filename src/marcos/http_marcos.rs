@@ -96,7 +96,7 @@ macro_rules! serde_json_to_string {
 #[macro_export]
 macro_rules! get_account_from_header {
     ($model:expr) => {{
-        let mut map = $model.extensions();
+        let map = $model.extensions();
         match map.get::<AuthAccount>() {
             None => None,
             Some(t) => Some(t.to_owned().0),

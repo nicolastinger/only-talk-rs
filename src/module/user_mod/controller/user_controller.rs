@@ -1,15 +1,16 @@
-use actix_web::{get, post, web, HttpResponse, Responder};
+use actix_web::{get, post, web, HttpMessage, HttpRequest, HttpResponse, Responder};
 use deadpool_redis::Pool;
 use deadpool_redis::redis::{cmd, RedisResult};
 use log::{info,error};
 use rbatis::RBatis;
 use crate::common::init_server::AppState;
 use crate::module::user_mod::model::basic_user::BasicUser;
-use crate::module::user_mod::service::local_user_service::{add_new_basic_user_service, get_exit_user, get_user_raw, test_sql, user_sign_in};
+use crate::module::user_mod::service::local_user_service::{add_new_basic_user_service, get_exit_user, get_user_raw, me, test_sql, user_sign_in};
 use crate::utils::http_response::CommonResponse;
 use crate::utils::jwt_util::{decode_jwt, get_jwt};
-use crate::{respond_json, respond_json_any, respond_to_json, serde_json_to_string, validate_and_respond};
+use crate::{get_account_from_header, respond_json, respond_json_any, serde_json_to_string, validate_and_respond};
 use crate::module::user_mod::dto::basic_user_dto::SignInBasicUserDTO;
+use crate::utils::dto::{AuthAccount};
 
 pub fn user_service(cfg: &mut web::ServiceConfig) {
     cfg.service(user_test)
@@ -23,6 +24,8 @@ pub fn user_service(cfg: &mut web::ServiceConfig) {
         .service(sign_in)
         .service(sign_up)
         .service(sign_test)
+        .service(me_api)
+        .service(query_user_api)
         .service(post_online_user);
 }
 
@@ -124,6 +127,20 @@ pub async fn sign_up(state: web::Data<RBatis>,basic_user:web::Json<BasicUser>) -
 pub async fn sign_in(state: web::Data<RBatis>,basic_user_dto:web::Json<SignInBasicUserDTO>) -> impl Responder {
     let basic_user_dto: SignInBasicUserDTO = validate_and_respond!(basic_user_dto);
     let res =  user_sign_in(state.get_ref(),basic_user_dto).await;
+    respond_json_any!(res)
+}
+
+#[post("/me")]
+pub async fn me_api(state: web::Data<RBatis>,req: HttpRequest) -> impl Responder {
+    let account = get_account_from_header!(req);
+    let res = me(state.get_ref(),account).await;
+    respond_json_any!(res)
+}
+
+#[post("/get_user_by_account/{account}")]
+pub async fn query_user_api(state: web::Data<RBatis>,account: web::Path<(String)>) -> impl Responder {
+    let account = account.into_inner();
+    let res = me(state.get_ref(),Some(account)).await;
     respond_json_any!(res)
 }
 
