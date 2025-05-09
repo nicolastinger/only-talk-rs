@@ -1,6 +1,6 @@
 use crate::common::quic_network_service::configure_client;
 use crate::common::quic_network_service::models::quic_connection::{ConnectionType, FirstQuicMsg};
-use crate::common::quic_network_service::models::text_msg::{HeadMsg, TextMsg, TextQuicMsg};
+use crate::common::quic_network_service::models::text_msg::{HeadMsg, MessageType, TextMsg, TextQuicMsg};
 use crate::common::quic_network_service::msg_service::text_msg_service::{generate_text_msg, get_text_msg};
 use log::{error, info};
 use quinn::{Endpoint, SendStream};
@@ -28,7 +28,7 @@ pub async fn run_client(server_addr: SocketAddr) {
     // 开启一个双向流
     let (mut send_stream, mut _recv_stream) = connection.open_bi().await.unwrap();
     send_stream.set_priority(0).unwrap(); // 设置优先级
-    let head_length = 9;
+    let head_length = 8;
     let buffer_msg: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
     // 异步处理流中的数据
     tokio::spawn(async move {
@@ -68,10 +68,10 @@ async fn init_send_msg(mut send_stream: SendStream) -> Result<(), anyhow::Error>
     // 发送消息给服务器
 
     let mut first_quic_msg = FirstQuicMsg::new();
-    first_quic_msg.dyn_header_size = 9;
+    first_quic_msg.dyn_header_size = 8;
     first_quic_msg.user_id = "caixukun".to_string();
     first_quic_msg.text_serde_struct = "user_chat_json".to_string();
-    first_quic_msg.token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJzdWIiOjEyMzEyMywiYWNjb3VudCI6ImNhaXh1a3VuIiwiZXhwIjoxNzQ1NTQ0NTA5NTE0fQ.cQ7vdPHIzYSASDkFsc3xLh6-AqLlh0uqR5mGhDCwFzlVwNcUTGK_vtA5PHpcCkRLKx4seqSRGhDOzfIYfAmaKlc0e8TSAy6I_j6VRbtkpIS2S-_nCeilSVZEtZXWW-PrRoBaGrAMZakuOOEsN-pxlW7lTkoMtTbalAy6KoligeDOj1PZw-n2tlX9-Wc9Ks_2rsAfYK0uFXE-FlhIMwScyxuxuG42Un6DJBrXmh17E8Lyj4hYM8V7Bd8UQKMWJBSwdelynAJHboYVX8Pn-cjn-YOcXk3TvM25Y-Ymvggj-c_T2i8zwP-DdycrMwxfbWkCn9t5aDGWMSFal6mtcgdIMw".to_string();
+    first_quic_msg.token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJzdWIiOjEyMzEyMywiYWNjb3VudCI6ImNhaXh1a3VuIiwiZXhwIjoxNzQ2ODY0NTA1NjcwfQ.ZvGRSRzpKrLu_QRFyEWmCP6q7moIwMtthXXRSUoVlkdCmztsZUbyFTnROiwbvQWhSMzFewdwsTTJNaX9EFGugF3_5yIp96iPtD8uRfmKqT26imHWM9xbJhh5KQ1Kp4MDbq3KrZt6pZsOpMyKpzKNy16BqvC_4krNmzyfWdHnUR4q3RDtgw9-v2Vl_5iUy9DDvt98V0Ago5gRv7Sb7D1i5gWsAftA2w8nY71ylDyjPUyPXCobjjVbfJ_j1XqDmLBzglhs9bGzhaIRyTBFtaFfdJNNXjt6cUrdsvcxrbwQT3VhwDWmkLv4xmu_V8sXi-yNwQUSaUopyunnI29PR7JGQA".to_string();
     send_stream
         .write_all(serde_json::to_string(&first_quic_msg)?.as_bytes())
         .await
@@ -82,14 +82,14 @@ async fn init_send_msg(mut send_stream: SendStream) -> Result<(), anyhow::Error>
     let send_stream = Arc::new(RwLock::new(send_stream));
 
     let test_msg = generate_text_msg(
-        "1".to_string(),
+        MessageType::Text as u8,
         "上山打老虎".to_string(),
         "caixukun".to_string(),
         "huangxiaoming".to_string(),
     )?;
 
     let test_msg2 = generate_text_msg(
-        "1".to_string(),
+        MessageType::Text as u8,
         "我是蔡徐坤".to_string(),
         "caixukun".to_string(),
         "huangxiaoming".to_string(),

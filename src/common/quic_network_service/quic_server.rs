@@ -20,7 +20,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use futures_util::StreamExt;
 use tokio::sync::{Mutex, MutexGuard, RwLock};
-use crate::common::quic_network_service::models::text_msg::{HeadMsg, TextMsg, TextQuicMsg};
+use crate::common::quic_network_service::models::text_msg::{HeadMsg, MessageType, TextMsg, TextQuicMsg};
 use crate::common::quic_network_service::msg_service::text_msg_service::{generate_text_msg, get_text_msg};
 use crate::utils::time::get_now_time_stamp_as_millis;
 
@@ -69,7 +69,7 @@ async fn handle_connection(mut conn: Connection, redis: Pool) -> Result<(), anyh
                     let redis = redis.clone();
                     let address = conn.remote_address().to_string().clone();
                     tokio::spawn(async move {
-                        handle_conn(send_stream, recv_stream, redis, address)
+                        handle_conn(send_stream, recv_stream, redis, address).await;
                     });
                 }
                 Err(e) => {
@@ -246,27 +246,10 @@ async fn process_rec_msg(
 
     match msg_type {
         ConnectionType::Text => {
-            if length < 16 {
-                let msg = String::from_utf8_lossy(&buffer[0..length]).to_string();
-
-                match msg.as_str() {
-                    "ping" => {
-                        my_send_stream
-                            .write()
-                            .await
-                            .write_all("pong".as_bytes())
-                            .await?;
-                        info!("接受心跳");
-                        return Ok(());
-                    }
-                    _ => {}
-                }
-            } else {
                 let text_vec = get_text_msg(buffer,length,buffer_msg,head_length).await?;
-                process_text_msg(my_send_stream, text_vec, &close_key)
+                process_text_msg(my_send_stream, text_vec)
                     .await
                     .context("处理文本信息出错")?;
-            }
         }
         ConnectionType::Img => {}
         ConnectionType::Video => {}
@@ -276,14 +259,20 @@ async fn process_rec_msg(
     Ok(())
 }
 
+const REDIS_SPLIT: &str = ":";
+
 async fn process_text_msg(
-    mut send_stream: Arc<RwLock<SendStream>>,
+    send_stream: Arc<RwLock<SendStream>>,
     text_quic_msg: Vec<TextQuicMsg>,
-    close_key: &str,
 ) -> Result<()> {
     for text_msg in text_quic_msg.into_iter() {
+        if text_msg.text_type == MessageType::Ping as u8 {
+            // 发送ping
+            send_ping(send_stream.clone(), text_msg).await?;
+            continue;
+        }
         let user_key =
-            "QUIC:SERVER:".to_string() + &text_msg.recv_user + ":" + &*ConnectionType::Text.to_string();
+            "QUIC:SERVER:".to_string() + &text_msg.recv_user + REDIS_SPLIT + &*ConnectionType::Text.to_string();
         let user_key = user_key.to_uppercase();
         let mut my_send_stream: Option<Arc<RwLock<SendStream>>> = {
             let bind = GLOBAL_QUIC_SERVER_LIST.read().await;
@@ -315,6 +304,15 @@ async fn process_text_msg(
         }
     }
 
+    Ok(())
+}
+
+async fn send_ping(send_stream: Arc<RwLock<SendStream>>, text_quic_msg: TextQuicMsg) -> Result<()> {
+    let ping_msg = generate_text_msg(MessageType::Ping as u8,"".to_string(),text_quic_msg.send_user,"".to_string())?;
+    send_stream.write()
+        .await
+        .write_all(ping_msg.as_ref())
+        .await?;
     Ok(())
 }
 

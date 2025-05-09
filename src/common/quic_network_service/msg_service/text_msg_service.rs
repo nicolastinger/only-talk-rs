@@ -1,12 +1,14 @@
 use std::sync::Arc;
+use anyhow::anyhow;
 use log::error;
 use tokio::sync::{Mutex, MutexGuard};
-use crate::common::quic_network_service::models::text_msg::{HeadMsg, TextMsg, TextQuicMsg};
+use crate::common::quic_network_service::models::text_msg::{HeadMsg, MessageType, TextMsg, TextQuicMsg};
 use crate::utils::time::get_now_time_stamp_as_millis;
+use crate::X25;
 
 //生成文本消息
 pub fn generate_text_msg(
-    text_type: String,
+    text_type: u8,
     raw: String,
     recv_user: String,
     send_user: String,
@@ -20,10 +22,12 @@ pub fn generate_text_msg(
         timestamp: now,
     };
     let mut meta_data = text_quic_msg.get_bytes()?;
-
+    let crc = X25.checksum(&meta_data);
     let head_msg = HeadMsg {
-        body_len: meta_data.len() as u64, // 消息体长度
-        message_type: 1                  // 消息类型
+        version: 1,
+        crc,
+        body_len: meta_data.len() as u32, // 消息体长度
+        message_type: MessageType::Text as u8                  // 消息类型
     };
 
     build_text_msg(&head_msg, &text_quic_msg)
@@ -98,6 +102,8 @@ pub async fn get_text_msg(buffer: &mut Vec<u8>,
             }
         };
 
+        let crc = X25.checksum(body_msg_vec);
+        if crc != head_msg.crc { Err(anyhow!("解析错误码失败!"))? }
         result_vec.push(body_msg);
         i += head_msg.body_len as usize;
     };

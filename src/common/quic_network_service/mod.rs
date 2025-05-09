@@ -47,7 +47,7 @@ fn configure_client() -> ClientConfig {
 ///
 /// - 一个QUIC连接的输入流
 /// - 服务器证书序列化为DER格式
-#[allow(unused)]
+
 pub fn make_server_endpoint(bind_addr: SocketAddr) -> Result<(Endpoint, Vec<u8>), Box<dyn Error>> {
     // 配置服务器设置，包括生成自签名证书
     let (server_config, server_cert) = configure_server()?;
