@@ -20,7 +20,9 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use futures_util::StreamExt;
 use tokio::sync::{Mutex, MutexGuard, RwLock};
+use crate::common::global_static_str::{REDIS_QUIC_SERVERS, REDIS_SPLIT};
 use crate::common::quic_network_service::models::text_msg::{HeadMsg, MessageType, TextMsg, TextQuicMsg};
+use crate::common::quic_network_service::msg_service::process_msg_service::process_rec_msg;
 use crate::common::quic_network_service::msg_service::text_msg_service::{generate_text_msg, get_text_msg};
 use crate::utils::time::get_now_time_stamp_as_millis;
 
@@ -102,7 +104,7 @@ async fn handle_conn(mut send_stream: SendStream, mut recv_stream: RecvStream, r
         }
         Ok(None) => {
             error!("[服务端] 发送流初始化元数据失败: {}", address);
-            //return;
+            return;
         }
         Err(e) => {
             error!(
@@ -230,89 +232,5 @@ async fn handle_conn(mut send_stream: SendStream, mut recv_stream: RecvStream, r
     );
 }
 
-async fn process_rec_msg(
-    buffer: &mut Vec<u8>,
-    length: usize,
-    close_key: String,
-    msg_type: &ConnectionType,
-    buffer_msg: Arc<Mutex<Vec<u8>>>,
-    head_length: usize
-) -> Result<()> {
-    let my_send_stream = {
-        let bind = GLOBAL_QUIC_SERVER_LIST.read().await;
-        let send = bind.get(&close_key).ok_or(anyhow!("连接不可用"))?;
-        send.send_stream.clone()
-    };
 
-    match msg_type {
-        ConnectionType::Text => {
-                let text_vec = get_text_msg(buffer,length,buffer_msg,head_length).await?;
-                process_text_msg(my_send_stream, text_vec)
-                    .await
-                    .context("处理文本信息出错")?;
-        }
-        ConnectionType::Img => {}
-        ConnectionType::Video => {}
-        ConnectionType::File => {}
-        ConnectionType::Other => {}
-    }
-    Ok(())
-}
-
-const REDIS_SPLIT: &str = ":";
-
-async fn process_text_msg(
-    send_stream: Arc<RwLock<SendStream>>,
-    text_quic_msg: Vec<TextQuicMsg>,
-) -> Result<()> {
-    for text_msg in text_quic_msg.into_iter() {
-        if text_msg.text_type == MessageType::Ping as u8 {
-            // 发送ping
-            send_ping(send_stream.clone(), text_msg).await?;
-            continue;
-        }
-        let user_key =
-            "QUIC:SERVER:".to_string() + &text_msg.recv_user + REDIS_SPLIT + &*ConnectionType::Text.to_string();
-        let user_key = user_key.to_uppercase();
-        let mut my_send_stream: Option<Arc<RwLock<SendStream>>> = {
-            let bind = GLOBAL_QUIC_SERVER_LIST.read().await;
-            match bind.get(&user_key) {
-                Some(s) => Some(s.send_stream.clone()),
-                None => {
-                    error!("当前用户不在线: {}", user_key);
-                    None
-                }
-            }
-        };
-
-        let res = generate_text_msg(text_msg.text_type,text_msg.raw,text_msg.recv_user,text_msg.send_user)?;
-
-        if let Some(mut current_send_stream) = my_send_stream {
-            tokio::spawn(async move {
-                {
-                    current_send_stream
-                        .write()
-                        .await
-                        .write_all(res.as_ref())
-                        .await.expect("发送消息失败!");
-                }
-            });
-        } else {
-            // 处理 my_send_stream 为 None 的情况
-            info!("用户不在线，无法发送消息: {}", user_key);
-            // TODO这里可以添加其他处理逻辑
-        }
-    }
-
-    Ok(())
-}
-
-async fn send_ping(send_stream: Arc<RwLock<SendStream>>, text_quic_msg: TextQuicMsg) -> Result<()> {
-    let ping_msg = generate_text_msg(MessageType::Ping as u8,"".to_string(),text_quic_msg.send_user,"".to_string())?;
-    send_stream.write()
-        .await
-        .write_all(ping_msg.as_ref())
-        .await?;
-    Ok(())
-}
 

@@ -7,21 +7,17 @@ edition = "2021"
 quinn = {version = "0.10.2"}
 rustls = { version = "0.21" }
 jsonwebtoken = "8.0"  # 请根据最新版本调整
-rcgen = "0.11.1"
 tokio ={ version = "1.0.0",features = ["full"]}
 serde_json = "1.0.128"
 fast_log = "1.7.4" #使用简单的异步日志库
 log = "0.4" # 日志库
-tracing = "0.1"
 serde = { version = "1", features = ["derive"] }
 lazy_static = "1.4"
 redis = { version = "0.22" ,features = ["tokio-comp"]}
 actix-web = { version = "4.9", features = ["rustls-0_21"] } # 请根据实际情况调整版本
 deadpool-redis = "0.18.0"
 rustls-pemfile = "1.0.4"
-tokio-rustls = "0.23.4"
 uuid = { version = "1", features = ["v4", "v7", "serde"] }
-time = "0.3.4"
 backtrace = "0.3.74"
 anyhow = "1.0"
 validator = { version = "0.16", features = ["derive"] }
@@ -41,3 +37,4 @@ bincode = "1.3.3"
 rust-i18n = "3"
 crc = { version = "3.0" }  # 当前最新稳定版（2025年5月）
 crc-catalog = "2.0"  # 可选，用于预置标准CRC算法
+nanoid = "0.4.0"

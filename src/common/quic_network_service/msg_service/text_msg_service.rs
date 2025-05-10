@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use anyhow::anyhow;
 use log::error;
+use nanoid::nanoid;
 use tokio::sync::{Mutex, MutexGuard};
 use crate::common::quic_network_service::models::text_msg::{HeadMsg, MessageType, TextMsg, TextQuicMsg};
 use crate::utils::time::get_now_time_stamp_as_millis;
@@ -15,11 +16,12 @@ pub fn generate_text_msg(
 ) -> anyhow::Result<Vec<u8>> {
     let now = get_now_time_stamp_as_millis().unwrap_or_else(|_| -99999999999);
     let text_quic_msg = TextQuicMsg {
+        id: nanoid!(),
         text_type,
         raw,
         recv_user,
         send_user,
-        timestamp: now,
+        timestamp: now
     };
     let mut meta_data = text_quic_msg.get_bytes()?;
     let crc = X25.checksum(&meta_data);

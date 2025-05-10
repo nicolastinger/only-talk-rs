@@ -13,6 +13,8 @@ pub enum MessageType {
 
 
     Ping = 99,
+    RecallSuccess = 201,
+    RecallFailure = 202
 }
 
 //头部消息
@@ -27,7 +29,8 @@ pub struct HeadMsg {
 //文本信息消息体
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TextQuicMsg {
-    pub text_type: u8,
+    pub id: String,
+    pub text_type: u8,  //消息类型
     pub raw: String,
     pub recv_user: String,  //接收用户
     pub send_user: String,   //发送用户

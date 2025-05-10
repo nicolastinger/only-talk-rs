@@ -9,6 +9,7 @@ use std::net::SocketAddr;
 use std::sync::{Arc};
 use tokio::sync::{Mutex, RwLock};
 use std::time::Duration;
+use crate::common::global_static_str::SYSTEM;
 
 // 客户端异步函数，尝试与服务器建立QUIC连接
 pub async fn run_client(server_addr: SocketAddr) {
@@ -71,11 +72,10 @@ async fn init_send_msg(mut send_stream: SendStream) -> Result<(), anyhow::Error>
     first_quic_msg.dyn_header_size = 8;
     first_quic_msg.user_id = "caixukun".to_string();
     first_quic_msg.text_serde_struct = "user_chat_json".to_string();
-    first_quic_msg.token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJzdWIiOjEyMzEyMywiYWNjb3VudCI6ImNhaXh1a3VuIiwiZXhwIjoxNzQ2ODY0NTA1NjcwfQ.ZvGRSRzpKrLu_QRFyEWmCP6q7moIwMtthXXRSUoVlkdCmztsZUbyFTnROiwbvQWhSMzFewdwsTTJNaX9EFGugF3_5yIp96iPtD8uRfmKqT26imHWM9xbJhh5KQ1Kp4MDbq3KrZt6pZsOpMyKpzKNy16BqvC_4krNmzyfWdHnUR4q3RDtgw9-v2Vl_5iUy9DDvt98V0Ago5gRv7Sb7D1i5gWsAftA2w8nY71ylDyjPUyPXCobjjVbfJ_j1XqDmLBzglhs9bGzhaIRyTBFtaFfdJNNXjt6cUrdsvcxrbwQT3VhwDWmkLv4xmu_V8sXi-yNwQUSaUopyunnI29PR7JGQA".to_string();
+    first_quic_msg.token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJzdWIiOjEyMzEyMywiYWNjb3VudCI6ImNhaXh1a3VuIiwiZXhwIjoxNzQ2OTUxMDE3NzgwfQ.oZ8YI2akiCJYL1pTOO7BfgumNFmog43xB4QhP4Lv5aZhEsjnL-esRYR-NPBwrE4fIT2J0uGtLMZ21ZBpihSKZxh1dc5Y9FjiSmcus-myxlbBh81ab0usKVic4eF8uaXHG0DJnd4sKgek9_xZkKtNIRvrSCV5IMSdoMYBilhsNRbThbOgx3yUDo0lQPN1LOx40_qFzpGAbhfVNRit2ZFB-okR-gnejkFLKXr6xgus30wN0dM4QDr7rm5F1KpqlXMtDFgefmlK1ysei_J2YDoAFKYEjDOWEJtnJrvZ0OyW6wB9xqDJDZHLXTFpQ55CD5YZYElk6FB-VoCXoTNsER6Inw".to_string();
     send_stream
         .write_all(serde_json::to_string(&first_quic_msg)?.as_bytes())
-        .await
-        .unwrap();
+        .await?;
 
     tokio::time::sleep(Duration::from_secs(1)).await;  //初始化一秒，防止连发元数据
 
@@ -107,7 +107,13 @@ async fn init_send_msg(mut send_stream: SendStream) -> Result<(), anyhow::Error>
             //一分钟发送心跳
             tokio::time::sleep(Duration::from_secs(6)).await;
             info!("发送心跳");
-            match send_stream_ping.write().await.write_all("ping".as_bytes()).await {
+            let ping_msg = generate_text_msg(
+                MessageType::Ping as u8,
+                "ping".to_string(),
+                SYSTEM.to_string(),
+                "caixukun".to_string()
+            ).expect("");
+            match send_stream_ping.write().await.write_all(&ping_msg).await {
               Ok(_) => {
                   info!("发送成功");
               },
@@ -142,16 +148,6 @@ async fn process_rec_msg(
 ) -> anyhow::Result<()>{
     match msg_type {
         ConnectionType::Text => {
-            if length < 16 {
-                let msg = String::from_utf8_lossy(&buffer[0..length]).to_string();
-                match msg.as_str() {
-                    "pong" => {
-                        info!("接受心跳信息");
-                        return Ok(());
-                    }
-                    _ => {}
-                }
-            }
             let text_vec = get_text_msg(buffer, length, buffer_msg, head_length).await?;
             info!("服务器返回的消息为 {:?}", text_vec);
         }
