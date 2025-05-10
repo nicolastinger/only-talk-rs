@@ -5,3 +5,4 @@ pub mod jwt_util;
 pub mod rsa_util;
 pub mod dto;
 pub mod validators;
+pub mod global_static_str;

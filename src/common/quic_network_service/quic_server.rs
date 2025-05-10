@@ -20,7 +20,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use futures_util::StreamExt;
 use tokio::sync::{Mutex, MutexGuard, RwLock};
-use crate::common::global_static_str::{REDIS_QUIC_SERVERS, REDIS_SPLIT};
+use crate::utils::global_static_str::{REDIS_QUIC_SERVERS, REDIS_SPLIT};
 use crate::common::quic_network_service::models::text_msg::{HeadMsg, MessageType, TextMsg, TextQuicMsg};
 use crate::common::quic_network_service::msg_service::process_msg_service::process_rec_msg;
 use crate::common::quic_network_service::msg_service::text_msg_service::{generate_text_msg, get_text_msg};

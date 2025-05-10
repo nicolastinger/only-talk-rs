@@ -9,7 +9,7 @@ use std::net::SocketAddr;
 use std::sync::{Arc};
 use tokio::sync::{Mutex, RwLock};
 use std::time::Duration;
-use crate::common::global_static_str::SYSTEM;
+use crate::utils::global_static_str::{PING, SYSTEM};
 
 // 客户端异步函数，尝试与服务器建立QUIC连接
 pub async fn run_client(server_addr: SocketAddr) {
@@ -105,11 +105,10 @@ async fn init_send_msg(mut send_stream: SendStream) -> Result<(), anyhow::Error>
     tokio::spawn(async move {
         loop {
             //一分钟发送心跳
-            tokio::time::sleep(Duration::from_secs(6)).await;
-            info!("发送心跳");
+            tokio::time::sleep(Duration::from_secs(60)).await;
             let ping_msg = generate_text_msg(
                 MessageType::Ping as u8,
-                "ping".to_string(),
+                PING.to_string(),
                 SYSTEM.to_string(),
                 "caixukun".to_string()
             ).expect("");

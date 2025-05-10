@@ -1,4 +1,4 @@
-use crate::common::global_static_str::{REDIS_QUIC_SERVERS, REDIS_SPLIT, SYSTEM};
+use crate::utils::global_static_str::{PONG, REDIS_QUIC_SERVERS, REDIS_SPLIT, SYSTEM};
 use crate::common::quic_network_service::models::quic_connection::ConnectionType;
 use crate::common::quic_network_service::models::text_msg::{MessageType, TextQuicMsg};
 use crate::common::quic_network_service::msg_service::text_msg_service::{
@@ -50,7 +50,7 @@ async fn process_text_msg(
             send_ping(send_stream.clone(), text_msg.send_user).await?;
             continue;
         }
-        info!("解析消息");
+
         let user_key = format!(
             "{}{}{}{}",
             REDIS_QUIC_SERVERS,
@@ -90,7 +90,7 @@ async fn send_ping(
 ) -> anyhow::Result<()> {
     let ping_msg = generate_text_msg(
         MessageType::Ping as u8,
-        "pong".to_string(),
+        PONG.to_string(),
         current_user,
         SYSTEM.to_string()
     )?;
@@ -158,14 +158,14 @@ async fn no_permission_msg_record() {
 
 /// 记录发送消息
 async fn send_msg_record_success(send_stream: Arc<RwLock<SendStream>>, current_user: String, nanoid: String) -> anyhow::Result<()> {
-    let res = generate_text_msg(201, nanoid, current_user, SYSTEM.to_string())?;
+    let res = generate_text_msg(MessageType::RecallSuccess as u8, nanoid, current_user, SYSTEM.to_string())?;
     send_stream.write().await.write_all(&res).await?;
     Ok(())
 }
 
 /// 记录失败消息
 async fn send_msg_record_failure (send_stream: Arc<RwLock<SendStream>>, current_user: String, nanoid: String) -> anyhow::Result<()> {
-    let res = generate_text_msg(202, nanoid, current_user, SYSTEM.to_string())?;
+    let res = generate_text_msg(MessageType::RecallFailure as u8, nanoid, current_user, SYSTEM.to_string())?;
     send_stream.write().await.write_all(&res).await?;
     Ok(())
 }
