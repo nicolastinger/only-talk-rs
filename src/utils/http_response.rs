@@ -80,14 +80,15 @@ where
 pub struct CommonResponseNoDataRef<'a>
 {
     pub(crate) code: u16,
+    pub data: u8,
     pub(crate) message: &'a str,
 }
 impl<'a> CommonResponseNoDataRef<'a> {
     pub fn error_json(message: &'a str) -> String {
-        serde_json::to_string(&CommonResponseNoDataRef { code: 500, message }).unwrap_or_else(|_| "{code:500,message:\"json Panic!\"}".to_string())
+        serde_json::to_string(&CommonResponseNoDataRef { code: 500, data: 0, message }).unwrap_or_else(|_| "{code:500,message:\"json Panic!\"}".to_string())
     }
 
     pub fn success_empty() -> String {
-        serde_json::to_string(&CommonResponseNoDataRef { code: 204, message: "" }).unwrap_or_else(|_| "{code:500,message:\"json Panic!\"}".to_string())
+        serde_json::to_string(&CommonResponseNoDataRef { code: 204, data: 0, message: "" }).unwrap_or_else(|_| "{code:500,message:\"json Panic!\"}".to_string())
     }
 }

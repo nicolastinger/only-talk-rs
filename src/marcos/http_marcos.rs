@@ -2,10 +2,13 @@
 #[macro_export]
 macro_rules! validate_and_respond {
     ($model:expr) => {{
+        use crate::utils::http_response::CommonResponse;
         use validator::Validate;
         let value = $model.into_inner();
         if let Err(errors) = value.validate() {
-            return actix_web::HttpResponse::BadRequest().json(errors);
+            return HttpResponse::BadRequest().body(
+                serde_json::to_string(&CommonResponse::error(errors, "errorValidate".to_string())).unwrap(),
+            );
         }
         value
     }};
