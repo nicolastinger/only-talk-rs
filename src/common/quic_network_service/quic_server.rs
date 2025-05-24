@@ -118,7 +118,7 @@ async fn handle_conn(mut send_stream: SendStream, mut recv_stream: RecvStream, r
     let head_length = first_quic_msg.dyn_header_size;
     match decode_jwt(first_quic_msg.token.as_ref()).map_err(|_| "解析token失败") {
         Ok(t) => {
-            if t != first_quic_msg.user_id {
+            if t != first_quic_msg.account {
                 error!("令牌跟账号不匹配！");
                 send_stream.finish().await.expect("发送终止信号失败");
                 return;
@@ -131,15 +131,13 @@ async fn handle_conn(mut send_stream: SendStream, mut recv_stream: RecvStream, r
         }
     }
 
+
+
     let msg_type = first_quic_msg.msg_type.clone();
 
-    let connection_key = "QUIC:SERVER:".to_string()
-        + &*first_quic_msg.user_id.clone()
-        + ":"
-        + &*first_quic_msg.msg_type.clone().to_string();
-
+    let connection_key = format!("{}{}{}{}", "QUIC:SERVER:",first_quic_msg.account,":",first_quic_msg.msg_type.to_string());
     let connection_key = connection_key.to_uppercase();
-    info!("connection_key {}", connection_key);
+    info!("connection key: {}", connection_key);
     let close_key = connection_key.clone();
 
     //通过原子计数和异步锁共享变量
@@ -149,7 +147,7 @@ async fn handle_conn(mut send_stream: SendStream, mut recv_stream: RecvStream, r
     let close_now = now.clone();
     let new_connection = QuicConnection {
         is_online: true,
-        user_id: first_quic_msg.user_id,
+        account: first_quic_msg.account,
         connection_type: ConnectionType::Text,
         send_stream: send_stream.clone(),
         create_time: now as u64,
@@ -158,12 +156,10 @@ async fn handle_conn(mut send_stream: SendStream, mut recv_stream: RecvStream, r
         ipv6addr: "".to_string(),
     };
 
-    info!("插入写锁");
     {
         let mut server_book = GLOBAL_QUIC_SERVER_LIST.write().await;
         server_book.insert(connection_key.clone(), new_connection);
     }
-    info!("释放写锁");
     {
         let mut conn = redis.get().await.expect("打开redis连接失败");
         conn
@@ -173,10 +169,9 @@ async fn handle_conn(mut send_stream: SendStream, mut recv_stream: RecvStream, r
     }
 
     info!(
-        "当前的客户端列表 {}",
+        "当前的在线客户端 {}",
         GLOBAL_QUIC_SERVER_LIST.read().await.len()
     );
-    info!("[server] 流已接受: ID={}", recv_stream.id()); // 打印流ID*/
     let buffer_msg: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
 
     loop {
@@ -221,13 +216,15 @@ async fn handle_conn(mut send_stream: SendStream, mut recv_stream: RecvStream, r
         if let Some(book) = server_book.get_mut(&close_key) {
             let now = book.update_time;
             if now == close_now as u64 {
+                info!("用户下线 {}", close_key);
                 server_book.remove(&close_key);
             }
         }
     }
 
     info!(
-        "[服务器] 处理完成 {}",
+        "[服务器] 处理完成连接 {} 完成, 在线连接数为 {}",
+        close_key,
         GLOBAL_QUIC_SERVER_LIST.read().await.len()
     );
 }

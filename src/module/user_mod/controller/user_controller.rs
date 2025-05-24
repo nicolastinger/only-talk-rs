@@ -4,7 +4,7 @@ use deadpool_redis::redis::{cmd, RedisResult};
 use log::{info,error};
 use rbatis::RBatis;
 use crate::common::init_server::AppState;
-use crate::module::user_mod::model::basic_user::BasicUser;
+use crate::module::user_mod::entity::basic_user::BasicUser;
 use crate::module::user_mod::service::local_user_service::{add_new_basic_user_service, get_exit_user, get_user_raw, me, test_sql, user_sign_in};
 use crate::utils::http_response::CommonResponse;
 use crate::utils::jwt_util::{decode_jwt, get_jwt};

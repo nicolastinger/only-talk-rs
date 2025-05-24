@@ -1,7 +1,7 @@
 use actix_web::web;
 
 mod controller;
-mod model;
+mod entity;
 use controller::text_msg_controller::get_chat_record;
 
 pub fn chat_service(cfg: &mut web::ServiceConfig) {

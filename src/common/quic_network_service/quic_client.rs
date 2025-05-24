@@ -70,9 +70,9 @@ async fn init_send_msg(mut send_stream: SendStream) -> Result<(), anyhow::Error>
 
     let mut first_quic_msg = FirstQuicMsg::new();
     first_quic_msg.dyn_header_size = 8;
-    first_quic_msg.user_id = "caixukun".to_string();
+    first_quic_msg.account = "caixukun".to_string();
     first_quic_msg.text_serde_struct = "user_chat_json".to_string();
-    first_quic_msg.token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJzdWIiOjEyMzEyMywiYWNjb3VudCI6ImNhaXh1a3VuIiwiZXhwIjoxNzQ2OTUxMDE3NzgwfQ.oZ8YI2akiCJYL1pTOO7BfgumNFmog43xB4QhP4Lv5aZhEsjnL-esRYR-NPBwrE4fIT2J0uGtLMZ21ZBpihSKZxh1dc5Y9FjiSmcus-myxlbBh81ab0usKVic4eF8uaXHG0DJnd4sKgek9_xZkKtNIRvrSCV5IMSdoMYBilhsNRbThbOgx3yUDo0lQPN1LOx40_qFzpGAbhfVNRit2ZFB-okR-gnejkFLKXr6xgus30wN0dM4QDr7rm5F1KpqlXMtDFgefmlK1ysei_J2YDoAFKYEjDOWEJtnJrvZ0OyW6wB9xqDJDZHLXTFpQ55CD5YZYElk6FB-VoCXoTNsER6Inw".to_string();
+    first_quic_msg.token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJzdWIiOjEyMzEyMywiYWNjb3VudCI6ImNhaXh1a3VuIiwiZXhwIjoxNzQ4MDU3NTE2ODIwfQ.e5d0HbwEVqQFRsGPOZjwgn44ddIGlq8Iyg1k98lfGqZPAobwsjf1ZbkFBJcR_IJg2LUYh9CwbKXkd2nrGor4sHmbS748qrZdzgNK663u6OY5_N6_BkVUmI_5NWEo06Bv_gNo7Uxc3yEkvyoHLCjIJz0IbV4kOo15XzCwrGHo52rI0dEAsOOOikdtGOkaBOyxLLhtlc2MqySg_II75zorhiNriFCNqwHqEyQLUcGCtOC6yHkrEHIP0C3SCjSgcxWqoewuNJod_ShhE7KgjYKi0_35DpbtsNmDBQIgzek666eG3HrQwkpHraEa9gjB_Opa4WB4Qs0G9uT2Kl75n90Vjg".to_string();
     send_stream
         .write_all(serde_json::to_string(&first_quic_msg)?.as_bytes())
         .await?;

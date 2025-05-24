@@ -1,4 +1,4 @@
-use crate::module::user_mod::model::basic_user::{get_raw_sql, BasicUser, BasicUserSalt, UserInfo};
+use crate::module::user_mod::entity::basic_user::{get_raw_sql, BasicUser, BasicUserSalt, UserInfo};
 use crate::utils::rsa_util::{generate_random_string, hash_with_salt};
 use actix_web::{web};
 use anyhow::anyhow;

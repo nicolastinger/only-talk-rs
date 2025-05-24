@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use crate::module::user_mod::model::basic_user::UserInfo;
+use crate::module::user_mod::entity::basic_user::UserInfo;
 
 #[derive(Deserialize, Serialize, Debug)]
 pub struct UserInfoVO {

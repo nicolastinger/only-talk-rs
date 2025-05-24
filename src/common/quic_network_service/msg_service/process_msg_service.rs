@@ -59,7 +59,9 @@ async fn process_text_msg(
             ConnectionType::Text.to_string()
         );
         let user_key = user_key.to_uppercase();
-        let mut my_send_stream: Option<Arc<RwLock<SendStream>>> = {
+
+        // 目标用户的发送流
+        let mut target_send_stream: Option<Arc<RwLock<SendStream>>> = {
             let bind = GLOBAL_QUIC_SERVER_LIST.read().await;
             match bind.get(&user_key) {
                 Some(s) => Some(s.send_stream.clone()),
@@ -70,7 +72,7 @@ async fn process_text_msg(
             }
         };
 
-        if let Some(current_send_stream) = my_send_stream {
+        if let Some(current_send_stream) = target_send_stream {
             // 判断用户权限发送消息
             pass_text_msg(current_send_stream.clone(), text_msg).await?;
         } else {

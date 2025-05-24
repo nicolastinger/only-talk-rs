@@ -28,7 +28,7 @@ impl ConnectionType {
 #[derive(Debug)]
 pub struct QuicConnection {
     pub is_online: bool,
-    pub user_id: String,
+    pub account: String,
     pub connection_type: ConnectionType,
     pub send_stream: Arc<RwLock<SendStream>>,
     pub create_time: u64,
@@ -41,7 +41,7 @@ pub struct QuicConnection {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct FirstQuicMsg {
     pub token: String,  //用户token
-    pub user_id: String,  //用户id
+    pub account: String,  //用户账号
     pub msg_type: ConnectionType,  //流数据类型,文字，图文，视频，其他实现。
     pub text_serde_struct: String,  //文字类型序列化的struct
     pub dyn_buffer_size: usize,  //缓冲区大小
@@ -53,7 +53,7 @@ impl FirstQuicMsg {
     pub(crate) fn new() ->FirstQuicMsg{
         FirstQuicMsg {
             token: "".to_string(),
-            user_id: "".to_string(),
+            account: "".to_string(),
             msg_type: ConnectionType::Text,
             text_serde_struct: "".to_string(),
             dyn_buffer_size: 0,
