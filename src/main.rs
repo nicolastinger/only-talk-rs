@@ -38,8 +38,8 @@ async fn main() {
     //  tokio::spawn(async move{
     //      quic_client::run_client(addr).await;
     //  });
-    tokio::spawn(async move {
-        get_p2p_udp_socket()
+    tokio::spawn(async  {
+        get_p2p_udp_socket().await.expect("Failed to get P2P UDP socket");
     });
 
     init_server::start_server().await.unwrap_or_else(|err| error!("错误信息 {}, 堆栈信息 {:?}", err, err.backtrace()));
