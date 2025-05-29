@@ -5,10 +5,9 @@ use crate::common::quic_network_service::msg_service::text_msg_service::{
     generate_text_msg, get_text_msg,
 };
 use crate::GLOBAL_QUIC_SERVER_LIST;
-use anyhow::{anyhow, Context};
-use futures_util::TryFutureExt;
+use anyhow::{anyhow};
 use log::{error, info};
-use quinn::{SendStream, WriteError};
+use quinn::{SendStream};
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
 
@@ -61,7 +60,7 @@ async fn process_text_msg(
         let user_key = user_key.to_uppercase();
 
         // 目标用户的发送流
-        let mut target_send_stream: Option<Arc<RwLock<SendStream>>> = {
+        let target_send_stream: Option<Arc<RwLock<SendStream>>> = {
             let bind = GLOBAL_QUIC_SERVER_LIST.read().await;
             match bind.get(&user_key) {
                 Some(s) => Some(s.send_stream.clone()),
@@ -106,7 +105,7 @@ async fn send_ping(
 
 /// 传递用户消息
 async fn pass_text_msg(
-    mut send_stream: Arc<RwLock<SendStream>>,
+    send_stream: Arc<RwLock<SendStream>>,
     text_msg: TextQuicMsg,
 ) -> anyhow::Result<()> {
     let nanoid = text_msg.id;

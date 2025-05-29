@@ -1,5 +1,5 @@
 use crate::common::quic_network_service::configure_client;
-use crate::common::quic_network_service::models::quic_connection::{ConnectionType, FirstQuicMsg};
+use crate::common::quic_network_service::models::quic_connection::{ConnectionType};
 use crate::common::quic_network_service::models::text_msg::{HeadMsg, MessageType, TextMsg, TextQuicMsg};
 use crate::common::quic_network_service::msg_service::text_msg_service::{generate_text_msg, get_text_msg};
 use log::{error, info};
@@ -9,6 +9,7 @@ use std::net::SocketAddr;
 use std::sync::{Arc};
 use tokio::sync::{Mutex, RwLock};
 use std::time::Duration;
+use crate::common::quic_network_service::models::first_quic_msg::FirstQuicMsg;
 use crate::utils::global_static_str::{PING, SYSTEM};
 
 // 客户端异步函数，尝试与服务器建立QUIC连接

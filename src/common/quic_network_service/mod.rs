@@ -12,6 +12,7 @@ pub(crate) mod quic_server;
 pub(crate) mod quic_client;
 pub mod models;
 mod msg_service;
+pub mod p2p_udp_utils;
 
 /// 配置客户端使用的QUIC设置。
 fn configure_client() -> ClientConfig {
