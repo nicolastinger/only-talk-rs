@@ -1,2 +1,2 @@
 pub mod friend_vo;
-pub mod user;
+pub mod user_info;

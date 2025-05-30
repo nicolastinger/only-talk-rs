@@ -1,4 +1,4 @@
-use crate::module::user_mod::entity::basic_user::{get_raw_sql, BasicUser, BasicUserSalt, UserInfo};
+use crate::module::user_mod::entity::basic_user::{get_raw_sql, BasicUser, BasicUserSalt};
 use crate::utils::rsa_util::{generate_random_string, hash_with_salt};
 use actix_web::{web};
 use anyhow::anyhow;
@@ -6,9 +6,10 @@ use log::{error, info};
 use rbatis::RBatis;
 use uuid::Uuid;
 use crate::module::user_mod::dto::basic_user_dto::SignInBasicUserDTO;
+use crate::module::user_mod::entity::user_info::UserInfo;
 use crate::utils::http_response::CommonResponseRef;
 use crate::utils::jwt_util::get_jwt;
-use crate::module::user_mod::vo::user::UserInfoVO;
+use crate::module::user_mod::vo::user_info::UserInfoVO;
 
 pub async fn get_user_raw(rb: web::Data<RBatis>) {
     get_raw_sql(rb).await
@@ -115,8 +116,12 @@ pub async fn user_sign_in(rb: &RBatis, basic_user_dto: SignInBasicUserDTO) -> Re
     }
 }
 
-pub async fn me(rbatis: &RBatis, account: Option<String>)-> Result<String, anyhow::Error> {
-    let user_info = UserInfo::select_by_account(rbatis, account.ok_or(anyhow!("账号为空"))?).await?;
-    let user_info_vo = UserInfoVO::from(user_info.ok_or(anyhow!("查询为空"))?);
+pub async fn get_user_info_by_account(rbatis: &RBatis, account: Option<String>)-> Result<String, anyhow::Error> {
+    let account = account.ok_or(anyhow!("账号为空"))?;
+
+    let basic_user = BasicUser::select_by_account(rbatis, &account).await?.ok_or(anyhow!("查询为空"))?;
+    let uuid = basic_user.uuid.as_ref().unwrap();
+    let user_info = UserInfo::select_by_uuid(rbatis, uuid).await?.ok_or(anyhow!("查询为空"))?;
+    let user_info_vo = UserInfoVO::from((user_info,basic_user));
     Ok(CommonResponseRef::<UserInfoVO>::success_json(&user_info_vo)?)
 }

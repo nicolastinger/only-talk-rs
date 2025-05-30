@@ -5,7 +5,7 @@ use log::{info,error};
 use rbatis::RBatis;
 use crate::common::init_server::AppState;
 use crate::module::user_mod::entity::basic_user::BasicUser;
-use crate::module::user_mod::service::local_user_service::{add_new_basic_user_service, get_exit_user, get_user_raw, me, test_sql, user_sign_in};
+use crate::module::user_mod::service::local_user_service::{add_new_basic_user_service, get_exit_user, get_user_info_by_account, get_user_raw, test_sql, user_sign_in};
 use crate::utils::http_response::CommonResponse;
 use crate::utils::jwt_util::{decode_jwt, get_jwt};
 use crate::{get_account_from_header, respond_json, respond_json_any, serde_json_to_string, validate_and_respond};
@@ -133,14 +133,14 @@ pub async fn sign_in(state: web::Data<RBatis>,basic_user_dto:web::Json<SignInBas
 #[post("/me")]
 pub async fn me_api(state: web::Data<RBatis>,req: HttpRequest) -> impl Responder {
     let account = get_account_from_header!(req);
-    let res = me(state.get_ref(),account).await;
+    let res = get_user_info_by_account(state.get_ref(),account).await;
     respond_json_any!(res)
 }
 
 #[post("/get_user_by_account/{account}")]
 pub async fn query_user_api(state: web::Data<RBatis>,account: web::Path<(String)>) -> impl Responder {
     let account = account.into_inner();
-    let res = me(state.get_ref(),Some(account)).await;
+    let res = get_user_info_by_account(state.get_ref(),Some(account)).await;
     respond_json_any!(res)
 }
 

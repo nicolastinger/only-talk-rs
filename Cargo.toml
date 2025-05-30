@@ -18,7 +18,6 @@ actix-web = { version = "4.9", features = ["rustls-0_21"] } # 请根据实际情
 deadpool-redis = "0.18.0"
 rustls-pemfile = "1.0.4"
 uuid = { version = "1", features = ["v4", "v7", "serde"] }
-backtrace = "0.3.74"
 anyhow = "1.0"
 validator = { version = "0.16", features = ["derive"] }
 rbs = { version = "4.5"}
@@ -28,8 +27,6 @@ rbdc-pg={version="4.5"}
 rbdc-pool-deadpool="4.5"
 once_cell = "1.20.2"
 regex = "1.11.0"
-futures-util = "0.3.31"
-futures = "0.3.31"
 rsa = "0.9.7"
 rand = "0.8.5"
 sha2 = "0.10.8"
