@@ -10,7 +10,6 @@ pub struct FirstQuicMsg {
     pub text_serde_struct: String,  //文字类型序列化的struct
     pub dyn_buffer_size: usize,  //缓冲区大小
     pub dyn_header_size: usize,  //头部大小
-    pub split_symbol: String,  //消息分隔符
 }
 
 impl FirstQuicMsg {
@@ -21,8 +20,7 @@ impl FirstQuicMsg {
             msg_type: ConnectionType::Text,
             text_serde_struct: "".to_string(),
             dyn_buffer_size: 0,
-            dyn_header_size: 0,
-            split_symbol: "".to_string(),
+            dyn_header_size: 0
         }
     }
 }
