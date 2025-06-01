@@ -72,6 +72,7 @@ macro_rules! respond_json_any {
             Ok(t) => actix_web::HttpResponse::Ok().body(t),
             Err(t) => {
                 use crate::utils::http_response::CommonResponseNoDataRef;
+                use log::error;
                 error!("err_context {:?}", t);
                 error!("{}", t.backtrace());
                 HttpResponse::BadRequest().body(CommonResponseNoDataRef::error_json(&t.to_string()))
@@ -99,7 +100,8 @@ macro_rules! serde_json_to_string {
 #[macro_export]
 macro_rules! get_account_from_header {
     ($model:expr) => {{
-        let map = $model.extensions();
+        use actix_web::HttpMessage;
+        let map = $model.extensions_mut();
         match map.get::<AuthAccount>() {
             None => None,
             Some(t) => Some(t.to_owned().0),

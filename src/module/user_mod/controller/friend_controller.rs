@@ -1,10 +1,11 @@
+use crate::utils::dto::AuthAccount;
 use actix_web::{get, post, web, HttpMessage, HttpRequest, HttpResponse, Responder};
 use log::{info,error};
 use rbatis::RBatis;
 use crate::{get_account_from_header, respond_json_any, validate_and_respond};
 use crate::module::user_mod::dto::friend_dto::{FriendDTO, FriendLinkDTO};
 use crate::module::user_mod::service::friend::{add_friend, get_friend_by_id, get_friend_list};
-use crate::utils::dto::{AuthAccount, ReqList};
+use crate::utils::dto::{ReqList};
 
 pub fn friend_service(cfg: &mut web::ServiceConfig) {
     cfg.service(qry_friend_list)

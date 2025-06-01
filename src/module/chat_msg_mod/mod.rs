@@ -4,8 +4,8 @@ mod controller;
 mod entity;
 mod service;
 
-use controller::text_msg_controller::get_chat_record;
+use crate::module::chat_msg_mod::controller::text_msg_controller::text_msg_service;
 
-pub fn chat_service(cfg: &mut web::ServiceConfig) {
-    cfg.service(get_chat_record);
+pub fn init_chat_service(cfg: &mut web::ServiceConfig) {
+    text_msg_service(cfg);
 }

@@ -1,4 +1,4 @@
-use rbatis::{crud, impl_select};
+use rbatis::{crud, impl_select, impl_select_page};
 use rbatis::rbdc::Uuid;
 use serde::{Deserialize, Serialize};
 
@@ -16,6 +16,6 @@ pub struct ChatMessageRecord {
 
 crud!(ChatMessageRecord {});
 
-impl_select!(ChatMessageRecord {select_chat_by_limit(send_user: String, recv_user: String, start: u32, end: u32) -> Vec<ChatMessageRecord> => r#"where ((send_user = #{send_user} and recv_user = #{send_user}) or (send_user = #{recv_user} and recv_user = #{recv_user}))
- and is_del = false order by created_at limit #{start}, #{end}"#
+impl_select!(ChatMessageRecord {select_chat_by_limit(send_user: Uuid, recv_user: Uuid, start: u32, end: u32) => r#"`where ((send_user = #{send_user} and recv_user = #{recv_user}) or (send_user = #{recv_user} and recv_user = #{send_user}))
+  and is_del = false order by created_at limit #{start} offset #{end}`"#
 });
