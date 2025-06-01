@@ -1,5 +1,5 @@
 [database]
-        url = "pg://admin:REDACTED_DB_PASSWORD@@124.220.82.185:22303/postgres"
+url = "pg://admin:REDACTED_DB_PASSWORD@@124.220.82.185:22303/postgres"
 
 [server]
 address="0.0.0.0:8443"
