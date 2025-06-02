@@ -9,7 +9,7 @@ use crate::X25;
 
 //生成文本消息
 pub fn generate_text_msg(
-    text_type: u8,
+    text_type: u16,
     raw: String,
     recv_user: String,
     send_user: String,
@@ -29,7 +29,7 @@ pub fn generate_text_msg(
         version: 1,
         crc,
         body_len: meta_data.len() as u32, // 消息体长度
-        message_type: MessageType::Text as u8                  // 消息类型
+        message_type: MessageType::Text as u16  // 消息类型
     };
 
     build_text_msg(&head_msg, &text_quic_msg)

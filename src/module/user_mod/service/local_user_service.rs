@@ -1,15 +1,17 @@
+use crate::module::user_mod::dto::basic_user_dto::SignInBasicUserDTO;
 use crate::module::user_mod::entity::basic_user::{get_raw_sql, BasicUser, BasicUserSalt};
+use crate::module::user_mod::entity::user_info::UserInfo;
+use crate::module::user_mod::vo::user_info::UserInfoVO;
+use crate::utils::http_response::CommonResponseRef;
+use crate::utils::jwt_util::get_jwt;
 use crate::utils::rsa_util::{generate_random_string, hash_with_salt};
-use actix_web::{web};
+use crate::{RBATIS_DATABASE, REDIS_CLIENT};
+use actix_web::web;
 use anyhow::anyhow;
+use deadpool_redis::redis::{cmd, RedisResult};
 use log::{error, info};
 use rbatis::RBatis;
 use uuid::Uuid;
-use crate::module::user_mod::dto::basic_user_dto::SignInBasicUserDTO;
-use crate::module::user_mod::entity::user_info::UserInfo;
-use crate::utils::http_response::CommonResponseRef;
-use crate::utils::jwt_util::get_jwt;
-use crate::module::user_mod::vo::user_info::UserInfoVO;
 
 pub async fn get_user_raw(rb: web::Data<RBatis>) {
     get_raw_sql(rb).await
@@ -52,7 +54,11 @@ pub async fn add_new_basic_user_service(
     let password = hash_with_salt(basic_user.password.as_ref().unwrap(), &random_str);
     basic_user.password = Option::from(password);
 
-    let account_ref: &str = basic_user.account.as_ref().map(|s| s.as_str()).unwrap_or("");
+    let account_ref: &str = basic_user
+        .account
+        .as_ref()
+        .map(|s| s.as_str())
+        .unwrap_or("");
     match get_exit_user(rb, &account_ref).await {
         true => Err(anyhow!("该账号已存在!".to_string())),
         false => {
@@ -65,7 +71,9 @@ pub async fn add_new_basic_user_service(
             )
             .await?;
             match BasicUser::insert(rb, &basic_user).await {
-                Ok(_) => Ok(CommonResponseRef::<String>::success_json(&"新增账号成功".to_string())?),
+                Ok(_) => Ok(CommonResponseRef::<String>::success_json(
+                    &"新增账号成功".to_string(),
+                )?),
                 Err(_) => Err(anyhow!("新增账号失败!".to_string())),
             }
         }
@@ -73,9 +81,12 @@ pub async fn add_new_basic_user_service(
 }
 
 /// 用户登录
-pub async fn user_sign_in(rb: &RBatis, basic_user_dto: SignInBasicUserDTO) -> Result<String, anyhow::Error> {
+pub async fn user_sign_in(
+    rb: &RBatis,
+    basic_user_dto: SignInBasicUserDTO,
+) -> Result<String, anyhow::Error> {
     // 解构 basic_user 以获取 account 和 password 的引用
-    let basic_user = BasicUser{
+    let basic_user = BasicUser {
         uuid: None,
         username: None,
         account: basic_user_dto.account,
@@ -84,44 +95,105 @@ pub async fn user_sign_in(rb: &RBatis, basic_user_dto: SignInBasicUserDTO) -> Re
         password: basic_user_dto.password,
     };
 
-    let BasicUser { account, password, .. } = basic_user;
+    let BasicUser {
+        account, password, ..
+    } = basic_user;
 
     // 验证 account 和 password 是否存在
     let account_str = account.as_ref().ok_or(anyhow!("账号为空".to_string()))?;
     let password_str = password.as_ref().ok_or(anyhow!("密码为空".to_string()))?;
 
     // 查询用户
-    let basic_user_vec = BasicUser::select_by_column(rb, "account", account_str)
-        .await?;
+    let basic_user_vec = BasicUser::select_by_column(rb, "account", account_str).await?;
 
     // 检查用户是否存在
-    let basic_user_exit = basic_user_vec.first().ok_or(anyhow!("用户不存在!".to_string()))?;
+    let basic_user_exit = basic_user_vec
+        .first()
+        .ok_or(anyhow!("用户不存在!".to_string()))?;
 
     // 查询盐值信息
-    let salt_vec = BasicUserSalt::select_by_column(rb, "uuid", &basic_user_exit.uuid)
-        .await?;
+    let salt_vec = BasicUserSalt::select_by_column(rb, "uuid", &basic_user_exit.uuid).await?;
 
     // 检查盐值是否存在
     let salt = salt_vec.first().ok_or(anyhow!("密码不存在!".to_string()))?;
 
     // 哈希输入密码
-    let hashed_password = hash_with_salt(password_str, salt.sign_up_salt.as_ref().ok_or(anyhow!("加密盐查询失败".to_string()))?);
+    let hashed_password = hash_with_salt(
+        password_str,
+        salt.sign_up_salt
+            .as_ref()
+            .ok_or(anyhow!("加密盐查询失败".to_string()))?,
+    );
 
     // 比较哈希后的密码
     if basic_user_exit.password.as_deref() == Some(&hashed_password) {
         // 生成 JWT
-        Ok(CommonResponseRef::<String>::success_json(&get_jwt(account_str.clone())?)?)
+        Ok(CommonResponseRef::<String>::success_json(&get_jwt(
+            account_str.clone(),
+        )?)?)
     } else {
         Err(anyhow!("用户或密码不正确!"))
     }
 }
 
-pub async fn get_user_info_by_account(rbatis: &RBatis, account: Option<String>)-> Result<String, anyhow::Error> {
+pub async fn get_user_info_by_account(
+    rbatis: &RBatis,
+    account: Option<String>,
+) -> Result<String, anyhow::Error> {
     let account = account.ok_or(anyhow!("账号为空"))?;
 
-    let basic_user = BasicUser::select_by_account(rbatis, &account).await?.ok_or(anyhow!("查询为空"))?;
+    let basic_user = BasicUser::select_by_account(rbatis, &account)
+        .await?
+        .ok_or(anyhow!("查询为空"))?;
     let uuid = basic_user.uuid.as_ref().unwrap();
-    let user_info = UserInfo::select_by_uuid(rbatis, uuid).await?.ok_or(anyhow!("查询为空"))?;
-    let user_info_vo = UserInfoVO::from((user_info,basic_user));
-    Ok(CommonResponseRef::<UserInfoVO>::success_json(&user_info_vo)?)
+    let user_info = UserInfo::select_by_uuid(rbatis, uuid)
+        .await?
+        .ok_or(anyhow!("查询为空"))?;
+    let user_info_vo = UserInfoVO::from((user_info, basic_user));
+    Ok(CommonResponseRef::<UserInfoVO>::success_json(
+        &user_info_vo,
+    )?)
+}
+
+/// 获取用户的uuid
+pub async fn get_user_uuid_by_account_service(
+    rb: &RBatis,
+    account: String,
+) -> Result<String, anyhow::Error> {
+    let result = get_user_uuid_by_account(account).await?;
+    Ok(CommonResponseRef::<String>::success_json(
+        &result.to_string(),
+    )?)
+}
+
+/// 获取用户的uuid
+pub async fn get_user_uuid_by_account(account: String) -> Result<Uuid, anyhow::Error> {
+    let rb = RBATIS_DATABASE.read().await;
+    let rb = rb.as_ref().ok_or(anyhow!("获取连接失败"))?;
+
+    let key = format!("{}{}", "USER_UUID_", account);
+    let key = key.to_uppercase();
+    let redis_client = REDIS_CLIENT.read().await;
+    let redis_conn = redis_client.as_ref().ok_or(anyhow!("redis客户端错误"))?;
+    let mut conn = redis_conn.get().await?;
+
+    let result: RedisResult<String> = cmd("GET").arg(&key).query_async(&mut conn).await;
+    let uuid = match result {
+        Ok(v) => return Ok(Uuid::parse_str(v.as_str())?),
+        Err(_) => {
+            let basic_user = BasicUser::select_by_account(rb, &account)
+                .await?
+                .ok_or(anyhow!("账号不存在"))?;
+            basic_user.uuid.ok_or(anyhow!("账号id为空"))?
+        }
+    };
+    // 设置24小时的缓存
+    cmd("SET")
+        .arg(&key)
+        .arg(uuid.to_string())
+        .arg("EX")
+        .arg(86400)
+        .query_async(&mut conn)
+        .await?;
+    Ok(uuid.parse()?)
 }

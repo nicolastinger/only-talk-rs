@@ -17,12 +17,16 @@ use tokio::sync::RwLock as TokioRwLock;
 use quic_network_service::quic_client;
 use crate::common::quic_network_service::models::quic_connection::QuicConnection;
 use crate::common::quic_network_service::p2p_udp_utils::get_p2p_udp_socket;
+use deadpool_redis::Pool as RedisPool;
+use rbatis::RBatis;
 
 rust_i18n::i18n!("locales");
 // 创建一个quic服务器维护列表全局变量，使用 RwLock 包装，后期采用dashMap
 // 使用 lazy_static 初始化全局共享变量
 lazy_static! {
     pub static ref GLOBAL_QUIC_SERVER_LIST: Arc<TokioRwLock<HashMap<String, QuicConnection>>> = Arc::new(TokioRwLock::new(HashMap::new()));
+    pub static ref REDIS_CLIENT: Arc<TokioRwLock<Option<RedisPool>>> = Arc::new(TokioRwLock::new(None));
+    pub static ref RBATIS_DATABASE: Arc<TokioRwLock<Option<RBatis>>> = Arc::new(TokioRwLock::new(None));
 }
 
 // 创建CRC-16/X25计算器

@@ -44,7 +44,7 @@ async fn process_text_msg(
 ) -> anyhow::Result<()> {
     for text_msg in text_quic_msg.into_iter() {
         // 心跳消息
-        if text_msg.text_type == MessageType::Ping as u8 {
+        if text_msg.text_type == MessageType::Ping as u16 {
             // 发送ping
             send_ping(send_stream.clone(), text_msg.send_user).await?;
             continue;
@@ -90,7 +90,7 @@ async fn send_ping(
     current_user: String,
 ) -> anyhow::Result<()> {
     let ping_msg = generate_text_msg(
-        MessageType::Ping as u8,
+        MessageType::Ping as u16,
         PONG.to_string(),
         current_user,
         SYSTEM.to_string()
@@ -159,14 +159,14 @@ async fn no_permission_msg_record() {
 
 /// 记录发送消息
 async fn send_msg_record_success(send_stream: Arc<RwLock<SendStream>>, current_user: String, nanoid: String) -> anyhow::Result<()> {
-    let res = generate_text_msg(MessageType::RecallSuccess as u8, nanoid, current_user, SYSTEM.to_string())?;
+    let res = generate_text_msg(MessageType::RecallSuccess as u16, nanoid, current_user, SYSTEM.to_string())?;
     send_stream.write().await.write_all(&res).await?;
     Ok(())
 }
 
 /// 记录失败消息
 async fn send_msg_record_failure (send_stream: Arc<RwLock<SendStream>>, current_user: String, nanoid: String) -> anyhow::Result<()> {
-    let res = generate_text_msg(MessageType::RecallFailure as u8, nanoid, current_user, SYSTEM.to_string())?;
+    let res = generate_text_msg(MessageType::RecallFailure as u16, nanoid, current_user, SYSTEM.to_string())?;
     send_stream.write().await.write_all(&res).await?;
     Ok(())
 }

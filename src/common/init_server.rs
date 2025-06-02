@@ -26,7 +26,7 @@ use rustls::server::NoClientAuth;
 use rustls_pemfile::{certs, ec_private_keys, rsa_private_keys, pkcs8_private_keys};
 use toml::Value;
 use crate::common::quic_network_service;
-use crate::{module, read_config};
+use crate::{module, read_config, RBATIS_DATABASE, REDIS_CLIENT};
 use rbdc::pool::Pool as rdbc_pool;
 use crate::utils::record_bad_http::error_record_middleware;
 use rust_i18n::t;
@@ -39,6 +39,10 @@ fn init_redis() -> Pool {
     // 创建 Redis 连接池
     let mut config = dp_config::from_url("redis://:REDACTED_REDIS_PASSWORD@175.178.17.158:10279/");
     let pool = config.create_pool(Some(Runtime::Tokio1)).expect("Failed to create Redis pool");
+    {
+        let mut redis_guard = REDIS_CLIENT.try_write().expect("获取redis锁失败");
+        *redis_guard = Some(pool.clone());
+    }
 
     pool
 }
@@ -93,6 +97,11 @@ async fn init_sql_pool(url:&str) -> RBatis {
     rb.pool
         .set(Box::new(pool))
         .map_err(|_e| Error::from("pool set fail!")).expect("初始化连接池失败!");
+    {
+        let mut database = RBATIS_DATABASE.try_write().expect("获取数据库锁失败");
+        *database = Some(rb.clone());
+    }
+
     rb
 }
 
@@ -135,7 +144,7 @@ pub async fn start_server() -> anyhow::Result<()> {
     HttpServer::new(move || {
         App::new()
             .wrap(from_fn(error_record_middleware))
-            .app_data(web::Data::new(init_redis().clone()))
+            .app_data(web::Data::new(redis_pool.clone()))
             .app_data(web::Data::new(pool.clone()))
             // 设置中间件，让actix-web打印日志
             .wrap(middleware::Logger::default())
