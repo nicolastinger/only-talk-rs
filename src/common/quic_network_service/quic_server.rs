@@ -106,7 +106,7 @@ async fn handle_conn(mut send_stream: SendStream, mut recv_stream: RecvStream, a
     let head_length = first_quic_msg.dyn_header_size;
     match decode_jwt(first_quic_msg.token.as_ref()).map_err(|_| "解析token失败") {
         Ok(t) => {
-            if t != first_quic_msg.account {
+            if t != first_quic_msg.uuid {
                 error!("令牌跟账号不匹配！");
                 send_stream.finish().await.expect("发送终止信号失败");
                 return;
@@ -123,7 +123,7 @@ async fn handle_conn(mut send_stream: SendStream, mut recv_stream: RecvStream, a
 
     let msg_type = first_quic_msg.msg_type.clone();
 
-    let connection_key = format!("{}{}{}{}", "QUIC:SERVER:",first_quic_msg.account,":",first_quic_msg.msg_type.to_string());
+    let connection_key = format!("{}{}{}{}", "QUIC:SERVER:",first_quic_msg.uuid,":",first_quic_msg.msg_type.to_string());
     let connection_key = connection_key.to_uppercase();
     info!("connection key: {}", connection_key);
     let close_key = connection_key.clone();
@@ -135,7 +135,7 @@ async fn handle_conn(mut send_stream: SendStream, mut recv_stream: RecvStream, a
     let close_now = now.clone();
     let new_connection = QuicConnection {
         is_online: true,
-        account: first_quic_msg.account,
+        account: first_quic_msg.uuid,
         connection_type: ConnectionType::Text,
         send_stream: send_stream.clone(),
         create_time: now as u64,

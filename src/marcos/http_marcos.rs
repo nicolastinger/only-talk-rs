@@ -98,7 +98,7 @@ macro_rules! serde_json_to_string {
 }
 
 #[macro_export]
-macro_rules! get_account_from_header {
+macro_rules! get_uuid_from_header {
     ($model:expr) => {{
         use actix_web::HttpMessage;
         let map = $model.extensions_mut();

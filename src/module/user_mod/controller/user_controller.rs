@@ -5,10 +5,10 @@ use log::{info,error};
 use rbatis::RBatis;
 use crate::common::init_server::AppState;
 use crate::module::user_mod::entity::basic_user::BasicUser;
-use crate::module::user_mod::service::local_user_service::{add_new_basic_user_service, get_exit_user, get_user_info_by_account, get_user_raw, get_user_uuid_by_account_service, test_sql, user_sign_in};
+use crate::module::user_mod::service::local_user_service::{add_new_basic_user_service, get_exit_user, get_user_info_by_account, get_user_info_by_uuid, get_user_raw, get_user_uuid_by_account_service, test_sql, user_sign_in};
 use crate::utils::http_response::CommonResponse;
 use crate::utils::jwt_util::{decode_jwt, get_jwt};
-use crate::{get_account_from_header, respond_json, respond_json_any, serde_json_to_string, validate_and_respond};
+use crate::{get_uuid_from_header, respond_json, respond_json_any, serde_json_to_string, validate_and_respond};
 use crate::module::user_mod::dto::basic_user_dto::SignInBasicUserDTO;
 use crate::utils::dto::{AuthAccount};
 
@@ -133,8 +133,8 @@ pub async fn sign_in(state: web::Data<RBatis>,basic_user_dto:web::Json<SignInBas
 
 #[post("/me")]
 pub async fn me_api(state: web::Data<RBatis>,req: HttpRequest) -> impl Responder {
-    let account = get_account_from_header!(req);
-    let res = get_user_info_by_account(state.get_ref(),account).await;
+    let uuid = get_uuid_from_header!(req);
+    let res = get_user_info_by_uuid(state.get_ref(),uuid).await;
     respond_json_any!(res)
 }
 

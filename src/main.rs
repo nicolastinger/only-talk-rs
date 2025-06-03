@@ -38,10 +38,10 @@ async fn main() {
     fast_log::init(Config::new().console().level(LevelFilter::Info).file("log/rust_im.log").chan_len(Some(10))).unwrap();
 
     //let addr = "124.220.82.185:4433".parse().unwrap();
-    // let addr = "127.0.0.1:4433".parse().unwrap();
-    //  tokio::spawn(async move{
-    //      quic_client::run_client(addr).await;
-    //  });
+    let addr = "127.0.0.1:4433".parse().unwrap();
+     tokio::spawn(async move{
+         quic_client::run_client(addr).await;
+     });
     tokio::spawn(async  {
         // 启动udp连接
         let res = get_p2p_udp_socket().await;

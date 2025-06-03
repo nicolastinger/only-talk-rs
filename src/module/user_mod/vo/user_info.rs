@@ -1,9 +1,11 @@
+use rbatis::rbdc::Uuid;
 use serde::{Deserialize, Serialize};
 use crate::module::user_mod::entity::basic_user::BasicUser;
 use crate::module::user_mod::entity::user_info::UserInfo;
 
 #[derive(Deserialize, Serialize, Debug)]
 pub struct UserInfoVO {
+    uuid: Option<Uuid>,
     username: Option<String>,
     account: Option<String>,
     icon: Option<String>,  //头像的超链接
@@ -26,6 +28,7 @@ pub struct UserInfoVO {
 impl From<(UserInfo,BasicUser)> for UserInfoVO {
     fn from(sources: (UserInfo, BasicUser)) -> Self {
         Self {
+            uuid: sources.0.uuid,
             username: sources.1.username,
             account: sources.1.account,
             icon: sources.1.icon,

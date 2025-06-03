@@ -1,2 +1,2 @@
 pub mod local_user_service;
-pub mod friend;
+pub mod friend_service;

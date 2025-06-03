@@ -71,9 +71,9 @@ async fn init_send_msg(mut send_stream: SendStream) -> Result<(), anyhow::Error>
 
     let mut first_quic_msg = FirstQuicMsg::new();
     first_quic_msg.dyn_header_size = 9;
-    first_quic_msg.account = "caixukun".to_string();
+    first_quic_msg.uuid = "01965d95-0ffc-7d23-911e-5313485fb9be".to_string();
     first_quic_msg.text_serde_struct = "user_chat_json".to_string();
-    first_quic_msg.token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJzdWIiOjEyMzEyMywiYWNjb3VudCI6ImNhaXh1a3VuIiwiZXhwIjoxNzQ4MDU3NTE2ODIwfQ.e5d0HbwEVqQFRsGPOZjwgn44ddIGlq8Iyg1k98lfGqZPAobwsjf1ZbkFBJcR_IJg2LUYh9CwbKXkd2nrGor4sHmbS748qrZdzgNK663u6OY5_N6_BkVUmI_5NWEo06Bv_gNo7Uxc3yEkvyoHLCjIJz0IbV4kOo15XzCwrGHo52rI0dEAsOOOikdtGOkaBOyxLLhtlc2MqySg_II75zorhiNriFCNqwHqEyQLUcGCtOC6yHkrEHIP0C3SCjSgcxWqoewuNJod_ShhE7KgjYKi0_35DpbtsNmDBQIgzek666eG3HrQwkpHraEa9gjB_Opa4WB4Qs0G9uT2Kl75n90Vjg".to_string();
+    first_quic_msg.token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJzdWIiOjEyMzEyMywidXVpZCI6IjAxOTY1ZDk1LTBmZmMtN2QyMy05MTFlLTUzMTM0ODVmYjliZSIsImV4cCI6MTc0OTA0NDc4Nzk0Nn0.AuDV-qgVWVoYoioK51kSuxx9KS3FBR5RBLayHJy3NgcCsOYV0GbSjTNjVmo9SDOlVHvUHN3Gl3CDGNzXgkfgx37Mwcl0qCNhoNVaeKMNPlkB5Rm9DtKCjSfiIdAkXhSx744Nb6kiUJJi6tkCN4usA7nlbruucMzM7g9_nHlngo1Eg_2jXTU_WQ_qlMbpC35IgnwrNEdSXRqN4KTbvC7jmhQ78cijmm3_opkiCKlhI9ajpJObKIgAPjlHxIw7DTd2cFcRUqfWUfefBmpz4YyDQWJI9kAaFaS7wxQXZ31QRXY7t50b43IWVAc6AHBUfKYnecYpeHAIoD--00GEnq0O_Q".to_string();
     send_stream
         .write_all(serde_json::to_string(&first_quic_msg)?.as_bytes())
         .await?;
@@ -85,15 +85,15 @@ async fn init_send_msg(mut send_stream: SendStream) -> Result<(), anyhow::Error>
     let test_msg = generate_text_msg(
         MessageType::Text as u16,
         "上山打老虎".to_string(),
-        "caixukun".to_string(),
-        "huangxiaoming".to_string(),
+        "01965d95-0ffc-7d23-911e-5313485fb9be".to_string(),
+        "01965d95-0ffc-7d23-911e-5313485fb9be".to_string(),
     )?;
 
     let test_msg2 = generate_text_msg(
         MessageType::Text as u16,
         "我是蔡徐坤".to_string(),
-        "caixukun".to_string(),
-        "huangxiaoming".to_string(),
+        "01965d95-0ffc-7d23-911e-5313485fb9be".to_string(),
+        "01965d95-0ffc-7d23-911e-5313485fb9be".to_string(),
     )?;
 
     send_msg(test_msg, send_stream.clone()).await?;

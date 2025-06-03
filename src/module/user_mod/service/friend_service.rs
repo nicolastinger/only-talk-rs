@@ -1,3 +1,4 @@
+use std::str::FromStr;
 use anyhow::anyhow;
 use crate::module::user_mod::entity::friend::{Friend, FriendLink, FriendLinkInfo};
 use crate::module::user_mod::vo::friend_vo::{query_friend_list, FriendVO};
@@ -5,6 +6,7 @@ use crate::utils::http_response::{CommonResponseNoDataRef, CommonResponseRef};
 use crate::utils::time::get_now_time_stamp_as_millis;
 use rbatis::{Error, RBatis};
 use crate::module::user_mod::entity::basic_user::BasicUser;
+use crate::module::user_mod::service::local_user_service::get_user_uuid_by_account;
 
 pub async fn get_friend_by_id(rb: &RBatis) -> Result<String, anyhow::Error> {
     let friend: Result<Vec<Friend>, Error> = Friend::select_by_column(rb, "uuid", "123").await;
@@ -27,13 +29,16 @@ pub async fn add_friend(
     let uuid = uuid::Uuid::now_v7().to_string();
     // 开启事务
     let mut tx = rb.acquire_begin().await?;
-
+    let request_user = request_user.ok_or_else(|| anyhow!("request_user is None"))?;
+    let request_user = rbatis::rbdc::Uuid::from_str(request_user.as_str())?;
+    let accept_user = get_user_uuid_by_account(accept_user.ok_or_else(|| anyhow!("accept_user is None"))?).await?;
+    let accept_user = rbatis::rbdc::Uuid::from_str(accept_user.to_string().as_str())?;
     // 使用事务块包裹逻辑
     let result = async {
         let friend_link = FriendLink {
             uuid: Some(uuid.parse()?),
-            request_user,
-            accept_user,
+            request_user: Some(request_user),
+            accept_user: Some(accept_user),
             enable: Some(false)
         };
 
@@ -65,12 +70,7 @@ pub async fn agree_friend_request() -> Result<String, anyhow::Error> {
 }
 
 pub async fn get_friend_list(rb: &RBatis, request_user: Option<String>) -> Result<String, anyhow::Error> {
-    let account = request_user.ok_or(anyhow!("获取账号失败!"))?;
-    let mut basic_user = BasicUser::select_by_column(rb, "account", &account).await?;
-    let user = match basic_user.get(0) {
-        None => {return Err(anyhow!("好友列表空"))}
-        Some(_) => {basic_user.remove(0)}
-    };
-    let account = user.uuid.ok_or(anyhow!("获取账号失败!"))?;
-    query_friend_list(rb, &account).await
+    let uuid = request_user.ok_or(anyhow!("获取账号失败!"))?;
+    let uuid = rbatis::rbdc::uuid::Uuid::from_str(&uuid)?;
+    query_friend_list(rb, &uuid).await
 }

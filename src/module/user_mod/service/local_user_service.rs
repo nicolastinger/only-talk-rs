@@ -1,3 +1,4 @@
+use std::str::FromStr;
 use crate::module::user_mod::dto::basic_user_dto::SignInBasicUserDTO;
 use crate::module::user_mod::entity::basic_user::{get_raw_sql, BasicUser, BasicUserSalt};
 use crate::module::user_mod::entity::user_info::UserInfo;
@@ -140,6 +141,26 @@ pub async fn get_user_info_by_account(
     let account = account.ok_or(anyhow!("账号为空"))?;
 
     let basic_user = BasicUser::select_by_account(rbatis, &account)
+        .await?
+        .ok_or(anyhow!("查询为空"))?;
+    let uuid = basic_user.uuid.as_ref().unwrap();
+    let user_info = UserInfo::select_by_uuid(rbatis, uuid)
+        .await?
+        .ok_or(anyhow!("查询为空"))?;
+    let user_info_vo = UserInfoVO::from((user_info, basic_user));
+    Ok(CommonResponseRef::<UserInfoVO>::success_json(
+        &user_info_vo,
+    )?)
+}
+
+pub async fn get_user_info_by_uuid(
+    rbatis: &RBatis,
+    uuid: Option<String>,
+) -> Result<String, anyhow::Error> {
+    let uuid = uuid.ok_or(anyhow!("账号为空"))?;
+    let uuid  = rbatis::rbdc::Uuid::from_str(uuid.as_str())?;
+
+    let basic_user = BasicUser::select_by_uuid(rbatis, &uuid)
         .await?
         .ok_or(anyhow!("查询为空"))?;
     let uuid = basic_user.uuid.as_ref().unwrap();

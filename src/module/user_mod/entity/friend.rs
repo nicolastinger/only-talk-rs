@@ -12,8 +12,8 @@ crud!(Friend {});
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct FriendLink {
     pub uuid: Option<Uuid>,
-    pub request_user: Option<String>,
-    pub accept_user: Option<String>,
+    pub request_user: Option<Uuid>,
+    pub accept_user: Option<Uuid>,
     pub enable: Option<bool>
 }
 
