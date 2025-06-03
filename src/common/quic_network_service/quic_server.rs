@@ -3,8 +3,8 @@ use crate::common::quic_network_service::models::quic_connection::{
     ConnectionType, QuicConnection
 };
 use crate::utils::jwt_util::decode_jwt;
-use crate::{GLOBAL_QUIC_SERVER_LIST};
-use anyhow::{ Context, Result};
+use crate::{GLOBAL_QUIC_SERVER_LIST, REDIS_CLIENT};
+use anyhow::{anyhow, Context, Result};
 use deadpool_redis::redis::AsyncCommands;
 use deadpool_redis::Pool;
 use log::{error, info};
@@ -16,12 +16,12 @@ use crate::common::quic_network_service::models::first_quic_msg::FirstQuicMsg;
 use crate::common::quic_network_service::msg_service::process_msg_service::process_rec_msg;
 use crate::utils::time::get_now_time_stamp_as_millis;
 
-pub(crate) fn init_server(redis: Pool, addr: SocketAddr) {
-    tokio::spawn(run_server(addr, redis));
+pub(crate) fn init_server(addr: SocketAddr) {
+    tokio::spawn(run_server(addr));
 }
 
 /// 启动并运行QUIC服务器，持续监听新连接
-async fn run_server(addr: SocketAddr, redis: Pool) {
+async fn run_server(addr: SocketAddr) {
     // 创建服务器端点和证书
     let (endpoint, _server_cert) = make_server_endpoint(addr).unwrap();
     info!("quic服务器启动成功,使用地址为: {}", addr);
@@ -37,20 +37,19 @@ async fn run_server(addr: SocketAddr, redis: Pool) {
             }
         }; // 确认连接建立
 
-        let new_pool = redis.clone();
         info!(
             "[服务端] 连接已接受: 地址={}",
             conn.remote_address() // 打印客户端地址
         );
         tokio::spawn(async move {
             // 异步处理每个连接
-            handle_connection(conn, new_pool).await.expect("打开双向流失败");
+            handle_connection(conn).await.expect("打开双向流失败");
         });
     }
 }
 
 // 单个连接的多流处理函数
-async fn handle_connection(mut conn: Connection, redis: Pool) -> Result<(), anyhow::Error> {
+async fn handle_connection(mut conn: Connection) -> Result<(), anyhow::Error> {
         println!("New connection from: {:?}", conn.remote_address());
 
         // 4. 循环接受该连接的双向流
@@ -58,10 +57,9 @@ async fn handle_connection(mut conn: Connection, redis: Pool) -> Result<(), anyh
             match conn.accept_bi().await {
                 Ok((send_stream, recv_stream)) => {
                     // 5. 为每个流生成独立异步任务
-                    let redis = redis.clone();
                     let address = conn.remote_address().to_string().clone();
                     tokio::spawn(async move {
-                        handle_conn(send_stream, recv_stream, redis, address).await;
+                        handle_conn(send_stream, recv_stream, address).await;
                     });
                 }
                 Err(e) => {
@@ -73,7 +71,7 @@ async fn handle_connection(mut conn: Connection, redis: Pool) -> Result<(), anyh
     Ok(())
 }
 
-async fn handle_conn(mut send_stream: SendStream, mut recv_stream: RecvStream, redis: Pool, address: String) {
+async fn handle_conn(mut send_stream: SendStream, mut recv_stream: RecvStream, address: String) {
     //接收流元数据，确认消息类型以及头部长度
     let mut first_quic_msg = FirstQuicMsg::new();
     let mut first_buffer = vec![0u8; 1024 * 10]; //10k缓冲区
@@ -151,9 +149,11 @@ async fn handle_conn(mut send_stream: SendStream, mut recv_stream: RecvStream, r
         server_book.insert(connection_key.clone(), new_connection);
     }
     {
+        let redis = REDIS_CLIENT.read().await;
+        let redis = redis.as_ref().expect("获取redis连接失败");
+
         let mut conn = redis.get().await.expect("打开redis连接失败");
-        conn
-            .set::<&str, &str, ()>(&connection_key, "SERVER_1")
+        conn.set::<&str, &str, ()>(&connection_key, "SERVER_1")
             .await
             .unwrap_or_else(|x| error!("插入redis失败! {}",x.to_string()))
     }
@@ -208,6 +208,11 @@ async fn handle_conn(mut send_stream: SendStream, mut recv_stream: RecvStream, r
             if now == close_now as u64 {
                 info!("用户下线 {}", close_key);
                 server_book.remove(&close_key);
+                let redis = REDIS_CLIENT.read().await;
+                let redis = redis.as_ref().expect("获取redis连接失败");
+
+                let mut conn = redis.get().await.expect("打开redis连接失败");
+                conn.del::<&str, ()>(&connection_key).await.expect("删除连接信息失败");
             }
         }
     }

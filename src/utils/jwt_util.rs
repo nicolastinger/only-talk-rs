@@ -12,7 +12,7 @@ use anyhow::anyhow;
 #[derive(Debug, Serialize, Deserialize)]
 struct Claims {
     sub: u64,     // 主题 (subject) 前3个数字表示语言
-    account: String, // 账号
+    uuid: String, // 用户唯一id
     exp: i64,        // 过期时间 (Unix 时间戳)
 }
 
@@ -34,11 +34,11 @@ fn generate_keys() -> Result<(EncodingKey, DecodingKey), anyhow::Error> {
     Ok((encoding_key, decoding_key))
 }
 
-pub fn get_jwt(account: String) -> Result<String, anyhow::Error> {
+pub fn get_jwt(uuid: String) -> Result<String, anyhow::Error> {
     let (encoding_key, _) = generate_keys()?;
     let claims = Claims {
         sub: 123123,
-        account,
+        uuid,
         exp: get_now_time_stamp_as_millis()? + (3600000 * 24),
     };
     // 使用 RSA 算法生成 JWT
@@ -55,7 +55,7 @@ pub fn decode_jwt(token: &str) -> Result<String, anyhow::Error> {
 
     let now = get_now_time_stamp_as_millis()?;
     match now < decoded.claims.exp {
-        true => Ok(decoded.claims.account),
+        true => Ok(decoded.claims.uuid),
         false => Err(anyhow!("token超时")),
     }
 }

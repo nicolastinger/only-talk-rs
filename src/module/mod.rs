@@ -1,5 +1,6 @@
 mod user_mod;
 mod chat_msg_mod;
+pub mod user_p2p_mod;
 
 use actix_web::web;
 

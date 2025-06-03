@@ -137,7 +137,7 @@ pub async fn start_server() -> anyhow::Result<()> {
     let redis_pool = init_redis();
     // 定义服务器监听地址
     let addr = read_config!(config_map,("quic_server"),"address");
-    quic_network_service::quic_server::init_server(redis_pool.clone(), addr.parse().unwrap());
+    quic_network_service::quic_server::init_server(addr.parse()?);
 
     let address = read_config!(config_map,("server"),"address");
 

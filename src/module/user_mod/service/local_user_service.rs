@@ -104,15 +104,10 @@ pub async fn user_sign_in(
     let password_str = password.as_ref().ok_or(anyhow!("密码为空".to_string()))?;
 
     // 查询用户
-    let basic_user_vec = BasicUser::select_by_column(rb, "account", account_str).await?;
-
-    // 检查用户是否存在
-    let basic_user_exit = basic_user_vec
-        .first()
-        .ok_or(anyhow!("用户不存在!".to_string()))?;
+    let basic_user = BasicUser::select_by_account(rb, account_str).await?.ok_or(anyhow!("用户不存在"))?;
 
     // 查询盐值信息
-    let salt_vec = BasicUserSalt::select_by_column(rb, "uuid", &basic_user_exit.uuid).await?;
+    let salt_vec = BasicUserSalt::select_by_column(rb, "uuid", &basic_user.uuid).await?;
 
     // 检查盐值是否存在
     let salt = salt_vec.first().ok_or(anyhow!("密码不存在!".to_string()))?;
@@ -125,11 +120,13 @@ pub async fn user_sign_in(
             .ok_or(anyhow!("加密盐查询失败".to_string()))?,
     );
 
+    let exit_password = basic_user.password.as_ref().ok_or(anyhow!("账号为空"))?;
+
     // 比较哈希后的密码
-    if basic_user_exit.password.as_deref() == Some(&hashed_password) {
+    if exit_password == &hashed_password {
         // 生成 JWT
         Ok(CommonResponseRef::<String>::success_json(&get_jwt(
-            account_str.clone(),
+            basic_user.uuid.ok_or(anyhow!("账号为空"))?.to_string(),
         )?)?)
     } else {
         Err(anyhow!("用户或密码不正确!"))
