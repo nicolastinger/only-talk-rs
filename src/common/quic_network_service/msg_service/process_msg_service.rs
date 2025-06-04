@@ -71,9 +71,9 @@ async fn process_text_msg(
             }
         };
 
-        if let Some(current_send_stream) = target_send_stream {
+        if let Some(target_send_stream) = target_send_stream {
             // 判断用户权限发送消息
-            pass_text_msg(current_send_stream.clone(), text_msg).await?;
+            pass_text_msg(target_send_stream.clone(), send_stream.clone(), text_msg).await?;
         } else {
             // 处理 my_send_stream 为 None 的情况
             info!("用户不在线，无法发送消息: {}", user_key);
@@ -105,7 +105,8 @@ async fn send_ping(
 
 /// 传递用户消息
 async fn pass_text_msg(
-    send_stream: Arc<RwLock<SendStream>>,
+    recv_send_stream: Arc<RwLock<SendStream>>,
+    current_send_stream: Arc<RwLock<SendStream>>,
     text_msg: TextQuicMsg,
 ) -> anyhow::Result<()> {
     let nanoid = text_msg.id;
@@ -116,7 +117,6 @@ async fn pass_text_msg(
         text_msg.recv_user,
         text_msg.send_user,
     )?;
-    let current_send_stream: Arc<RwLock<SendStream>> = send_stream.clone();
     tokio::spawn(async move {
         {
             let permission = send_msg_permissions().await.unwrap_or_else(|e| {
@@ -127,7 +127,8 @@ async fn pass_text_msg(
                 no_permission_msg_record().await;
                 return;
             }
-            let res= send_stream
+            let current_send_stream = current_send_stream.clone();
+            let res= recv_send_stream
                 .write()
                 .await
                 .write_all(&res)
