@@ -1,11 +1,12 @@
 use actix_web::{get, post, web, HttpMessage, HttpRequest, HttpResponse, Responder};
+use anyhow::Error;
 use deadpool_redis::Pool;
 use deadpool_redis::redis::{cmd, RedisResult};
 use log::{info,error};
 use rbatis::RBatis;
 use crate::common::init_server::AppState;
 use crate::module::user_mod::entity::basic_user::BasicUser;
-use crate::module::user_mod::service::local_user_service::{add_new_basic_user_service, get_exit_user, get_user_info_by_account, get_user_info_by_uuid, get_user_raw, get_user_uuid_by_account_service, test_sql, user_sign_in};
+use crate::module::user_mod::service::local_user_service::{add_new_basic_user_service, get_exit_user, get_user_info_by_account, get_user_info_by_uuid, get_user_raw, get_user_uuid_by_account_service, test_sql, user_sign_in, verify_token_service};
 use crate::utils::http_response::CommonResponse;
 use crate::utils::jwt_util::{decode_jwt, get_jwt};
 use crate::{get_uuid_from_header, respond_json, respond_json_any, serde_json_to_string, validate_and_respond};
@@ -27,6 +28,7 @@ pub fn user_service(cfg: &mut web::ServiceConfig) {
         .service(me_api)
         .service(query_user_api)
         .service(get_user_uuid_by_account_api)
+        .service(verify_token_api)
         .service(post_online_user);
 }
 
@@ -159,5 +161,11 @@ pub async fn get_user_uuid_by_account_api(state: web::Data<RBatis>,account: web:
     respond_json_any!(res)
 }
 
+#[post("/verify_token/{uuid}/{token}")]
+pub async fn verify_token_api(path: web::Path<(String, String)>) -> impl Responder {
+    let (uuid, token) = path.into_inner();
+
+    respond_json_any!(verify_token_service(uuid,token).await)
+}
 
 

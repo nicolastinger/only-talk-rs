@@ -3,11 +3,11 @@ use crate::module::user_mod::dto::basic_user_dto::SignInBasicUserDTO;
 use crate::module::user_mod::entity::basic_user::{get_raw_sql, BasicUser, BasicUserSalt};
 use crate::module::user_mod::entity::user_info::UserInfo;
 use crate::module::user_mod::vo::user_info::UserInfoVO;
-use crate::utils::http_response::CommonResponseRef;
-use crate::utils::jwt_util::get_jwt;
+use crate::utils::http_response::{CommonResponseNoDataRef, CommonResponseRef};
+use crate::utils::jwt_util::{decode_jwt, get_jwt};
 use crate::utils::rsa_util::{generate_random_string, hash_with_salt};
 use crate::{RBATIS_DATABASE, REDIS_CLIENT};
-use actix_web::web;
+use actix_web::{web, HttpResponse, Responder};
 use anyhow::anyhow;
 use deadpool_redis::redis::{cmd, RedisResult};
 use log::{error, info};
@@ -214,4 +214,13 @@ pub async fn get_user_uuid_by_account(account: String) -> Result<Uuid, anyhow::E
         .query_async(&mut conn)
         .await?;
     Ok(uuid.parse()?)
+}
+
+
+pub async fn verify_token_service(uuid: String, token: String) -> Result<String, anyhow::Error> {
+    let res = decode_jwt(&token)?;
+    match res == uuid {
+        true => Ok(CommonResponseNoDataRef::success_empty()),
+        false => Err(anyhow!("failed"))
+    }
 }
