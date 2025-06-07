@@ -59,7 +59,7 @@ async fn handle_connection(mut conn: Connection) -> Result<(), anyhow::Error> {
                     // 5. 为每个流生成独立异步任务
                     let address = conn.remote_address().to_string().clone();
                     tokio::spawn(async move {
-                        handle_conn(send_stream, recv_stream, address).await;
+                        handle_conn(send_stream, recv_stream, address).await.unwrap_or_else(|x| error!("初始化连接失败 {}", x));
                     });
                 }
                 Err(e) => {
@@ -71,7 +71,8 @@ async fn handle_connection(mut conn: Connection) -> Result<(), anyhow::Error> {
     Ok(())
 }
 
-async fn handle_conn(mut send_stream: SendStream, mut recv_stream: RecvStream, address: String) {
+/// 处理元数据
+async fn process_first_msg(send_stream: &mut SendStream, recv_stream: &mut RecvStream, address: &String) -> Result<FirstQuicMsg, anyhow::Error> {
     //接收流元数据，确认消息类型以及头部长度
     let mut first_quic_msg = FirstQuicMsg::new();
     let mut first_buffer = vec![0u8; 1024 * 10]; //10k缓冲区
@@ -85,41 +86,55 @@ async fn handle_conn(mut send_stream: SendStream, mut recv_stream: RecvStream, a
                 }
                 _ => {
                     error!("序列化流数据的元数据失败 {}", origin_str);
-                    send_stream.finish().await.expect("发送终止信号失败");
-                    return;
+                    send_stream.finish().await?;
                 }
             };
         }
         Ok(None) => {
             error!("[服务端] 发送流初始化元数据失败: {}", address);
-            return;
+            return Err(anyhow!("[服务端] 发送流初始化元数据为空"));
         }
         Err(e) => {
-            error!(
-                "[服务端] 初始化读取元数据错误: {},退出流{}",
-                e,
-                address.as_str()
+            error!("[服务端] 初始化读取元数据错误: {},退出流{}",e,address.as_str()
             );
+            return Err(anyhow!("[服务端] 发送流初始化元数据为空"));
         }
-    }
+    };
+    Ok(first_quic_msg)
+}
 
-    let head_length = first_quic_msg.dyn_header_size;
-    match decode_jwt(first_quic_msg.token.as_ref()).map_err(|_| "解析token失败") {
+/// 校验token有效性
+async fn verify_token(first_quic_msg: &FirstQuicMsg,mut send_stream: &mut SendStream) -> Result<String, anyhow::Error> {
+    let uuid = match decode_jwt(first_quic_msg.token.as_ref()).map_err(|_| "解析token失败") {
         Ok(t) => {
             if t != first_quic_msg.uuid {
                 error!("令牌跟账号不匹配！");
-                send_stream.finish().await.expect("发送终止信号失败");
-                return;
+                send_stream.finish().await?;
+                return Err(anyhow!("令牌跟账号不匹配！"));
             }
+            t
         }
         Err(_) => {
             error!("解析令牌失败");
-            send_stream.finish().await.expect("发送终止信号失败");
-            return;
+            send_stream.finish().await?;
+            return Err(anyhow!("解析令牌失败！"));
         }
+    };
+    Ok(uuid)
+}
+
+/// 处理来凝结
+async fn handle_conn(mut send_stream: SendStream, mut recv_stream: RecvStream, address: String) -> Result<(), anyhow::Error> {
+    let first_quic_msg = process_first_msg(&mut send_stream, &mut recv_stream, &address.clone()).await?;
+    let head_length = first_quic_msg.dyn_header_size;
+    let uuid = verify_token(&first_quic_msg, &mut send_stream).await?;
+
+    let server_book = GLOBAL_QUIC_SERVER_LIST.read().await;
+    let server_book_len = server_book.len();
+    if server_book_len > 1000 {
+        error!("达到最大连接数 {}", server_book_len);
+        send_stream.finish().await.expect("发送终止信号失败");
     }
-
-
 
     let msg_type = first_quic_msg.msg_type.clone();
 
@@ -222,6 +237,8 @@ async fn handle_conn(mut send_stream: SendStream, mut recv_stream: RecvStream, a
         close_key,
         GLOBAL_QUIC_SERVER_LIST.read().await.len()
     );
+
+    Ok(())
 }
 
 
