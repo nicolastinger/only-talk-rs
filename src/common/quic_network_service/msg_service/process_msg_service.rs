@@ -1,9 +1,7 @@
 use crate::utils::global_static_str::{PONG, REDIS_QUIC_SERVERS, REDIS_SPLIT, SYSTEM};
 use crate::common::quic_network_service::models::quic_connection::ConnectionType;
 use crate::common::quic_network_service::models::text_msg::{MessageType, TextQuicMsg};
-use crate::common::quic_network_service::msg_service::text_msg_service::{
-    generate_text_msg, get_text_msg,
-};
+use crate::common::quic_network_service::msg_service::text_msg_service::{generate_text_msg, get_text_msg};
 use crate::GLOBAL_QUIC_SERVER_LIST;
 use anyhow::{anyhow};
 use log::{error, info};
