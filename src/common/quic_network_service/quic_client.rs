@@ -73,7 +73,7 @@ async fn init_send_msg(mut send_stream: SendStream) -> Result<(), anyhow::Error>
     first_quic_msg.dyn_header_size = 9;
     first_quic_msg.uuid = "01965d95-0ffc-7d23-911e-5313485fb9be".to_string();
     first_quic_msg.text_serde_struct = "user_chat_json".to_string();
-    first_quic_msg.token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJzdWIiOjEyMzEyMywidXVpZCI6IjAxOTY1ZDk1LTBmZmMtN2QyMy05MTFlLTUzMTM0ODVmYjliZSIsImV4cCI6MTc0OTA0NDc4Nzk0Nn0.AuDV-qgVWVoYoioK51kSuxx9KS3FBR5RBLayHJy3NgcCsOYV0GbSjTNjVmo9SDOlVHvUHN3Gl3CDGNzXgkfgx37Mwcl0qCNhoNVaeKMNPlkB5Rm9DtKCjSfiIdAkXhSx744Nb6kiUJJi6tkCN4usA7nlbruucMzM7g9_nHlngo1Eg_2jXTU_WQ_qlMbpC35IgnwrNEdSXRqN4KTbvC7jmhQ78cijmm3_opkiCKlhI9ajpJObKIgAPjlHxIw7DTd2cFcRUqfWUfefBmpz4YyDQWJI9kAaFaS7wxQXZ31QRXY7t50b43IWVAc6AHBUfKYnecYpeHAIoD--00GEnq0O_Q".to_string();
+    first_quic_msg.token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJzdWIiOjEyMzEyMywidXVpZCI6IjAxOTY1ZDk1LTBmZmMtN2QyMy05MTFlLTUzMTM0ODVmYjliZSIsImV4cCI6MTc0OTYwNjE5MzM5Mn0.EJ23z-kPoOCxKK4ROX8p_eKdZxnY3R_b8rdVnrCfEQ0rrTFJ_pn1JVQQEioU-abHs0hbejlUn7mkByXuzYi8gr4sawWP1XfJfGx-n5MUqOAAWnMBZpISBpoeuh0Ph6qBjXTb0P2JIZwYA5Bzyq4AFJZTa6FVUh4m0-xHR5rX9Ygju2L6xKRoamjP7mooWwCNEh1WTRUcIaNgITroIjWmA3OzFFAubkmj4babcdeD1PXtvwp-sapgV5-acAzgf5RxJaxxLkqgBcF8Doi0tvYHiSQJCTSvhhuDgy6EgOz6UAUnZdaZ4-QTt8G02TKOxwvES7hQ-IfPC2vrcaElpHFGVw".to_string();
     send_stream
         .write_all(serde_json::to_string(&first_quic_msg)?.as_bytes())
         .await?;
@@ -84,14 +84,14 @@ async fn init_send_msg(mut send_stream: SendStream) -> Result<(), anyhow::Error>
 
     let test_msg = generate_text_msg(
         MessageType::Text as u16,
-        "上山打老虎".to_string(),
+        "上山打老虎".as_bytes().to_vec(),
         "01965d95-0ffc-7d23-911e-5313485fb9be".to_string(),
         "01965d95-0ffc-7d23-911e-5313485fb9be".to_string(),
     )?;
 
     let test_msg2 = generate_text_msg(
         MessageType::Text as u16,
-        "我是蔡徐坤".to_string(),
+        "我是蔡徐坤".as_bytes().to_vec(),
         "01965d95-0ffc-7d23-911e-5313485fb9be".to_string(),
         "01965d95-0ffc-7d23-911e-5313485fb9be".to_string(),
     )?;
@@ -109,7 +109,7 @@ async fn init_send_msg(mut send_stream: SendStream) -> Result<(), anyhow::Error>
             tokio::time::sleep(Duration::from_secs(60)).await;
             let ping_msg = generate_text_msg(
                 MessageType::Ping as u16,
-                PING.to_string(),
+                PING.as_bytes().to_vec(),
                 SYSTEM.to_string(),
                 "caixukun".to_string()
             ).expect("");

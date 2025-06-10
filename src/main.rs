@@ -44,15 +44,7 @@ async fn main() {
      });
     tokio::spawn(async  {
         // 启动udp连接
-        let res = get_p2p_udp_socket().await;
-        match res {
-            Ok(_) => {
-                info!("udp服务正常结束!")
-            }
-            Err(e) => {
-                error!("udp服务发生错误 {} {}",e.to_string(),e.backtrace());
-            }
-        }
+        get_p2p_udp_socket().await.unwrap();
     });
 
     init_server::start_server().await.unwrap_or_else(|err| error!("错误信息 {}, 堆栈信息 {:?}", err, err.backtrace()));

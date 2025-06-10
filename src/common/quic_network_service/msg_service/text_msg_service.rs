@@ -10,7 +10,7 @@ use crate::X25;
 //生成文本消息
 pub fn generate_text_msg(
     text_type: u16,
-    raw: String,
+    raw: Vec<u8>,
     recv_user: String,
     send_user: String,
 ) -> anyhow::Result<Vec<u8>> {
