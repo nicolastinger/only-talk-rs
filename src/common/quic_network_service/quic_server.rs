@@ -13,6 +13,7 @@ use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
 use crate::common::quic_network_service::models::first_quic_msg::FirstQuicMsg;
 use crate::common::quic_network_service::msg_service::process_msg_service::process_rec_msg;
+use crate::common::service::user_service::{user_offline, user_online};
 use crate::utils::global_static_str::{MAX_QUIC_BUFFER_LEN, MAX_QUIC_SERVERS, SERVER_NAME};
 use crate::utils::time::get_now_time_stamp_as_millis;
 
@@ -26,9 +27,9 @@ async fn run_server(addr: SocketAddr) {
     let (endpoint, _server_cert) = make_server_endpoint(addr).unwrap();
     info!("quic服务器启动成功,使用地址为: {}", addr);
 
-    // 持续监听新的连接请求
+    // 持续监听新连接请求
     loop {
-        let incoming_conn = endpoint.accept().await.unwrap(); // 接收新的连接请求
+        let incoming_conn = endpoint.accept().await.unwrap(); // 接收新连接请求
         let conn = match incoming_conn.await{
             Ok(t) => t,
             Err(e) => {
@@ -50,7 +51,7 @@ async fn run_server(addr: SocketAddr) {
 
 // 单个连接的多流处理函数
 async fn handle_connection(conn: Connection) -> Result<(), anyhow::Error> {
-        println!("New connection from: {:?}", conn.remote_address());
+        info!("新连接来源: {:?}", conn.remote_address());
 
         // 4. 循环接受该连接的双向流
         loop {
@@ -114,8 +115,8 @@ async fn verify_token(first_quic_msg: &FirstQuicMsg,send_stream: &mut SendStream
             }
             t
         }
-        Err(_) => {
-            error!("解析令牌失败");
+        Err(e) => {
+            error!("解析令牌失败 {}", e.to_string());
             send_stream.finish().await?;
             return Err(anyhow!("解析令牌失败！"));
         }
@@ -169,6 +170,8 @@ async fn handle_conn(mut send_stream: SendStream, mut recv_stream: RecvStream, a
     let head_length = first_quic_msg.dyn_header_size;
     let uuid = verify_token(&first_quic_msg, &mut send_stream).await?;
     verify_max_client(&mut send_stream).await?;
+    user_online(uuid.clone()).await?;
+    let current_uuid = uuid.clone();
 
     let msg_type = first_quic_msg.msg_type.clone();
 
@@ -200,6 +203,7 @@ async fn handle_conn(mut send_stream: SendStream, mut recv_stream: RecvStream, a
 
                 match process_rec_msg(
                     change_buffer,
+                    current_uuid.clone(),
                     length,
                     new_close_key,
                     &msg_type,
@@ -231,13 +235,16 @@ async fn handle_conn(mut send_stream: SendStream, mut recv_stream: RecvStream, a
     Ok(())
 }
 
+/// 用户下线
 async fn end_server(close_key: &String, connection_key: &String, close_now: i64) -> Result<(), anyhow::Error> {
+    let mut uuid = "".to_string();
     {
         let mut server_book = GLOBAL_QUIC_SERVER_LIST.write().await;
         if let Some(book) = server_book.get_mut(close_key) {
             let now = book.update_time;
             if now == close_now as u64 {
                 info!("用户下线 {}", close_key);
+                uuid = book.uuid.clone();
                 server_book.remove(close_key);
                 let redis = REDIS_CLIENT.read().await;
                 let redis = redis.as_ref().expect("获取redis连接失败");
@@ -253,6 +260,8 @@ async fn end_server(close_key: &String, connection_key: &String, close_now: i64)
         close_key,
         GLOBAL_QUIC_SERVER_LIST.read().await.len()
     );
+
+    user_offline(uuid).await?;
 
     Ok(())
 }

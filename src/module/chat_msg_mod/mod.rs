@@ -3,6 +3,7 @@ use actix_web::web;
 mod controller;
 mod entity;
 mod service;
+mod vo;
 
 use crate::module::chat_msg_mod::controller::text_msg_controller::text_msg_service;
 

@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use actix_web::web;
+use log::info;
 use rbatis::{crud, impl_delete, impl_select, impl_select_page, impl_update, RBatis};
 use rbatis::rbdc::Uuid;
 use serde::{Deserialize, Serialize};
@@ -43,7 +44,7 @@ pub async fn get_raw_sql(rb: web::Data<RBatis>) {
     if let Some(t) = table {
         for i in t.iter() {
             for (k,v) in i.iter() {
-                println!("{}: {}", k, serde_json::to_string_pretty(&v).unwrap());
+                info!("{}: {}", k, serde_json::to_string_pretty(&v).unwrap());
             }
         }
     }

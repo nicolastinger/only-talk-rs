@@ -8,9 +8,11 @@ use log::{error, info};
 use quinn::{SendStream};
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
+use crate::common::service::user_service::add_user_chat_record;
 
 pub async fn process_rec_msg(
     buffer: &mut Vec<u8>,
+    uuid: String,
     length: usize,
     close_key: String,
     msg_type: &ConnectionType,
@@ -24,11 +26,13 @@ pub async fn process_rec_msg(
     };
 
     match msg_type {
+        // 文本消息，用户请求消息，比如发起视频请求，p2p请求
         ConnectionType::Text => {
             let text_vec = get_text_msg(buffer, length, buffer_msg, head_length).await?;
             info!("接收到客户端信息 {:?}", text_vec);
             process_text_msg(my_send_stream, text_vec).await?;
         }
+        // 图片消息
         ConnectionType::Img => {}
         ConnectionType::Video => {}
         ConnectionType::File => {}
@@ -57,6 +61,11 @@ async fn process_text_msg(
             ConnectionType::Text.to_string()
         );
         let user_key = user_key.to_uppercase();
+
+        let text_msg_clone = text_msg.clone();
+        tokio::spawn(async move {
+            add_user_chat_record(text_msg_clone).await.expect("插入用户消息失败");
+        });
 
         // 目标用户的发送流
         let target_send_stream: Option<Arc<RwLock<SendStream>>> = {
@@ -118,14 +127,8 @@ async fn pass_text_msg(
     )?;
     tokio::spawn(async move {
         {
-            let permission = send_msg_permissions().await.unwrap_or_else(|e| {
-                error!("鉴权失败 {}", e.to_string());
-                false
-            });
-            if !permission {
-                no_permission_msg_record().await;
-                return;
-            }
+            send_msg_permissions().await.expect("鉴权失败");
+
             let current_send_stream = current_send_stream.clone();
             let res= recv_send_stream
                 .write()
@@ -150,11 +153,6 @@ async fn pass_text_msg(
 async fn send_msg_permissions() -> anyhow::Result<bool> {
     // TODO
     Ok(true)
-}
-
-/// 处理无权限消息
-async fn no_permission_msg_record() {
-    //TODO
 }
 
 /// 记录发送消息

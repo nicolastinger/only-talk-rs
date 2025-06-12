@@ -30,7 +30,7 @@ pub struct HeadMsg {
 }
 
 //文本信息消息体
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TextQuicMsg {
     pub id: String,
     pub text_type: u16,  //消息类型

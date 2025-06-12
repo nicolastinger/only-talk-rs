@@ -8,9 +8,9 @@ use tokio::signal;
 
 /// p2p通信使用udp端口
 pub async fn get_p2p_udp_socket() -> anyhow::Result<()> {
-    // 绑定到所有网络接口的 9562 端口[6](@ref)
+    // 绑定到所有网络接口的 9562 端口
     let socket = UdpSocket::bind("0.0.0.0:9562").await?;
-    info!("服务端已启动，监听端口 9562...");
+    info!("udp服务端已启动，监听端口 9562...");
 
     let mut buf = [0u8; 1024];
 
