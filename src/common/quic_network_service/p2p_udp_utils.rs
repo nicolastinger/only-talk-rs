@@ -58,9 +58,9 @@ pub async fn get_p2p_udp_socket(address: &str, ip_type: String) -> anyhow::Resul
                         let udp_addr = format!("{}:{}", client_ip, client_port);
 
                         // 转换消息为字符串（自动处理非 UTF-8 字符）[2](@ref)
-                        let user_address_info = String::from_utf8_lossy(&buf[..size]);
+                        //let user_address_info = String::from_utf8_lossy(&buf[..size]);
 
-                        match serde_json::from_str::<UserAddressInfo>(&user_address_info){
+                        match serde_json::from_slice::<UserAddressInfo>(&buf[..size]){
                            Ok(msg) => {
                               process_p2p_user_info(udp_addr, ip_type.clone(), msg).await.unwrap_or_else(|err| {
                                 error!("处理用户p2p连接失败 {}", err);
