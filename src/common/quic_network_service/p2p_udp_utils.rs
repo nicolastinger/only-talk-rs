@@ -1,63 +1,252 @@
+use crate::common::quic_network_service::models::quic_connection::ConnectionType;
+use crate::common::quic_network_service::models::text_msg::MessageType;
+use crate::common::quic_network_service::msg_service::get_send_stream_by_uuid;
+use crate::common::quic_network_service::msg_service::text_msg_service::generate_text_msg;
+use crate::common::quic_network_service::p2p_service::model::{P2pInitMsg, UserAddressInfo};
+use crate::utils::global_static_str::SYSTEM;
 use crate::utils::jwt_util::decode_jwt;
-use crate::REDIS_CLIENT;
+use crate::utils::redis_utils::{acquire_lock, get_redis_conn, release_lock};
+use crate::{GLOBAL_QUIC_SERVER_LIST, REDIS_CLIENT};
 use anyhow::anyhow;
-use deadpool_redis::redis::{cmd, RedisResult};
-use log::{error, info};
+use deadpool_redis::redis::{cmd, AsyncCommands, RedisResult};
+use log::{error, info, warn};
 use tokio::net::UdpSocket;
 use tokio::signal;
 
+pub async fn run_udp_server() -> Result<(), anyhow::Error> {
+    let addr_1 = "0.0.0.0:9562";
+    let addr_2 = "[::]:9563";
+    let addr_3 = "0.0.0.0:9564";
+    let addr_4 = "[::]:9565";
+    // 启动udp连接1
+    tokio::spawn(async move {
+        get_p2p_udp_socket(addr_1, "V4".to_string()).await.unwrap();
+    });
+    tokio::spawn(async move {
+        get_p2p_udp_socket(addr_2, "V6".to_string()).await.unwrap();
+    });
+    tokio::spawn(async move {
+        get_p2p_udp_socket(addr_3, "V4".to_string()).await.unwrap();
+    });
+    tokio::spawn(async move {
+        get_p2p_udp_socket(addr_4, "V6".to_string()).await.unwrap();
+    });
+    Ok(())
+}
+
 /// p2p通信使用udp端口
-pub async fn get_p2p_udp_socket() -> anyhow::Result<()> {
-    // 绑定到所有网络接口的 9562 端口
-    let socket = UdpSocket::bind("0.0.0.0:9562").await?;
-    info!("udp服务端已启动，监听端口 9562...");
+pub async fn get_p2p_udp_socket(address: &str, ip_type: String) -> anyhow::Result<()> {
+    // 绑定到所有网络接口的 udp 端口
+    let socket = UdpSocket::bind(address).await?;
+    info!("udp服务端已启动，监听地址 {}", address);
 
     let mut buf = [0u8; 1024];
 
     loop {
         tokio::select! {
-                _ = signal::ctrl_c() => {
-                    info!("收到 Ctrl+C 信号，正在关闭服务...");
-                    return Ok(());
-                }
-                result = socket.recv_from(&mut buf) => {
-                    match result {
-                        Ok((size, src)) => {
-                            // 提取客户端信息
-                            let client_ip = src.ip();
-                            let client_port = src.port();
+            _ = signal::ctrl_c() => {
+                info!("收到 Ctrl+C 信号，正在关闭服务...");
+                return Ok(());
+            }
+            result = socket.recv_from(&mut buf) => {
+                match result {
+                    Ok((size, src)) => {
+                        // 提取客户端信息
+                        let client_ip = src.ip();
+                        let client_port = src.port();
 
-                            let udp_addr = format!("{}:{}", client_ip, client_port);
+                        let udp_addr = format!("{}:{}", client_ip, client_port);
 
-                            // 转换消息为字符串（自动处理非 UTF-8 字符）[2](@ref)
-                            let token = String::from_utf8_lossy(&buf[..size]);
+                        // 转换消息为字符串（自动处理非 UTF-8 字符）[2](@ref)
+                        let user_address_info = String::from_utf8_lossy(&buf[..size]);
 
-                            match decode_jwt(token.as_ref()){
-                                Ok(account) => {
-                                    info!("收到来自 {}:{} 的消息, 用户uuid: {}",client_ip,client_port,account);
-                                    // 用户的udp连接地址
-                                    let key = format!("{}{}", "USER_UDP_ADDRESS_", account);
-                                    let key = key.to_uppercase();
-                                    let redis_client = REDIS_CLIENT.read().await;
-                                    let redis_conn = redis_client.as_ref().ok_or(anyhow!("redis客户端错误"))?;
-                                    let mut conn = redis_conn.get().await?;
-                                    // 设置10分钟超时
-                                    cmd("SET").arg(&key).arg(&udp_addr).arg("EX").arg(600).query_async(&mut conn).await.unwrap_or_else(|e| {
-                                       error!("新增用户连接信息失败 {}",e.to_string())
-                                    });
-                                },
-                                Err(e) => {
-                                    error!("获取token失败 {}",e.backtrace());
-
-                                }
-                            };
-
-                            // 清空缓冲区（避免残留数据）
+                        match serde_json::from_str::<UserAddressInfo>(&user_address_info){
+                           Ok(msg) => {
+                              process_p2p_user_info(udp_addr, ip_type.clone(), msg).await.unwrap_or_else(|err| {
+                                error!("处理用户p2p连接失败 {}", err);
+                            })
+                           },
+                           Err(e) => {
+                            error!("序列化p2p信息失败，来源{}:{},{}", client_ip, client_port, e.to_string());
                             buf[..size].fill(0);
-                        }
-                        Err(e) => error!("接收错误: {}", e),
+                            continue;
+                           }
+                        };
+                        // 清空缓冲区（避免残留数据）
+                        buf[..size].fill(0);
                     }
+                    Err(e) => error!("接收错误: {}", e),
                 }
             }
+        }
     }
+}
+
+/// 处理用户p2p连接
+// 给对应用户id的redis加锁，成功则新增数据写入，失败则读取数据并对本次的
+async fn process_p2p_user_info(
+    udp_addr: String,
+    ip_type: String,
+    mut user_address_info: UserAddressInfo,
+) -> Result<(), anyhow::Error> {
+    match decode_jwt(user_address_info.token.as_ref()) {
+        Ok(uuid) => {
+            info!("收到来自 {} 的消息, 用户uuid: {}", udp_addr, uuid);
+            // 用户的udp连接地址
+            let key = format!("{}{}_{}", "USER_UDP_ADDRESS_", ip_type, uuid);
+            let lock_key = format!("{}{}_{}", "USER_UDP_ADDRESS_LOCK_", ip_type, uuid);
+            let key = key.to_uppercase();
+            let mut acquire_flag = false;
+
+            // 针对这个key加30秒过期的redis锁
+            {
+                let mut conn = get_redis_conn().await?;
+                let lock_id = acquire_lock(&mut conn, &lock_key, 30).await?;
+                if lock_id.is_some() {
+                    acquire_flag = true;
+                    user_address_info.lock_uuid = lock_id.unwrap();
+                }
+            }
+
+            // 加锁失败，代表之前有录入过消息，对比两次端口得出是否对称型nat
+            if !acquire_flag {
+                let user_info =
+                    get_target_user_address_info(&user_address_info.uuid, &ip_type).await?;
+                if user_info.address == user_address_info.address {
+                    user_address_info.nat_type = 3; //ip端口限制型
+                } else {
+                    user_address_info.nat_type = 4; //对称型
+                }
+                let mut conn = get_redis_conn().await?;
+                // 手动释放锁
+                release_lock(&mut conn, &lock_key, &user_info.lock_uuid).await?;
+                // 标记为已经释放锁了，可以给目标用户使用
+                user_address_info.is_lock = true;
+            }
+
+            user_address_info.address = udp_addr;
+            // 获取目标用户的ip地址
+            match get_target_user_address_info(&user_address_info.target_uuid, &ip_type).await {
+                Ok(mut target_user_address_info) => {
+                    // 只有当检测完NAT类型后再进行比较
+                    if target_user_address_info.is_lock == true && !acquire_flag {
+                        let flag = false;
+                        match (
+                            user_address_info.nat_type,
+                            target_user_address_info.nat_type,
+                        ) {
+                            (4, 4) => {
+                                error!(
+                                    "双方均为对称型NAT，无法建立连接!停止处理 {},{}",
+                                    user_address_info.uuid, target_user_address_info.uuid
+                                );
+                                return Ok(());
+                            }
+                            (3, _) => {
+                                user_address_info.is_server = true;
+                                target_user_address_info.is_server = false;
+                                info!(
+                                    "发起方 {}，接收方 {}",
+                                    user_address_info.uuid, target_user_address_info.uuid
+                                );
+                            }
+                            (4, 3) => {
+                                target_user_address_info.is_server = true;
+                                user_address_info.is_server = false;
+                                info!(
+                                    "接收方 {}，发起方 {}",
+                                    target_user_address_info.uuid, user_address_info.uuid
+                                );
+                            }
+                            _ => {
+                                error!("匹配为空，不处理");
+                                return Ok(());
+                            }
+                        }
+                        let mut server = {
+                            let mut result = MessageType::P2pUserClient as u16;
+                            // 本用户是服务端，向对方发送客户端信息
+                            if user_address_info.is_server {
+                                result = MessageType::P2pUserClient as u16
+                            } else {
+                                result = MessageType::P2pUserServer as u16
+                            }
+                            result
+                        };
+                        {
+                            // 获取目标方发送流
+                            let my_send_stream = get_send_stream_by_uuid(
+                                &target_user_address_info.uuid,
+                                &ConnectionType::Text.to_string(),
+                            )
+                            .await?;
+
+                            let user_address_info_vec = serde_json::to_vec(&user_address_info)?;
+                            let msg_raw = generate_text_msg(
+                                server,
+                                user_address_info_vec,
+                                target_user_address_info.uuid.clone(),
+                                SYSTEM.to_string(),
+                            )?;
+                            my_send_stream.write().await.write_all(&msg_raw).await?;
+                        }
+
+                        {
+                            let my_send_stream = get_send_stream_by_uuid(
+                                &user_address_info.uuid,
+                                &ConnectionType::Text.to_string(),
+                            )
+                            .await?;
+                            if server == MessageType::P2pUserClient as u16 {
+                                server = MessageType::P2pUserServer as u16
+                            }
+
+                            let target_user_address_info_vec =
+                                serde_json::to_vec(&target_user_address_info)?;
+                            let msg_raw = generate_text_msg(
+                                server,
+                                target_user_address_info_vec,
+                                user_address_info.uuid.clone(),
+                                SYSTEM.to_string(),
+                            )?;
+                            my_send_stream.write().await.write_all(&msg_raw).await?;
+                        }
+                    }
+                }
+                Err(e) => {
+                    warn!("获取目标用户信息失败 {}", e.to_string());
+                }
+            }
+            let user_address_info_json =
+                serde_json::to_string(&user_address_info).unwrap_or(String::new());
+            // 设置10分钟超时
+            let mut conn = get_redis_conn().await?;
+            cmd("SET")
+                .arg(&key)
+                .arg(&user_address_info_json)
+                .arg("EX")
+                .arg(600)
+                .query_async(&mut conn)
+                .await
+                .unwrap_or_else(|e| error!("新增用户连接信息失败 {}", e.to_string()));
+        }
+        Err(e) => {
+            error!("获取token失败 {}", e.backtrace());
+        }
+    };
+
+    Ok(())
+}
+
+/// 获取目标用户地址
+async fn get_target_user_address_info(
+    target_uuid: &String,
+    ip_type: &String,
+) -> Result<UserAddressInfo, anyhow::Error> {
+    let mut conn = get_redis_conn().await?;
+    let key = format!("{}{}_{}", "USER_UDP_ADDRESS_", ip_type, target_uuid);
+    let result: String = conn.get(&key).await?;
+    let mut target_user_address_info: UserAddressInfo = serde_json::from_str(&result)?;
+    target_user_address_info.token = String::new();
+    Ok(target_user_address_info)
 }

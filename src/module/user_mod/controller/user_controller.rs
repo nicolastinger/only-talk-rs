@@ -6,7 +6,7 @@ use log::{info,error};
 use rbatis::RBatis;
 use crate::common::init_server::AppState;
 use crate::module::user_mod::entity::basic_user::BasicUser;
-use crate::module::user_mod::service::local_user_service::{add_new_basic_user_service, get_exit_user, get_user_info_by_account, get_user_info_by_uuid, get_user_raw, get_user_uuid_by_account_service, test_sql, user_sign_in, verify_token_service};
+use crate::module::user_mod::service::local_user_service::{add_new_basic_user_service, add_p2p_token_service, get_exit_user, get_user_info_by_account, get_user_info_by_uuid, get_user_raw, get_user_uuid_by_account_service, test_sql, user_sign_in, verify_p2p_token_service};
 use crate::utils::http_response::CommonResponse;
 use crate::utils::jwt_util::{decode_jwt, get_jwt};
 use crate::{get_uuid_from_header, respond_json, respond_json_any, serde_json_to_string, validate_and_respond};
@@ -28,7 +28,8 @@ pub fn user_service(cfg: &mut web::ServiceConfig) {
         .service(me_api)
         .service(query_user_api)
         .service(get_user_uuid_by_account_api)
-        .service(verify_token_api)
+        .service(verify_p2p_token_api)
+        .service(add_p2p_token_api)
         .service(post_online_user);
 }
 
@@ -155,17 +156,24 @@ pub async fn sign_test(basic_user:web::Json<SignInBasicUserDTO>) -> impl Respond
 }
 
 #[post("/get_uuid_by_account/{account}")]
-pub async fn get_user_uuid_by_account_api(state: web::Data<RBatis>,account: web::Path<(String)>)-> impl Responder {
+pub async fn get_user_uuid_by_account_api(account: web::Path<(String)>)-> impl Responder {
     let account = account.into_inner();
-    let res = get_user_uuid_by_account_service(state.get_ref(),account).await;
+    let res = get_user_uuid_by_account_service(account).await;
     respond_json_any!(res)
 }
 
-#[post("/verify_token/{uuid}/{token}")]
-pub async fn verify_token_api(path: web::Path<(String, String)>) -> impl Responder {
+#[post("/verify_p2p_token/{uuid}/{token}")]
+pub async fn verify_p2p_token_api(path: web::Path<(String, String)>, req: HttpRequest) -> impl Responder {
     let (uuid, token) = path.into_inner();
+    let me = get_uuid_from_header!(req);
+    respond_json_any!(verify_p2p_token_service(uuid,token,me).await)
+}
 
-    respond_json_any!(verify_token_service(uuid,token).await)
+#[post("/add_p2p_token/{uuid}/{token}")]
+pub async fn add_p2p_token_api(path: web::Path<(String, String)>, req: HttpRequest) -> impl Responder {
+    let (uuid, token) = path.into_inner();
+    let me = get_uuid_from_header!(req);
+    respond_json_any!(add_p2p_token_service(uuid,token,me).await)
 }
 
 

@@ -16,7 +16,7 @@ use lazy_static::lazy_static;
 use tokio::sync::RwLock as TokioRwLock;
 use quic_network_service::quic_client;
 use crate::common::quic_network_service::models::quic_connection::QuicConnection;
-use crate::common::quic_network_service::p2p_udp_utils::get_p2p_udp_socket;
+use crate::common::quic_network_service::p2p_udp_utils::{get_p2p_udp_socket, run_udp_server};
 use deadpool_redis::Pool as RedisPool;
 use rbatis::RBatis;
 
@@ -43,8 +43,7 @@ async fn main() {
          quic_client::run_client(addr).await;
      });
     tokio::spawn(async  {
-        // 启动udp连接
-        get_p2p_udp_socket().await.unwrap();
+        run_udp_server().await.unwrap();
     });
 
     init_server::start_server().await.unwrap_or_else(|err| error!("错误信息 {}, 堆栈信息 {:?}", err, err.backtrace()));

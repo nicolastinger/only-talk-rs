@@ -9,10 +9,11 @@ use crate::utils::rsa_util::{generate_random_string, hash_with_salt};
 use crate::{RBATIS_DATABASE, REDIS_CLIENT};
 use actix_web::{web, HttpResponse, Responder};
 use anyhow::anyhow;
-use deadpool_redis::redis::{cmd, RedisResult};
+use deadpool_redis::redis::{cmd, AsyncCommands, RedisResult};
 use log::{error, info};
 use rbatis::RBatis;
 use uuid::Uuid;
+use crate::utils::redis_utils::get_redis_conn;
 
 pub async fn get_user_raw(rb: web::Data<RBatis>) {
     get_raw_sql(rb).await
@@ -175,7 +176,6 @@ pub async fn get_user_info_by_uuid(
 
 /// 获取用户的uuid
 pub async fn get_user_uuid_by_account_service(
-    rb: &RBatis,
     account: String,
 ) -> Result<String, anyhow::Error> {
     let result = get_user_uuid_by_account(account).await?;
@@ -216,11 +216,42 @@ pub async fn get_user_uuid_by_account(account: String) -> Result<Uuid, anyhow::E
     Ok(uuid.parse()?)
 }
 
+/// 验证用户传递的token
+pub async fn verify_p2p_token_service(uuid: String, token: String, me: Option<String>) -> Result<String, anyhow::Error> {
+    let mut conn = {
+        let redis_client = REDIS_CLIENT.read().await;
+        let redis_conn = redis_client.as_ref().ok_or(anyhow!("redis客户端错误"))?;
+        let mut conn = redis_conn.get().await?;
+        conn
+    };
+    let me = me.ok_or(anyhow!("获取账号失败"))?;
 
-pub async fn verify_token_service(uuid: String, token: String) -> Result<String, anyhow::Error> {
-    let res = decode_jwt(&token)?;
-    match res == uuid {
-        true => Ok(CommonResponseNoDataRef::success_empty()),
+    let key = format!("P2P:USER:AUTH:{}:{}", uuid, token);
+    let result: RedisResult<String> = cmd("GET").arg(&key).query_async(&mut conn).await;
+    let res = result?;
+    info!("结果为 {} {}", uuid, res);
+    match res == me {
+        true => {
+            let key = format!("{}{}", "USER_UDP_ADDRESS_", uuid);
+            let result: RedisResult<String> = cmd("GET").arg(&key).query_async(&mut conn).await;
+            Ok(CommonResponseRef::<String>::success_json(&result?)?)
+        },
         false => Err(anyhow!("failed"))
     }
+}
+
+/// 添加用户验证的token
+pub async fn add_p2p_token_service(uuid: String, token: String, me: Option<String>) -> Result<String, anyhow::Error> {
+    let mut conn = get_redis_conn().await?;
+    let me = me.ok_or(anyhow!("获取账号失败"))?;
+
+    let key = format!("P2P:USER:AUTH:{}:{}", me, token);
+    cmd("SET")
+        .arg(&key)
+        .arg(uuid.to_string())
+        .arg("EX")
+        .arg(600)
+        .query_async(&mut conn)
+        .await?;
+    Ok(CommonResponseNoDataRef::success_empty())
 }

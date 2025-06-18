@@ -30,7 +30,7 @@ pub async fn process_rec_msg(
         ConnectionType::Text => {
             let text_vec = get_text_msg(buffer, length, buffer_msg, head_length).await?;
             info!("接收到客户端信息 {:?}", text_vec);
-            process_text_msg(my_send_stream, text_vec).await?;
+            process_text_msg(my_send_stream, text_vec, uuid).await?;
         }
         // 图片消息
         ConnectionType::Img => {}
@@ -44,8 +44,13 @@ pub async fn process_rec_msg(
 async fn process_text_msg(
     send_stream: Arc<RwLock<SendStream>>,
     text_quic_msg: Vec<TextQuicMsg>,
+    uuid: String
 ) -> anyhow::Result<()> {
     for text_msg in text_quic_msg.into_iter() {
+        if uuid != text_msg.send_user {
+            error!("错误的发送人 {},{}", uuid, text_msg.send_user);
+            continue;
+        }
         // 心跳消息
         if text_msg.text_type == MessageType::Ping as u16 {
             // 发送ping

@@ -6,3 +6,4 @@ pub mod rsa_util;
 pub mod dto;
 pub mod validators;
 pub mod global_static_str;
+pub mod redis_utils;
