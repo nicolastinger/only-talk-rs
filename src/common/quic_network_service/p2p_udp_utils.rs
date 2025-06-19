@@ -20,16 +20,16 @@ pub async fn run_udp_server() -> Result<(), anyhow::Error> {
     let addr_4 = "[::]:9565";
     // 启动udp连接1
     tokio::spawn(async move {
-        get_p2p_udp_socket(addr_1, "V4".to_string()).await.unwrap();
+        get_p2p_udp_socket(addr_1, "V4".to_string()).await.expect("9562 Failed to get UDP socket");
     });
     tokio::spawn(async move {
-        get_p2p_udp_socket(addr_2, "V6".to_string()).await.unwrap();
+        get_p2p_udp_socket(addr_2, "V6".to_string()).await.expect("9563 Failed to get UDP socket");
     });
     tokio::spawn(async move {
-        get_p2p_udp_socket(addr_3, "V4".to_string()).await.unwrap();
+        get_p2p_udp_socket(addr_3, "V4".to_string()).await.expect("9564 to get UDP socket");
     });
     tokio::spawn(async move {
-        get_p2p_udp_socket(addr_4, "V6".to_string()).await.unwrap();
+        get_p2p_udp_socket(addr_4, "V6".to_string()).await.expect("9565 to get UDP socket");
     });
     Ok(())
 }
@@ -111,7 +111,13 @@ async fn process_p2p_user_info(
             // 加锁失败，代表之前有录入过消息，对比两次端口得出是否对称型nat
             if !acquire_flag {
                 let user_info =
-                    get_target_user_address_info(&user_address_info.uuid, &ip_type).await?;
+                   match get_target_user_address_info(&user_address_info.uuid, &ip_type).await {
+                       Ok(user_info) => user_info,
+                       Err(error ) => {
+                           warn!("获取目标用户信息失败 {}，等待目标用户上传redis", error.to_string());
+                           return Ok(());
+                       }
+                   };
                 if user_info.address == user_address_info.address {
                     user_address_info.nat_type = 3; //ip端口限制型
                 } else {
@@ -122,6 +128,8 @@ async fn process_p2p_user_info(
                 release_lock(&mut conn, &lock_key, &user_info.lock_uuid).await?;
                 // 标记为已经释放锁了，可以给目标用户使用
                 user_address_info.is_lock = true;
+                // 避免传输用户token敏感信息
+                user_address_info.token = "".to_string();
             }
 
             user_address_info.address = udp_addr;
@@ -130,7 +138,6 @@ async fn process_p2p_user_info(
                 Ok(mut target_user_address_info) => {
                     // 只有当检测完NAT类型后再进行比较
                     if target_user_address_info.is_lock == true && !acquire_flag {
-                        let flag = false;
                         match (
                             user_address_info.nat_type,
                             target_user_address_info.nat_type,
@@ -214,7 +221,7 @@ async fn process_p2p_user_info(
                     }
                 }
                 Err(e) => {
-                    warn!("获取目标用户信息失败 {}", e.to_string());
+                    warn!("获取目标用户信息失败 {}，等待目标用户上传redis", e.to_string());
                 }
             }
             let user_address_info_json =
