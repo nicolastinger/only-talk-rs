@@ -16,8 +16,10 @@ pub async fn acquire_lock(
     conn: &mut Connection,
     key: &str,
     ttl_sec: u64,
+    content: String
 ) -> Result<Option<String>, anyhow::Error> {
     let lock_id = Uuid::new_v4().to_string(); // 生成唯一标识
+    let lock_id = format!("{}_{}", lock_id, content);
     let result: Option<()> = cmd("SET")
         .arg(key)
         .arg(&lock_id)

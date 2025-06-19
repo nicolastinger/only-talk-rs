@@ -97,11 +97,12 @@ async fn process_p2p_user_info(
             let lock_key = format!("{}{}_{}", "USER_UDP_ADDRESS_LOCK_", ip_type, uuid);
             let key = key.to_uppercase();
             let mut acquire_flag = false;
+            user_address_info.address = udp_addr;
 
             // 针对这个key加30秒过期的redis锁
             {
                 let mut conn = get_redis_conn().await?;
-                let lock_id = acquire_lock(&mut conn, &lock_key, 30).await?;
+                let lock_id = acquire_lock(&mut conn, &lock_key, 30, user_address_info.address.clone()).await?;
                 if lock_id.is_some() {
                     acquire_flag = true;
                     user_address_info.lock_uuid = lock_id.unwrap();
@@ -110,32 +111,31 @@ async fn process_p2p_user_info(
 
             // 加锁失败，代表之前有录入过消息，对比两次端口得出是否对称型nat
             if !acquire_flag {
-                let user_info =
-                   match get_target_user_address_info(&user_address_info.uuid, &ip_type).await {
-                       Ok(user_info) => user_info,
-                       Err(error ) => {
-                           warn!("获取目标用户信息失败 {}，等待目标用户上传redis", error.to_string());
-                           return Ok(());
-                       }
-                   };
-                if user_info.address == user_address_info.address {
+                info!("进入redis锁");
+                let mut conn = get_redis_conn().await?;
+                let result: String = conn.get(&lock_key).await?;
+                let user_addr = result.split('_').skip(1).collect::<Vec<&str>>().join("");
+                
+
+                info!("获取自身值为 {:?},值2为 {:?}",user_addr, user_address_info);
+                if user_addr == user_address_info.address {
                     user_address_info.nat_type = 3; //ip端口限制型
                 } else {
                     user_address_info.nat_type = 4; //对称型
                 }
                 let mut conn = get_redis_conn().await?;
                 // 手动释放锁
-                release_lock(&mut conn, &lock_key, &user_info.lock_uuid).await?;
+                release_lock(&mut conn, &lock_key, &result).await?;
                 // 标记为已经释放锁了，可以给目标用户使用
                 user_address_info.is_lock = true;
                 // 避免传输用户token敏感信息
                 user_address_info.token = "".to_string();
             }
-
-            user_address_info.address = udp_addr;
+            
             // 获取目标用户的ip地址
             match get_target_user_address_info(&user_address_info.target_uuid, &ip_type).await {
                 Ok(mut target_user_address_info) => {
+                    info!("进入到服务器和连接端匹配");
                     // 只有当检测完NAT类型后再进行比较
                     if target_user_address_info.is_lock == true && !acquire_flag {
                         match (
@@ -224,18 +224,22 @@ async fn process_p2p_user_info(
                     warn!("获取目标用户信息失败 {}，等待目标用户上传redis", e.to_string());
                 }
             }
-            let user_address_info_json =
-                serde_json::to_string(&user_address_info).unwrap_or(String::new());
-            // 设置10分钟超时
-            let mut conn = get_redis_conn().await?;
-            cmd("SET")
-                .arg(&key)
-                .arg(&user_address_info_json)
-                .arg("EX")
-                .arg(600)
-                .query_async(&mut conn)
-                .await
-                .unwrap_or_else(|e| error!("新增用户连接信息失败 {}", e.to_string()));
+            
+            {
+                info!("插入用户信息到redis中");
+                let mut conn = get_redis_conn().await?;
+                let user_address_info_json =
+                    serde_json::to_string(&user_address_info).unwrap_or(String::new());
+                // 设置10分钟超时
+                cmd("SET")
+                    .arg(&key)
+                    .arg(&user_address_info_json)
+                    .arg("EX")
+                    .arg(600)
+                    .query_async(&mut conn)
+                    .await
+                    .unwrap_or_else(|e| error!("新增用户连接信息失败 {}", e.to_string()));
+            }
         }
         Err(e) => {
             error!("获取token失败 {}", e.backtrace());
@@ -252,6 +256,7 @@ async fn get_target_user_address_info(
 ) -> Result<UserAddressInfo, anyhow::Error> {
     let mut conn = get_redis_conn().await?;
     let key = format!("{}{}_{}", "USER_UDP_ADDRESS_", ip_type, target_uuid);
+    let key = key.to_uppercase();
     let result: String = conn.get(&key).await?;
     let mut target_user_address_info: UserAddressInfo = serde_json::from_str(&result)?;
     target_user_address_info.token = String::new();
