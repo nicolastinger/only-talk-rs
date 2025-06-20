@@ -1,4 +1,4 @@
-use rbatis::{crud, impl_select, impl_select_page};
+use rbatis::{crud, impl_select};
 use rbatis::rbdc::Uuid;
 use serde::{Deserialize, Serialize};
 

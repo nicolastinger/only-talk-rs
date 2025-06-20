@@ -1,4 +1,3 @@
-use std::error::Error;
 use std::fs;
 use rand::distributions::Alphanumeric;
 use rand::Rng;

@@ -19,7 +19,7 @@ pub fn friend_service(cfg: &mut web::ServiceConfig) {
 pub async fn qry_friend_list(req: HttpRequest, state: web::Data<RBatis>,friend: web::Json<ReqList<FriendDTO>>) -> impl Responder {
     let friend = validate_and_respond!(friend,"2");
     info!("{:?}", friend);
-    let mut map = req.extensions();
+    let map = req.extensions();
     let account = map.get::<AuthAccount>().unwrap();
     info!("账号 {:?}", account);
     HttpResponse::Ok().body("not implemented")

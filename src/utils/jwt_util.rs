@@ -4,7 +4,6 @@ use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation}
 use rsa::pkcs1::EncodeRsaPublicKey;
 use rsa::pkcs8::{EncodePrivateKey};
 use serde::{Deserialize, Serialize};
-use std::error::Error;
 use std::fs;
 use anyhow::anyhow;
 
