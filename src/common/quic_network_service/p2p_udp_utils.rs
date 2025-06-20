@@ -95,6 +95,7 @@ async fn process_p2p_user_info(
             // 用户的udp连接地址
             let key = format!("{}{}_{}", "USER_UDP_ADDRESS_", ip_type, uuid);
             let lock_key = format!("{}{}_{}", "USER_UDP_ADDRESS_LOCK_", ip_type, uuid);
+            let lock_key = lock_key.to_uppercase();
             let key = key.to_uppercase();
             let mut acquire_flag = false;
             user_address_info.address = udp_addr;
@@ -138,6 +139,14 @@ async fn process_p2p_user_info(
                     info!("进入到服务器和连接端匹配");
                     // 只有当检测完NAT类型后再进行比较
                     if target_user_address_info.is_lock == true && !acquire_flag {
+                        {
+                            let mut conn = get_redis_conn().await?;
+                            // 删除自身
+                            conn.del(&key).await?;
+                            // 删除对方
+                            let target_key = format!("{}{}_{}", "USER_UDP_ADDRESS_", ip_type, target_user_address_info.uuid);
+                            conn.del(&target_key).await?;
+                        }
                         match (
                             user_address_info.nat_type,
                             target_user_address_info.nat_type,
@@ -219,6 +228,8 @@ async fn process_p2p_user_info(
                             my_send_stream.write().await.write_all(&msg_raw).await?;
                         }
                     }
+                    info!("转发建立p2p信息完成");
+                    return Ok(());
                 }
                 Err(e) => {
                     warn!("获取目标用户信息失败 {}，等待目标用户上传redis", e.to_string());
@@ -230,12 +241,12 @@ async fn process_p2p_user_info(
                 let mut conn = get_redis_conn().await?;
                 let user_address_info_json =
                     serde_json::to_string(&user_address_info).unwrap_or(String::new());
-                // 设置10分钟超时
+                // 设置1分钟超时
                 cmd("SET")
                     .arg(&key)
                     .arg(&user_address_info_json)
                     .arg("EX")
-                    .arg(600)
+                    .arg(60)
                     .query_async(&mut conn)
                     .await
                     .unwrap_or_else(|e| error!("新增用户连接信息失败 {}", e.to_string()));
