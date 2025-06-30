@@ -145,6 +145,7 @@ async fn process_p2p_user_info(
                             conn.del(&key).await?;
                             // 删除对方
                             let target_key = format!("{}{}_{}", "USER_UDP_ADDRESS_", ip_type, target_user_address_info.uuid);
+                            let target_key = target_key.to_uppercase();
                             conn.del(&target_key).await?;
                         }
                         match (

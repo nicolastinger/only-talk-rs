@@ -8,7 +8,8 @@ use log::{error, info};
 use quinn::{SendStream};
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
-use crate::common::service::user_service::add_user_chat_record;
+use crate::module::chat_msg_mod::service::text_msg_service::add_user_chat_record;
+use crate::utils::time::get_now_time_stamp_as_millis;
 
 pub async fn process_rec_msg(
     buffer: &mut Vec<u8>,
@@ -46,7 +47,7 @@ async fn process_text_msg(
     text_quic_msg: Vec<TextQuicMsg>,
     uuid: String
 ) -> anyhow::Result<()> {
-    for text_msg in text_quic_msg.into_iter() {
+    for mut text_msg in text_quic_msg.into_iter() {
         if uuid != text_msg.send_user {
             error!("错误的发送人 {},{}", uuid, text_msg.send_user);
             continue;
@@ -57,6 +58,9 @@ async fn process_text_msg(
             send_ping(send_stream.clone(), text_msg.send_user).await?;
             continue;
         }
+        
+        let now = get_now_time_stamp_as_millis()?;
+        text_msg.timestamp = now;
 
         let user_key = format!(
             "{}{}{}{}",
@@ -135,11 +139,14 @@ async fn pass_text_msg(
             send_msg_permissions().await.expect("鉴权失败");
 
             let current_send_stream = current_send_stream.clone();
-            let res= recv_send_stream
-                .write()
-                .await
-                .write_all(&res)
-                .await;
+            let res = {
+                let res = recv_send_stream
+                    .write()
+                    .await
+                    .write_all(&res)
+                    .await;
+                res
+            };
             match res {
                 Ok(_) => {
                     send_msg_record_success(current_send_stream, current_user, nanoid).await.expect("记录消息失败");

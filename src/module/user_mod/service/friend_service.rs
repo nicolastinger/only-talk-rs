@@ -5,11 +5,12 @@ use crate::module::user_mod::vo::friend_vo::{query_friend_list, FriendVO};
 use crate::utils::http_response::{CommonResponseNoDataRef, CommonResponseRef};
 use crate::utils::time::get_now_time_stamp_as_millis;
 use rbatis::{Error, RBatis};
+use rbs::value;
 use crate::module::user_mod::entity::basic_user::BasicUser;
 use crate::module::user_mod::service::local_user_service::get_user_uuid_by_account;
 
 pub async fn get_friend_by_id(rb: &RBatis) -> Result<String, anyhow::Error> {
-    let friend: Result<Vec<Friend>, Error> = Friend::select_by_column(rb, "uuid", "123").await;
+    let friend: Result<Vec<Friend>, Error> = Friend::select_by_map(rb, value!{"uuid" : "123"}).await;
 
     let friend_vo = FriendVO {
         uuid: "friend not found",

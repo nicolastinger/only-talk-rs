@@ -12,6 +12,7 @@ use anyhow::anyhow;
 use deadpool_redis::redis::{cmd, AsyncCommands, RedisResult};
 use log::{error, info};
 use rbatis::RBatis;
+use rbs::value;
 use uuid::Uuid;
 use crate::utils::redis_utils::get_redis_conn;
 
@@ -25,7 +26,7 @@ pub async fn create_new_user(rb: web::Data<RBatis>) {
 
 pub async fn test_sql(rb: &RBatis) -> Vec<BasicUser> {
     let basic_user_all = BasicUser::select_all(rb).await.unwrap();
-    let basic_user_icon = BasicUser::select_by_column(rb, "icon", "33333")
+    let basic_user_icon = BasicUser::select_by_map(rb, value!{ "icon": "33333" })
         .await
         .unwrap();
     let basic_user_all_id = BasicUser::select_all_by_id(rb, "33333", "4444444")
@@ -109,7 +110,7 @@ pub async fn user_sign_in(
     let basic_user = BasicUser::select_by_account(rb, account_str).await?.ok_or(anyhow!("用户不存在"))?;
 
     // 查询盐值信息
-    let salt_vec = BasicUserSalt::select_by_column(rb, "uuid", &basic_user.uuid).await?;
+    let salt_vec = BasicUserSalt::select_by_map(rb, value!{ "uuid": &basic_user.uuid }).await?;
 
     // 检查盐值是否存在
     let salt = salt_vec.first().ok_or(anyhow!("密码不存在!".to_string()))?;
@@ -213,7 +214,7 @@ pub async fn get_user_uuid_by_account(account: String) -> Result<Uuid, anyhow::E
         .arg(86400)
         .query_async(&mut conn)
         .await?;
-    Ok(uuid.parse()?)
+    Ok(uuid.to_string().parse()?)
 }
 
 /// 验证用户传递的token
