@@ -176,4 +176,11 @@ pub async fn add_p2p_token_api(path: web::Path<(String, String)>, req: HttpReque
     respond_json_any!(add_p2p_token_service(uuid,token,me).await)
 }
 
+// 查询用户信息
+// #[post("/search/user_info")]
+// pub async fn search_user_api(basic_user_dto:web::Json<SignInBasicUserDTO>) -> impl Responder {
+//     let basic_user_dto = basic_user_dto.into_inner();
+//     respond_json_any!(add_p2p_token_service(uuid,token,me).await)
+// }
+
 

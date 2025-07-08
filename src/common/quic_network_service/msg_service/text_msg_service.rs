@@ -23,7 +23,30 @@ pub fn generate_text_msg(
         send_user,
         timestamp: now
     };
-    let mut meta_data = text_quic_msg.get_bytes()?;
+    build_text(text_quic_msg)
+}
+
+//生成文本消息
+pub fn generate_text_msg_with_time(
+    text_type: u16,
+    raw: Vec<u8>,
+    recv_user: String,
+    send_user: String,
+    timestamp: i64
+) -> anyhow::Result<Vec<u8>> {
+    let text_quic_msg = TextQuicMsg {
+        id: nanoid!(),
+        text_type,
+        raw,
+        recv_user,
+        send_user,
+        timestamp
+    };
+    build_text(text_quic_msg)
+}
+
+fn build_text(text_quic_msg: TextQuicMsg) -> anyhow::Result<Vec<u8>> {
+    let meta_data = text_quic_msg.get_bytes()?;
     let crc = X25.checksum(&meta_data);
     let head_msg = HeadMsg {
         version: 1,

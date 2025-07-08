@@ -1,15 +1,15 @@
-use crate::utils::global_static_str::{PONG, REDIS_QUIC_SERVERS, REDIS_SPLIT, SYSTEM};
 use crate::common::quic_network_service::models::quic_connection::ConnectionType;
 use crate::common::quic_network_service::models::text_msg::{MessageType, TextQuicMsg};
-use crate::common::quic_network_service::msg_service::text_msg_service::{generate_text_msg, get_text_msg};
+use crate::common::quic_network_service::msg_service::text_msg_service::{generate_text_msg, generate_text_msg_with_time, get_text_msg};
+use crate::module::chat_msg_mod::service::text_msg_service::add_user_chat_record;
+use crate::utils::global_static_str::{PONG, REDIS_QUIC_SERVERS, REDIS_SPLIT, SYSTEM};
+use crate::utils::time::get_now_time_stamp_as_millis;
 use crate::GLOBAL_QUIC_SERVER_LIST;
-use anyhow::{anyhow};
+use anyhow::anyhow;
 use log::{error, info};
-use quinn::{SendStream};
+use quinn::SendStream;
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
-use crate::module::chat_msg_mod::service::text_msg_service::add_user_chat_record;
-use crate::utils::time::get_now_time_stamp_as_millis;
 
 pub async fn process_rec_msg(
     buffer: &mut Vec<u8>,
@@ -45,7 +45,7 @@ pub async fn process_rec_msg(
 async fn process_text_msg(
     send_stream: Arc<RwLock<SendStream>>,
     text_quic_msg: Vec<TextQuicMsg>,
-    uuid: String
+    uuid: String,
 ) -> anyhow::Result<()> {
     for mut text_msg in text_quic_msg.into_iter() {
         if uuid != text_msg.send_user {
@@ -58,7 +58,7 @@ async fn process_text_msg(
             send_ping(send_stream.clone(), text_msg.send_user).await?;
             continue;
         }
-        
+
         let now = get_now_time_stamp_as_millis()?;
         text_msg.timestamp = now;
 
@@ -72,8 +72,15 @@ async fn process_text_msg(
         let user_key = user_key.to_uppercase();
 
         let text_msg_clone = text_msg.clone();
+        let send_stream_clone = send_stream.clone();
         tokio::spawn(async move {
-            add_user_chat_record(text_msg_clone).await.expect("插入用户消息失败");
+            let nanoid = text_msg_clone.id.clone();
+            let current_user = text_msg_clone.send_user.clone();
+            add_user_chat_record(text_msg_clone)
+                .await
+                .expect("插入用户消息失败");
+            // 发送ack消息
+            send_msg_record_success(send_stream_clone, current_user, nanoid, now).await.expect("发送ack消息失败");
         });
 
         // 目标用户的发送流
@@ -89,7 +96,7 @@ async fn process_text_msg(
         };
 
         if let Some(target_send_stream) = target_send_stream {
-            // 判断用户权限发送消息
+            // 处理在线消息
             pass_text_msg(target_send_stream.clone(), send_stream.clone(), text_msg).await?;
         } else {
             // 处理 my_send_stream 为 None 的情况
@@ -98,6 +105,7 @@ async fn process_text_msg(
         }
     }
 
+    info!("处理完成");
     Ok(())
 }
 
@@ -110,7 +118,7 @@ async fn send_ping(
         MessageType::Ping as u16,
         Vec::from(PONG.as_bytes()),
         current_user,
-        SYSTEM.to_string()
+        SYSTEM.to_string(),
     )?;
     send_stream
         .write()
@@ -126,38 +134,21 @@ async fn pass_text_msg(
     current_send_stream: Arc<RwLock<SendStream>>,
     text_msg: TextQuicMsg,
 ) -> anyhow::Result<()> {
-    let nanoid = text_msg.id;
-    let current_user = text_msg.send_user.clone();
     let res = generate_text_msg(
         text_msg.text_type,
         text_msg.raw,
         text_msg.recv_user,
         text_msg.send_user,
     )?;
-    tokio::spawn(async move {
-        {
-            send_msg_permissions().await.expect("鉴权失败");
-
-            let current_send_stream = current_send_stream.clone();
-            let res = {
-                let res = recv_send_stream
-                    .write()
-                    .await
-                    .write_all(&res)
-                    .await;
-                res
-            };
-            match res {
-                Ok(_) => {
-                    send_msg_record_success(current_send_stream, current_user, nanoid).await.expect("记录消息失败");
-                }
-                Err(e) => {
-                    error!("发送消息失败 {}", e.to_string());
-                    send_msg_record_failure(current_send_stream, current_user, nanoid).await.expect("记录消息失败");
-                }
-            }
-        }
-    });
+    send_msg_permissions().await.expect("鉴权失败");
+    {
+        recv_send_stream
+            .write()
+            .await
+            .write_all(&res)
+            .await
+            .expect("发送消息失败");
+    };
     Ok(())
 }
 
@@ -167,16 +158,36 @@ async fn send_msg_permissions() -> anyhow::Result<bool> {
     Ok(true)
 }
 
-/// 记录发送消息
-async fn send_msg_record_success(send_stream: Arc<RwLock<SendStream>>, current_user: String, nanoid: String) -> anyhow::Result<()> {
-    let res = generate_text_msg(MessageType::RecallSuccess as u16, nanoid.as_bytes().to_vec(), current_user, SYSTEM.to_string())?;
+/// 发送ack消息
+async fn send_msg_record_success(
+    send_stream: Arc<RwLock<SendStream>>,
+    current_user: String,
+    nanoid: String,
+    timestamp: i64
+) -> anyhow::Result<()> {
+    let res = generate_text_msg_with_time(
+        MessageType::RecallSuccess as u16,
+        nanoid.as_bytes().to_vec(),
+        current_user,
+        SYSTEM.to_string(),
+        timestamp
+    )?;
     send_stream.write().await.write_all(&res).await?;
     Ok(())
 }
 
 /// 记录失败消息
-async fn send_msg_record_failure (send_stream: Arc<RwLock<SendStream>>, current_user: String, nanoid: String) -> anyhow::Result<()> {
-    let res = generate_text_msg(MessageType::RecallFailure as u16, nanoid.as_bytes().to_vec(), current_user, SYSTEM.to_string())?;
+async fn send_msg_record_failure(
+    send_stream: Arc<RwLock<SendStream>>,
+    current_user: String,
+    nanoid: String,
+) -> anyhow::Result<()> {
+    let res = generate_text_msg(
+        MessageType::RecallFailure as u16,
+        nanoid.as_bytes().to_vec(),
+        current_user,
+        SYSTEM.to_string(),
+    )?;
     send_stream.write().await.write_all(&res).await?;
     Ok(())
 }

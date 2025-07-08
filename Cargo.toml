@@ -21,7 +21,7 @@ uuid = { version = "1", features = ["v4", "v7", "serde"] }
 anyhow = "1.0"
 validator = { version = "0.16", features = ["derive"] }
 rbs = { version = "4.6"}
-rbatis = { version = "4.6.7"}
+rbatis = { version = "4.6.7", features = ["debug_mode"]}
 toml = "0.8.19"
 rbdc-pg={version="4.6.1"}
 rbdc-pool-fast = "4.6.0"
