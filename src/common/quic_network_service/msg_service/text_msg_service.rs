@@ -16,7 +16,7 @@ pub fn generate_text_msg(
 ) -> anyhow::Result<Vec<u8>> {
     let now = get_now_time_stamp_as_millis().unwrap_or_else(|_| -99999999999);
     let text_quic_msg = TextQuicMsg {
-        id: nanoid!(),
+        nano_id: nanoid!(),
         text_type,
         raw,
         recv_user,
@@ -35,7 +35,7 @@ pub fn generate_text_msg_with_time(
     timestamp: i64
 ) -> anyhow::Result<Vec<u8>> {
     let text_quic_msg = TextQuicMsg {
-        id: nanoid!(),
+        nano_id: nanoid!(),
         text_type,
         raw,
         recv_user,

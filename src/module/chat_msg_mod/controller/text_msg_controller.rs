@@ -20,7 +20,7 @@ pub async fn get_chat_record_api(req: HttpRequest, state: web::Data<RBatis>, fri
     let uuid_clone = uuid.clone();
     let str = "我是蔡徐坤".as_bytes().to_vec();
     let text_msg = TextQuicMsg {
-        id: nanoid!(),
+        nano_id: nanoid!(),
         text_type: 0,
         raw: str,
         recv_user: uuid.unwrap(),

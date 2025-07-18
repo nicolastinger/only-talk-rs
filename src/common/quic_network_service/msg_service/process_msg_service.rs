@@ -74,7 +74,7 @@ async fn process_text_msg(
         let text_msg_clone = text_msg.clone();
         let send_stream_clone = send_stream.clone();
         tokio::spawn(async move {
-            let nanoid = text_msg_clone.id.clone();
+            let nanoid = text_msg_clone.nano_id.clone();
             let current_user = text_msg_clone.send_user.clone();
             add_user_chat_record(text_msg_clone)
                 .await

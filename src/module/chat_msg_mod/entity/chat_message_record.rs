@@ -55,7 +55,7 @@ impl ChatMessageRecord {
     pub fn from(text_quic_msg: TextQuicMsg) -> Result<ChatMessageRecord, anyhow::Error> {
         Ok(ChatMessageRecord {
             id: None,
-            nano_id: Some(text_quic_msg.id),
+            nano_id: Some(text_quic_msg.nano_id),
             timestamp: Some(text_quic_msg.timestamp),
             raw: Bytes::from(text_quic_msg.raw),
             msg_type: Some(text_quic_msg.text_type as u32),
