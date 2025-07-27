@@ -12,3 +12,5 @@ pub static SERVER_NAME: &str = "SERVER_1";
 pub static MAX_QUIC_SERVERS: usize = 1000;
 //最大缓存长度
 pub static MAX_QUIC_BUFFER_LEN: usize = 1024 * 1024 * 10;
+// 用户已读消息，用户id:对方id，nanoid
+pub static USER_READ_MSG: &str = "USER:READ:MSG:";

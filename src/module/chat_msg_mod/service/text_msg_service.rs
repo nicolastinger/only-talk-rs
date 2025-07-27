@@ -1,15 +1,15 @@
 use crate::common::quic_network_service::models::text_msg::TextQuicMsg;
 use crate::module::chat_msg_mod::entity::chat_message_record::{
-    chat_message_recordraw_insert, raw_insert, ChatMessageRecord,
+    raw_insert, ChatMessageRecord,
 };
 use crate::module::common::dto::base_page_dto::BasePageDto;
 use crate::utils::http_response::CommonResponseRef;
 use crate::RBATIS_DATABASE;
 use anyhow::anyhow;
 use log::info;
-use rbatis::executor::RBatisTxExecutor;
 use rbatis::rbdc::Uuid;
 use rbatis::RBatis;
+use crate::module::chat_msg_mod::entity::chat_message_read::ChatMessageRead;
 
 /// 获取聊天记录
 pub async fn get_chat_by_limit(
@@ -38,7 +38,6 @@ pub async fn get_chat_list_link(
     rb: &RBatis,
     uuid: Option<String>,
 ) -> Result<String, anyhow::Error> {
-    let uuid = uuid.ok_or(anyhow!("账号获取失败"))?.parse::<Uuid>()?;
     Ok("".to_string())
 }
 
@@ -50,4 +49,44 @@ pub async fn add_user_chat_record(text_msg: TextQuicMsg) -> Result<(), anyhow::E
     let chat_msg = ChatMessageRecord::from(text_msg)?;
     ChatMessageRecord::insert(rb, &chat_msg).await?;
     Ok(())
+}
+
+/// 获取未读消息
+pub async fn get_unread_chat_record(
+    rb: &RBatis,
+    uuid: Option<String>,
+) -> Result<String, anyhow::Error> {
+    let uuid = uuid.ok_or(anyhow!("账号获取失败"))?.parse::<Uuid>()?;
+    let empty_vec: Vec<ChatMessageRecord> = vec![];
+    let empty_vec = serde_json::to_string(&empty_vec)?;
+    // 1、获取最新消息id
+    let last_msg = ChatMessageRecord::select_last_by_column(rb, &uuid).await?;
+    if last_msg.is_none() {
+        return Ok(empty_vec);
+    }
+    // 2、获取已读消息列表
+    let read_msg = ChatMessageRead::select_all_read_by_column(rb, &uuid, 200).await?;
+    if read_msg.is_empty() {
+       // 3、返回最新消息，最大9999
+        let last_read = 0;
+        let unread_msg = ChatMessageRecord::select_unread_by_time(rb, &uuid, last_read).await?;
+        return Ok(serde_json::to_string(&unread_msg)?);
+    }
+    // 4、查找已读消息有没有最新消息
+    let res = read_msg.iter().find(|x| x.nano_id == last_msg.as_ref().unwrap().nano_id);
+    if res.is_some() {
+        return Ok(empty_vec);
+    }
+    // 5、获取未读消息
+    let last_read = read_msg.last().ok_or(anyhow!("获取已读消息失败"))?.timestamp.ok_or(anyhow!("获取已读消息时间失败"))?;
+    let unread_msg = ChatMessageRecord::select_unread_by_time(rb, &uuid, last_read).await?;
+    Ok(serde_json::to_string(&unread_msg)?)
+}
+
+// 用户新增已读消息
+pub async fn add_user_chat_read(rb: &RBatis,
+                                uuid: Option<String>,
+                                text_quic_msg: TextQuicMsg)-> Result<String, anyhow::Error> {
+
+    Ok("".to_string())
 }
