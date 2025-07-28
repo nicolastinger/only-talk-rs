@@ -3,13 +3,16 @@ use crate::module::chat_msg_mod::entity::chat_message_record::{
     raw_insert, ChatMessageRecord,
 };
 use crate::module::common::dto::base_page_dto::BasePageDto;
-use crate::utils::http_response::CommonResponseRef;
+use crate::utils::http_response::{CommonResponseNoDataRef, CommonResponseRef};
 use crate::RBATIS_DATABASE;
 use anyhow::anyhow;
-use log::info;
+use deadpool_redis::redis::AsyncCommands;
+use log::{info, warn};
 use rbatis::rbdc::Uuid;
 use rbatis::RBatis;
-use crate::module::chat_msg_mod::entity::chat_message_read::ChatMessageRead;
+use crate::module::chat_msg_mod::entity::chat_message_read::{ ChatMessageRecordRead};
+use crate::utils::global_static_str::{REDIS_SPLIT, USER_READ_MSG};
+use crate::utils::redis_utils::get_redis_conn;
 
 /// 获取聊天记录
 pub async fn get_chat_by_limit(
@@ -65,11 +68,12 @@ pub async fn get_unread_chat_record(
         return Ok(empty_vec);
     }
     // 2、获取已读消息列表
-    let read_msg = ChatMessageRead::select_all_read_by_column(rb, &uuid, 200).await?;
+    let read_msg = ChatMessageRecordRead::select_all_read_by_column(rb, &uuid, 200).await?;
     if read_msg.is_empty() {
        // 3、返回最新消息，最大9999
         let last_read = 0;
         let unread_msg = ChatMessageRecord::select_unread_by_time(rb, &uuid, last_read).await?;
+        info!("unread_msg {}", unread_msg.len());
         return Ok(serde_json::to_string(&unread_msg)?);
     }
     // 4、查找已读消息有没有最新消息
@@ -84,9 +88,33 @@ pub async fn get_unread_chat_record(
 }
 
 // 用户新增已读消息
-pub async fn add_user_chat_read(rb: &RBatis,
-                                uuid: Option<String>,
-                                text_quic_msg: TextQuicMsg)-> Result<String, anyhow::Error> {
+pub async fn add_user_chat_read(uuid: Option<String>,
+                                chat_message_read: Vec<ChatMessageRecordRead>) -> Result<String, anyhow::Error> {
+    let uuid = uuid.ok_or(anyhow!("账号获取失败"))?;
+    let chat_message_read_str = serde_json::to_string(&chat_message_read)?;
+    // 写入到redis
+    let key = format!("{}{}", USER_READ_MSG, uuid);
+    let mut redis = get_redis_conn().await?;
+    let res = redis.get::<_, String>(&key).await;
 
-    Ok("".to_string())
+    if res.is_err() {
+        redis.set_ex::<_, _, ()>(&key, chat_message_read_str, 60 * 60 * 24).await?;
+    } else {
+        let mut last_chat_message_read: Vec<ChatMessageRecordRead> = serde_json::from_str(&res?)?;
+        for item in chat_message_read.into_iter() {
+            let new_item = last_chat_message_read.iter_mut().find(|x| x.send_user == item.send_user);
+            if new_item.is_some() {
+                let new_item = new_item.unwrap();
+                new_item.timestamp = item.timestamp;
+                new_item.nano_id = item.nano_id.clone();
+                info!("update last_chat_message_read: {:?}", new_item);
+            } else {
+                last_chat_message_read.push(item)
+            }
+        }
+
+        redis.set_ex::<_, _, ()>(&key, serde_json::to_string(&last_chat_message_read)?, 60 * 60 * 24).await?;
+    }
+
+    Ok(CommonResponseNoDataRef::success_empty())
 }

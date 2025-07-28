@@ -26,7 +26,7 @@ impl_select!(ChatMessageRecord {select_chat_by_limit(send_user: Uuid, recv_user:
 impl_select!(ChatMessageRecord {select_last_by_column(uuid: &Uuid) -> Option => r#"where recv_user = #{uuid} or send_user = #{uuid} order by timestamp desc limit 1"#});
 
 // 获取未读消息，最大9999
-impl_select!(ChatMessageRecord {select_unread_by_time(uuid: &Uuid, time: i64) => r#"where recv_user = #{uuid} and timestamp > #{time} order by timestamp desc limit 9999"#});
+impl_select!(ChatMessageRecord {select_unread_by_time(uuid: &Uuid, time: i64) => r#"where (send_user = #{uuid} or recv_user = #{uuid}) and timestamp > #{time} order by timestamp desc limit 9999"#});
 
 rbatis::raw_sql!(chat_message_recordraw_insert(rb: &dyn Executor, nano_id: String, created_at: i64, send_user: Uuid, recv_user: Uuid, raw: Vec<u8>, msg_type: u32)  -> Result<rbs::Value, rbatis::Error> =>
 "INSERT INTO public.chat_message_record

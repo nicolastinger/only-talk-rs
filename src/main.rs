@@ -35,7 +35,7 @@ const X25: Crc<u16> = Crc::<u16>::new(&crc::CRC_16_IBM_SDLC);
 /// 主函数入口点，使用Tokio异步运行时
 #[actix_web::main]
 async fn main() {
-    fast_log::init(Config::new().console().level(LevelFilter::Debug).file("log/rust_im.log").chan_len(Some(10))).unwrap();
+    fast_log::init(Config::new().console().level(LevelFilter::Info).file("log/rust_im.log").chan_len(Some(10))).unwrap();
 
     //let addr = "124.220.82.185:4433".parse().unwrap();
     let addr = "127.0.0.1:4433".parse().unwrap();

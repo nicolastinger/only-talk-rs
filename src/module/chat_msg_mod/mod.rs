@@ -1,7 +1,7 @@
 use actix_web::web;
 
 mod controller;
-mod entity;
+pub mod entity;
 pub mod service;
 mod vo;
 

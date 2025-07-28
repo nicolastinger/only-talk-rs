@@ -14,7 +14,7 @@ use tokio::sync::{Mutex, RwLock};
 use crate::common::quic_network_service::models::first_quic_msg::FirstQuicMsg;
 use crate::common::quic_network_service::msg_service::process_msg_service::process_rec_msg;
 use crate::common::service::user_service::{user_offline, user_online};
-use crate::utils::global_static_str::{MAX_QUIC_BUFFER_LEN, MAX_QUIC_SERVERS, SERVER_NAME};
+use crate::utils::global_static_str::{MAX_QUIC_BUFFER_LEN, MAX_QUIC_SERVERS, SERVER_NAME, USER_READ_MSG};
 use crate::utils::time::get_now_time_stamp_as_millis;
 
 pub(crate) fn init_server(addr: SocketAddr) {
