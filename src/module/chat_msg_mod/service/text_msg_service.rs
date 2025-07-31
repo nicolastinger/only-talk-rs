@@ -10,6 +10,7 @@ use deadpool_redis::redis::AsyncCommands;
 use log::{info, warn};
 use rbatis::rbdc::Uuid;
 use rbatis::RBatis;
+use rbs::value;
 use crate::module::chat_msg_mod::entity::chat_message_read::{ ChatMessageRecordRead};
 use crate::utils::global_static_str::{REDIS_SPLIT, USER_READ_MSG};
 use crate::utils::redis_utils::get_redis_conn;
@@ -82,9 +83,14 @@ pub async fn get_unread_chat_record(
         return Ok(empty_vec);
     }
     // 5、获取未读消息
-    let last_read = read_msg.last().ok_or(anyhow!("获取已读消息失败"))?.timestamp.ok_or(anyhow!("获取已读消息时间失败"))?;
-    let unread_msg = ChatMessageRecord::select_unread_by_time(rb, &uuid, last_read).await?;
-    Ok(serde_json::to_string(&unread_msg)?)
+    let last_read = read_msg.last().ok_or(anyhow!("获取已读消息失败"))?.nano_id.clone().ok_or(anyhow!("获取已读消息时间失败"))?;
+    let last_record = ChatMessageRecord::select_by_map(rb, value!{"nano_id": &last_read}).await?;
+    if !last_record.is_empty() {
+        let last_read = last_record.last().ok_or(anyhow!("获取已读消息失败"))?.timestamp.ok_or(anyhow!("获取已读消息时间失败"))?;
+        let unread_msg = ChatMessageRecord::select_unread_by_time(rb, &uuid, last_read).await?;
+        return Ok(serde_json::to_string(&unread_msg)?);  
+    }
+    Ok(empty_vec)
 }
 
 // 用户新增已读消息
