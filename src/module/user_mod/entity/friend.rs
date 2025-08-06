@@ -1,4 +1,4 @@
-use rbatis::crud;
+use rbatis::{crud, impl_select};
 use rbatis::rbdc::Uuid;
 use serde::{Deserialize, Serialize};
 
@@ -14,13 +14,13 @@ pub struct FriendLink {
     pub uuid: Option<Uuid>,
     pub request_user: Option<Uuid>,
     pub accept_user: Option<Uuid>,
-    pub enable: Option<bool>
+    pub enable: Option<bool>,
+    pub created_at: Option<i64>,
 }
 
 crud!(FriendLink {});
 
-
-
+impl_select!(FriendLink {select_by_last_uuid(uuid:&Uuid, last_uuid:&Uuid) -> Option => "`where (accept_user = #{uuid} and request_user = #{last_uuid}) or (accept_user = #{last_uuid} and request_user = #{uuid}) limit 1`"});
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct FriendLinkInfo {

@@ -22,15 +22,15 @@ pub struct FriendListVO {
     pub info: Option<String>,
 }
 
-pub async fn query_friend_list(rb: &RBatis, uuid: &Uuid) -> Result<String, anyhow::Error> {
+pub async fn query_friend_list(rb: &RBatis, uuid: &Uuid, created_at: i64) -> Result<String, anyhow::Error> {
     let friend_list: Option<Vec<FriendListVO>> = rb
         .query_decode("select bu.uuid, bu.username, bu.account, bu.icon, bu.info from
-(select accept_user as uuid FROM friend_link
+(select accept_user as uuid, created_at FROM friend_link
 where request_user = ? and enable = true
 union all
-select request_user as uuid FROM friend_link
+select request_user as uuid, created_at FROM friend_link
 where accept_user = ? and enable = true) fs left join basic_user bu
-on fs.uuid = bu.uuid", vec![value!(uuid), value!(uuid)])
+on fs.uuid = bu.uuid where fs.created_at > ?", vec![value!(uuid), value!(uuid), value!(created_at)])
         .await?;
     Ok(CommonResponseRef::<Option<Vec<FriendListVO>>>::success_json(&friend_list)?)
 }

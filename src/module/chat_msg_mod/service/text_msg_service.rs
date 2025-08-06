@@ -88,6 +88,7 @@ pub async fn get_unread_chat_record(
     if !last_record.is_empty() {
         let last_read = last_record.last().ok_or(anyhow!("获取已读消息失败"))?.timestamp.ok_or(anyhow!("获取已读消息时间失败"))?;
         let unread_msg = ChatMessageRecord::select_unread_by_time(rb, &uuid, last_read).await?;
+        let unread_msg: Vec<ChatMessageRecord> = unread_msg.into_iter().map(|mut x| {x.id = None; x}).collect();
         return Ok(serde_json::to_string(&unread_msg)?);  
     }
     Ok(empty_vec)

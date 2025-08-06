@@ -1,11 +1,13 @@
 use std::str::FromStr;
 use anyhow::anyhow;
+use log::info;
 use crate::module::user_mod::entity::friend::{Friend, FriendLink, FriendLinkInfo};
 use crate::module::user_mod::vo::friend_vo::{query_friend_list, FriendVO};
 use crate::utils::http_response::{CommonResponseNoDataRef, CommonResponseRef};
 use crate::utils::time::get_now_time_stamp_as_millis;
 use rbatis::{Error, RBatis};
 use rbs::value;
+use uuid::Uuid;
 use crate::module::user_mod::entity::basic_user::BasicUser;
 use crate::module::user_mod::service::local_user_service::get_user_uuid_by_account;
 
@@ -40,7 +42,8 @@ pub async fn add_friend(
             uuid: Some(uuid.parse()?),
             request_user: Some(request_user),
             accept_user: Some(accept_user),
-            enable: Some(false)
+            enable: Some(false),
+            created_at: Some(get_now_time_stamp_as_millis()?),
         };
 
         FriendLink::insert(rb, &friend_link).await?;
@@ -70,8 +73,22 @@ pub async fn agree_friend_request() -> Result<String, anyhow::Error> {
   Ok(CommonResponseNoDataRef::success_empty())
 }
 
-pub async fn get_friend_list(rb: &RBatis, request_user: Option<String>) -> Result<String, anyhow::Error> {
+pub async fn get_friend_list(rb: &RBatis, request_user: Option<String>, last_uuid: String) -> Result<String, anyhow::Error> {
     let uuid = request_user.ok_or(anyhow!("获取账号失败!"))?;
     let uuid = rbatis::rbdc::uuid::Uuid::from_str(&uuid)?;
-    query_friend_list(rb, &uuid).await
+
+    let uuid_v7 = Uuid::from_str(last_uuid.as_str()).unwrap_or(Uuid::now_v7());
+
+    let uuid_v7 = rbatis::rbdc::uuid::Uuid::from_str(uuid_v7.to_string().as_str())?;
+
+    let mut timestamp = 0i64;
+
+
+    let res = FriendLink::select_by_last_uuid(rb, &uuid, &uuid_v7).await?;
+    info!("last {}",uuid_v7);
+    if res.is_some() {
+        timestamp = res.ok_or(anyhow!("获取时间戳失败"))?.created_at.unwrap_or(0i64);
+    }
+
+    query_friend_list(rb, &uuid, timestamp).await
 }

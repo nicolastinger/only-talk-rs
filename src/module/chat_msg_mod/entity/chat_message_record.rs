@@ -11,7 +11,7 @@ pub struct ChatMessageRecord {
     pub nano_id: Option<String>,
     pub timestamp: Option<i64>,
     pub raw: Bytes,
-    pub msg_type: Option<u32>,
+    pub text_type: Option<u32>,
     pub send_user: Uuid,
     pub recv_user: Uuid,
 }
@@ -30,7 +30,7 @@ impl_select!(ChatMessageRecord {select_unread_by_time(uuid: &Uuid, time: i64) =>
 
 rbatis::raw_sql!(chat_message_recordraw_insert(rb: &dyn Executor, nano_id: String, created_at: i64, send_user: Uuid, recv_user: Uuid, raw: Vec<u8>, msg_type: u32)  -> Result<rbs::Value, rbatis::Error> =>
 "INSERT INTO public.chat_message_record
-(nano_id, created_at, send_user, recv_user,raw, msg_type)
+(nano_id, created_at, send_user, recv_user,raw, text_type)
 VALUES(?, ?, ?, ?, ?, ?);"
 );
 
@@ -42,7 +42,7 @@ pub async fn raw_insert(
     rbatis
         .exec(
             "INSERT INTO public.chat_message_record
-(nano_id, timestamp, send_user, recv_user,raw, msg_type)
+(nano_id, timestamp, send_user, recv_user,raw, text_type)
 VALUES($1,$2,$3,$4,$5,$6)",
             vec![
                 value!(chat_message_record.nano_id),
@@ -50,7 +50,7 @@ VALUES($1,$2,$3,$4,$5,$6)",
                 value!(chat_message_record.send_user),
                 value!(chat_message_record.recv_user),
                 bytes,
-                value!(chat_message_record.msg_type),
+                value!(chat_message_record.text_type),
             ],
         )
         .await?;
@@ -64,7 +64,7 @@ impl ChatMessageRecord {
             nano_id: Some(text_quic_msg.nano_id),
             timestamp: Some(text_quic_msg.timestamp),
             raw: Bytes::from(text_quic_msg.raw),
-            msg_type: Some(text_quic_msg.text_type as u32),
+            text_type: Some(text_quic_msg.text_type as u32),
             send_user: text_quic_msg.send_user.parse::<Uuid>()?,
             recv_user: text_quic_msg.recv_user.parse::<Uuid>()?,
         })
