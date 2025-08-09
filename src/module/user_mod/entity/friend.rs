@@ -14,8 +14,10 @@ pub struct FriendLink {
     pub uuid: Option<Uuid>,
     pub request_user: Option<Uuid>,
     pub accept_user: Option<Uuid>,
-    pub enable: Option<bool>,
+    pub is_del: Option<bool>,
     pub created_at: Option<i64>,
+    pub updated_at: Option<i64>,
+    pub version: Option<i32>
 }
 
 crud!(FriendLink {});

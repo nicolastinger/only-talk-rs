@@ -38,10 +38,11 @@ pub async fn add_friend_api(req: HttpRequest, state: web::Data<RBatis>, friend: 
     respond_json_any!(add_friend(state.as_ref(), account, friend.account).await)
 }
 
-#[post("/get_friend/{last_uuid}")]
-pub async fn get_friend_api(req: HttpRequest, state: web::Data<RBatis>, last_uuid: web::Path<String>) -> impl Responder {
+#[post("/get_friend/{last_uuid}/{version}")]
+pub async fn get_friend_api(req: HttpRequest, state: web::Data<RBatis>, path: web::Path<(String, String)>,) -> impl Responder {
+    let ( last_uuid, version ) = path.into_inner();
     let uuid = get_uuid_from_header!(req);
 
-    respond_json_any!(get_friend_list(state.as_ref(), uuid, last_uuid.into_inner()).await)
+    respond_json_any!(get_friend_list(state.as_ref(), uuid, last_uuid, version).await)
 }
 

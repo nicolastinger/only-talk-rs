@@ -29,7 +29,7 @@ pub async fn add_friend(
     request_user: Option<String>,
     accept_user: Option<String>,
 ) -> Result<String, anyhow::Error> {
-    let uuid = uuid::Uuid::now_v7().to_string();
+    let uuid = Uuid::now_v7().to_string();
     // 开启事务
     let mut tx = rb.acquire_begin().await?;
     let request_user = request_user.ok_or_else(|| anyhow!("request_user is None"))?;
@@ -38,19 +38,10 @@ pub async fn add_friend(
     let accept_user = rbatis::rbdc::Uuid::from_str(accept_user.to_string().as_str())?;
     // 使用事务块包裹逻辑
     let result = async {
-        let friend_link = FriendLink {
-            uuid: Some(uuid.parse()?),
-            request_user: Some(request_user),
-            accept_user: Some(accept_user),
-            enable: Some(false),
-            created_at: Some(get_now_time_stamp_as_millis()?),
-        };
-
-        FriendLink::insert(rb, &friend_link).await?;
-
         let now = get_now_time_stamp_as_millis()?;
+        
         let friend_link_info: FriendLinkInfo = FriendLinkInfo {
-            uuid: friend_link.uuid,
+            uuid: Some(uuid.parse()?),
             accept_status: Some(0),
             create_at: Some(now),
             update_at: Some(now),
@@ -73,8 +64,9 @@ pub async fn agree_friend_request() -> Result<String, anyhow::Error> {
   Ok(CommonResponseNoDataRef::success_empty())
 }
 
-pub async fn get_friend_list(rb: &RBatis, request_user: Option<String>, last_uuid: String) -> Result<String, anyhow::Error> {
+pub async fn get_friend_list(rb: &RBatis, request_user: Option<String>, last_uuid: String, version: String) -> Result<String, anyhow::Error> {
     let uuid = request_user.ok_or(anyhow!("获取账号失败!"))?;
+    let version = version.parse::<i32>()?;
     let uuid = rbatis::rbdc::uuid::Uuid::from_str(&uuid)?;
 
     let uuid_v7 = Uuid::from_str(last_uuid.as_str()).unwrap_or(Uuid::now_v7());
@@ -86,7 +78,7 @@ pub async fn get_friend_list(rb: &RBatis, request_user: Option<String>, last_uui
 
     let res = FriendLink::select_by_last_uuid(rb, &uuid, &uuid_v7).await?;
     info!("last {}",uuid_v7);
-    if res.is_some() {
+    if res.is_some() && res.as_ref().ok_or(anyhow!("获取时间戳失败"))?.version.unwrap_or_else(|| -1i32) == version{
         timestamp = res.ok_or(anyhow!("获取时间戳失败"))?.created_at.unwrap_or(0i64);
     }
 
