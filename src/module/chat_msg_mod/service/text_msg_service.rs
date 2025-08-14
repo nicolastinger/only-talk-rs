@@ -83,7 +83,7 @@ pub async fn get_unread_chat_record(
         return Ok(empty_vec);
     }
     // 5、获取未读消息
-    let last_read = read_msg.last().ok_or(anyhow!("获取已读消息失败"))?.nano_id.clone().ok_or(anyhow!("获取已读消息时间失败"))?;
+    let last_read = read_msg.first().ok_or(anyhow!("获取已读消息失败"))?.nano_id.clone().ok_or(anyhow!("获取已读消息时间失败"))?;
     let last_record = ChatMessageRecord::select_by_map(rb, value!{"nano_id": &last_read}).await?;
     if !last_record.is_empty() {
         let last_read = last_record.last().ok_or(anyhow!("获取已读消息失败"))?.timestamp.ok_or(anyhow!("获取已读消息时间失败"))?;

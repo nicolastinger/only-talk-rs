@@ -27,7 +27,28 @@ pub fn generate_text_msg(
 }
 
 //生成文本消息
+pub fn generate_text_msg_with_id(
+    nano_id: String,
+    text_type: u16,
+    raw: Vec<u8>,
+    recv_user: String,
+    send_user: String,
+) -> anyhow::Result<Vec<u8>> {
+    let now = get_now_time_stamp_as_millis().unwrap_or_else(|_| -99999999999);
+    let text_quic_msg = TextQuicMsg {
+        nano_id,
+        text_type,
+        raw,
+        recv_user,
+        send_user,
+        timestamp: now
+    };
+    build_text(text_quic_msg)
+}
+
+//生成文本消息
 pub fn generate_text_msg_with_time(
+    nano_id: String,
     text_type: u16,
     raw: Vec<u8>,
     recv_user: String,
@@ -35,7 +56,7 @@ pub fn generate_text_msg_with_time(
     timestamp: i64
 ) -> anyhow::Result<Vec<u8>> {
     let text_quic_msg = TextQuicMsg {
-        nano_id: nanoid!(),
+        nano_id,
         text_type,
         raw,
         recv_user,

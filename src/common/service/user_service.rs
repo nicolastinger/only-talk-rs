@@ -17,22 +17,30 @@ pub async fn user_offline(uuid: String) -> Result<(), anyhow::Error> {
     // 2.同步所有redis缓存到数据库，记录用户操作
     // 已读消息从redis中持久化到数据库
     let read_key = format!("{}{}", USER_READ_MSG, uuid);
-    let read_record = redis.get::<_, String>(&read_key).await;
-    let last_chat_message_read: Vec<ChatMessageRecordRead> = serde_json::from_str(&read_record?)?;
+    let read_record = redis.get::<_, String>(&read_key).await?;
+    info!("已读消息, 源 {}", read_record);
+    let last_chat_message_read: Vec<ChatMessageRecordRead> = serde_json::from_str(&read_record)?;
+    info!("已读消息, 转换 {:?}", last_chat_message_read);
     // TODO已读消息有效校验
     let rb = rb.as_ref().ok_or(anyhow!("获取连接失败"))?;
     for item in last_chat_message_read.into_iter() {
+        let insert_item = async |e| {
+            match ChatMessageRecordRead::insert(rb, &item).await  {
+                Ok(_) => {
+                },
+                Err(x) => {
+                    err!("更新已读消息失败 {} {}", e, x);
+                }
+            }
+        };
         match ChatMessageRecordRead::update_by_map(rb, &item, value!{"send_user": &item.send_user, "recv_user": &item.recv_user}).await {
-            Ok(_) => {
+            Ok(d) => {
+                if d.rows_affected < 1u64 {
+                    insert_item(d.to_string()).await;
+                }
             },
             Err(e) => {
-               match ChatMessageRecordRead::insert(rb, &item).await  { 
-                   Ok(_) => {
-                   },
-                   Err(x) => {
-                       err!("更新已读消息失败 {} {}", e, x);
-                   }
-               }
+                insert_item(e.to_string()).await;
             }
         };
     }

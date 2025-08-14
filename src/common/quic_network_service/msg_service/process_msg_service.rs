@@ -9,6 +9,7 @@ use anyhow::anyhow;
 use log::{error, info};
 use quinn::SendStream;
 use std::sync::Arc;
+use nanoid::nanoid;
 use tokio::sync::{Mutex, RwLock};
 
 pub async fn process_rec_msg(
@@ -59,6 +60,10 @@ async fn process_text_msg(
             continue;
         }
 
+        let nano_id = nanoid!();
+        let ack_raw_id = text_msg.nano_id.clone();
+        let ack_nano_id = nano_id.clone();
+        text_msg.nano_id = nano_id;
         let now = get_now_time_stamp_as_millis()?;
         text_msg.timestamp = now;
 
@@ -74,13 +79,12 @@ async fn process_text_msg(
         let text_msg_clone = text_msg.clone();
         let send_stream_clone = send_stream.clone();
         tokio::spawn(async move {
-            let nanoid = text_msg_clone.nano_id.clone();
             let current_user = text_msg_clone.send_user.clone();
             add_user_chat_record(text_msg_clone)
                 .await
                 .expect("插入用户消息失败");
             // 发送ack消息
-            send_msg_record_success(send_stream_clone, current_user, nanoid, now).await.expect("发送ack消息失败");
+            send_msg_record_success(ack_nano_id,send_stream_clone, current_user, ack_raw_id, now).await.expect("发送ack消息失败");
         });
 
         // 目标用户的发送流
@@ -134,11 +138,13 @@ async fn pass_text_msg(
     current_send_stream: Arc<RwLock<SendStream>>,
     text_msg: TextQuicMsg,
 ) -> anyhow::Result<()> {
-    let res = generate_text_msg(
+    let res = generate_text_msg_with_time(
+        text_msg.nano_id,
         text_msg.text_type,
         text_msg.raw,
         text_msg.recv_user,
         text_msg.send_user,
+        text_msg.timestamp
     )?;
     send_msg_permissions().await.expect("鉴权失败");
     {
@@ -160,12 +166,14 @@ async fn send_msg_permissions() -> anyhow::Result<bool> {
 
 /// 发送ack消息
 async fn send_msg_record_success(
+    nano_id: String,
     send_stream: Arc<RwLock<SendStream>>,
     current_user: String,
     nanoid: String,
     timestamp: i64
 ) -> anyhow::Result<()> {
     let res = generate_text_msg_with_time(
+        nano_id,
         MessageType::RecallSuccess as u16,
         nanoid.as_bytes().to_vec(),
         current_user,
