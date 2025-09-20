@@ -5,12 +5,15 @@ pub trait TextMsg {
    fn get_bytes(&self) -> anyhow::Result<Vec<u8>>;
 }
 
-#[repr(u8)]
+#[repr(u16)]
 pub enum MessageType {
     Text = 1,  //文本信息
     Image = 2,  //图片信息
     File = 3,   //文件信息
-
+    P2P = 4,
+    P2PVideoCall = 5,
+    P2pVideoData = 6,
+    P2pVideoConfig = 7,
 
     Ping = 99,  //ping信息
     RecallSuccess = 201, //接受解析成功
@@ -18,6 +21,7 @@ pub enum MessageType {
 
     P2pUserServer = 203,  //作为p2p服务端发起
     P2pUserClient = 204,  //作为p2p客户端
+    System = 10001,  //系统信息
 }
 
 //头部消息

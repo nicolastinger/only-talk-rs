@@ -3,8 +3,9 @@ use actix_web::{get, post, web, HttpMessage, HttpRequest, HttpResponse, Responde
 use log::{info,error};
 use rbatis::RBatis;
 use crate::{get_uuid_from_header, respond_json_any, validate_and_respond};
-use crate::module::user_mod::dto::friend_dto::{FriendDTO, FriendLinkDTO};
-use crate::module::user_mod::service::friend_service::{add_friend, get_friend_by_id, get_friend_list};
+use crate::module::user_mod::dto::friend_dto::{FriendDTO};
+use crate::module::user_mod::dto::friend_request_info_dto::FriendRequestInfoDTO;
+use crate::module::user_mod::service::friend_service::{add_friend, get_friend_by_id, get_friend_list, process_friend};
 use crate::utils::dto::{ReqList};
 
 pub fn friend_service(cfg: &mut web::ServiceConfig) {
@@ -31,11 +32,20 @@ pub async fn qry_friend_test(req: HttpRequest, state: web::Data<RBatis>,friend: 
 }
 
 #[post("/add_friend")]
-pub async fn add_friend_api(req: HttpRequest, state: web::Data<RBatis>, friend: web::Json<FriendLinkDTO>) -> impl Responder {
-    let friend = validate_and_respond!(friend);
-    let account = get_uuid_from_header!(req);
-    
-    respond_json_any!(add_friend(state.as_ref(), account, friend.account).await)
+pub async fn add_friend_api(req: HttpRequest, state: web::Data<RBatis>, friend: web::Json<FriendRequestInfoDTO>) -> impl Responder {
+    let me = get_uuid_from_header!(req);
+    let mut friend = friend.into_inner();
+    friend.request_user = me;
+
+    respond_json_any!(add_friend(state.as_ref(), friend).await)
+}
+
+#[post("/process_friend")]
+pub async fn process_friend_api(req: HttpRequest, state: web::Data<RBatis>, friend: web::Json<FriendRequestInfoDTO>) -> impl Responder {
+    let me = get_uuid_from_header!(req);
+    let mut friend = friend.into_inner();
+    friend.accept_user = me;
+    respond_json_any!(process_friend(state.as_ref(), friend).await)
 }
 
 #[post("/get_friend/{last_uuid}/{version}")]

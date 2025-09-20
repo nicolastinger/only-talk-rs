@@ -11,7 +11,7 @@ use rustls_pemfile::{certs, ec_private_keys, rsa_private_keys};
 pub(crate) mod quic_server;
 pub(crate) mod quic_client;
 pub mod models;
-mod msg_service;
+pub mod msg_service;
 pub mod p2p_udp_utils;
 mod p2p_service;
 
