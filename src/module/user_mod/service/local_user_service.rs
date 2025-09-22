@@ -15,6 +15,7 @@ use rbatis::RBatis;
 use rbs::value;
 use uuid::Uuid;
 use crate::utils::redis_utils::get_redis_conn;
+use crate::utils::time::get_now_time_stamp_as_millis;
 
 pub async fn get_user_raw(rb: web::Data<RBatis>) {
     get_raw_sql(rb).await
@@ -65,20 +66,46 @@ pub async fn add_new_basic_user_service(
     match get_exit_user(rb, &account_ref).await {
         true => Err(anyhow!("该账号已存在!".to_string())),
         false => {
-            BasicUserSalt::insert(
-                rb,
-                &BasicUserSalt {
+            let tx = rb.acquire_begin().await?;
+            // 使用事务块包裹逻辑
+            let result: Result<(), anyhow::Error> = async {
+                let now = get_now_time_stamp_as_millis()?;
+                let basic_user_salt = BasicUserSalt {
                     uuid: basic_user.uuid.clone(),
-                    sign_up_salt: Option::from(random_str.to_string()),
-                },
-            )
-            .await?;
-            match BasicUser::insert(rb, &basic_user).await {
-                Ok(_) => Ok(CommonResponseRef::<String>::success_json(
-                    &"新增账号成功".to_string(),
-                )?),
-                Err(_) => Err(anyhow!("新增账号失败!".to_string())),
+                    sign_up_salt: Option::from(random_str),
+                };
+                let user_info = UserInfo {
+                    uuid: basic_user.uuid.clone(),
+                    gender: None,
+                    age: None,
+                    birthday: None,
+                    note: None,
+                    create_at: Some(now),
+                    update_at: Some(now),
+                    last_login_at: None,
+                    last_login_equipment: None,
+                    last_login_ipv4: None,
+                    last_login_ipv6: None,
+                    phone: None,
+                    email: None,
+                    address: None,
+                    status: None,
+                };
+
+                BasicUserSalt::insert(rb, &basic_user_salt).await?;
+                BasicUser::insert(rb, &basic_user).await?;
+                UserInfo::insert(rb, &user_info).await?;
+                
+                tx.commit().await?;
+                Ok(())
+            }.await;
+            
+            // 如果事务中有错误，回滚事务
+            if result.is_err() {
+                let _ = tx.rollback().await;
             }
+            Ok(CommonResponseNoDataRef::success_empty())
+            
         }
     }
 }
