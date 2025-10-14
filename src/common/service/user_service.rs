@@ -1,6 +1,6 @@
 use anyhow::anyhow;
 use deadpool_redis::redis::AsyncCommands;
-use log::{info, warn};
+use log::{info};
 use rbatis::dark_std::err;
 use rbs::value;
 use crate::http_service::chat_service::entity::chat_message_read::ChatMessageRecordRead;
@@ -17,7 +17,7 @@ pub async fn user_offline(uuid: String) -> Result<(), anyhow::Error> {
     // 2.同步所有redis缓存到数据库，记录用户操作
     // 已读消息从redis中持久化到数据库
     let read_key = format!("{}{}", USER_READ_MSG, uuid);
-    let read_record = redis.get::<_, String>(&read_key).await?;
+    let read_record: String = redis.get(&read_key).await?;
     info!("已读消息, 源 {}", read_record);
     let last_chat_message_read: Vec<ChatMessageRecordRead> = serde_json::from_str(&read_record)?;
     info!("已读消息, 转换 {:?}", last_chat_message_read);

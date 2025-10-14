@@ -87,14 +87,14 @@ async fn init_send_msg(mut send_stream: SendStream) -> Result<(), anyhow::Error>
     let test_msg = generate_text_msg(
         MessageType::Text as u16,
         "上山打老虎".as_bytes().to_vec(),
-        "01965d95-0ffc-7d23-911e-5313485fb9be".to_string(),
+        uuid.clone(),
         uuid.clone(),
     )?;
 
     let test_msg2 = generate_text_msg(
         MessageType::Text as u16,
         "我是蔡徐坤".as_bytes().to_vec(),
-        "01965d95-0ffc-7d23-911e-5313485fb9be".to_string(),
+        uuid.clone(),
         uuid.clone(),
     )?;
 

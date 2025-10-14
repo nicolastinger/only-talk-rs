@@ -234,7 +234,7 @@ pub async fn get_user_uuid_by_account(account: String) -> Result<Uuid, anyhow::E
         }
     };
     // 设置24小时的缓存
-    cmd("SET")
+    let _: () = cmd("SET")
         .arg(&key)
         .arg(uuid.to_string())
         .arg("EX")

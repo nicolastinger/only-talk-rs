@@ -142,9 +142,6 @@ pub async fn start_server() -> anyhow::Result<()> {
 
     let redis_url = read_config!(config_map, ("redis"), "url");
     let redis_pool = init_redis(redis_url);
-    // 定义服务器监听地址
-    let addr = read_config!(config_map, ("quic_server"), "address");
-    quic_service::quic_server::init_server(addr.parse()?);
 
     let address = read_config!(config_map, ("server"), "address");
 

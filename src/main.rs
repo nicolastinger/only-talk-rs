@@ -22,6 +22,7 @@ use p2p_service::p2p_udp_utils::run_udp_server;
 use deadpool_redis::Pool as RedisPool;
 use rbatis::RBatis;
 use http_service::init_server;
+use crate::quic_service::init_server::start_server;
 
 rust_i18n::i18n!("locales");
 // 创建一个quic服务器维护列表全局变量，使用 RwLock 包装，后期采用dashMap
@@ -39,18 +40,11 @@ const X25: Crc<u16> = Crc::<u16>::new(&crc::CRC_16_IBM_SDLC);
 #[actix_web::main]
 async fn main() {
     fast_log::init(Config::new().console().level(LevelFilter::Info).file("log/rust_im.log").chan_len(Some(10))).unwrap();
-
-    //let addr = "124.220.82.185:4433".parse().unwrap();
-    let addr = "127.0.0.1:4433".parse().unwrap();
-     tokio::spawn(async move{
-         quic_client::run_client(addr).await;
-     });
-     
+    
     // 运行UDP服务器
-    tokio::spawn(async  {
-        run_udp_server().await.unwrap();
-    });
-
+    run_udp_server().await.expect("启动UDP服务器失败");
+    // 启动quic服务
+    start_server().await.expect("启动quic服务失败");
     // 启动HTTP服务器并等待其完成
-    init_server::start_server().await.unwrap_or_else(|err| error!("错误信息 {}, 堆栈信息 {:?}", err, err.backtrace()));
+    init_server::start_server().await.unwrap_or_else(|err| error!("启动http服务失败 {}, 堆栈信息 {:?}", err, err.backtrace()));
 }

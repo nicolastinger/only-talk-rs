@@ -80,7 +80,7 @@ async fn create_online_user(
 
     let result: RedisResult<()> = cmd("SET").arg(key).arg(value).query_async(&mut conn).await;
     match result {
-        Ok(_) => HttpResponse::Created().body(format!("User {} created", user)),
+        Ok(()) => HttpResponse::Created().body(format!("User {} created", user)),
         Err(_) => HttpResponse::InternalServerError().body("Failed to create user"),
     }
 }

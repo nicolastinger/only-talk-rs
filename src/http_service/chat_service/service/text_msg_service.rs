@@ -102,10 +102,10 @@ pub async fn add_user_chat_read(uuid: Option<String>,
     // 写入到redis
     let key = format!("{}{}", USER_READ_MSG, uuid);
     let mut redis = get_redis_conn().await?;
-    let res = redis.get::<_, String>(&key).await;
+    let res: Result<String, _> = redis.get(&key).await;
 
     if res.is_err() {
-        redis.set_ex::<_, _, ()>(&key, chat_message_read_str, 60 * 60 * 24).await?;
+        redis.set_ex(&key, chat_message_read_str, 60 * 60 * 24).await?;
     } else {
         let mut last_chat_message_read: Vec<ChatMessageRecordRead> = serde_json::from_str(&res?)?;
         for item in chat_message_read.into_iter() {
@@ -120,7 +120,7 @@ pub async fn add_user_chat_read(uuid: Option<String>,
             }
         }
 
-        redis.set_ex::<_, _, ()>(&key, serde_json::to_string(&last_chat_message_read)?, 60 * 60 * 24).await?;
+        redis.set_ex(&key, serde_json::to_string(&last_chat_message_read)?, 60 * 60 * 24).await?;
     }
 
     Ok(CommonResponseNoDataRef::success_empty())

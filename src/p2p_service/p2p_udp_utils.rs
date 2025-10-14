@@ -16,53 +16,55 @@ use tokio::net::UdpSocket;
 use tokio::signal;
 
 pub async fn run_udp_server() -> Result<(), anyhow::Error> {
-    let addr_1 = "0.0.0.0:9562";
-    let addr_2 = "[::]:9563";
-    let addr_3 = "0.0.0.0:9564";
-    let addr_4 = "[::]:9565";
-    
-    // 创建一个共享的退出标志
-    let shutdown_flag = Arc::new(AtomicBool::new(false));
-    
-    // 启动udp连接1
-    let handle1 = {
-        let shutdown = shutdown_flag.clone();
-        tokio::spawn(async move {
-            get_p2p_udp_socket_with_shutdown(addr_1, "V4".to_string(), shutdown).await.expect("9562 Failed to get UDP socket");
-        })
-    };
-    
-    let handle2 = {
-        let shutdown = shutdown_flag.clone();
-        tokio::spawn(async move {
-            get_p2p_udp_socket_with_shutdown(addr_2, "V6".to_string(), shutdown).await.expect("9563 Failed to get UDP socket");
-        })
-    };
-    
-    let handle3 = {
-        let shutdown = shutdown_flag.clone();
-        tokio::spawn(async move {
-            get_p2p_udp_socket_with_shutdown(addr_3, "V4".to_string(), shutdown).await.expect("9564 to get UDP socket");
-        })
-    };
-    
-    let handle4 = {
-        let shutdown = shutdown_flag.clone();
-        tokio::spawn(async move {
-            get_p2p_udp_socket_with_shutdown(addr_4, "V6".to_string(), shutdown).await.expect("9565 to get UDP socket");
-        })
-    };
-    
-    // 等待 Ctrl+C 信号
-    signal::ctrl_c().await?;
-    info!("收到 Ctrl+C 信号，正在关闭服务...");
-    
-    // 设置退出标志
-    shutdown_flag.store(true, Ordering::Relaxed);
-    
-    // 等待所有任务完成
-    let _ = tokio::join!(handle1, handle2, handle3, handle4);
-    
+    tokio::spawn(async {
+        let addr_1 = "0.0.0.0:9562";
+        let addr_2 = "[::]:9563";
+        let addr_3 = "0.0.0.0:9564";
+        let addr_4 = "[::]:9565";
+
+        // 创建一个共享的退出标志
+        let shutdown_flag = Arc::new(AtomicBool::new(false));
+
+        // 启动udp连接1
+        let handle1 = {
+            let shutdown = shutdown_flag.clone();
+            tokio::spawn(async move {
+                get_p2p_udp_socket_with_shutdown(addr_1, "V4".to_string(), shutdown).await.expect("9562 Failed to get UDP socket");
+            })
+        };
+
+        let handle2 = {
+            let shutdown = shutdown_flag.clone();
+            tokio::spawn(async move {
+                get_p2p_udp_socket_with_shutdown(addr_2, "V6".to_string(), shutdown).await.expect("9563 Failed to get UDP socket");
+            })
+        };
+
+        let handle3 = {
+            let shutdown = shutdown_flag.clone();
+            tokio::spawn(async move {
+                get_p2p_udp_socket_with_shutdown(addr_3, "V4".to_string(), shutdown).await.expect("9564 to get UDP socket");
+            })
+        };
+
+        let handle4 = {
+            let shutdown = shutdown_flag.clone();
+            tokio::spawn(async move {
+                get_p2p_udp_socket_with_shutdown(addr_4, "V6".to_string(), shutdown).await.expect("9565 to get UDP socket");
+            })
+        };
+
+        // 等待 Ctrl+C 信号
+        signal::ctrl_c().await.expect("无法注册 Ctrl+C 处理器");
+        info!("收到 Ctrl+C 信号，正在关闭服务...");
+
+        // 设置退出标志
+        shutdown_flag.store(true, Ordering::Relaxed);
+
+        // 等待所有任务完成
+        let _ = tokio::join!(handle1, handle2, handle3, handle4);
+
+    });
     Ok(())
 }
 
@@ -328,7 +330,7 @@ async fn process_p2p_user_info(
                 let user_address_info_json =
                     serde_json::to_string(&user_address_info).unwrap_or(String::new());
                 // 设置1分钟超时
-                cmd("SET")
+                let _: () = cmd("SET")
                     .arg(&key)
                     .arg(&user_address_info_json)
                     .arg("EX")

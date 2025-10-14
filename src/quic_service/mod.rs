@@ -12,6 +12,7 @@ pub(crate) mod quic_server;
 pub(crate) mod quic_client;
 pub mod models;
 pub mod msg_service;
+pub mod init_server;
 
 /// 配置客户端使用的QUIC设置。
 fn configure_client() -> ClientConfig {
