@@ -2,7 +2,7 @@
 url = "postgres://admin:REDACTED_DB_PASSWORD@@124.220.82.185:22303/postgres?currentSchema=test_chat"
 
 [redis]
-url = "redis://:REDACTED_REDIS_PASSWORD@175.178.17.158:10279/"
+url = "redis://:REDACTED_REDIS_PASSWORD@124.220.82.185:10279/"
 
 [server]
 address="0.0.0.0:8443"

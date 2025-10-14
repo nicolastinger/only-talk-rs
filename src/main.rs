@@ -1,7 +1,9 @@
-mod module;
+mod http_service;
 mod common;
 mod marcos;
 mod utils;
+pub(crate) mod quic_service;
+pub(crate) mod p2p_service;
 
 use common::*;
 use log::{error, info, warn, LevelFilter};
@@ -9,16 +11,17 @@ use std::{error::Error, net::SocketAddr};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use crc::{Crc};
+use crc::Crc;
 use crc_catalog::Algorithm;
 use fast_log::Config;
 use lazy_static::lazy_static;
 use tokio::sync::RwLock as TokioRwLock;
-use quic_network_service::quic_client;
-use crate::common::quic_network_service::models::quic_connection::QuicConnection;
-use crate::common::quic_network_service::p2p_udp_utils::{get_p2p_udp_socket, run_udp_server};
+use quic_service::quic_client;
+use quic_service::models::quic_connection::QuicConnection;
+use p2p_service::p2p_udp_utils::run_udp_server;
 use deadpool_redis::Pool as RedisPool;
 use rbatis::RBatis;
+use http_service::init_server;
 
 rust_i18n::i18n!("locales");
 // 创建一个quic服务器维护列表全局变量，使用 RwLock 包装，后期采用dashMap
@@ -42,12 +45,12 @@ async fn main() {
      tokio::spawn(async move{
          quic_client::run_client(addr).await;
      });
+     
+    // 运行UDP服务器
     tokio::spawn(async  {
         run_udp_server().await.unwrap();
     });
 
+    // 启动HTTP服务器并等待其完成
     init_server::start_server().await.unwrap_or_else(|err| error!("错误信息 {}, 堆栈信息 {:?}", err, err.backtrace()));
 }
-
-
-

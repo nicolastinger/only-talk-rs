@@ -3,7 +3,7 @@ use deadpool_redis::redis::AsyncCommands;
 use log::{info, warn};
 use rbatis::dark_std::err;
 use rbs::value;
-use crate::module::chat_msg_mod::entity::chat_message_read::ChatMessageRecordRead;
+use crate::http_service::chat_service::entity::chat_message_read::ChatMessageRecordRead;
 use crate::RBATIS_DATABASE;
 use crate::utils::global_static_str::USER_READ_MSG;
 use crate::utils::redis_utils::get_redis_conn;
