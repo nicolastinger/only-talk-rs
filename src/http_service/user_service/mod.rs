@@ -7,6 +7,7 @@ mod entity;
 mod controller;
 mod dto;
 mod vo;
+mod domain;
 
 pub fn init_user_service(cfg: &mut web::ServiceConfig) {
     user_service(cfg)
