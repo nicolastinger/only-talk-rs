@@ -22,15 +22,14 @@ pub async fn run_client(server_addr: SocketAddr) {
     // 尝试连接到服务器
     let connection = endpoint
         .connect(server_addr, "onlytalk.cn")
-        .unwrap()
+        .expect("Failed to create endpoint")
         .await
-        .map_err(|_| "Failed to connect to server".to_string())
-        .unwrap();
+        .expect("Failed to connect to server");
     info!("[client] connected: addr={}", connection.remote_address()); // 打印连接成功的服务器地址
 
     // 开启一个双向流
-    let (mut send_stream, mut _recv_stream) = connection.open_bi().await.unwrap();
-    send_stream.set_priority(0).unwrap(); // 设置优先级
+    let (mut send_stream, mut _recv_stream) = connection.open_bi().await.expect("Failed to open stream");
+    send_stream.set_priority(0).expect("Failed to set priority"); // 设置优先级
     let head_length = 9;
     let buffer_msg: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
     // 异步处理流中的数据
