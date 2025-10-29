@@ -1,5 +1,5 @@
-//创建统一返回对象 
-use serde::{Serialize};
+//创建统一返回对象
+use serde::Serialize;
 use serde_json;
 
 // 定义响应体结构
@@ -73,20 +73,28 @@ where
     }
 }
 
-
 #[derive(Serialize)]
-pub struct CommonResponseNoDataRef<'a>
-{
+pub struct CommonResponseNoDataRef<'a> {
     pub(crate) code: u16,
     pub data: u8,
     pub(crate) message: &'a str,
 }
 impl<'a> CommonResponseNoDataRef<'a> {
     pub fn error_json(message: &'a str) -> String {
-        serde_json::to_string(&CommonResponseNoDataRef { code: 500, data: 0, message }).unwrap_or_else(|_| "{code:500,message:\"json Panic!\"}".to_string())
+        serde_json::to_string(&CommonResponseNoDataRef {
+            code: 500,
+            data: 0,
+            message,
+        })
+        .unwrap_or_else(|_| "{code:500,message:\"json Panic!\"}".to_string())
     }
 
     pub fn success_empty() -> String {
-        serde_json::to_string(&CommonResponseNoDataRef { code: 204, data: 0, message: "" }).unwrap_or_else(|_| "{code:500,message:\"json Panic!\"}".to_string())
+        serde_json::to_string(&CommonResponseNoDataRef {
+            code: 204,
+            data: 0,
+            message: "",
+        })
+        .unwrap_or_else(|_| "{code:500,message:\"json Panic!\"}".to_string())
     }
 }

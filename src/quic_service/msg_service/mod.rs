@@ -1,13 +1,16 @@
-use std::sync::{Arc};
+use crate::GLOBAL_QUIC_SERVER_LIST;
 use anyhow::anyhow;
 use quinn::SendStream;
+use std::sync::Arc;
 use tokio::sync::RwLock;
-use crate::GLOBAL_QUIC_SERVER_LIST;
 
-pub mod text_msg_service;
 pub mod process_msg_service;
+pub mod text_msg_service;
 
-pub async fn get_send_stream_by_uuid(uuid: &String,connection_type: &String)->Result<Arc<RwLock<SendStream>>,anyhow::Error>{
+pub async fn get_send_stream_by_uuid(
+    uuid: &String,
+    connection_type: &String,
+) -> Result<Arc<RwLock<SendStream>>, anyhow::Error> {
     let my_send_stream = {
         let connection_key = format!("{}{}{}{}", "QUIC:SERVER:", uuid, ":", connection_type);
         let connection_key = connection_key.to_uppercase();

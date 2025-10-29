@@ -1,17 +1,24 @@
-use actix_web::{get, post, web, HttpMessage, HttpRequest, HttpResponse, Responder};
-use anyhow::Error;
-use deadpool_redis::Pool;
-use deadpool_redis::redis::{cmd, RedisResult};
-use log::{info,error};
-use rbatis::RBatis;
 use crate::http_service::init_server::AppState;
+use crate::http_service::user_service::dto::basic_user_dto::SignInBasicUserDTO;
 use crate::http_service::user_service::entity::basic_user::BasicUser;
-use crate::http_service::user_service::service::local_user_service::{add_new_basic_user_service, add_p2p_token_service, get_exit_user, get_user_info_by_account, get_user_info_by_uuid, get_user_raw, get_user_uuid_by_account_service, test_sql, user_sign_in, verify_p2p_token_service};
+use crate::http_service::user_service::service::local_user_service::{
+    add_new_basic_user_service, add_p2p_token_service, get_exit_user, get_user_info_by_account,
+    get_user_info_by_uuid, get_user_raw, get_user_uuid_by_account_service, test_sql, user_sign_in,
+    verify_p2p_token_service,
+};
+use crate::utils::dto::AuthAccount;
 use crate::utils::http_response::CommonResponse;
 use crate::utils::jwt_util::{decode_jwt, get_jwt};
-use crate::{get_uuid_from_header, respond_json, respond_json_any, serde_json_to_string, validate_and_respond};
-use crate::http_service::user_service::dto::basic_user_dto::SignInBasicUserDTO;
-use crate::utils::dto::{AuthAccount};
+use crate::{
+    get_uuid_from_header, respond_json, respond_json_any, serde_json_to_string,
+    validate_and_respond,
+};
+use actix_web::{get, post, web, HttpMessage, HttpRequest, HttpResponse, Responder};
+use anyhow::Error;
+use deadpool_redis::redis::{cmd, RedisResult};
+use deadpool_redis::Pool;
+use log::{error, info};
+use rbatis::RBatis;
 
 pub fn user_service(cfg: &mut web::ServiceConfig) {
     cfg.service(user_test)
@@ -45,9 +52,11 @@ pub async fn post_test() -> impl Responder {
     HttpResponse::Ok().body("蔡徐坤")
 }
 
-
 #[get("/online_user/redis/{path}")]
-async fn get_online_user_by_redis(state: web::Data<Pool>, path: web::Path<String>) -> impl Responder {
+async fn get_online_user_by_redis(
+    state: web::Data<Pool>,
+    path: web::Path<String>,
+) -> impl Responder {
     info!("请求进来了");
     let username = path.into_inner();
     let mut conn = state.get().await.expect("打开redis连接失败");
@@ -59,7 +68,7 @@ async fn get_online_user_by_redis(state: web::Data<Pool>, path: web::Path<String
             // 将 Redis 中的值解析为 User 实体
             info!("redis获取到的值 {}", info);
             HttpResponse::Ok().body(info)
-        },
+        }
         Err(_) => {
             // 如果没有找到用户信息，返回 404
             HttpResponse::NotFound().body("User not found")
@@ -68,10 +77,7 @@ async fn get_online_user_by_redis(state: web::Data<Pool>, path: web::Path<String
 }
 
 #[post("/online_user/redis/add_user")]
-async fn create_online_user(
-    state: web::Data<AppState>,
-    user: String
-) -> impl Responder {
+async fn create_online_user(state: web::Data<AppState>, user: String) -> impl Responder {
     info!("新增用户请求进来了");
     let key = user.to_uppercase() + ":LOGIN";
 
@@ -86,9 +92,7 @@ async fn create_online_user(
 }
 
 #[post("/online_user/raw_sql_test")]
-pub async fn post_online_user(
-    state: web::Data<RBatis>
-) -> impl Responder { 
+pub async fn post_online_user(state: web::Data<RBatis>) -> impl Responder {
     info!("新增用户请求进来了");
     get_user_raw(state).await;
     HttpResponse::Ok().body("something")
@@ -103,77 +107,89 @@ pub async fn get_online_user_by_rbatis(state: web::Data<RBatis>) -> impl Respond
 
 #[post("/get_exit_user_flag/is_exit")]
 pub async fn get_exit_user_flag(state: web::Data<RBatis>, account: String) -> impl Responder {
-    info!("获取到值 {}" ,account);
+    info!("获取到值 {}", account);
     let res = get_exit_user(state.get_ref(), &account).await;
     HttpResponse::Ok().body(res.to_string())
 }
 
 #[post("/test_token/get")]
-pub async fn get_token(account:String) -> impl Responder {
+pub async fn get_token(account: String) -> impl Responder {
     let token = get_jwt(account).unwrap();
     let res = CommonResponse::success(token);
     HttpResponse::Ok().body(serde_json::to_string(&res).unwrap())
 }
 
 #[post("/test_token/check")]
-pub async fn check_token(token:String) -> impl Responder {
+pub async fn check_token(token: String) -> impl Responder {
     HttpResponse::Ok().body(decode_jwt(token.as_ref()).unwrap())
 }
 
 #[post("/sign_up")]
-pub async fn sign_up(state: web::Data<RBatis>,basic_user:web::Json<BasicUser>) -> impl Responder {
+pub async fn sign_up(state: web::Data<RBatis>, basic_user: web::Json<BasicUser>) -> impl Responder {
     let basic_user = validate_and_respond!(basic_user);
-    let res = add_new_basic_user_service(state.get_ref(),basic_user).await;
+    let res = add_new_basic_user_service(state.get_ref(), basic_user).await;
     respond_json_any!(res)
 }
 
 #[post("/sign_in")]
-pub async fn sign_in(state: web::Data<RBatis>,basic_user_dto:web::Json<SignInBasicUserDTO>) -> impl Responder {
+pub async fn sign_in(
+    state: web::Data<RBatis>,
+    basic_user_dto: web::Json<SignInBasicUserDTO>,
+) -> impl Responder {
     let basic_user_dto: SignInBasicUserDTO = validate_and_respond!(basic_user_dto);
-    let res =  user_sign_in(state.get_ref(),basic_user_dto).await;
+    let res = user_sign_in(state.get_ref(), basic_user_dto).await;
     respond_json_any!(res)
 }
 
 #[post("/me")]
-pub async fn me_api(state: web::Data<RBatis>,req: HttpRequest) -> impl Responder {
+pub async fn me_api(state: web::Data<RBatis>, req: HttpRequest) -> impl Responder {
     let uuid = get_uuid_from_header!(req);
-    let res = get_user_info_by_uuid(state.get_ref(),uuid).await;
+    let res = get_user_info_by_uuid(state.get_ref(), uuid).await;
     respond_json_any!(res)
 }
 
 #[post("/get_user_by_account/{account}")]
-pub async fn query_user_api(state: web::Data<RBatis>,account: web::Path<(String)>) -> impl Responder {
+pub async fn query_user_api(
+    state: web::Data<RBatis>,
+    account: web::Path<(String)>,
+) -> impl Responder {
     let account = account.into_inner();
-    let res = get_user_info_by_account(state.get_ref(),Some(account)).await;
+    let res = get_user_info_by_account(state.get_ref(), Some(account)).await;
     respond_json_any!(res)
 }
 
 #[post("/sign_in_test")]
-pub async fn sign_test(basic_user:web::Json<SignInBasicUserDTO>) -> impl Responder {
+pub async fn sign_test(basic_user: web::Json<SignInBasicUserDTO>) -> impl Responder {
     let basic_user = validate_and_respond!(basic_user);
 
     respond_json!(serde_json_to_string!(&basic_user))
 }
 
 #[post("/get_uuid_by_account/{account}")]
-pub async fn get_user_uuid_by_account_api(account: web::Path<(String)>)-> impl Responder {
+pub async fn get_user_uuid_by_account_api(account: web::Path<(String)>) -> impl Responder {
     let account = account.into_inner();
     let res = get_user_uuid_by_account_service(account).await;
     respond_json_any!(res)
 }
 
 #[post("/verify_p2p_token/{uuid}/{token}")]
-pub async fn verify_p2p_token_api(path: web::Path<(String, String)>, req: HttpRequest) -> impl Responder {
+pub async fn verify_p2p_token_api(
+    path: web::Path<(String, String)>,
+    req: HttpRequest,
+) -> impl Responder {
     let (uuid, token) = path.into_inner();
     let me = get_uuid_from_header!(req);
-    respond_json_any!(verify_p2p_token_service(uuid,token,me).await)
+    respond_json_any!(verify_p2p_token_service(uuid, token, me).await)
 }
 
 #[post("/add_p2p_token/{uuid}/{token}")]
-pub async fn add_p2p_token_api(path: web::Path<(String, String)>, req: HttpRequest) -> impl Responder {
+pub async fn add_p2p_token_api(
+    path: web::Path<(String, String)>,
+    req: HttpRequest,
+) -> impl Responder {
     let (uuid, token) = path.into_inner();
     let me = get_uuid_from_header!(req);
-    respond_json_any!(add_p2p_token_service(uuid,token,me).await)
+    respond_json_any!(add_p2p_token_service(uuid, token, me).await)
 }
 
 // 查询用户信息
@@ -182,5 +198,3 @@ pub async fn add_p2p_token_api(path: web::Path<(String, String)>, req: HttpReque
 //     let basic_user_dto = basic_user_dto.into_inner();
 //     respond_json_any!(add_p2p_token_service(uuid,token,me).await)
 // }
-
-

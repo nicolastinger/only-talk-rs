@@ -9,7 +9,7 @@ pub struct P2pInitMsg {
     // 请求人uuid
     pub request_uuid: String,
     // 请求人token
-    pub request_token:  String,
+    pub request_token: String,
     // 接收人uuid
     pub accept_uuid: String,
     // 是否接受
@@ -19,7 +19,7 @@ pub struct P2pInitMsg {
     // 步骤,0-未处理，1-已拒绝，2-已接受，3-交换ip
     pub step: u8,
     // 是否作为服务端
-    pub is_server: bool
+    pub is_server: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -32,5 +32,5 @@ pub struct UserAddressInfo {
     pub nat_type: u8,
     pub is_server: bool,
     pub lock_uuid: String,
-    pub is_lock: bool
+    pub is_lock: bool,
 }

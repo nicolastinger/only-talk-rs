@@ -5,9 +5,6 @@ pub struct FriendDO {
 
 impl FriendDO {
     pub fn new(name: String, age: i32) -> Self {
-        FriendDO {
-            name,
-            age,
-        }
+        FriendDO { name, age }
     }
 }

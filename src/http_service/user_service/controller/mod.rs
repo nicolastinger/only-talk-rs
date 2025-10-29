@@ -1,3 +1,2 @@
-pub mod user_controller;
 pub mod friend_controller;
-
+pub mod user_controller;

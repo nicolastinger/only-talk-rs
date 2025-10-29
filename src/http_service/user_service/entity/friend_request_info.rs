@@ -1,5 +1,5 @@
-use rbatis::{crud, impl_select};
 use rbatis::rbdc::Uuid;
+use rbatis::{crud, impl_select};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -17,7 +17,7 @@ pub struct FriendRequestInfo {
     pub accept_user: Option<Uuid>,
     // 添加方式
     pub add_type: Option<String>,
-    pub version: Option<u32>
+    pub version: Option<u32>,
 }
 
 crud!(FriendRequestInfo {});

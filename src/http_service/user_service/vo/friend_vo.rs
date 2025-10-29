@@ -1,8 +1,8 @@
 use crate::utils::http_response::CommonResponseRef;
-use rbatis::RBatis;
-use serde::{Deserialize, Serialize};
 use rbatis::rbdc::Uuid;
+use rbatis::RBatis;
 use rbs::value;
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Debug)]
 pub struct FriendVO<'a> {
@@ -22,7 +22,11 @@ pub struct FriendListVO {
     pub created_at: Option<i64>,
 }
 
-pub async fn query_friend_list(rb: &RBatis, uuid: &Uuid, created_at: i64) -> Result<String, anyhow::Error> {
+pub async fn query_friend_list(
+    rb: &RBatis,
+    uuid: &Uuid,
+    created_at: i64,
+) -> Result<String, anyhow::Error> {
     let friend_list: Option<Vec<FriendListVO>> = rb
         .query_decode("select bu.uuid, bu.username, bu.account, bu.icon, bu.info, fs.is_del, fs.version, fs.updated_at, fs.created_at from
 (select accept_user as uuid, is_del, updated_at, version, created_at FROM friend_link

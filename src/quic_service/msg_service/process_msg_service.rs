@@ -1,15 +1,18 @@
+use crate::http_service::chat_service::service::text_msg_service::add_user_chat_record;
 use crate::quic_service::models::quic_connection::ConnectionType;
 use crate::quic_service::models::text_msg::{MessageType, TextQuicMsg};
-use crate::quic_service::msg_service::text_msg_service::{generate_text_msg, generate_text_msg_with_time, get_text_msg};
-use crate::http_service::chat_service::service::text_msg_service::add_user_chat_record;
+use crate::quic_service::msg_service::text_msg_service::{
+    generate_text_msg, generate_text_msg_with_time, get_text_msg,
+};
 use crate::utils::global_static_str::{PONG, REDIS_QUIC_SERVERS, REDIS_SPLIT, SYSTEM};
+use crate::utils::message_types;
 use crate::utils::time::get_now_time_stamp_as_millis;
 use crate::GLOBAL_QUIC_SERVER_LIST;
 use anyhow::anyhow;
 use log::{error, info};
+use nanoid::nanoid;
 use quinn::SendStream;
 use std::sync::Arc;
-use nanoid::nanoid;
 use tokio::sync::{Mutex, RwLock};
 
 pub async fn process_rec_msg(
@@ -54,7 +57,7 @@ async fn process_text_msg(
             continue;
         }
         // 心跳消息
-        if text_msg.text_type == MessageType::Ping as u16 {
+        if text_msg.text_type == message_types::MSG_TYPE_PING {
             // 发送ping
             send_ping(send_stream.clone(), text_msg.send_user).await?;
             continue;
@@ -84,7 +87,15 @@ async fn process_text_msg(
                 .await
                 .expect("插入用户消息失败");
             // 发送ack消息
-            send_msg_record_success(ack_nano_id,send_stream_clone, current_user, ack_raw_id, now).await.expect("发送ack消息失败");
+            send_msg_record_success(
+                ack_nano_id,
+                send_stream_clone,
+                current_user,
+                ack_raw_id,
+                now,
+            )
+            .await
+            .expect("发送ack消息失败");
         });
 
         // 目标用户的发送流
@@ -119,7 +130,7 @@ async fn send_ping(
     current_user: String,
 ) -> anyhow::Result<()> {
     let ping_msg = generate_text_msg(
-        MessageType::Ping as u16,
+        message_types::MSG_TYPE_PING,
         Vec::from(PONG.as_bytes()),
         current_user,
         SYSTEM.to_string(),
@@ -144,7 +155,7 @@ async fn pass_text_msg(
         text_msg.raw,
         text_msg.recv_user,
         text_msg.send_user,
-        text_msg.timestamp
+        text_msg.timestamp,
     )?;
     send_msg_permissions().await.expect("鉴权失败");
     {
@@ -170,15 +181,15 @@ async fn send_msg_record_success(
     send_stream: Arc<RwLock<SendStream>>,
     current_user: String,
     nanoid: String,
-    timestamp: i64
+    timestamp: i64,
 ) -> anyhow::Result<()> {
     let res = generate_text_msg_with_time(
         nano_id,
-        MessageType::RecallSuccess as u16,
+        message_types::MSG_TYPE_RECALL_SUCCESS,
         nanoid.as_bytes().to_vec(),
         current_user,
         SYSTEM.to_string(),
-        timestamp
+        timestamp,
     )?;
     send_stream.write().await.write_all(&res).await?;
     Ok(())
@@ -191,7 +202,7 @@ async fn send_msg_record_failure(
     nanoid: String,
 ) -> anyhow::Result<()> {
     let res = generate_text_msg(
-        MessageType::RecallFailure as u16,
+        message_types::MSG_TYPE_RECALL_FAILURE,
         nanoid.as_bytes().to_vec(),
         current_user,
         SYSTEM.to_string(),
@@ -203,7 +214,7 @@ async fn send_msg_record_failure(
 /// 针对用户发送系统消息
 pub async fn send_system_msg(
     current_user: String,
-    msg_type: MessageType,
+    msg_type: u16,
     text: String,
 ) -> anyhow::Result<()> {
     // 目标用户的发送流
@@ -226,18 +237,14 @@ pub async fn send_system_msg(
         }
     };
     let res = generate_text_msg(
-        msg_type as u16,
+        msg_type,
         text.as_bytes().to_vec(),
         current_user,
         SYSTEM.to_string(),
     )?;
     if let Some(target_send_stream) = send_stream {
         // 处理在线消息
-        target_send_stream
-            .write()
-            .await
-            .write_all(&res)
-            .await?;
+        target_send_stream.write().await.write_all(&res).await?;
     }
     Ok(())
 }

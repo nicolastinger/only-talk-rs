@@ -1,3 +1,3 @@
-mod sql_utils;
-pub(crate) mod service;
 mod entity;
+pub(crate) mod service;
+mod sql_utils;

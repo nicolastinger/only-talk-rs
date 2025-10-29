@@ -1,31 +1,31 @@
-use rbatis::rbdc::Uuid;
-use serde::{Deserialize, Serialize};
 use crate::http_service::user_service::entity::basic_user::BasicUser;
 use crate::http_service::user_service::entity::user_info::UserInfo;
+use rbatis::rbdc::Uuid;
+use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize, Serialize, Debug)]
 pub struct UserInfoVO {
     uuid: Option<Uuid>,
     username: Option<String>,
     account: Option<String>,
-    icon: Option<String>,  //头像的超链接
-    gender: Option<u8>,  //0-m,1-s,2-男,3-女,4-机器人,5-other,etc
+    icon: Option<String>, //头像的超链接
+    gender: Option<u8>,   //0-m,1-s,2-男,3-女,4-机器人,5-other,etc
     age: Option<u8>,
     birthday: Option<i64>,
-    info: Option<String>,  //简介
+    info: Option<String>, //简介
     create_at: Option<i64>,
     update_at: Option<i64>,
     last_login_at: Option<i64>,
-    last_login_equipment: Option<String>,  //最后登录的设备
+    last_login_equipment: Option<String>, //最后登录的设备
     last_login_ipv4: Option<String>,
     last_login_ipv6: Option<String>,
     phone: Option<String>,
     email: Option<String>,
     address: Option<String>,
-    status: Option<u8>
+    status: Option<u8>,
 }
 
-impl From<(UserInfo,BasicUser)> for UserInfoVO {
+impl From<(UserInfo, BasicUser)> for UserInfoVO {
     fn from(sources: (UserInfo, BasicUser)) -> Self {
         Self {
             uuid: sources.0.uuid,

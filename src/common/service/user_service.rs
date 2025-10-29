@@ -1,12 +1,12 @@
-use anyhow::anyhow;
-use deadpool_redis::redis::AsyncCommands;
-use log::{info};
-use rbatis::dark_std::err;
-use rbs::value;
 use crate::http_service::chat_service::entity::chat_message_read::ChatMessageRecordRead;
-use crate::RBATIS_DATABASE;
 use crate::utils::global_static_str::USER_READ_MSG;
 use crate::utils::redis_utils::get_redis_conn;
+use crate::RBATIS_DATABASE;
+use anyhow::anyhow;
+use deadpool_redis::redis::AsyncCommands;
+use log::info;
+use rbatis::dark_std::err;
+use rbs::value;
 
 /// 用户下线
 pub async fn user_offline(uuid: String) -> Result<(), anyhow::Error> {
@@ -24,21 +24,24 @@ pub async fn user_offline(uuid: String) -> Result<(), anyhow::Error> {
     // TODO已读消息有效校验
     let rb = rb.as_ref().ok_or(anyhow!("获取连接失败"))?;
     for item in last_chat_message_read.into_iter() {
-        let insert_item = async |e| {
-            match ChatMessageRecordRead::insert(rb, &item).await  {
-                Ok(_) => {
-                },
-                Err(x) => {
-                    err!("更新已读消息失败 {} {}", e, x);
-                }
+        let insert_item = async |e| match ChatMessageRecordRead::insert(rb, &item).await {
+            Ok(_) => {}
+            Err(x) => {
+                err!("更新已读消息失败 {} {}", e, x);
             }
         };
-        match ChatMessageRecordRead::update_by_map(rb, &item, value!{"send_user": &item.send_user, "recv_user": &item.recv_user}).await {
+        match ChatMessageRecordRead::update_by_map(
+            rb,
+            &item,
+            value! {"send_user": &item.send_user, "recv_user": &item.recv_user},
+        )
+        .await
+        {
             Ok(d) => {
                 if d.rows_affected < 1u64 {
                     insert_item(d.to_string()).await;
                 }
-            },
+            }
             Err(e) => {
                 insert_item(e.to_string()).await;
             }

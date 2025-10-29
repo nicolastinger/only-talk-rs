@@ -1,7 +1,7 @@
 use crate::REDIS_CLIENT;
 use anyhow::anyhow;
-use deadpool_redis::Connection;
 use deadpool_redis::redis::cmd;
+use deadpool_redis::Connection;
 use uuid::Uuid;
 
 pub async fn get_redis_conn() -> Result<Connection, anyhow::Error> {
@@ -16,15 +16,15 @@ pub async fn acquire_lock(
     conn: &mut Connection,
     key: &str,
     ttl_sec: u64,
-    content: String
+    content: String,
 ) -> Result<Option<String>, anyhow::Error> {
     let lock_id = Uuid::new_v4().to_string(); // 生成唯一标识
     let lock_id = format!("{}_{}", lock_id, content);
     let result: Option<()> = cmd("SET")
         .arg(key)
         .arg(&lock_id)
-        .arg("NX")    // 互斥性：仅当 key 不存在时设置
-        .arg("EX")    // 过期时间单位秒
+        .arg("NX") // 互斥性：仅当 key 不存在时设置
+        .arg("EX") // 过期时间单位秒
         .arg(ttl_sec)
         .query_async(conn)
         .await?;

@@ -1,10 +1,15 @@
-use std::collections::{HashSet};
-use std::sync::RwLock;
-use actix_web::{body::MessageBody, dev::{ServiceRequest, ServiceResponse}, middleware::{Next}, Error, HttpMessage};
+use crate::utils::dto::AuthAccount;
+use crate::utils::jwt_util::decode_jwt;
+use actix_web::{
+    body::MessageBody,
+    dev::{ServiceRequest, ServiceResponse},
+    middleware::Next,
+    Error, HttpMessage,
+};
 use lazy_static::lazy_static;
 use log::info;
-use crate::utils::dto::AuthAccount;
-use crate::utils::jwt_util::{decode_jwt};
+use std::collections::HashSet;
+use std::sync::RwLock;
 
 lazy_static! {
     static ref IGNORED_PATHS: RwLock<HashSet<String>> = {
@@ -15,7 +20,6 @@ lazy_static! {
         RwLock::new(m)
     };
 }
-
 
 pub async fn error_record_middleware(
     req: ServiceRequest,
@@ -37,9 +41,7 @@ pub async fn error_record_middleware(
     let authorization = authorization.get("Authorization");
 
     let token = match authorization {
-        None => {
-            return Err(actix_web::error::ErrorUnauthorized("Unauthorized"))
-        }
+        None => return Err(actix_web::error::ErrorUnauthorized("Unauthorized")),
         Some(token) => token.to_str().unwrap().to_string(),
     };
     //校验token
@@ -75,4 +77,3 @@ pub async fn error_record_middleware(
     // 返回原始响应
     Ok(res)
 }
- 

@@ -35,3 +35,4 @@ rust-i18n = "3"
 crc = { version = "3.0" }  # 当前最新稳定版（2025年5月）
 crc-catalog = "2.0"  # 可选，用于预置标准CRC算法
 nanoid = "0.4.0"
+async-trait = "0.1.89"

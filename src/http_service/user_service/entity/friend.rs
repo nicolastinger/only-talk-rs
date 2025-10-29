@@ -1,7 +1,6 @@
-use rbatis::{crud, impl_select};
 use rbatis::rbdc::Uuid;
+use rbatis::{crud, impl_select};
 use serde::{Deserialize, Serialize};
-
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct FriendLink {
@@ -11,7 +10,7 @@ pub struct FriendLink {
     pub is_del: Option<bool>,
     pub created_at: Option<i64>,
     pub updated_at: Option<i64>,
-    pub version: Option<i32>
+    pub version: Option<i32>,
 }
 
 crud!(FriendLink {});

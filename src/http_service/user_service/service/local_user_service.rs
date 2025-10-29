@@ -1,11 +1,14 @@
-use std::str::FromStr;
 use crate::http_service::user_service::dto::basic_user_dto::SignInBasicUserDTO;
-use crate::http_service::user_service::entity::basic_user::{get_raw_sql, BasicUser, BasicUserSalt};
+use crate::http_service::user_service::entity::basic_user::{
+    get_raw_sql, BasicUser, BasicUserSalt,
+};
 use crate::http_service::user_service::entity::user_info::UserInfo;
 use crate::http_service::user_service::vo::user_info::UserInfoVO;
 use crate::utils::http_response::{CommonResponseNoDataRef, CommonResponseRef};
 use crate::utils::jwt_util::{decode_jwt, get_jwt};
+use crate::utils::redis_utils::get_redis_conn;
 use crate::utils::rsa_util::{generate_random_string, hash_with_salt};
+use crate::utils::time::get_now_time_stamp_as_millis;
 use crate::{RBATIS_DATABASE, REDIS_CLIENT};
 use actix_web::{web, HttpResponse, Responder};
 use anyhow::anyhow;
@@ -13,9 +16,8 @@ use deadpool_redis::redis::{cmd, AsyncCommands, RedisResult};
 use log::{error, info};
 use rbatis::RBatis;
 use rbs::value;
+use std::str::FromStr;
 use uuid::Uuid;
-use crate::utils::redis_utils::get_redis_conn;
-use crate::utils::time::get_now_time_stamp_as_millis;
 
 pub async fn get_user_raw(rb: web::Data<RBatis>) {
     get_raw_sql(rb).await
@@ -27,7 +29,7 @@ pub async fn create_new_user(rb: web::Data<RBatis>) {
 
 pub async fn test_sql(rb: &RBatis) -> Vec<BasicUser> {
     let basic_user_all = BasicUser::select_all(rb).await.unwrap();
-    let basic_user_icon = BasicUser::select_by_map(rb, value!{ "icon": "33333" })
+    let basic_user_icon = BasicUser::select_by_map(rb, value! { "icon": "33333" })
         .await
         .unwrap();
     let basic_user_all_id = BasicUser::select_all_by_id(rb, "33333", "4444444")
@@ -95,17 +97,17 @@ pub async fn add_new_basic_user_service(
                 BasicUserSalt::insert(rb, &basic_user_salt).await?;
                 BasicUser::insert(rb, &basic_user).await?;
                 UserInfo::insert(rb, &user_info).await?;
-                
+
                 tx.commit().await?;
                 Ok(())
-            }.await;
-            
+            }
+            .await;
+
             // 如果事务中有错误，回滚事务
             if result.is_err() {
                 let _ = tx.rollback().await;
             }
             Ok(CommonResponseNoDataRef::success_empty())
-            
         }
     }
 }
@@ -134,10 +136,12 @@ pub async fn user_sign_in(
     let password_str = password.as_ref().ok_or(anyhow!("密码为空".to_string()))?;
 
     // 查询用户
-    let basic_user = BasicUser::select_by_account(rb, account_str).await?.ok_or(anyhow!("用户不存在"))?;
+    let basic_user = BasicUser::select_by_account(rb, account_str)
+        .await?
+        .ok_or(anyhow!("用户不存在"))?;
 
     // 查询盐值信息
-    let salt_vec = BasicUserSalt::select_by_map(rb, value!{ "uuid": &basic_user.uuid }).await?;
+    let salt_vec = BasicUserSalt::select_by_map(rb, value! { "uuid": &basic_user.uuid }).await?;
 
     // 检查盐值是否存在
     let salt = salt_vec.first().ok_or(anyhow!("密码不存在!".to_string()))?;
@@ -187,7 +191,7 @@ pub async fn get_user_info_by_uuid(
     uuid: Option<String>,
 ) -> Result<String, anyhow::Error> {
     let uuid = uuid.ok_or(anyhow!("账号为空"))?;
-    let uuid  = rbatis::rbdc::Uuid::from_str(uuid.as_str())?;
+    let uuid = rbatis::rbdc::Uuid::from_str(uuid.as_str())?;
 
     let basic_user = BasicUser::select_by_uuid(rbatis, &uuid)
         .await?
@@ -203,9 +207,7 @@ pub async fn get_user_info_by_uuid(
 }
 
 /// 获取用户的uuid
-pub async fn get_user_uuid_by_account_service(
-    account: String,
-) -> Result<String, anyhow::Error> {
+pub async fn get_user_uuid_by_account_service(account: String) -> Result<String, anyhow::Error> {
     let result = get_user_uuid_by_account(account).await?;
     Ok(CommonResponseRef::<String>::success_json(
         &result.to_string(),
@@ -245,7 +247,11 @@ pub async fn get_user_uuid_by_account(account: String) -> Result<Uuid, anyhow::E
 }
 
 /// 验证用户传递的token
-pub async fn verify_p2p_token_service(uuid: String, token: String, me: Option<String>) -> Result<String, anyhow::Error> {
+pub async fn verify_p2p_token_service(
+    uuid: String,
+    token: String,
+    me: Option<String>,
+) -> Result<String, anyhow::Error> {
     let mut conn = {
         let redis_client = REDIS_CLIENT.read().await;
         let redis_conn = redis_client.as_ref().ok_or(anyhow!("redis客户端错误"))?;
@@ -263,13 +269,17 @@ pub async fn verify_p2p_token_service(uuid: String, token: String, me: Option<St
             let key = format!("{}{}", "USER_UDP_ADDRESS_", uuid);
             let result: RedisResult<String> = cmd("GET").arg(&key).query_async(&mut conn).await;
             Ok(CommonResponseRef::<String>::success_json(&result?)?)
-        },
-        false => Err(anyhow!("failed"))
+        }
+        false => Err(anyhow!("failed")),
     }
 }
 
 /// 添加用户验证的token
-pub async fn add_p2p_token_service(uuid: String, token: String, me: Option<String>) -> Result<String, anyhow::Error> {
+pub async fn add_p2p_token_service(
+    uuid: String,
+    token: String,
+    me: Option<String>,
+) -> Result<String, anyhow::Error> {
     let mut conn = get_redis_conn().await?;
     let me = me.ok_or(anyhow!("获取账号失败"))?;
 

@@ -1,24 +1,24 @@
-use std::fs;
 use rand::distributions::Alphanumeric;
 use rand::Rng;
-use sha2::{Sha256, Digest};
+use rsa::pkcs8::DecodePrivateKey;
 use rsa::{RsaPrivateKey, RsaPublicKey};
-use rsa::pkcs8::{DecodePrivateKey};
+use sha2::{Digest, Sha256};
+use std::fs;
 
-pub fn generate_rsa_keys() ->Result<(RsaPrivateKey, RsaPublicKey),anyhow::Error>{
+pub fn generate_rsa_keys() -> Result<(RsaPrivateKey, RsaPublicKey), anyhow::Error> {
     let private_key_str = fs::read_to_string("config/jwt/private.key")?;
     let public_key_str = fs::read_to_string("config/jwt/public.key")?;
 
     if private_key_str.len() > 100 && public_key_str.len() > 50 {
         let private_key = RsaPrivateKey::from_pkcs8_pem(private_key_str.as_str())?;
         let public_key = RsaPublicKey::from(&private_key);
-        return Ok((private_key,public_key));
+        return Ok((private_key, public_key));
     };
-    let (private_key,public_key) = new_rsa_key()?;
-    Ok((private_key,public_key))
+    let (private_key, public_key) = new_rsa_key()?;
+    Ok((private_key, public_key))
 }
 
-fn new_rsa_key() -> Result<(RsaPrivateKey, RsaPublicKey),rsa::errors::Error> {
+fn new_rsa_key() -> Result<(RsaPrivateKey, RsaPublicKey), rsa::errors::Error> {
     // 如果没有现有的密钥文件，则生成新的 RSA 密钥对
     let mut rng = rand::thread_rng();
     let bits = 2048;

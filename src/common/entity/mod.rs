@@ -1,1 +1,1 @@
-mod system_notification;
+pub mod system_notification;

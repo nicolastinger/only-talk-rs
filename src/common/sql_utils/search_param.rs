@@ -9,5 +9,5 @@ pub struct ShortParams {
     pub param_int_1: Option<i32>,
     pub param_int_2: Option<i32>,
     pub param_int_3: Option<i64>,
-    pub param_int_4: Option<i64>
+    pub param_int_4: Option<i64>,
 }

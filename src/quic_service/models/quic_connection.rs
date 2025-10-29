@@ -1,6 +1,6 @@
-use std::sync::Arc;
-use quinn::{SendStream, Connection};
+use quinn::{Connection, SendStream};
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use tokio::sync::RwLock;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -9,7 +9,7 @@ pub enum ConnectionType {
     Img,
     Video,
     File,
-    Other
+    Other,
 }
 
 impl ConnectionType {
@@ -19,7 +19,7 @@ impl ConnectionType {
             ConnectionType::Img => "img".to_string(),
             ConnectionType::Video => "video".to_string(),
             ConnectionType::File => "file".to_string(),
-            ConnectionType::Other => "other".to_string()
+            ConnectionType::Other => "other".to_string(),
         }
     }
 }

@@ -7,7 +7,8 @@ macro_rules! validate_and_respond {
         let value = $model.into_inner();
         if let Err(errors) = value.validate() {
             return HttpResponse::BadRequest().body(
-                serde_json::to_string(&CommonResponse::error(errors, "errorValidate".to_string())).unwrap(),
+                serde_json::to_string(&CommonResponse::error(errors, "errorValidate".to_string()))
+                    .unwrap(),
             );
         }
         value

@@ -1,8 +1,13 @@
+use crate::common::service::user_service::{user_offline, user_online};
 use crate::quic_service::make_server_endpoint;
-use crate::quic_service::models::quic_connection::{
-    ConnectionType, QuicConnection
+use crate::quic_service::models::first_quic_msg::FirstQuicMsg;
+use crate::quic_service::models::quic_connection::{ConnectionType, QuicConnection};
+use crate::quic_service::msg_service::process_msg_service::process_rec_msg;
+use crate::utils::global_static_str::{
+    MAX_QUIC_BUFFER_LEN, MAX_QUIC_SERVERS, SERVER_NAME, USER_READ_MSG,
 };
 use crate::utils::jwt_util::decode_jwt;
+use crate::utils::time::get_now_time_stamp_as_millis;
 use crate::{GLOBAL_QUIC_SERVER_LIST, REDIS_CLIENT};
 use anyhow::{anyhow, Result};
 use deadpool_redis::redis::AsyncCommands;
@@ -11,11 +16,6 @@ use quinn::{Connection, RecvStream, SendStream};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
-use crate::quic_service::models::first_quic_msg::FirstQuicMsg;
-use crate::quic_service::msg_service::process_msg_service::process_rec_msg;
-use crate::common::service::user_service::{user_offline, user_online};
-use crate::utils::global_static_str::{MAX_QUIC_BUFFER_LEN, MAX_QUIC_SERVERS, SERVER_NAME, USER_READ_MSG};
-use crate::utils::time::get_now_time_stamp_as_millis;
 
 pub(crate) fn init_server(addr: SocketAddr) {
     tokio::spawn(run_server(addr));
@@ -30,7 +30,7 @@ async fn run_server(addr: SocketAddr) {
     // 持续监听新连接请求
     loop {
         let incoming_conn = endpoint.accept().await.unwrap(); // 接收新连接请求
-        let conn = match incoming_conn.await{
+        let conn = match incoming_conn.await {
             Ok(t) => t,
             Err(e) => {
                 error!("建立链接失败 {}", e.to_string());
@@ -51,29 +51,35 @@ async fn run_server(addr: SocketAddr) {
 
 // 单个连接的多流处理函数
 async fn handle_connection(conn: Connection) -> Result<(), anyhow::Error> {
-        info!("新连接来源: {:?}", conn.remote_address());
+    info!("新连接来源: {:?}", conn.remote_address());
 
-        // 4. 循环接受该连接的双向流
-        loop {
-            match conn.accept_bi().await {
-                Ok((send_stream, recv_stream)) => {
-                    // 5. 为每个流生成独立异步任务
-                    let address = conn.remote_address().to_string().clone();
-                    tokio::spawn(async move {
-                        handle_conn(send_stream, recv_stream, address).await.unwrap_or_else(|x| error!("初始化连接失败 {}", x));
-                    });
-                }
-                Err(e) => {
-                    error!("Connection error: {:?}", e);
-                    break;
-                }
+    // 4. 循环接受该连接的双向流
+    loop {
+        match conn.accept_bi().await {
+            Ok((send_stream, recv_stream)) => {
+                // 5. 为每个流生成独立异步任务
+                let address = conn.remote_address().to_string().clone();
+                tokio::spawn(async move {
+                    handle_conn(send_stream, recv_stream, address)
+                        .await
+                        .unwrap_or_else(|x| error!("初始化连接失败 {}", x));
+                });
             }
+            Err(e) => {
+                error!("Connection error: {:?}", e);
+                break;
+            }
+        }
     }
     Ok(())
 }
 
 /// 处理元数据
-async fn process_first_msg(send_stream: &mut SendStream, recv_stream: &mut RecvStream, address: &String) -> Result<FirstQuicMsg, anyhow::Error> {
+async fn process_first_msg(
+    send_stream: &mut SendStream,
+    recv_stream: &mut RecvStream,
+    address: &String,
+) -> Result<FirstQuicMsg, anyhow::Error> {
     //接收流元数据，确认消息类型以及头部长度
     let mut first_quic_msg = FirstQuicMsg::new();
     let mut first_buffer = vec![0u8; 1024 * 10]; //10k缓冲区
@@ -96,7 +102,10 @@ async fn process_first_msg(send_stream: &mut SendStream, recv_stream: &mut RecvS
             return Err(anyhow!("[服务端] 发送流初始化元数据为空"));
         }
         Err(e) => {
-            error!("[服务端] 初始化读取元数据错误: {},退出流{}",e,address.as_str()
+            error!(
+                "[服务端] 初始化读取元数据错误: {},退出流{}",
+                e,
+                address.as_str()
             );
             return Err(anyhow!("[服务端] 发送流初始化元数据为空"));
         }
@@ -105,7 +114,10 @@ async fn process_first_msg(send_stream: &mut SendStream, recv_stream: &mut RecvS
 }
 
 /// 校验token有效性
-async fn verify_token(first_quic_msg: &FirstQuicMsg,send_stream: &mut SendStream) -> Result<String, anyhow::Error> {
+async fn verify_token(
+    first_quic_msg: &FirstQuicMsg,
+    send_stream: &mut SendStream,
+) -> Result<String, anyhow::Error> {
     let uuid = match decode_jwt(first_quic_msg.token.as_ref()).map_err(|_| "解析token失败") {
         Ok(t) => {
             if t != first_quic_msg.uuid {
@@ -125,7 +137,7 @@ async fn verify_token(first_quic_msg: &FirstQuicMsg,send_stream: &mut SendStream
 }
 
 /// 检测是否达到最大连接数
-async fn verify_max_client(send_stream: &mut SendStream)-> Result<(), anyhow::Error> {
+async fn verify_max_client(send_stream: &mut SendStream) -> Result<(), anyhow::Error> {
     let server_book = GLOBAL_QUIC_SERVER_LIST.read().await;
     let server_book_len = server_book.len();
     if server_book_len > MAX_QUIC_SERVERS {
@@ -136,7 +148,13 @@ async fn verify_max_client(send_stream: &mut SendStream)-> Result<(), anyhow::Er
 }
 
 /// 记录连接信息
-async fn set_conn_info(uuid: String, send_stream: Arc<RwLock<SendStream>>, connection_key: &String, address: String, now: i64)-> Result<(), anyhow::Error> {
+async fn set_conn_info(
+    uuid: String,
+    send_stream: Arc<RwLock<SendStream>>,
+    connection_key: &String,
+    address: String,
+    now: i64,
+) -> Result<(), anyhow::Error> {
     let new_connection = QuicConnection {
         is_online: true,
         uuid,
@@ -157,16 +175,25 @@ async fn set_conn_info(uuid: String, send_stream: Arc<RwLock<SendStream>>, conne
         let redis = redis.as_ref().ok_or(anyhow!("获取连接失败"))?;
 
         let mut conn = redis.get().await?;
-        conn.set_ex::<&str, &str, ()>(&connection_key, SERVER_NAME, 7200).await?;
+        conn.set_ex::<&str, &str, ()>(&connection_key, SERVER_NAME, 7200)
+            .await?;
     }
 
-    info!("当前的在线客户端 {}",GLOBAL_QUIC_SERVER_LIST.read().await.len());
+    info!(
+        "当前的在线客户端 {}",
+        GLOBAL_QUIC_SERVER_LIST.read().await.len()
+    );
     Ok(())
 }
 
 /// 处理连接
-async fn handle_conn(mut send_stream: SendStream, mut recv_stream: RecvStream, address: String) -> Result<(), anyhow::Error> {
-    let first_quic_msg = process_first_msg(&mut send_stream, &mut recv_stream, &address.clone()).await?;
+async fn handle_conn(
+    mut send_stream: SendStream,
+    mut recv_stream: RecvStream,
+    address: String,
+) -> Result<(), anyhow::Error> {
+    let first_quic_msg =
+        process_first_msg(&mut send_stream, &mut recv_stream, &address.clone()).await?;
     let head_length = first_quic_msg.dyn_header_size;
     let uuid = verify_token(&first_quic_msg, &mut send_stream).await?;
     verify_max_client(&mut send_stream).await?;
@@ -175,7 +202,13 @@ async fn handle_conn(mut send_stream: SendStream, mut recv_stream: RecvStream, a
 
     let msg_type = first_quic_msg.msg_type.clone();
 
-    let connection_key = format!("{}{}{}{}", "QUIC:SERVER:",uuid,":",first_quic_msg.msg_type.to_string());
+    let connection_key = format!(
+        "{}{}{}{}",
+        "QUIC:SERVER:",
+        uuid,
+        ":",
+        first_quic_msg.msg_type.to_string()
+    );
     let connection_key = connection_key.to_uppercase();
     info!("connection key: {}", connection_key);
     let close_key = connection_key.clone();
@@ -208,7 +241,7 @@ async fn handle_conn(mut send_stream: SendStream, mut recv_stream: RecvStream, a
                     new_close_key,
                     &msg_type,
                     buffer_msg.clone(),
-                    head_length
+                    head_length,
                 )
                 .await
                 {
@@ -236,7 +269,11 @@ async fn handle_conn(mut send_stream: SendStream, mut recv_stream: RecvStream, a
 }
 
 /// 用户下线
-async fn end_server(close_key: &String, connection_key: &String, close_now: i64) -> Result<(), anyhow::Error> {
+async fn end_server(
+    close_key: &String,
+    connection_key: &String,
+    close_now: i64,
+) -> Result<(), anyhow::Error> {
     let mut uuid = "".to_string();
     {
         let mut server_book = GLOBAL_QUIC_SERVER_LIST.write().await;
@@ -250,7 +287,9 @@ async fn end_server(close_key: &String, connection_key: &String, close_now: i64)
                 let redis = redis.as_ref().expect("获取redis连接失败");
 
                 let mut conn = redis.get().await.expect("打开redis连接失败");
-                conn.del::<&str, ()>(&connection_key).await.expect("删除连接信息失败");
+                conn.del::<&str, ()>(&connection_key)
+                    .await
+                    .expect("删除连接信息失败");
             }
         }
     }
@@ -265,6 +304,3 @@ async fn end_server(close_key: &String, connection_key: &String, close_now: i64)
 
     Ok(())
 }
-
-
-

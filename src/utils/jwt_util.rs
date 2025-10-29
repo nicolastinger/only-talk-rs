@@ -1,18 +1,18 @@
 use crate::utils::rsa_util::generate_rsa_keys;
 use crate::utils::time::get_now_time_stamp_as_millis;
+use anyhow::anyhow;
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use rsa::pkcs1::EncodeRsaPublicKey;
-use rsa::pkcs8::{EncodePrivateKey};
+use rsa::pkcs8::EncodePrivateKey;
 use serde::{Deserialize, Serialize};
 use std::fs;
-use anyhow::anyhow;
 
 // 定义 JWT 的 Claims 结构体
 #[derive(Debug, Serialize, Deserialize)]
 struct Claims {
     sub: u64,     // 主题 (subject) 前3个数字表示语言
     uuid: String, // 用户唯一id
-    exp: i64,        // 过期时间 (Unix 时间戳)
+    exp: i64,     // 过期时间 (Unix 时间戳)
 }
 
 fn generate_keys() -> Result<(EncodingKey, DecodingKey), anyhow::Error> {

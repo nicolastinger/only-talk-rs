@@ -1,10 +1,11 @@
+use crate::p2p_service::model::{P2pInitMsg, UserAddressInfo};
 use crate::quic_service::models::quic_connection::ConnectionType;
 use crate::quic_service::models::text_msg::MessageType;
 use crate::quic_service::msg_service::get_send_stream_by_uuid;
 use crate::quic_service::msg_service::text_msg_service::generate_text_msg;
-use crate::p2p_service::model::{P2pInitMsg, UserAddressInfo};
 use crate::utils::global_static_str::SYSTEM;
 use crate::utils::jwt_util::decode_jwt;
+use crate::utils::message_types;
 use crate::utils::redis_utils::{acquire_lock, get_redis_conn, release_lock};
 use crate::{GLOBAL_QUIC_SERVER_LIST, REDIS_CLIENT};
 use anyhow::anyhow;
@@ -29,28 +30,36 @@ pub async fn run_udp_server() -> Result<(), anyhow::Error> {
         let handle1 = {
             let shutdown = shutdown_flag.clone();
             tokio::spawn(async move {
-                get_p2p_udp_socket_with_shutdown(addr_1, "V4".to_string(), shutdown).await.expect("9562 Failed to get UDP socket");
+                get_p2p_udp_socket_with_shutdown(addr_1, "V4".to_string(), shutdown)
+                    .await
+                    .expect("9562 Failed to get UDP socket");
             })
         };
 
         let handle2 = {
             let shutdown = shutdown_flag.clone();
             tokio::spawn(async move {
-                get_p2p_udp_socket_with_shutdown(addr_2, "V6".to_string(), shutdown).await.expect("9563 Failed to get UDP socket");
+                get_p2p_udp_socket_with_shutdown(addr_2, "V6".to_string(), shutdown)
+                    .await
+                    .expect("9563 Failed to get UDP socket");
             })
         };
 
         let handle3 = {
             let shutdown = shutdown_flag.clone();
             tokio::spawn(async move {
-                get_p2p_udp_socket_with_shutdown(addr_3, "V4".to_string(), shutdown).await.expect("9564 to get UDP socket");
+                get_p2p_udp_socket_with_shutdown(addr_3, "V4".to_string(), shutdown)
+                    .await
+                    .expect("9564 to get UDP socket");
             })
         };
 
         let handle4 = {
             let shutdown = shutdown_flag.clone();
             tokio::spawn(async move {
-                get_p2p_udp_socket_with_shutdown(addr_4, "V6".to_string(), shutdown).await.expect("9565 to get UDP socket");
+                get_p2p_udp_socket_with_shutdown(addr_4, "V6".to_string(), shutdown)
+                    .await
+                    .expect("9565 to get UDP socket");
             })
         };
 
@@ -63,13 +72,16 @@ pub async fn run_udp_server() -> Result<(), anyhow::Error> {
 
         // 等待所有任务完成
         let _ = tokio::join!(handle1, handle2, handle3, handle4);
-
     });
     Ok(())
 }
 
 /// p2p通信使用udp端口
-pub async fn get_p2p_udp_socket_with_shutdown(address: &str, ip_type: String, shutdown: Arc<AtomicBool>) -> anyhow::Result<()> {
+pub async fn get_p2p_udp_socket_with_shutdown(
+    address: &str,
+    ip_type: String,
+    shutdown: Arc<AtomicBool>,
+) -> anyhow::Result<()> {
     // 绑定到所有网络接口的 udp 端口
     let socket = UdpSocket::bind(address).await?;
     info!("udp服务端已启动，监听地址 {}", address);
@@ -190,7 +202,9 @@ async fn process_p2p_user_info(
             // 针对这个key加30秒过期的redis锁
             {
                 let mut conn = get_redis_conn().await?;
-                let lock_id = acquire_lock(&mut conn, &lock_key, 30, user_address_info.address.clone()).await?;
+                let lock_id =
+                    acquire_lock(&mut conn, &lock_key, 30, user_address_info.address.clone())
+                        .await?;
                 if lock_id.is_some() {
                     acquire_flag = true;
                     user_address_info.lock_uuid = lock_id.unwrap();
@@ -203,9 +217,8 @@ async fn process_p2p_user_info(
                 let mut conn = get_redis_conn().await?;
                 let result: String = conn.get(&lock_key).await?;
                 let user_addr = result.split('_').skip(1).collect::<Vec<&str>>().join("");
-                
 
-                info!("获取自身值为 {:?},值2为 {:?}",user_addr, user_address_info);
+                info!("获取自身值为 {:?},值2为 {:?}", user_addr, user_address_info);
                 if user_addr == user_address_info.address {
                     user_address_info.nat_type = 3; //ip端口限制型
                 } else {
@@ -219,7 +232,7 @@ async fn process_p2p_user_info(
                 // 避免传输用户token敏感信息
                 user_address_info.token = "".to_string();
             }
-            
+
             // 获取目标用户的ip地址
             match get_target_user_address_info(&user_address_info.target_uuid, &ip_type).await {
                 Ok(mut target_user_address_info) => {
@@ -231,7 +244,10 @@ async fn process_p2p_user_info(
                             // 删除自身
                             conn.del::<_, ()>(&key).await?;
                             // 删除对方
-                            let target_key = format!("{}{}_{}", "USER_UDP_ADDRESS_", ip_type, target_user_address_info.uuid);
+                            let target_key = format!(
+                                "{}{}_{}",
+                                "USER_UDP_ADDRESS_", ip_type, target_user_address_info.uuid
+                            );
                             let target_key = target_key.to_uppercase();
                             conn.del::<_, ()>(&target_key).await?;
                         }
@@ -268,12 +284,12 @@ async fn process_p2p_user_info(
                             }
                         }
                         let mut server = {
-                            let mut result = MessageType::P2pUserClient as u16;
+                            let mut result = message_types::MSG_TYPE_P2P_USER_CLIENT;
                             // 本用户是服务端，向对方发送客户端信息
                             if user_address_info.is_server {
-                                result = MessageType::P2pUserClient as u16
+                                result = message_types::MSG_TYPE_P2P_USER_CLIENT
                             } else {
-                                result = MessageType::P2pUserServer as u16
+                                result = message_types::MSG_TYPE_P2P_USER_SERVER
                             }
                             result
                         };
@@ -301,8 +317,8 @@ async fn process_p2p_user_info(
                                 &ConnectionType::Text.to_string(),
                             )
                             .await?;
-                            if server == MessageType::P2pUserClient as u16 {
-                                server = MessageType::P2pUserServer as u16
+                            if server == message_types::MSG_TYPE_P2P_USER_CLIENT {
+                                server = message_types::MSG_TYPE_P2P_USER_SERVER
                             }
 
                             let target_user_address_info_vec =
@@ -320,10 +336,13 @@ async fn process_p2p_user_info(
                     return Ok(());
                 }
                 Err(e) => {
-                    warn!("获取目标用户信息失败 {}，等待目标用户上传redis", e.to_string());
+                    warn!(
+                        "获取目标用户信息失败 {}，等待目标用户上传redis",
+                        e.to_string()
+                    );
                 }
             }
-            
+
             {
                 info!("插入用户信息到redis中");
                 let mut conn = get_redis_conn().await?;

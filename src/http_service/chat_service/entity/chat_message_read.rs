@@ -1,14 +1,14 @@
+use rbatis::rbdc::Uuid;
 use rbatis::{crud, impl_select};
-use rbatis::rbdc::{Uuid};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Deserialize, Serialize, Debug)]
-pub struct ChatMessageRecordRead{
+pub struct ChatMessageRecordRead {
     pub id: Option<i64>,
     pub nano_id: Option<String>,
     pub timestamp: Option<i64>,
     pub send_user: Uuid,
-    pub recv_user: Uuid
+    pub recv_user: Uuid,
 }
 
 crud!(ChatMessageRecordRead {});

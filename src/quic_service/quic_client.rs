@@ -1,17 +1,18 @@
 use crate::quic_service::configure_client;
-use crate::quic_service::models::quic_connection::{ConnectionType};
+use crate::quic_service::models::first_quic_msg::FirstQuicMsg;
+use crate::quic_service::models::quic_connection::ConnectionType;
 use crate::quic_service::models::text_msg::{HeadMsg, MessageType, TextMsg, TextQuicMsg};
 use crate::quic_service::msg_service::text_msg_service::{generate_text_msg, get_text_msg};
+use crate::utils::global_static_str::{PING, SYSTEM};
+use crate::utils::jwt_util::get_jwt;
+use crate::utils::message_types;
 use log::{error, info};
 use quinn::{Endpoint, SendStream};
 use std::error::Error;
 use std::net::SocketAddr;
-use std::sync::{Arc};
-use tokio::sync::{Mutex, RwLock};
+use std::sync::Arc;
 use std::time::Duration;
-use crate::quic_service::models::first_quic_msg::FirstQuicMsg;
-use crate::utils::global_static_str::{PING, SYSTEM};
-use crate::utils::jwt_util::get_jwt;
+use tokio::sync::{Mutex, RwLock};
 
 // 客户端异步函数，尝试与服务器建立QUIC连接
 pub async fn run_client(server_addr: SocketAddr) {
@@ -28,7 +29,8 @@ pub async fn run_client(server_addr: SocketAddr) {
     info!("[client] connected: addr={}", connection.remote_address()); // 打印连接成功的服务器地址
 
     // 开启一个双向流
-    let (mut send_stream, mut _recv_stream) = connection.open_bi().await.expect("Failed to open stream");
+    let (mut send_stream, mut _recv_stream) =
+        connection.open_bi().await.expect("Failed to open stream");
     send_stream.set_priority(0).expect("Failed to set priority"); // 设置优先级
     let head_length = 9;
     let buffer_msg: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
@@ -38,7 +40,15 @@ pub async fn run_client(server_addr: SocketAddr) {
         loop {
             match _recv_stream.read(&mut buffer).await {
                 Ok(Some(length)) => {
-                    match process_rec_msg(&mut buffer, length, &ConnectionType::Text,buffer_msg.clone(), head_length).await {
+                    match process_rec_msg(
+                        &mut buffer,
+                        length,
+                        &ConnectionType::Text,
+                        buffer_msg.clone(),
+                        head_length,
+                    )
+                    .await
+                    {
                         Ok(_) => {}
                         Err(e) => {
                             error!("[client] Failed to process_rec_msg {}", e);
@@ -79,19 +89,19 @@ async fn init_send_msg(mut send_stream: SendStream) -> Result<(), anyhow::Error>
         .write_all(serde_json::to_string(&first_quic_msg)?.as_bytes())
         .await?;
 
-    tokio::time::sleep(Duration::from_secs(1)).await;  //初始化一秒，防止连发元数据
+    tokio::time::sleep(Duration::from_secs(1)).await; //初始化一秒，防止连发元数据
 
     let send_stream = Arc::new(RwLock::new(send_stream));
 
     let test_msg = generate_text_msg(
-        MessageType::Text as u16,
+        message_types::MSG_TYPE_TEXT,
         "上山打老虎".as_bytes().to_vec(),
         uuid.clone(),
         uuid.clone(),
     )?;
 
     let test_msg2 = generate_text_msg(
-        MessageType::Text as u16,
+        message_types::MSG_TYPE_TEXT,
         "我是蔡徐坤".as_bytes().to_vec(),
         uuid.clone(),
         uuid.clone(),
@@ -109,18 +119,19 @@ async fn init_send_msg(mut send_stream: SendStream) -> Result<(), anyhow::Error>
             //一分钟发送心跳
             tokio::time::sleep(Duration::from_secs(60)).await;
             let ping_msg = generate_text_msg(
-                MessageType::Ping as u16,
+                message_types::MSG_TYPE_PING,
                 PING.as_bytes().to_vec(),
                 SYSTEM.to_string(),
-                uuid.clone()
-            ).expect("");
+                uuid.clone(),
+            )
+            .expect("");
             match send_stream_ping.write().await.write_all(&ping_msg).await {
-              Ok(_) => {
-                  info!("发送成功");
-              },
-              Err(e) => {
-                  error!("发送心跳失败 {}", e);
-              }
+                Ok(_) => {
+                    info!("发送成功");
+                }
+                Err(e) => {
+                    error!("发送心跳失败 {}", e);
+                }
             };
         }
     });
@@ -132,11 +143,7 @@ async fn send_msg(
     text_msg: Vec<u8>,
     send_stream: Arc<RwLock<SendStream>>,
 ) -> Result<String, anyhow::Error> {
-    send_stream
-        .write()
-        .await
-        .write_all(&text_msg)
-        .await?;
+    send_stream.write().await.write_all(&text_msg).await?;
     Ok("success".to_string())
 }
 
@@ -145,8 +152,8 @@ async fn process_rec_msg(
     length: usize,
     msg_type: &ConnectionType,
     buffer_msg: Arc<Mutex<Vec<u8>>>,
-    head_length: usize
-) -> anyhow::Result<()>{
+    head_length: usize,
+) -> anyhow::Result<()> {
     match msg_type {
         ConnectionType::Text => {
             let text_vec = get_text_msg(buffer, length, buffer_msg, head_length).await?;

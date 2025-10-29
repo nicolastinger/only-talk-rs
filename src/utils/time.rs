@@ -1,6 +1,6 @@
+use log::error;
 use std::io;
 use std::time::{SystemTime, UNIX_EPOCH};
-use log::error;
 
 pub fn get_now_time_stamp_as_millis() -> Result<i64, io::Error> {
     // 获取当前时间
@@ -14,11 +14,14 @@ pub fn get_now_time_stamp_as_millis() -> Result<i64, io::Error> {
             // 将毫秒数转换为 i64
             let timestamp_long: i64 = timestamp_ms as i64;
             Ok(timestamp_long)
-        },
+        }
         Err(e) => {
             error!("时间计算错误: {}", e);
             // 创建一个 io::Error 并返回
-            Err(io::Error::new(io::ErrorKind::Other, format!("时间计算错误: {}", e)))
+            Err(io::Error::new(
+                io::ErrorKind::Other,
+                format!("时间计算错误: {}", e),
+            ))
         }
     }
 }
