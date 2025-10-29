@@ -1,5 +1,4 @@
 pub mod chat_service;
-mod common;
 pub(crate) mod init_server;
 mod user_service;
 

@@ -12,7 +12,7 @@ use fast_log::Config;
 use http_service::init_server;
 use lazy_static::lazy_static;
 use log::{error, LevelFilter};
-use p2p_service::p2p_udp_utils::run_udp_server;
+use p2p_service::p2p_udp_service::run_udp_server;
 use quic_service::models::quic_connection::QuicConnection;
 use rbatis::RBatis;
 use std::collections::HashMap;

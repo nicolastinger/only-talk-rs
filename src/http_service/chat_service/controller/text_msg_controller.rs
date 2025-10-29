@@ -2,8 +2,8 @@ use crate::http_service::chat_service::entity::chat_message_read::ChatMessageRec
 use crate::http_service::chat_service::service::text_msg_service::{
     add_user_chat_read, get_chat_by_limit, get_chat_list_link, get_unread_chat_record,
 };
-use crate::http_service::common::dto::base_page_dto::BasePageDto;
-use crate::utils::dto::AuthAccount;
+use crate::common::dto::base_page_dto::BasePageDTO;
+use crate::common::dto::base_dto::AuthAccount;
 use crate::{get_uuid_from_header, respond_json_any};
 use actix_web::{post, web, HttpRequest, HttpResponse, Responder};
 use rbatis::RBatis;
@@ -21,7 +21,7 @@ pub async fn get_chat_record_api(
     req: HttpRequest,
     state: web::Data<RBatis>,
     friend_uuid: web::Path<String>,
-    base_page: web::Json<BasePageDto>,
+    base_page: web::Json<BasePageDTO>,
 ) -> impl Responder {
     let uuid = get_uuid_from_header!(req);
     let uuid_clone = uuid.clone();

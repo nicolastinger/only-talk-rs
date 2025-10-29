@@ -1,4 +1,4 @@
-use crate::utils::dto::AuthAccount;
+use crate::common::dto::base_dto::AuthAccount;
 use crate::utils::jwt_util::decode_jwt;
 use actix_web::{
     body::MessageBody,

@@ -1,4 +1,3 @@
-use crate::common::service::user_service::{user_offline, user_online};
 use crate::quic_service::make_server_endpoint;
 use crate::quic_service::models::first_quic_msg::FirstQuicMsg;
 use crate::quic_service::models::quic_connection::{ConnectionType, QuicConnection};
@@ -8,14 +7,18 @@ use crate::utils::global_static_str::{
 };
 use crate::utils::jwt_util::decode_jwt;
 use crate::utils::time::get_now_time_stamp_as_millis;
-use crate::{GLOBAL_QUIC_SERVER_LIST, REDIS_CLIENT};
+use crate::{GLOBAL_QUIC_SERVER_LIST, RBATIS_DATABASE, REDIS_CLIENT};
 use anyhow::{anyhow, Result};
 use deadpool_redis::redis::AsyncCommands;
 use log::{error, info};
 use quinn::{Connection, RecvStream, SendStream};
 use std::net::SocketAddr;
 use std::sync::Arc;
+use rbatis::dark_std::err;
+use rbs::value;
 use tokio::sync::{Mutex, RwLock};
+use crate::http_service::chat_service::entity::chat_message_read::ChatMessageRecordRead;
+use crate::utils::redis_utils::get_redis_conn;
 
 pub(crate) fn init_server(addr: SocketAddr) {
     tokio::spawn(run_server(addr));
@@ -302,5 +305,58 @@ async fn end_server(
 
     user_offline(uuid).await?;
 
+    Ok(())
+}
+
+/// 用户下线
+async fn user_offline(uuid: String) -> std::result::Result<(), anyhow::Error> {
+    // TODO
+    let mut redis = get_redis_conn().await?;
+    let rb = RBATIS_DATABASE.read().await;
+    // 1.设置redis分布式锁，防止用户下线的同时立马上线
+    // 2.同步所有redis缓存到数据库，记录用户操作
+    // 已读消息从redis中持久化到数据库
+    let read_key = format!("{}{}", USER_READ_MSG, uuid);
+    let read_record: String = redis.get(&read_key).await?;
+    info!("已读消息, 源 {}", read_record);
+    let last_chat_message_read: Vec<ChatMessageRecordRead> = serde_json::from_str(&read_record)?;
+    info!("已读消息, 转换 {:?}", last_chat_message_read);
+    // TODO已读消息有效校验
+    let rb = rb.as_ref().ok_or(anyhow!("获取连接失败"))?;
+    for item in last_chat_message_read.into_iter() {
+        let insert_item = async |e| match ChatMessageRecordRead::insert(rb, &item).await {
+            Ok(_) => {}
+            Err(x) => {
+                err!("更新已读消息失败 {} {}", e, x);
+            }
+        };
+        match ChatMessageRecordRead::update_by_map(
+            rb,
+            &item,
+            value! {"send_user": &item.send_user, "recv_user": &item.recv_user},
+        )
+            .await
+        {
+            Ok(d) => {
+                if d.rows_affected < 1u64 {
+                    insert_item(d.to_string()).await;
+                }
+            }
+            Err(e) => {
+                insert_item(e.to_string()).await;
+            }
+        };
+    }
+
+    // 3.清理redis缓存，清理redis锁
+    Ok(())
+}
+
+/// 用户上线
+async fn user_online(uuid: String) -> std::result::Result<(), anyhow::Error> {
+    // TODO
+    // 1.设置redis分布式锁，防止用户上线的同时立马下线
+    // 2.同步所有数据库到redis缓存
+    // 3.清理redis锁
     Ok(())
 }

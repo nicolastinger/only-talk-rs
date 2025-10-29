@@ -1,7 +1,7 @@
 use std::str::FromStr;
 use anyhow::anyhow;
 use uuid::Uuid;
-use crate::common::entity::system_notification::SystemNotification;
+use crate::http_service::notify_service::entity::system_notification::SystemNotification;
 use crate::RBATIS_DATABASE;
 use crate::utils::time::get_now_time_stamp_as_millis;
 

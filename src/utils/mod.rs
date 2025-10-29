@@ -1,4 +1,3 @@
-pub mod dto;
 pub mod global_static_str;
 pub mod http_response;
 pub mod jwt_util;

@@ -2,7 +2,7 @@ use crate::http_service::chat_service::entity::chat_message_read::ChatMessageRec
 use crate::http_service::chat_service::entity::chat_message_record::{
     raw_insert, ChatMessageRecord,
 };
-use crate::http_service::common::dto::base_page_dto::BasePageDto;
+use crate::common::dto::base_page_dto::BasePageDTO;
 use crate::quic_service::models::text_msg::TextQuicMsg;
 use crate::utils::global_static_str::{REDIS_SPLIT, USER_READ_MSG};
 use crate::utils::http_response::{CommonResponseNoDataRef, CommonResponseRef};
@@ -20,7 +20,7 @@ pub async fn get_chat_by_limit(
     rb: &RBatis,
     uuid: Option<String>,
     friend_uuid: String,
-    base_page: BasePageDto,
+    base_page: BasePageDTO,
 ) -> Result<String, anyhow::Error> {
     let uuid = uuid.ok_or(anyhow!("账号序列化失败"))?.parse::<Uuid>()?;
     let friend_uuid = friend_uuid.parse::<Uuid>()?;

@@ -107,11 +107,12 @@ pub async fn get_p2p_udp_socket_with_shutdown(
                         let client_port = src.port();
 
                         let udp_addr = format!("{}:{}", client_ip, client_port);
+                        info!("收到来自 {}:{} 的消息", udp_addr, size);
 
                         // 转换消息为字符串（自动处理非 UTF-8 字符）[2](@ref)
                         //let user_address_info = String::from_utf8_lossy(&buf[..size]);
-
-                        match serde_json::from_slice::<UserAddressInfo>(&buf[..size]){
+                        let res = serde_json::from_slice::<UserAddressInfo>(&buf[..size]);
+                        match res {
                            Ok(msg) => {
                               process_p2p_user_info(udp_addr, ip_type.clone(), msg).await.unwrap_or_else(|err| {
                                 error!("处理用户p2p连接失败 {}", err);

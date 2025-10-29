@@ -1,12 +1,12 @@
 use crate::http_service::init_server::AppState;
 use crate::http_service::user_service::dto::basic_user_dto::SignInBasicUserDTO;
 use crate::http_service::user_service::entity::basic_user::BasicUser;
-use crate::http_service::user_service::service::local_user_service::{
+use crate::http_service::user_service::service::user_service::{
     add_new_basic_user_service, add_p2p_token_service, get_exit_user, get_user_info_by_account,
     get_user_info_by_uuid, get_user_raw, get_user_uuid_by_account_service, test_sql, user_sign_in,
     verify_p2p_token_service,
 };
-use crate::utils::dto::AuthAccount;
+use crate::common::dto::base_dto::AuthAccount;
 use crate::utils::http_response::CommonResponse;
 use crate::utils::jwt_util::{decode_jwt, get_jwt};
 use crate::{

@@ -3,8 +3,8 @@ use crate::http_service::user_service::dto::friend_request_info_dto::FriendReque
 use crate::http_service::user_service::service::friend_service::{
     add_friend, get_friend_by_id, get_friend_list, process_friend,
 };
-use crate::utils::dto::AuthAccount;
-use crate::utils::dto::ReqList;
+use crate::common::dto::base_dto::AuthAccount;
+use crate::common::dto::base_dto::ReqList;
 use crate::{get_uuid_from_header, respond_json_any, validate_and_respond};
 use actix_web::{get, post, web, HttpMessage, HttpRequest, HttpResponse, Responder};
 use log::{error, info};
