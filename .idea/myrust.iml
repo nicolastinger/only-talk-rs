@@ -3,9 +3,14 @@
   <component name="NewModuleRootManager">
     <content url="file://$MODULE_DIR$">
       <sourceFolder url="file://$MODULE_DIR$/src" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/src/http_service/user_service/src" isTestSource="false" />
-      <excludeFolder url="file://$MODULE_DIR$/src/http_service/user_service/target" />
+      <sourceFolder url="file://$MODULE_DIR$/entity/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/http_service/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/http_service/src/http_service/user_service/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/port_service/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/quic_service/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
+      <excludeFolder url="file://$MODULE_DIR$/entity/target" />
+      <excludeFolder url="file://$MODULE_DIR$/http_service/src/http_service/user_service/target" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />

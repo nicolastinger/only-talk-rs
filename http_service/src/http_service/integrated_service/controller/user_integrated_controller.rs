@@ -1,0 +1,23 @@
+use crate::http_service::user_service::dto::friend_request_info_dto::FriendRequestInfoDTO;
+use actix_web::{post, web, HttpRequest, Responder};
+use rbatis::RBatis;
+use crate::{get_uuid_from_header, respond_json_any};
+use crate::http_service::integrated_service::service::user_integrated_service::add_user_with_notify;
+
+pub fn user_integrated_service(cfg: &mut web::ServiceConfig) {
+    cfg.service(add_user_with_notify_api);
+}
+
+/// 添加用户并发送通知
+#[post("/add_friend_with_notify")]
+pub async fn add_user_with_notify_api(
+    req: HttpRequest,
+    state: web::Data<RBatis>,
+    friend: web::Json<FriendRequestInfoDTO>,
+) -> impl Responder {
+    let me = get_uuid_from_header!(req);
+    let mut friend = friend.into_inner();
+    friend.request_user = me;
+
+    respond_json_any!(add_user_with_notify(state.as_ref(), friend).await)
+}

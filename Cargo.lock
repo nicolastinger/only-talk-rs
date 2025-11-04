@@ -746,6 +746,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "entity"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "deadpool-redis",
+ "jsonwebtoken",
+ "lazy_static",
+ "log",
+ "once_cell",
+ "rand 0.8.5",
+ "rbatis",
+ "rbs",
+ "regex",
+ "rsa",
+ "serde",
+ "sha2",
+ "tokio",
+ "uuid",
+ "validator",
+]
+
+[[package]]
 name = "equivalent"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1064,6 +1086,31 @@ dependencies = [
  "bytes",
  "fnv",
  "itoa",
+]
+
+[[package]]
+name = "http_service"
+version = "0.1.0"
+dependencies = [
+ "actix-web",
+ "anyhow",
+ "deadpool-redis",
+ "entity",
+ "lazy_static",
+ "log",
+ "rbatis",
+ "rbdc-pg",
+ "rbdc-pool-fast",
+ "rbs",
+ "redis 0.22.3",
+ "rust-i18n",
+ "rustls 0.21.12",
+ "rustls-pemfile 1.0.4",
+ "serde",
+ "serde_json",
+ "toml",
+ "uuid",
+ "validator",
 ]
 
 [[package]]
@@ -1669,6 +1716,33 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7edddbd0b52d732b21ad9a5fab5c704c14cd949e5e9a1ec5929a24fded1b904c"
 
 [[package]]
+name = "port_service"
+version = "0.1.0"
+dependencies = [
+ "actix-web",
+ "anyhow",
+ "deadpool-redis",
+ "entity",
+ "lazy_static",
+ "log",
+ "quic_service",
+ "rbatis",
+ "rbdc-pg",
+ "rbdc-pool-fast",
+ "rbs",
+ "redis 0.22.3",
+ "rust-i18n",
+ "rustls 0.21.12",
+ "rustls-pemfile 1.0.4",
+ "serde",
+ "serde_json",
+ "tokio",
+ "toml",
+ "uuid",
+ "validator",
+]
+
+[[package]]
 name = "potential_utf"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1723,6 +1797,31 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "02b3e5e68a3a1a02aad3ec490a98007cbc13c37cbe84a3cd7b8e406d76e7f778"
 dependencies = [
  "unicode-ident",
+]
+
+[[package]]
+name = "quic_service"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bincode",
+ "crc",
+ "crc-catalog",
+ "deadpool-redis",
+ "entity",
+ "lazy_static",
+ "log",
+ "nanoid",
+ "quinn",
+ "rbatis",
+ "rbs",
+ "rustls 0.21.12",
+ "rustls-pemfile 1.0.4",
+ "serde",
+ "serde_json",
+ "tokio",
+ "toml",
+ "validator",
 ]
 
 [[package]]
@@ -2200,12 +2299,16 @@ dependencies = [
  "crc",
  "crc-catalog",
  "deadpool-redis",
+ "entity",
  "fast_log",
+ "http_service",
  "jsonwebtoken",
  "lazy_static",
  "log",
  "nanoid",
  "once_cell",
+ "port_service",
+ "quic_service",
  "quinn",
  "rand 0.8.5",
  "rbatis",
