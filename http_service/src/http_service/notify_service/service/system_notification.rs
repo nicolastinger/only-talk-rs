@@ -29,7 +29,6 @@ pub async fn send_request_friend_msg(
         unread_count: Some(1),
     };
     SystemNotification::insert(rb, &system_notification).await?;
-
-    // 2 转发通知到具体用户
+    
     Ok(())
 }

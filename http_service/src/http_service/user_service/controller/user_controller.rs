@@ -1,4 +1,3 @@
-use crate::http_service::init_server::AppState;
 use crate::http_service::user_service::dto::basic_user_dto::SignInBasicUserDTO;
 use crate::http_service::user_service::service::user_service::{
     add_new_basic_user_service, add_p2p_token_service, get_exit_user, get_user_info_by_account,
@@ -14,7 +13,10 @@ use rbatis::RBatis;
 use entity::utils::jwt_util::{decode_jwt, get_jwt};
 use crate::http_service::user_service::dto::sign_up_basic_user_dto::SignUpBasicUserDTO;
 use crate::utils::http_response::CommonResponse;
-use crate::{get_uuid_from_header, respond_json, respond_json_any, serde_json_to_string, validate_and_respond};
+use crate::{get_uuid_from_header, respond_json, respond_json_any, serde_json_to_string, validate_and_respond, AppState};
+use crate::utils::http_response::CommonResponseNoDataRef;
+use crate::utils::http_response::CommonResponseRef;
+use crate::common::dto::base_dto::AuthAccount;
 
 pub fn user_service(cfg: &mut web::ServiceConfig) {
     cfg.service(user_test)

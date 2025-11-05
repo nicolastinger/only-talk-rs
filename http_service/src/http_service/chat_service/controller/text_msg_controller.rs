@@ -3,6 +3,8 @@ use rbatis::RBatis;
 use entity::models::chat_entity::chat_message_read::ChatMessageRecordRead;
 use crate::common::dto::base_page_dto::BasePageDTO;
 use crate::{get_uuid_from_header, respond_json_any};
+use crate::common::dto::base_dto::AuthAccount;
+use crate::utils::http_response::CommonResponseNoDataRef;
 use crate::http_service::chat_service::service::text_msg_service::{add_user_chat_read, get_chat_by_limit, get_chat_list_link, get_unread_chat_record};
 
 pub fn text_msg_service(cfg: &mut web::ServiceConfig) {

@@ -8,6 +8,8 @@ use log::{error, info};
 use rbatis::RBatis;
 use crate::common::dto::base_dto::{AuthAccount, ReqList};
 use crate::{get_uuid_from_header, respond_json_any, validate_and_respond};
+use crate::utils::http_response::CommonResponseNoDataRef;
+use crate::utils::http_response::CommonResponse;
 
 pub fn friend_service(cfg: &mut web::ServiceConfig) {
     cfg.service(qry_friend_list)

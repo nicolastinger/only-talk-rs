@@ -2,7 +2,7 @@
 #[macro_export]
 macro_rules! validate_and_respond {
     ($model:expr) => {{
-        use crate::utils::http_response::CommonResponse;
+        use actix_web::HttpResponse;
         use validator::Validate;
         let value = $model.into_inner();
         if let Err(errors) = value.validate() {
@@ -15,6 +15,7 @@ macro_rules! validate_and_respond {
     }};
     ($model:expr, $model_type:expr) => {{
         use validator::Validate;
+        use actix_web::HttpResponse;
         let value = $model.into_inner();
 
         match &value.data {
@@ -34,7 +35,6 @@ macro_rules! validate_and_respond {
 #[macro_export]
 macro_rules! respond_to_json {
     ($model:expr) => {{
-        use crate::utils::http_response::CommonResponse;
 
         match $model {
             Ok(t) => actix_web::HttpResponse::Ok()
@@ -45,7 +45,6 @@ macro_rules! respond_to_json {
         }
     }};
     ($model:expr, $error_str:expr) => {{
-        use crate::utils::http_response::CommonResponse;
 
         match $model {
             Ok(t) => actix_web::HttpResponse::Ok()
@@ -73,7 +72,7 @@ macro_rules! respond_json_any {
         match $model {
             Ok(t) => actix_web::HttpResponse::Ok().body(t),
             Err(t) => {
-                use crate::utils::http_response::CommonResponseNoDataRef;
+
                 use log::error;
                 error!("err_context {:?}", t);
                 error!("{}", t.backtrace());
@@ -103,7 +102,7 @@ macro_rules! serde_json_to_string {
 macro_rules! get_uuid_from_header {
     ($model:expr) => {{
         use actix_web::HttpMessage;
-        use crate::common::dto::base_dto::AuthAccount;
+
         let map = $model.extensions_mut();
         match map.get::<AuthAccount>() {
             None => None,

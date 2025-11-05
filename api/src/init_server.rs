@@ -20,12 +20,9 @@ use std::sync::Arc;
 use std::time::Duration;
 use toml::Value;
 use entity::{read_config, RBATIS_DATABASE, REDIS_CLIENT};
-use crate::http_service;
-use crate::utils::record_bad_http::error_record_middleware;
-
-pub struct AppState {
-    pub redis_pool: Arc<Pool>,
-}
+use http_service;
+use http_service::utils::record_bad_http::error_record_middleware;
+use crate::controller::configure_api_routes;
 
 fn init_redis(url: &str) -> Pool {
     // 创建 Redis 连接池
@@ -55,7 +52,6 @@ fn init_cert_file() -> (Vec<Certificate>, PrivateKey) {
             certs.into_iter().map(Certificate).collect()
         }
         Err(e) => {
-            error!("{}", t!("noTls"));
             panic!("noTls: {}", e);
         }
     };
@@ -124,7 +120,6 @@ pub async fn start_server() -> anyhow::Result<()> {
 
     let locales = read_config!(config_map, ("server"), "locales");
     rust_i18n::set_locale(locales);
-    info!("loading language {}", t!("hello"));
 
     let pool = init_sql_pool(url).await;
 
@@ -152,8 +147,8 @@ pub async fn start_server() -> anyhow::Result<()> {
             .app_data(web::Data::new(pool.clone()))
             // 设置中间件，让actix-web打印日志
             .wrap(middleware::Logger::default())
-            .route("/", web::get().to(home))
-            .configure(http_service::configure_routes)
+            .configure(http_service::http_service::configure_routes)
+            .configure(configure_api_routes)
         // 这里可以继续添加其他路由
     })
     .bind_rustls_021(address, config)? // 绑定到 HTTPS 端口
@@ -163,7 +158,3 @@ pub async fn start_server() -> anyhow::Result<()> {
     Ok(())
 }
 
-// 假设有一个结构体来表示用户信息，这里简化处理，直接返回一个静态字符串
-pub async fn home() -> String {
-    t!("hello").to_string()
-}

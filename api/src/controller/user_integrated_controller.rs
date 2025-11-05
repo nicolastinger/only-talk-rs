@@ -1,8 +1,11 @@
-use crate::http_service::user_service::dto::friend_request_info_dto::FriendRequestInfoDTO;
+use http_service::http_service::user_service::dto::friend_request_info_dto::FriendRequestInfoDTO;
 use actix_web::{post, web, HttpRequest, Responder};
 use rbatis::RBatis;
-use crate::{get_uuid_from_header, respond_json_any};
-use crate::http_service::integrated_service::service::user_integrated_service::add_user_with_notify;
+use http_service::{get_uuid_from_header, respond_json_any, validate_and_respond};
+use crate::service::user_integrated_service::add_user_with_notify;
+use http_service::common::dto::base_dto::AuthAccount;
+use http_service::utils::http_response::CommonResponseNoDataRef;
+use http_service::utils::http_response::CommonResponse;
 
 pub fn user_integrated_service(cfg: &mut web::ServiceConfig) {
     cfg.service(add_user_with_notify_api);

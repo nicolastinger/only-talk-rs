@@ -258,6 +258,34 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e16d2d3311acee920a9eb8d33b8cbc1787ce4a264e85f964c2404b969bdcd487"
 
 [[package]]
+name = "api"
+version = "0.1.0"
+dependencies = [
+ "actix-web",
+ "anyhow",
+ "deadpool-redis",
+ "entity",
+ "http_service",
+ "lazy_static",
+ "log",
+ "port_service",
+ "quic_service",
+ "rbatis",
+ "rbdc-pg",
+ "rbdc-pool-fast",
+ "rbs",
+ "redis 0.22.3",
+ "rust-i18n",
+ "rustls 0.21.12",
+ "rustls-pemfile 1.0.4",
+ "serde",
+ "serde_json",
+ "toml",
+ "uuid",
+ "validator",
+]
+
+[[package]]
 name = "arc-swap"
 version = "1.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2294,6 +2322,7 @@ version = "0.1.0"
 dependencies = [
  "actix-web",
  "anyhow",
+ "api",
  "async-trait",
  "bincode",
  "crc",

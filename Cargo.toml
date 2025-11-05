@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [workspace]
-members = ["entity", "http_service", "quic_service", "port_service"]
+members = ["entity", "http_service", "quic_service", "port_service", "api"]
 
 [dependencies.port_service]
 path = "port_service"
@@ -17,6 +17,9 @@ path = "http_service"
 
 [dependencies.entity]
 path = "entity"
+
+[dependencies.api]
+path = "api"
 
 [workspace.dependencies]
 quinn = {version = "0.10.2"}

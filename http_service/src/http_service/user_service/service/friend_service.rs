@@ -43,7 +43,7 @@ pub async fn add_friend(
     // 是否存在这个接受用户
     let is_exist_accept_user = is_exist_user_by_uuid(rb, &accept_user).await?;
     if !is_exist_accept_user {
-        return Ok(CommonResponseNoDataRef::error_json("接受用户不存在"));
+        return Err(anyhow!("接受用户不存在"));
     }
     // TODO 是否被接受用户拉黑
     // TODO 是否超出发送用户或者接受用户添加数量
@@ -51,7 +51,7 @@ pub async fn add_friend(
     // 查询是否为已添加
     let friend_link = FriendLink::select_by_last_uuid(rb, &request_user, &accept_user).await?;
     if friend_link.is_some() && friend_link.as_ref().unwrap().is_del.unwrap_or(true) == false {
-        return Ok(CommonResponseNoDataRef::error_json("已添加"));
+        return Err(anyhow!("已添加"));
     }
 
     // 查询之前添加的申请

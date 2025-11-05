@@ -6,6 +6,7 @@ use tokio::sync::RwLock;
 
 pub mod process_msg_service;
 pub mod text_msg_service;
+pub mod send_msg;
 
 pub async fn get_send_stream_by_uuid(
     uuid: &String,
