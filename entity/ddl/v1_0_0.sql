@@ -617,6 +617,7 @@ CREATE TABLE system_notification (
                                      level4 int4 NULL, -- 第四层级，用于定位详细功能项
                                      unread_count int4 NULL, -- 未读数量
                                      priority int4 NULL, -- 通知优先级
+                                     biz_id varchar(255) NULL,
                                      CONSTRAINT system_notification_pkey PRIMARY KEY (id)
 );
 CREATE INDEX idx_system_notification_is_read ON public.system_notification USING btree (is_read);
@@ -637,6 +638,7 @@ COMMENT ON COLUMN public.system_notification.level2 IS '第二层级，用于定
 COMMENT ON COLUMN public.system_notification.level3 IS '第三层级，用于定位具体功能组';
 COMMENT ON COLUMN public.system_notification.level4 IS '第四层级，用于定位详细功能项';
 COMMENT ON COLUMN public.system_notification.unread_count IS '未读数量';
+COMMENT ON COLUMN public.system_notification.biz_id IS '业务id';
 COMMENT ON COLUMN public.system_notification.priority IS '通知优先级';
 
 -- Drop table
