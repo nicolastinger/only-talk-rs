@@ -24,3 +24,5 @@ pub struct FriendRequestInfo {
 crud!(FriendRequestInfo {});
 
 impl_select!(FriendRequestInfo {select_by_uuid(uuid:&Uuid, last_uuid:&Uuid) => "`where (accept_user = #{uuid} and request_user = #{last_uuid}) or (accept_user = #{last_uuid} and request_user = #{uuid})`"});
+impl_select!(FriendRequestInfo {select_by_accept_user_and_status(uuid:&Uuid, accept_status: Option<u8>) => "`where accept_user = #{uuid} and (#{accept_status} is null or accept_status = #{accept_status})`"});
+impl_select!(FriendRequestInfo {select_by_request_user_and_status(uuid:&Uuid, accept_status: Option<u8>) => "`where request_user = #{uuid} and (#{accept_status} is null or accept_status = #{accept_status})`"});

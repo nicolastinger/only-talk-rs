@@ -1,4 +1,4 @@
-use rbatis::{crud, rbdc::Uuid};
+use rbatis::{crud, impl_select, rbdc::Uuid};
 use serde::{Deserialize, Serialize};
 
 /// 系统通知
@@ -17,6 +17,8 @@ pub struct SystemNotification {
     pub user_id: Option<Uuid>,
     /// 是否已读
     pub is_read: Option<bool>,
+    /// 业务ID
+    pub biz_id: Option<String>,
 
     /// 第一层级，用于定位功能大类
     pub level1: Option<i32>,
@@ -28,6 +30,10 @@ pub struct SystemNotification {
     pub level4: Option<i32>,
     /// 未读数量
     pub unread_count: Option<i32>,
+    /// 通知优先级
+    pub priority: Option<i32>,
 }
 
 crud!(SystemNotification {});
+
+impl_select!(SystemNotification{select_all_by_uid(user_id:&Uuid, is_read: Option<bool>) => "`where user_id = #{user_id} and (#{is_read} is null or is_read = #{is_read})`"});

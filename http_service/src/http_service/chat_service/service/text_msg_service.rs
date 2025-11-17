@@ -21,8 +21,8 @@ pub async fn get_chat_by_limit(
 ) -> Result<String, anyhow::Error> {
     let uuid = uuid.ok_or(anyhow!("账号序列化失败"))?.parse::<Uuid>()?;
     let friend_uuid = friend_uuid.parse::<Uuid>()?;
-    let start = base_page.page_index.unwrap_or(0);
-    let size = base_page.page_index.unwrap_or(10);
+    let start = base_page.page_num.unwrap_or(0);
+    let size = base_page.page_num.unwrap_or(10);
     let res = ChatMessageRecord::select_chat_by_limit(rb, uuid, friend_uuid, start, size).await?;
 
     let chat = res.get(0).ok_or(anyhow!("没有数据"))?;

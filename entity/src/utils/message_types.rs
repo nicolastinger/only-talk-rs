@@ -36,5 +36,8 @@ pub const MSG_TYPE_P2P_USER_SERVER: u16 = 203;
 /// P2P客户端
 pub const MSG_TYPE_P2P_USER_CLIENT: u16 = 204;
 
-/// 系统通知消息起始值
-pub const MSG_TYPE_SYSTEM_START: u16 = 10001;
+/// 通知消息
+pub const NOTIFY_TYPE_MSG: u16 = 1024;
+
+/// 系统消息
+pub const MSG_TYPE_SYSTEM: u16 = 10001;

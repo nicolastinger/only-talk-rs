@@ -26,7 +26,7 @@ pub async fn get_friend_by_id(rb: &RBatis) -> Result<String, anyhow::Error> {
 pub async fn add_friend(
     rb: &RBatis,
     friend_request_info_dto: FriendRequestInfoDTO,
-) -> Result<String, anyhow::Error> {
+) -> Result<FriendRequestInfo, anyhow::Error> {
     let uuid = Uuid::now_v7().to_string();
     // 开启事务
     let tx = rb.acquire_begin().await?;
@@ -61,7 +61,7 @@ pub async fn add_friend(
         for item in friend_request_info.iter() {
             match item.accept_status {
                 Some(0) => {
-                    return Ok(CommonResponseNoDataRef::error_json("请勿重复添加"));
+                    return Err(anyhow!("请勿重复添加"));
                 }
                 _ => {}
             }
@@ -88,7 +88,7 @@ pub async fn add_friend(
 
         FriendRequestInfo::insert(rb, &friend_link_info).await?;
         tx.commit().await?;
-        Ok(CommonResponseNoDataRef::success_empty())
+        Ok(friend_link_info)
     }
     .await;
     // 如果事务中有错误，回滚事务
@@ -224,4 +224,31 @@ pub async fn get_friend_list(
     }
 
     query_friend_list(rb, &uuid, timestamp).await
+}
+
+/// 获取我接收的好友申请列表
+pub async fn get_accept_friend_request_list(
+    rb: &RBatis,
+    uuid: Option<String>,
+    accept_status: Option<u8>,
+) -> Result<String, anyhow::Error> {
+    let uuid = uuid.ok_or(anyhow!("获取账号失败!"))?;
+    let uuid = rbatis::rbdc::uuid::Uuid::from_str(&uuid)?;
+
+    let res = FriendRequestInfo::select_by_accept_user_and_status(rb, &uuid, accept_status).await?;
+    Ok(CommonResponseRef::<Vec<FriendRequestInfo>>::success_json(&res)?)
+}
+
+
+/// 获取我请求的好友申请列表
+pub async fn get_friend_request_list(
+    rb: &RBatis,
+    uuid: Option<String>,
+    accept_status: Option<u8>,
+) -> Result<String, anyhow::Error> {
+    let uuid = uuid.ok_or(anyhow!("获取账号失败!"))?;
+    let uuid = rbatis::rbdc::uuid::Uuid::from_str(&uuid)?;
+
+    let res = FriendRequestInfo::select_by_request_user_and_status(rb, &uuid, accept_status).await?;
+    Ok(CommonResponseRef::<Vec<FriendRequestInfo>>::success_json(&res)?)
 }
