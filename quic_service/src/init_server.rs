@@ -7,10 +7,10 @@ use crate::{quic_client, quic_server};
 ///初始化服务
 pub async fn start_server() -> anyhow::Result<()> {
     // 本地客户端
-    let addr = "127.0.0.1:4433".parse()?;
-    tokio::spawn(async move {
-        quic_client::run_client(addr).await;
-    });
+    // let addr = "127.0.0.1:4433".parse()?;
+    // tokio::spawn(async move {
+    //     quic_client::run_client(addr).await;
+    // });
     // 读取配置文件内容
     let config_content = fs::read_to_string("./config/app_config.toml")?;
     // 解析配置文件内容
