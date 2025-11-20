@@ -58,8 +58,8 @@ pub async fn get_unread_chat_record(
     uuid: Option<String>,
 ) -> Result<String, anyhow::Error> {
     let uuid = uuid.ok_or(anyhow!("账号获取失败"))?.parse::<Uuid>()?;
-    let empty_vec: Vec<ChatMessageRecord> = vec![];
-    let empty_vec = serde_json::to_string(&empty_vec)?;
+
+    let empty_vec = CommonResponseNoDataRef::success_empty();
     // 1、获取最新消息id
     let last_msg = ChatMessageRecord::select_last_by_column(rb, &uuid).await?;
     if last_msg.is_none() {
@@ -72,7 +72,7 @@ pub async fn get_unread_chat_record(
         let last_read = 0;
         let unread_msg = ChatMessageRecord::select_unread_by_time(rb, &uuid, last_read).await?;
         info!("unread_msg {}", unread_msg.len());
-        return Ok(serde_json::to_string(&unread_msg)?);
+        return Ok(CommonResponseRef::<Vec<ChatMessageRecord>>::success_json(&unread_msg)?);
     }
     // 4、查找已读消息有没有最新消息
     let res = read_msg
@@ -103,7 +103,7 @@ pub async fn get_unread_chat_record(
                 x
             })
             .collect();
-        return Ok(serde_json::to_string(&unread_msg)?);
+        return Ok(CommonResponseRef::<Vec<ChatMessageRecord>>::success_json(&unread_msg)?);
     }
     Ok(empty_vec)
 }

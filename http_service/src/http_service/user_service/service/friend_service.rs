@@ -12,16 +12,6 @@ use entity::models::user_entity::friend_request_info::FriendRequestInfo;
 use entity::utils::time::get_now_time_stamp_as_millis;
 use crate::utils::http_response::{CommonResponseNoDataRef, CommonResponseRef};
 
-pub async fn get_friend_by_id(rb: &RBatis) -> Result<String, anyhow::Error> {
-    let friend_vo = FriendVO {
-        uuid: "friend not found",
-    };
-
-    let common_response_ref = CommonResponseRef::<FriendVO>::success_json(&friend_vo);
-
-    Ok(common_response_ref?)
-}
-
 ///发起好友申请
 pub async fn add_friend(
     rb: &RBatis,
@@ -102,7 +92,7 @@ pub async fn add_friend(
 pub async fn process_friend(
     rb: &RBatis,
     friend_request_info_dto: FriendRequestInfoDTO,
-) -> Result<String, anyhow::Error> {
+) -> Result<FriendRequestInfo, anyhow::Error> {
     let request_user = friend_request_info_dto
         .request_user
         .ok_or_else(|| anyhow!("request_user is None"))?;
@@ -116,14 +106,14 @@ pub async fn process_friend(
     // 是否存在这个发起用户
     let is_exist_accept_user = is_exist_user_by_uuid(rb, &request_user).await?;
     if !is_exist_accept_user {
-        return Ok(CommonResponseNoDataRef::error_json("请求用户不存在"));
+        return Err(anyhow!("请求用户不存在"));
     }
     // TODO 是否超出接受用户添加数量
 
     // 查询是否为已添加
     let friend_link = FriendLink::select_by_last_uuid(rb, &request_user, &accept_user).await?;
     if friend_link.is_some() && friend_link.as_ref().unwrap().is_del.unwrap_or(true) == false {
-        return Ok(CommonResponseNoDataRef::error_json("已添加"));
+        return Err(anyhow!("已添加"));
     }
 
     // 查询之前添加的申请
@@ -175,13 +165,13 @@ pub async fn process_friend(
             // 拒绝
             Some(2) => {}
             _ => {
-                return Ok(CommonResponseNoDataRef::error_json("参数错误"));
+                return Err(anyhow!("参数错误!"));
             }
         }
         tx.commit().await?;
         println!("update_by_map = {}", json!(data));
 
-        Ok(CommonResponseNoDataRef::success_empty())
+        Ok(exit_request_info)
     }
     .await;
     // 如果事务中有错误，回滚事务

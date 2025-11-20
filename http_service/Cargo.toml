@@ -15,7 +15,6 @@ toml = { workspace = true }
 actix-web = { workspace = true }
 deadpool-redis = { workspace = true }
 rustls-pemfile = { workspace = true }
-rust-i18n = { workspace = true }
 rbdc-pg = { workspace = true }
 rbdc-pool-fast = { workspace = true }
 redis = { workspace = true }

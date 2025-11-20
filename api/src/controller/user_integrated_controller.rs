@@ -2,13 +2,15 @@ use http_service::http_service::user_service::dto::friend_request_info_dto::Frie
 use actix_web::{post, web, HttpRequest, Responder};
 use rbatis::RBatis;
 use http_service::{get_uuid_from_header, respond_json_any, validate_and_respond};
-use crate::service::user_integrated_service::add_user_with_notify;
+use crate::service::user_integrated_service::{add_user_with_notify, process_friend_with_notify};
 use http_service::common::dto::base_dto::AuthAccount;
+use http_service::http_service::user_service::service::friend_service::process_friend;
 use http_service::utils::http_response::CommonResponseNoDataRef;
 use http_service::utils::http_response::CommonResponse;
 
 pub fn user_integrated_service(cfg: &mut web::ServiceConfig) {
-    cfg.service(add_user_with_notify_api);
+    cfg.service(add_user_with_notify_api)
+               .service(process_friend_with_notify_api);
 }
 
 /// 添加用户并发送通知
@@ -23,4 +25,19 @@ pub async fn add_user_with_notify_api(
     friend.request_user = me;
 
     respond_json_any!(add_user_with_notify(state.as_ref(), friend).await)
+}
+
+
+/// 处理好友请求并通知
+#[post("/process_friend_with_notify")]
+pub async fn process_friend_with_notify_api(
+    req: HttpRequest,
+    state: web::Data<RBatis>,
+    friend: web::Json<FriendRequestInfoDTO>,
+) -> impl Responder {
+    let me = get_uuid_from_header!(req);
+    let mut friend = friend.into_inner();
+    friend.accept_user = me;
+    let res = process_friend_with_notify(state.as_ref(), friend).await;
+    respond_json_any!(res)
 }

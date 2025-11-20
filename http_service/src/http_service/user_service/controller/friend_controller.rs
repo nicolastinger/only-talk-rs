@@ -1,6 +1,6 @@
 use crate::http_service::user_service::dto::friend_dto::FriendDTO;
 use crate::http_service::user_service::dto::friend_request_info_dto::FriendRequestInfoDTO;
-use crate::http_service::user_service::service::friend_service::{add_friend, get_accept_friend_request_list, get_friend_by_id, get_friend_list, get_friend_request_list, process_friend};
+use crate::http_service::user_service::service::friend_service::{add_friend, get_accept_friend_request_list, get_friend_list, get_friend_request_list, process_friend};
 use actix_web::{get, post, web, HttpMessage, HttpRequest, HttpResponse, Responder};
 use log::{error, info};
 use rbatis::RBatis;
@@ -13,7 +13,8 @@ pub fn friend_service(cfg: &mut web::ServiceConfig) {
     cfg.service(qry_friend_list)
         .service(add_friend_api)
         .service(get_friend_api)
-        .service(qry_friend_test);
+        .service(get_accept_friend_request_list_api)
+        .service(get_friend_request_list_api);
 }
 
 #[post("/friend_list")]
@@ -28,15 +29,6 @@ pub async fn qry_friend_list(
     let account = map.get::<AuthAccount>().unwrap();
     info!("账号 {:?}", account);
     HttpResponse::Ok().body("not implemented")
-}
-
-#[get("/friend_test")]
-pub async fn qry_friend_test(
-    req: HttpRequest,
-    state: web::Data<RBatis>,
-    friend: web::Json<ReqList<FriendDTO>>,
-) -> impl Responder {
-    respond_json_any!(get_friend_by_id(state.as_ref()).await)
 }
 
 #[post("/add_friend")]
@@ -68,7 +60,13 @@ pub async fn process_friend_api(
     let mut friend = friend.into_inner();
     friend.accept_user = me;
     let res = process_friend(state.as_ref(), friend).await;
-    respond_json_any!(res)  
+    if let Err(t) = res {
+        error!("err_context {:?}", t);
+        error!("{}", t.backtrace());
+        return HttpResponse::BadRequest().body(CommonResponseNoDataRef::error_json(&t.to_string()));
+    }
+    let res = CommonResponseNoDataRef::success_empty();
+    HttpResponse::Ok().body(res) 
 }
 
 #[post("/get_friend/{last_uuid}/{version}")]

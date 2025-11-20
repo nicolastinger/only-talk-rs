@@ -86,13 +86,12 @@ macro_rules! respond_json_any {
 macro_rules! serde_json_to_string {
     ($model:expr) => {{
         use log::error;
-        use rust_i18n::t;
 
         match serde_json::to_string($model) {
             Ok(t) => Ok(t),
             Err(t) => {
                 error!("{}", t.to_string());
-                Err(t!("json_serialize_error").to_string())
+                Err("json序列化失败".to_string())
             }
         }
     }};

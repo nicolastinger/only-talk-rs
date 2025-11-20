@@ -9,7 +9,6 @@ use rbdc::pool::Pool as rdbc_pool;
 use rbdc_pg::options::PgConnectOptions;
 use rbdc_pg::PgDriver;
 use rbdc_pool_fast::FastPool;
-use rust_i18n::t;
 use rustls::{Certificate, PrivateKey, ServerConfig};
 use rustls_pemfile::{certs, ec_private_keys, rsa_private_keys};
 use std::collections::HashMap;
@@ -119,7 +118,6 @@ pub async fn start_server() -> anyhow::Result<()> {
     let url = read_config!(config_map, ("database"), "url");
 
     let locales = read_config!(config_map, ("server"), "locales");
-    rust_i18n::set_locale(locales);
 
     let pool = init_sql_pool(url).await;
 
