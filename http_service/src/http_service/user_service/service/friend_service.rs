@@ -1,5 +1,5 @@
 use crate::http_service::user_service::dto::friend_request_info_dto::FriendRequestInfoDTO;
-use crate::http_service::user_service::vo::friend_vo::{query_friend_list, FriendVO};
+use crate::http_service::user_service::vo::friend_vo::{query_friend_list};
 use anyhow::anyhow;
 use rbatis::RBatis;
 use rbs::value;
@@ -10,7 +10,7 @@ use entity::models::user_entity::basic_user::is_exist_user_by_uuid;
 use entity::models::user_entity::friend_link::FriendLink;
 use entity::models::user_entity::friend_request_info::FriendRequestInfo;
 use entity::utils::time::get_now_time_stamp_as_millis;
-use crate::utils::http_response::{CommonResponseNoDataRef, CommonResponseRef};
+use crate::utils::http_response::{CommonResponseRef};
 
 ///发起好友申请
 pub async fn add_friend(
@@ -40,7 +40,7 @@ pub async fn add_friend(
 
     // 查询是否为已添加
     let friend_link = FriendLink::select_by_last_uuid(rb, &request_user, &accept_user).await?;
-    if friend_link.is_some() && friend_link.as_ref().unwrap().is_del.unwrap_or(true) == false {
+    if friend_link.is_some() && !friend_link.as_ref().unwrap().is_del.unwrap_or(true) {
         return Err(anyhow!("已添加"));
     }
 
@@ -49,11 +49,8 @@ pub async fn add_friend(
         FriendRequestInfo::select_by_uuid(rb, &request_user, &accept_user).await?;
     if !friend_request_info.is_empty() {
         for item in friend_request_info.iter() {
-            match item.accept_status {
-                Some(0) => {
-                    return Err(anyhow!("请勿重复添加"));
-                }
-                _ => {}
+            if let Some(0) = item.accept_status {
+                return Err(anyhow!("请勿重复添加"));
             }
         }
     }
@@ -96,7 +93,6 @@ pub async fn process_friend(
     let request_user = friend_request_info_dto
         .request_user
         .ok_or_else(|| anyhow!("request_user is None"))?;
-    let request_user_str = request_user.clone();
     let request_user = rbatis::rbdc::Uuid::from_str(request_user.as_str())?;
     let accept_user = friend_request_info_dto
         .accept_user
@@ -112,7 +108,7 @@ pub async fn process_friend(
 
     // 查询是否为已添加
     let friend_link = FriendLink::select_by_last_uuid(rb, &request_user, &accept_user).await?;
-    if friend_link.is_some() && friend_link.as_ref().unwrap().is_del.unwrap_or(true) == false {
+    if friend_link.is_some() && !friend_link.as_ref().unwrap().is_del.unwrap_or(true) {
         return Err(anyhow!("已添加"));
     }
 
@@ -121,11 +117,8 @@ pub async fn process_friend(
         FriendRequestInfo::select_by_uuid(rb, &request_user, &accept_user).await?;
     let get_request_info = || {
         for item in friend_request_info {
-            match item.accept_status {
-                Some(0) => {
-                    return Some(item);
-                }
-                _ => {}
+            if let Some(0) = item.accept_status {
+                return Some(item);
             }
         }
         None
@@ -204,7 +197,7 @@ pub async fn get_friend_list(
             .as_ref()
             .ok_or(anyhow!("获取时间戳失败"))?
             .version
-            .unwrap_or_else(|| -1i32)
+            .unwrap_or(-1i32)
             == version
     {
         timestamp = res

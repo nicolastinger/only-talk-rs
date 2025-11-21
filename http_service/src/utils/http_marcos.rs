@@ -15,7 +15,6 @@ macro_rules! validate_and_respond {
     }};
     ($model:expr, $model_type:expr) => {{
         use validator::Validate;
-        use actix_web::HttpResponse;
         let value = $model.into_inner();
 
         match &value.data {

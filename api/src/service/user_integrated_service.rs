@@ -6,8 +6,6 @@ use http_service::http_service::user_service::service::friend_service::{add_frie
 use http_service::utils::http_response::CommonResponseNoDataRef;
 use quic_service::msg_service::send_msg::send_quic_system_msg;
 use rbatis::RBatis;
-use rbatis::rbdc::Uuid;
-use std::str::FromStr;
 
 pub async fn add_user_with_notify(
     rb: &RBatis,

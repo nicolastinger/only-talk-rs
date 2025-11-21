@@ -1,11 +1,10 @@
 use anyhow::anyhow;
-use log::{info, warn};
+use log::{info};
 use rbatis::rbdc::Uuid;
 use rbatis::RBatis;
 use rbs::value;
 use entity::models::chat_entity::chat_message_read::ChatMessageRecordRead;
 use entity::models::chat_entity::chat_message_record::ChatMessageRecord;
-use entity::RBATIS_DATABASE;
 use entity::utils::global_static_str::USER_READ_MSG;
 use entity::utils::redis_utils::get_redis_conn;
 use deadpool_redis::redis::AsyncCommands;
@@ -25,7 +24,7 @@ pub async fn get_chat_by_limit(
     let size = base_page.page_num.unwrap_or(10);
     let res = ChatMessageRecord::select_chat_by_limit(rb, uuid, friend_uuid, start, size).await?;
 
-    let chat = res.get(0).ok_or(anyhow!("没有数据"))?;
+    let chat = res.first().ok_or(anyhow!("没有数据"))?;
     let vec = chat.raw.clone();
     let str = String::from_utf8(vec.into_inner())?;
     info!("结果为 {}", str);
@@ -34,15 +33,8 @@ pub async fn get_chat_by_limit(
     )?)
 }
 
-/// 获取会话列表
-pub async fn get_chat_list_link(
-    rb: &RBatis,
-    uuid: Option<String>,
-) -> Result<String, anyhow::Error> {
-    Ok("".to_string())
-}
 
-/// 用户新增聊天记录
+// 用户新增聊天记录
 // pub async fn add_user_chat_record(text_msg: TextQuicMsg) -> Result<(), anyhow::Error> {
 //     // TODO kafka转发消息ck批量写入
 //     let rb = RBATIS_DATABASE.read().await;

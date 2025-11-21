@@ -9,6 +9,7 @@ use rustls::{Certificate, PrivateKey, RootCertStore};
 use rustls_pemfile::{certs, ec_private_keys, rsa_private_keys};
 
 /// 配置客户端使用的QUIC设置。
+#[allow(dead_code)]
 pub fn configure_client() -> ClientConfig {
     // 构建TLS配置，使用安全默认值，信任系统证书库
     let mut root_store = RootCertStore::empty();
@@ -45,7 +46,6 @@ pub fn configure_client() -> ClientConfig {
 ///
 /// - 一个QUIC连接的输入流
 /// - 服务器证书序列化为DER格式
-
 pub fn make_server_endpoint(bind_addr: SocketAddr) -> Result<(Endpoint, Vec<u8>), Box<dyn Error>> {
     // 配置服务器设置，包括生成自签名证书
     let (server_config, server_cert) = configure_server()?;

@@ -117,8 +117,6 @@ pub async fn start_server() -> anyhow::Result<()> {
     let config_map: HashMap<String, Value> = config_value.try_into()?;
     let url = read_config!(config_map, ("database"), "url");
 
-    let locales = read_config!(config_map, ("server"), "locales");
-
     let pool = init_sql_pool(url).await;
 
     let (cert_chain, key) = init_cert_file();
@@ -130,7 +128,7 @@ pub async fn start_server() -> anyhow::Result<()> {
         .with_single_cert(cert_chain, key)
         .map_err(|e| {
             error!("无法设置证书和私钥: {}", e);
-            std::io::Error::new(std::io::ErrorKind::Other, "无法设置证书和私钥")
+            std::io::Error::other("无法设置证书和私钥")
         })?;
 
     let redis_url = read_config!(config_map, ("redis"), "url");

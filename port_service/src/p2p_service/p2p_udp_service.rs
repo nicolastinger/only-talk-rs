@@ -1,6 +1,5 @@
-use crate::p2p_service::model::{P2pInitMsg, UserAddressInfo};
-use anyhow::anyhow;
-use deadpool_redis::redis::{cmd, AsyncCommands, RedisResult};
+use crate::p2p_service::model::{UserAddressInfo};
+use deadpool_redis::redis::{cmd, AsyncCommands};
 use log::{error, info, warn};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -117,7 +116,7 @@ pub async fn get_p2p_udp_socket_with_shutdown(
                             })
                            },
                            Err(e) => {
-                            error!("序列化p2p信息失败，来源{}:{},{}", client_ip, client_port, e.to_string());
+                            error!("序列化p2p信息失败，来源{}:{},{}", client_ip, client_port, e);
                             buf[..size].fill(0);
                             continue;
                            }
@@ -165,7 +164,7 @@ pub async fn get_p2p_udp_socket(address: &str, ip_type: String) -> anyhow::Resul
                             })
                            },
                            Err(e) => {
-                            error!("序列化p2p信息失败，来源{}:{},{}", client_ip, client_port, e.to_string());
+                            error!("序列化p2p信息失败，来源{}:{},{}", client_ip, client_port, e);
                             buf[..size].fill(0);
                             continue;
                            }
@@ -237,7 +236,7 @@ async fn process_p2p_user_info(
                 Ok(mut target_user_address_info) => {
                     info!("进入到服务器和连接端匹配");
                     // 只有当检测完NAT类型后再进行比较
-                    if target_user_address_info.is_lock == true && !acquire_flag {
+                    if target_user_address_info.is_lock && !acquire_flag {
                         {
                             let mut conn = get_redis_conn().await?;
                             // 删除自身
@@ -283,14 +282,12 @@ async fn process_p2p_user_info(
                             }
                         }
                         let mut server = {
-                            let mut result = message_types::MSG_TYPE_P2P_USER_CLIENT;
                             // 本用户是服务端，向对方发送客户端信息
                             if user_address_info.is_server {
-                                result = message_types::MSG_TYPE_P2P_USER_CLIENT
+                                message_types::MSG_TYPE_P2P_USER_CLIENT
                             } else {
-                                result = message_types::MSG_TYPE_P2P_USER_SERVER
+                                message_types::MSG_TYPE_P2P_USER_SERVER
                             }
-                            result
                         };
                         {
                             // 获取目标方发送流
@@ -337,7 +334,7 @@ async fn process_p2p_user_info(
                 Err(e) => {
                     warn!(
                         "获取目标用户信息失败 {}，等待目标用户上传redis",
-                        e.to_string()
+                        e
                     );
                 }
             }
@@ -346,7 +343,7 @@ async fn process_p2p_user_info(
                 info!("插入用户信息到redis中");
                 let mut conn = get_redis_conn().await?;
                 let user_address_info_json =
-                    serde_json::to_string(&user_address_info).unwrap_or(String::new());
+                    serde_json::to_string(&user_address_info).unwrap_or_default();
                 // 设置1分钟超时
                 let _: () = cmd("SET")
                     .arg(&key)
@@ -355,7 +352,7 @@ async fn process_p2p_user_info(
                     .arg(60)
                     .query_async(&mut conn)
                     .await
-                    .unwrap_or_else(|e| error!("新增用户连接信息失败 {}", e.to_string()));
+                    .unwrap_or_else(|e| error!("新增用户连接信息失败 {}", e));
             }
         }
         Err(e) => {

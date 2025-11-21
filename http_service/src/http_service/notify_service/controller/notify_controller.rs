@@ -2,7 +2,6 @@ use crate::utils::http_response::CommonResponseNoDataRef;
 use crate::common::dto::base_dto::AuthAccount;
 use actix_web::{post, web, HttpRequest, Responder};
 use rbatis::RBatis;
-use crate::common::dto::base_page_dto::BasePageDTO;
 use crate::{get_uuid_from_header, respond_json_any};
 use crate::http_service::notify_service::service::system_notification::get_user_unread_notification;
 

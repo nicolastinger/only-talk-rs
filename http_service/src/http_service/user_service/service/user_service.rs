@@ -1,9 +1,8 @@
 use crate::http_service::user_service::dto::basic_user_dto::SignInBasicUserDTO;
 use crate::http_service::user_service::dto::sign_up_basic_user_dto::SignUpBasicUserDTO;
 use crate::http_service::user_service::vo::user_info::UserInfoVO;
-use actix_web::{web, HttpResponse, Responder};
 use anyhow::anyhow;
-use deadpool_redis::redis::{cmd, AsyncCommands, RedisResult};
+use deadpool_redis::redis::{cmd, RedisResult};
 use log::{error, info};
 use rbatis::RBatis;
 use rbs::value;
@@ -55,10 +54,9 @@ pub async fn add_new_basic_user_service(
 
     let account_ref: &str = basic_user
         .account
-        .as_ref()
-        .map(|s| s.as_str())
+        .as_deref()
         .unwrap_or("");
-    match get_exit_user(rb, &account_ref).await {
+    match get_exit_user(rb, account_ref).await {
         true => Err(anyhow!("该账号已存在!".to_string())),
         false => {
             let tx = rb.acquire_begin().await?;
@@ -233,8 +231,7 @@ pub async fn verify_p2p_token_service(
     let mut conn = {
         let redis_client = REDIS_CLIENT.read().await;
         let redis_conn = redis_client.as_ref().ok_or(anyhow!("redis客户端错误"))?;
-        let mut conn = redis_conn.get().await?;
-        conn
+        redis_conn.get().await?
     };
     let me = me.ok_or(anyhow!("获取账号失败"))?;
 

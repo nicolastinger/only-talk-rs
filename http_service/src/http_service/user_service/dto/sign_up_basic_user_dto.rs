@@ -1,4 +1,3 @@
-use rbatis::rbdc::Uuid;
 use serde::{Deserialize, Serialize};
 use validator::Validate;
 use entity::models::user_entity::basic_user::BasicUser;

@@ -60,7 +60,7 @@ where
         Self {
             code,
             data,
-            message: message.into(),
+            message,
         }
     }
 

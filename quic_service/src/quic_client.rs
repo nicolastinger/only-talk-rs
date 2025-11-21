@@ -1,6 +1,5 @@
 use log::{error, info};
 use quinn::{Endpoint, SendStream};
-use std::error::Error;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -14,7 +13,7 @@ use crate::models::quic_connection::ConnectionType;
 use crate::msg_service::text_msg_service::{generate_text_msg, get_text_msg};
 use crate::set_server::configure_client;
 
-// 客户端异步函数，尝试与服务器建立QUIC连接
+#[allow(dead_code)]
 pub async fn run_client(server_addr: SocketAddr) {
     // 创建客户端端点
     let mut endpoint = Endpoint::client("0.0.0.0:0".parse().unwrap()).expect("infallible");
@@ -29,7 +28,7 @@ pub async fn run_client(server_addr: SocketAddr) {
     info!("[client] connected: addr={}", connection.remote_address()); // 打印连接成功的服务器地址
 
     // 开启一个双向流
-    let (mut send_stream, mut _recv_stream) =
+    let (send_stream, mut _recv_stream) =
         connection.open_bi().await.expect("Failed to open stream");
     send_stream.set_priority(0).expect("Failed to set priority"); // 设置优先级
     let head_length = 9;

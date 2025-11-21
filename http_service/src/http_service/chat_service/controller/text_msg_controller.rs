@@ -1,17 +1,16 @@
-use actix_web::{post, web, HttpRequest, HttpResponse, Responder};
+use actix_web::{post, web, HttpRequest, Responder};
 use rbatis::RBatis;
 use entity::models::chat_entity::chat_message_read::ChatMessageRecordRead;
 use crate::common::dto::base_page_dto::BasePageDTO;
 use crate::{get_uuid_from_header, respond_json_any};
 use crate::common::dto::base_dto::AuthAccount;
 use crate::utils::http_response::CommonResponseNoDataRef;
-use crate::http_service::chat_service::service::text_msg_service::{add_user_chat_read, get_chat_by_limit, get_chat_list_link, get_unread_chat_record};
+use crate::http_service::chat_service::service::text_msg_service::{add_user_chat_read, get_chat_by_limit, get_unread_chat_record};
 
 pub fn text_msg_service(cfg: &mut web::ServiceConfig) {
     cfg.service(get_chat_record_api)
         .service(add_read_chat_record_api)
-        .service(get_unread_chat_record_api)
-        .service(get_chat_list);
+        .service(get_unread_chat_record_api);
 }
 
 /// 获取特定好友的聊天记录
@@ -33,13 +32,6 @@ pub async fn get_chat_record_api(
         )
         .await
     )
-}
-
-// 获取当前用户聊天列表
-#[post("/get_chat_list")]
-pub async fn get_chat_list(req: HttpRequest, state: web::Data<RBatis>) -> impl Responder {
-    let uuid = get_uuid_from_header!(req);
-    respond_json_any!(get_chat_list_link(state.as_ref(), uuid).await)
 }
 
 // 获取当前用户未读消息

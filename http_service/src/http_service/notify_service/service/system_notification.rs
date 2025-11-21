@@ -1,12 +1,10 @@
 use std::str::FromStr;
 use anyhow::anyhow;
 use rbatis::RBatis;
-use rbs::value;
 use uuid::Uuid;
-use entity::models::chat_entity::chat_message_record::ChatMessageRecord;
 use entity::models::notify_entity::system_notification::SystemNotification;
 use entity::utils::time::get_now_time_stamp_as_millis;
-use crate::utils::http_response::{CommonResponseNoDataRef, CommonResponseRef};
+use crate::utils::http_response::{CommonResponseRef};
 
 /// 新增好友请求通知
 pub async fn send_request_friend_msg(

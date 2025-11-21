@@ -1,7 +1,8 @@
-use quinn::{Connection, SendStream};
+use quinn::{SendStream};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use std::fmt;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum ConnectionType {
@@ -12,14 +13,14 @@ pub enum ConnectionType {
     Other,
 }
 
-impl ConnectionType {
-    pub fn to_string(&self) -> String {
+impl fmt::Display for ConnectionType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            ConnectionType::Text => "text".to_string(),
-            ConnectionType::Img => "img".to_string(),
-            ConnectionType::Video => "video".to_string(),
-            ConnectionType::File => "file".to_string(),
-            ConnectionType::Other => "other".to_string(),
+            ConnectionType::Text => write!(f, "text"),
+            ConnectionType::Img => write!(f, "img"),
+            ConnectionType::Video => write!(f, "video"),
+            ConnectionType::File => write!(f, "file"),
+            ConnectionType::Other => write!(f, "other"),
         }
     }
 }

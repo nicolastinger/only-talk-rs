@@ -1,4 +1,3 @@
-use bincode::Options;
 use serde::{Deserialize, Serialize};
 
 pub trait TextMsg {

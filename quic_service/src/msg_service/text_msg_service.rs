@@ -1,6 +1,6 @@
 use crate::X25;
 use anyhow::anyhow;
-use log::{error, info};
+use log::{error};
 use nanoid::nanoid;
 use std::sync::Arc;
 use tokio::sync::{Mutex, MutexGuard};
@@ -15,7 +15,7 @@ pub fn generate_text_msg(
     recv_user: String,
     send_user: String,
 ) -> anyhow::Result<Vec<u8>> {
-    let now = get_now_time_stamp_as_millis().unwrap_or_else(|_| -99999999999);
+    let now = get_now_time_stamp_as_millis().unwrap_or(-99999999999);
     let text_quic_msg = TextQuicMsg {
         nano_id: nanoid!(),
         text_type,
@@ -35,7 +35,7 @@ pub fn generate_text_msg_with_id(
     recv_user: String,
     send_user: String,
 ) -> anyhow::Result<Vec<u8>> {
-    let now = get_now_time_stamp_as_millis().unwrap_or_else(|_| -99999999999);
+    let now = get_now_time_stamp_as_millis().unwrap_or(-99999999999);
     let text_quic_msg = TextQuicMsg {
         nano_id,
         text_type,
@@ -130,7 +130,7 @@ pub async fn get_text_msg(
             return Ok(result_vec);
         }
         let head_msg_vec = &buffer[i..head_length_right];
-        let head_msg: HeadMsg = match bincode::deserialize(&head_msg_vec) {
+        let head_msg: HeadMsg = match bincode::deserialize(head_msg_vec) {
             Ok(msg) => msg,
             Err(error) => {
                 error!("序列化粘包数据失败! {}", error);
@@ -153,7 +153,7 @@ pub async fn get_text_msg(
         }
 
         let body_msg_vec = &buffer[i..length.min(body_size)];
-        let body_msg: TextQuicMsg = match bincode::deserialize(&body_msg_vec) {
+        let body_msg: TextQuicMsg = match bincode::deserialize(body_msg_vec) {
             Ok(msg) => msg,
             Err(error) => {
                 error!("序列化粘包数据失败! {}", error);

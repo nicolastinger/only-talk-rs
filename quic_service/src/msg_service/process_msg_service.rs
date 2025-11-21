@@ -112,7 +112,7 @@ async fn process_text_msg(
 
         if let Some(target_send_stream) = target_send_stream {
             // 处理在线消息
-            pass_text_msg(target_send_stream.clone(), send_stream.clone(), text_msg).await?;
+            pass_text_msg(target_send_stream.clone(), text_msg).await?;
         } else {
             // 处理 my_send_stream 为 None 的情况
             info!("用户不在线，无法发送消息: {}", user_key);
@@ -146,7 +146,6 @@ async fn send_ping(
 /// 传递用户消息
 async fn pass_text_msg(
     recv_send_stream: Arc<RwLock<SendStream>>,
-    current_send_stream: Arc<RwLock<SendStream>>,
     text_msg: TextQuicMsg,
 ) -> anyhow::Result<()> {
     let res = generate_text_msg_with_time(
@@ -196,6 +195,7 @@ async fn send_msg_record_success(
 }
 
 /// 记录失败消息
+#[allow(dead_code)]
 async fn send_msg_record_failure(
     send_stream: Arc<RwLock<SendStream>>,
     current_user: String,

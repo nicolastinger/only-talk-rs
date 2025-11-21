@@ -4,8 +4,7 @@ use crate::http_service::user_service::service::user_service::{
     get_user_info_by_uuid, get_user_uuid_by_account_service, test_sql, user_sign_in,
     verify_p2p_token_service,
 };
-use actix_web::{get, post, web, HttpMessage, HttpRequest, HttpResponse, Responder};
-use anyhow::Error;
+use actix_web::{get, post, web, HttpRequest, HttpResponse, Responder};
 use deadpool_redis::redis::{cmd, RedisResult};
 use deadpool_redis::Pool;
 use log::{error, info};
@@ -15,7 +14,6 @@ use crate::http_service::user_service::dto::sign_up_basic_user_dto::SignUpBasicU
 use crate::utils::http_response::CommonResponse;
 use crate::{get_uuid_from_header, respond_json, respond_json_any, serde_json_to_string, validate_and_respond, AppState};
 use crate::utils::http_response::CommonResponseNoDataRef;
-use crate::utils::http_response::CommonResponseRef;
 use crate::common::dto::base_dto::AuthAccount;
 
 pub fn user_service(cfg: &mut web::ServiceConfig) {
@@ -90,7 +88,7 @@ async fn create_online_user(state: web::Data<AppState>, user: String) -> impl Re
 }
 
 #[post("/online_user/raw_sql_test")]
-pub async fn post_online_user(state: web::Data<RBatis>) -> impl Responder {
+pub async fn post_online_user() -> impl Responder {
     info!("新增用户请求进来了");
     HttpResponse::Ok().body("something")
 }
@@ -148,7 +146,7 @@ pub async fn me_api(state: web::Data<RBatis>, req: HttpRequest) -> impl Responde
 #[post("/get_user_by_account/{account}")]
 pub async fn query_user_api(
     state: web::Data<RBatis>,
-    account: web::Path<(String)>,
+    account: web::Path<String>,
 ) -> impl Responder {
     let account = account.into_inner();
     let res = get_user_info_by_account(state.get_ref(), Some(account)).await;
@@ -163,7 +161,7 @@ pub async fn sign_test(basic_user: web::Json<SignInBasicUserDTO>) -> impl Respon
 }
 
 #[post("/get_uuid_by_account/{account}")]
-pub async fn get_user_uuid_by_account_api(account: web::Path<(String)>) -> impl Responder {
+pub async fn get_user_uuid_by_account_api(account: web::Path<String>) -> impl Responder {
     let account = account.into_inner();
     let res = get_user_uuid_by_account_service(account).await;
     respond_json_any!(res)

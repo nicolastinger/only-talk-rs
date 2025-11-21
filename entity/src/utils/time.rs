@@ -18,8 +18,7 @@ pub fn get_now_time_stamp_as_millis() -> Result<i64, io::Error> {
         Err(e) => {
             error!("时间计算错误: {}", e);
             // 创建一个 io::Error 并返回
-            Err(io::Error::new(
-                io::ErrorKind::Other,
+            Err(io::Error::other(
                 format!("时间计算错误: {}", e),
             ))
         }

@@ -1,6 +1,5 @@
-use rbatis::executor::Executor;
 use rbatis::rbdc::{Bytes, Uuid};
-use rbatis::{crud, impl_select, rbdc, RBatis};
+use rbatis::{crud, impl_select, RBatis};
 use rbs::value;
 use serde::{Deserialize, Serialize};
 
@@ -27,11 +26,11 @@ impl_select!(ChatMessageRecord {select_last_by_column(uuid: &Uuid) -> Option => 
 // 获取未读消息，最大9999
 impl_select!(ChatMessageRecord {select_unread_by_time(uuid: &Uuid, time: i64) => r#"where (send_user = #{uuid} or recv_user = #{uuid}) and timestamp > #{time} order by timestamp desc limit 9999"#});
 
-rbatis::raw_sql!(chat_message_recordraw_insert(rb: &dyn Executor, nano_id: String, created_at: i64, send_user: Uuid, recv_user: Uuid, raw: Vec<u8>, msg_type: u32)  -> Result<rbs::Value, rbatis::Error> =>
-"INSERT INTO public.chat_message_record
-(nano_id, created_at, send_user, recv_user,raw, text_type)
-VALUES(?, ?, ?, ?, ?, ?);"
-);
+// rbatis::raw_sql!(chat_message_recordraw_insert(rb: &dyn Executor, nano_id: String, created_at: i64, send_user: Uuid, recv_user: Uuid, raw: Vec<u8>, msg_type: u32)  -> Result<rbs::Value, rbatis::Error> =>
+// "INSERT INTO public.chat_message_record
+// (nano_id, created_at, send_user, recv_user,raw, text_type)
+// VALUES(?, ?, ?, ?, ?, ?);"
+// );
 
 pub async fn raw_insert(
     rbatis: &RBatis,

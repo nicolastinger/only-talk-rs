@@ -35,7 +35,7 @@ async fn run_server(addr: SocketAddr) {
         let conn = match incoming_conn.await {
             Ok(t) => t,
             Err(e) => {
-                error!("建立链接失败 {}", e.to_string());
+                error!("建立链接失败 {}", e);
                 continue;
             }
         }; // 确认连接建立
@@ -83,17 +83,17 @@ async fn process_first_msg(
     address: &String,
 ) -> Result<FirstQuicMsg, anyhow::Error> {
     //接收流元数据，确认消息类型以及头部长度
-    let mut first_quic_msg = FirstQuicMsg::new();
+    let mut _first_quic_msg = FirstQuicMsg::new();
     let mut first_buffer = vec![0u8; 1024 * 100]; //100k缓冲区
     match recv_stream.read(&mut first_buffer).await {
         Ok(Some(length)) => {
             let origin_str = String::from_utf8_lossy(&first_buffer[0..length]);
             info!("[服务端] 接收到客户端初始化数据，长度为 {}，内容: {}", length, origin_str);
-            match serde_json::from_str(&*origin_str) {
+            match serde_json::from_str(&origin_str) {
                 Ok(t) => {
-                    first_quic_msg = t;
+                    _first_quic_msg = t;
                     info!("[服务端] 成功解析客户端初始化消息: uuid={}, msg_type={:?}", 
-                          first_quic_msg.uuid, first_quic_msg.msg_type);
+                          _first_quic_msg.uuid, _first_quic_msg.msg_type);
                 }
                 Err(e) => {
                     error!("序列化流数据的元数据失败: {}，原始数据: {}", e, origin_str);
@@ -117,7 +117,7 @@ async fn process_first_msg(
             return Err(anyhow!("[服务端] 读取客户端初始化消息时发生错误"));
         }
     };
-    Ok(first_quic_msg)
+    Ok(_first_quic_msg)
 }
 
 /// 校验token有效性
@@ -135,7 +135,7 @@ async fn verify_token(
             t
         }
         Err(e) => {
-            error!("解析令牌失败 {}", e.to_string());
+            error!("解析令牌失败 {}", e);
             send_stream.finish().await?;
             return Err(anyhow!("解析令牌失败！"));
         }
@@ -158,7 +158,7 @@ async fn verify_max_client(send_stream: &mut SendStream) -> Result<(), anyhow::E
 async fn set_conn_info(
     uuid: String,
     send_stream: Arc<RwLock<SendStream>>,
-    connection_key: &String,
+    connection_key: &str,
     address: String,
     now: i64,
 ) -> Result<(), anyhow::Error> {
@@ -175,14 +175,14 @@ async fn set_conn_info(
 
     {
         let mut server_book = GLOBAL_QUIC_SERVER_LIST.write().await;
-        server_book.insert(connection_key.clone(), new_connection);
+        server_book.insert(connection_key.to_owned(), new_connection);
     }
     {
         let redis = REDIS_CLIENT.read().await;
         let redis = redis.as_ref().ok_or(anyhow!("获取连接失败"))?;
 
         let mut conn = redis.get().await?;
-        conn.set_ex::<&str, &str, ()>(&connection_key, SERVER_NAME, 7200)
+        conn.set_ex::<&str, &str, ()>(connection_key, SERVER_NAME, 7200)
             .await?;
     }
 
@@ -224,7 +224,7 @@ async fn handle_conn(
 
     //通过原子计数和异步锁共享变量
     let send_stream = Arc::new(RwLock::new(send_stream));
-    let now = get_now_time_stamp_as_millis().unwrap_or_else(|_| 0);
+    let now = get_now_time_stamp_as_millis().unwrap_or(0);
     set_conn_info(uuid, send_stream, &connection_key, address, now).await?;
 
     let buffer_msg: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
@@ -280,7 +280,7 @@ async fn handle_conn(
 /// 用户下线
 async fn end_server(
     close_key: &String,
-    connection_key: &String,
+    connection_key: &str,
     close_now: i64,
 ) -> Result<(), anyhow::Error> {
     let mut uuid = "".to_string();
@@ -296,7 +296,7 @@ async fn end_server(
                 let redis = redis.as_ref().expect("获取redis连接失败");
 
                 let mut conn = redis.get().await.expect("打开redis连接失败");
-                conn.del::<&str, ()>(&connection_key)
+                conn.del::<&str, ()>(connection_key)
                     .await
                     .expect("删除连接信息失败");
             }
@@ -360,6 +360,7 @@ async fn user_offline(uuid: String) -> std::result::Result<(), anyhow::Error> {
 
 /// 用户上线
 async fn user_online(uuid: String) -> std::result::Result<(), anyhow::Error> {
+    info!("用户上线 {}", uuid);
     // TODO
     // 1.设置redis分布式锁，防止用户上线的同时立马下线
     // 2.同步所有数据库到redis缓存
