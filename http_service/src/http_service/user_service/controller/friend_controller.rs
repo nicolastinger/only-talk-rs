@@ -84,10 +84,10 @@ pub async fn get_friend_api(
 pub async fn get_accept_friend_request_list_api(
     req: HttpRequest,
     state: web::Data<RBatis>,
-    accept_status: web::Json<Option<u8>>,
+    friend: web::Json<FriendRequestInfoDTO>,
 ) -> impl Responder {
     let uuid = get_uuid_from_header!(req);
-    let accept_status = accept_status.into_inner();
+    let accept_status = friend.into_inner().accept_status;
 
     respond_json_any!(get_accept_friend_request_list(state.as_ref(), uuid, accept_status).await)
 }
@@ -96,10 +96,10 @@ pub async fn get_accept_friend_request_list_api(
 pub async fn get_friend_request_list_api(
     req: HttpRequest,
     state: web::Data<RBatis>,
-    accept_status: web::Json<Option<u8>>,
+    friend: web::Json<FriendRequestInfoDTO>,
 ) -> impl Responder {
     let uuid = get_uuid_from_header!(req);
-    let accept_status = accept_status.into_inner();
+    let accept_status = friend.into_inner().accept_status;
 
     respond_json_any!(get_friend_request_list(state.as_ref(), uuid, accept_status).await)
 }

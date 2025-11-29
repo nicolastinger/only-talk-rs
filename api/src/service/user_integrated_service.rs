@@ -25,10 +25,10 @@ pub async fn add_user_with_notify(
     
     // 2 发送通知
     let quic_msg = send_request_friend_msg(rb, target_uuid, friend_request.request_message.ok_or(anyhow!("请填写申请理由"))?, Some(biz_id)).await?;
-
+    let json_str: String = serde_json::to_string(&quic_msg)?;
     let target_id = quic_msg.user_id.ok_or(anyhow!("请填写申请理由"))?.to_string();
     // 3 发送quic通知
-    send_quic_system_msg(target_id, NOTIFY_TYPE_MSG, quic_msg.content.ok_or(anyhow!("请填写申请理由"))?).await?;
+    send_quic_system_msg(target_id, NOTIFY_TYPE_MSG, json_str).await?;
     Ok(CommonResponseNoDataRef::success_empty())
 }
 
@@ -49,8 +49,9 @@ pub async fn process_friend_with_notify(
         .ok_or(anyhow!("添加好友失败，找不到请求id"))?
         .to_string();
     let quic_msg = send_process_friend_msg(rb, target_uuid, friend_request.accept_message.ok_or(anyhow!("请填写申请理由"))?, Some(biz_id)).await?;
+    let json_str: String = serde_json::to_string(&quic_msg)?;
     let target_id = quic_msg.user_id.ok_or(anyhow!("请填写申请理由"))?.to_string();
     // 3、发送quic通知
-    send_quic_system_msg(target_id, NOTIFY_TYPE_MSG, quic_msg.content.ok_or(anyhow!("请填写申请理由"))?).await?;
+    send_quic_system_msg(target_id, NOTIFY_TYPE_MSG, json_str).await?;
     Ok(CommonResponseNoDataRef::success_empty())
 }
