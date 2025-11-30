@@ -10,6 +10,7 @@ use rbs::value;
 use tokio::sync::{Mutex, RwLock};
 use entity::{RBATIS_DATABASE, REDIS_CLIENT};
 use entity::models::chat_entity::chat_message_read::ChatMessageRecordRead;
+use entity::models::chat_entity::chat_message_record::ChatMessageRecord;
 use entity::utils::global_static_str::{MAX_QUIC_BUFFER_LEN, MAX_QUIC_SERVERS, SERVER_NAME, USER_READ_MSG};
 use entity::utils::jwt_util::decode_jwt;
 use entity::utils::redis_utils::get_redis_conn;
@@ -330,6 +331,16 @@ async fn user_offline(uuid: String) -> std::result::Result<(), anyhow::Error> {
     // TODO已读消息有效校验
     let rb = rb.as_ref().ok_or(anyhow!("获取连接失败"))?;
     for item in last_chat_message_read.into_iter() {
+        let is_exist = ChatMessageRecord::select_by_map(rb, value! {"nano_id": &item.nano_id}).await?;
+        if is_exist.is_empty() || is_exist.len() > 1{
+            continue;
+        }
+        let exit_item = is_exist.first().expect("获取已读消息失败");
+        if exit_item.recv_user.to_string() != item.recv_user.to_string() && exit_item.send_user.to_string() != item.recv_user.to_string(){ 
+            err!("已读消息无效 {:?}", item);
+            continue;
+        }
+
         let insert_item = async |e| match ChatMessageRecordRead::insert(rb, &item).await {
             Ok(_) => {}
             Err(x) => {
