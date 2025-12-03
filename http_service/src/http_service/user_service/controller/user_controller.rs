@@ -12,14 +12,13 @@ use rbatis::RBatis;
 use entity::utils::jwt_util::{decode_jwt, get_jwt};
 use crate::http_service::user_service::dto::sign_up_basic_user_dto::SignUpBasicUserDTO;
 use crate::utils::http_response::CommonResponse;
-use crate::{get_uuid_from_header, respond_json, respond_json_any, serde_json_to_string, validate_and_respond, AppState};
+use crate::{get_uuid_from_header, respond_json, respond_json_any, serde_json_to_string, validate_and_respond};
 use crate::utils::http_response::CommonResponseNoDataRef;
 use crate::common::dto::base_dto::AuthAccount;
 
 pub fn user_service(cfg: &mut web::ServiceConfig) {
     cfg.service(user_test)
         .service(get_online_user_by_redis)
-        .service(create_online_user)
         .service(post_test)
         .service(get_online_user_by_rbatis)
         .service(get_exit_user_flag)
@@ -72,20 +71,6 @@ async fn get_online_user_by_redis(
     }
 }
 
-#[post("/online_user/redis/add_user")]
-async fn create_online_user(state: web::Data<AppState>, user: String) -> impl Responder {
-    info!("新增用户请求进来了");
-    let key = user.to_uppercase() + ":LOGIN";
-
-    let value = "ONLINE".to_string();
-    let mut conn = state.redis_pool.get().await.expect("打开redis连接失败");
-
-    let result: RedisResult<()> = cmd("SET").arg(key).arg(value).query_async(&mut conn).await;
-    match result {
-        Ok(()) => HttpResponse::Created().body(format!("User {} created", user)),
-        Err(_) => HttpResponse::InternalServerError().body("Failed to create user"),
-    }
-}
 
 #[post("/online_user/raw_sql_test")]
 pub async fn post_online_user() -> impl Responder {

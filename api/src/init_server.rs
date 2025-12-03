@@ -1,3 +1,4 @@
+use actix_files::Files;
 use actix_web::middleware::from_fn;
 use actix_web::{middleware, web, App, HttpServer};
 use deadpool_redis::{Config as dp_config, Pool, Runtime};
@@ -19,6 +20,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use toml::Value;
 use entity::{read_config, RBATIS_DATABASE, REDIS_CLIENT};
+use entity::utils::global_static_str::USER_FILE_PUBLIC_DIR;
 use http_service;
 use http_service::utils::record_bad_http::error_record_middleware;
 use crate::controller::configure_api_routes;
@@ -108,6 +110,12 @@ async fn init_sql_pool(url: &str) -> RBatis {
 
 ///初始化服务
 pub async fn start_server() -> anyhow::Result<()> {
+    // 创建公开文件夹
+    let pub_file_path = USER_FILE_PUBLIC_DIR;
+    if !std::path::Path::new(pub_file_path).exists() {
+        fs::create_dir_all(pub_file_path).expect("创建公开文件夹失败");
+    }
+    
     // 读取配置文件内容
     let config_content = fs::read_to_string("./config/app_config.toml").expect("无法读取配置文件");
     // 解析配置文件内容
@@ -145,6 +153,8 @@ pub async fn start_server() -> anyhow::Result<()> {
             .wrap(middleware::Logger::default())
             .configure(http_service::http_service::configure_routes)
             .configure(configure_api_routes)
+            // 静态文件服务，用于访问公开文件夹
+            .service(Files::new("/resources", USER_FILE_PUBLIC_DIR).show_files_listing())
         // 这里可以继续添加其他路由
     })
     .bind_rustls_021(address, config)? // 绑定到 HTTPS 端口

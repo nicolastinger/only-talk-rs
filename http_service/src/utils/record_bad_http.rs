@@ -17,7 +17,6 @@ lazy_static! {
         let mut m = HashSet::new();
         m.insert("/user/sign_up".to_string());
         m.insert("/user/sign_in".to_string());
-        m.insert("/user/test_token/get".to_string());
         RwLock::new(m)
     };
 }
@@ -35,6 +34,11 @@ pub async fn error_record_middleware(
     info!("{} 路径 {}", method, path);
     // 检查路径是否在忽略列表中
     if IGNORED_PATHS.read().unwrap().contains(&path) {
+        return next.call(req).await;
+    }
+    
+    // 检查是否是/resources开头的路径
+    if path.starts_with("/resources/") {
         return next.call(req).await;
     }
 

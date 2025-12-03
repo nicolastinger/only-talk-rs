@@ -18,3 +18,5 @@ pub static USER_READ_MSG: &str = "USER:READ:MSG:";
 pub static USER_ADD_FRIEND: &str = "USER_ADD_FRIEND_REQUEST";
 // 用户处理好友申请
 pub static USER_PROCESS_FRIEND: &str = "USER_PROCESS_FRIEND_REQUEST";
+// 用户上传文件公开目录
+pub static USER_FILE_PUBLIC_DIR: &str = "./resources/pub_file/";
