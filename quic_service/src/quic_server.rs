@@ -11,7 +11,7 @@ use tokio::sync::{Mutex, RwLock};
 use entity::{RBATIS_DATABASE, REDIS_CLIENT};
 use entity::models::chat_entity::chat_message_read::ChatMessageRecordRead;
 use entity::models::chat_entity::chat_message_record::ChatMessageRecord;
-use entity::utils::global_static_str::{MAX_QUIC_BUFFER_LEN, MAX_QUIC_SERVERS, SERVER_NAME, USER_READ_MSG};
+use entity::config_str::{MAX_QUIC_BUFFER_LEN, MAX_QUIC_SERVERS, SERVER_NAME, USER_READ_MSG};
 use entity::utils::jwt_util::decode_jwt;
 use entity::utils::redis_utils::get_redis_conn;
 use entity::utils::time::get_now_time_stamp_as_millis;

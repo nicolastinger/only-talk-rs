@@ -5,7 +5,7 @@ use rbatis::RBatis;
 use rbs::value;
 use entity::models::chat_entity::chat_message_read::ChatMessageRecordRead;
 use entity::models::chat_entity::chat_message_record::ChatMessageRecord;
-use entity::utils::global_static_str::USER_READ_MSG;
+use entity::config_str::USER_READ_MSG;
 use entity::utils::redis_utils::get_redis_conn;
 use deadpool_redis::redis::AsyncCommands;
 use crate::common::dto::base_page_dto::BasePageDTO;

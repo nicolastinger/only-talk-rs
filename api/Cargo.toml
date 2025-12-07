@@ -26,5 +26,9 @@ rustls = { workspace = true }
 serde_json = { workspace = true }
 lazy_static = { workspace = true }
 uuid = { workspace = true }
+actix-multipart = { workspace = true }
+tokio = { workspace = true }
+futures-util = { workspace = true }
+futures = "0.3.31"
 
 

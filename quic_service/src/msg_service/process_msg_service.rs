@@ -8,7 +8,7 @@ use rbatis::rbdc::{Bytes, Uuid};
 use tokio::sync::{Mutex, RwLock};
 use entity::models::chat_entity::chat_message_record::ChatMessageRecord;
 use entity::RBATIS_DATABASE;
-use entity::utils::global_static_str::{PONG, REDIS_QUIC_SERVERS, REDIS_SPLIT, SYSTEM};
+use entity::config_str::{PONG, REDIS_QUIC_SERVERS, REDIS_SPLIT, SYSTEM};
 use entity::utils::message_types;
 use entity::utils::time::get_now_time_stamp_as_millis;
 use crate::models::quic_connection::ConnectionType;

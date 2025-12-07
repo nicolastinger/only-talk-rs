@@ -20,7 +20,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use toml::Value;
 use entity::{read_config, RBATIS_DATABASE, REDIS_CLIENT};
-use entity::utils::global_static_str::USER_FILE_PUBLIC_DIR;
+use entity::config_str::USER_FILE_PUBLIC_DIR;
 use http_service;
 use http_service::utils::record_bad_http::error_record_middleware;
 use crate::controller::configure_api_routes;

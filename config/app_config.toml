@@ -1,8 +1,8 @@
 [database]
-url = "postgres://admin:REDACTED_DB_PASSWORD@@66.154.126.202:22303/postgres"
+url = "postgres://admin:REDACTED_DB_PASSWORD@@101.33.75.40:22303/postgres"
 
 [redis]
-url = "redis://:REDACTED_REDIS_PASSWORD@66.154.126.202:10279/"
+url = "redis://:REDACTED_REDIS_PASSWORD@101.33.75.40:10279/"
 
 [server]
 address="0.0.0.0:8443"

@@ -1,4 +1,3 @@
-pub mod global_static_str;
 pub mod jwt_util;
 pub mod message_types;
 pub mod redis_utils;

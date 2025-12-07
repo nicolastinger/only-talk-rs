@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::{Mutex, RwLock};
-use entity::utils::global_static_str::{PING, SYSTEM};
+use entity::config_str::{PING, SYSTEM};
 use entity::utils::jwt_util::get_jwt;
 use entity::utils::message_types;
 use crate::models::first_quic_msg::FirstQuicMsg;

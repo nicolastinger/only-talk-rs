@@ -1,5 +1,5 @@
 use log::error;
-use entity::utils::global_static_str::{REDIS_QUIC_SERVERS, REDIS_SPLIT, SYSTEM};
+use entity::config_str::{REDIS_QUIC_SERVERS, REDIS_SPLIT, SYSTEM};
 use crate::GLOBAL_QUIC_SERVER_LIST;
 use crate::models::quic_connection::ConnectionType;
 use crate::msg_service::text_msg_service::generate_text_msg;

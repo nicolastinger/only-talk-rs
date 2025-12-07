@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::net::UdpSocket;
 use tokio::signal;
-use entity::utils::global_static_str::SYSTEM;
+use entity::config_str::SYSTEM;
 use entity::utils::jwt_util::decode_jwt;
 use entity::utils::message_types;
 use entity::utils::redis_utils::{acquire_lock, get_redis_conn, release_lock};

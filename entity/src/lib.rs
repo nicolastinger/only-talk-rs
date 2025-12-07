@@ -7,6 +7,7 @@ use rbatis::RBatis;
 pub mod models;
 pub mod marcos;
 pub mod utils;
+pub mod config_str;
 
 // 创建一个quic服务器维护列表全局变量，使用 RwLock 包装，后期采用dashMap
 // 使用 lazy_static 初始化全局共享变量

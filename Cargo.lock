@@ -324,10 +324,13 @@ name = "api"
 version = "0.1.0"
 dependencies = [
  "actix-files",
+ "actix-multipart",
  "actix-web",
  "anyhow",
  "deadpool-redis",
  "entity",
+ "futures",
+ "futures-util",
  "http_service",
  "lazy_static",
  "log",
@@ -342,6 +345,7 @@ dependencies = [
  "rustls-pemfile 1.0.4",
  "serde",
  "serde_json",
+ "tokio",
  "toml",
  "uuid",
  "validator",
