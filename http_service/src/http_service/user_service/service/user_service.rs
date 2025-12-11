@@ -1,3 +1,4 @@
+use std::fmt::format;
 use crate::http_service::user_service::dto::basic_user_dto::SignInBasicUserDTO;
 use crate::http_service::user_service::dto::sign_up_basic_user_dto::SignUpBasicUserDTO;
 use crate::http_service::user_service::vo::user_info::UserInfoVO;
@@ -12,6 +13,7 @@ use entity::models::user_entity::basic_user::BasicUser;
 use entity::models::user_entity::basic_user_salt::{get_user_salt, BasicUserSalt};
 use entity::models::user_entity::user_info::UserInfo;
 use entity::{RBATIS_DATABASE, REDIS_CLIENT};
+use entity::config_str::{APP_DOMAIN, USER_DEFAULT_ICON, USER_FILE_PUBLIC};
 use entity::utils::jwt_util::get_jwt;
 use entity::utils::redis_utils::get_redis_conn;
 use entity::utils::rsa_util::{generate_random_string, hash_with_salt};
@@ -51,6 +53,9 @@ pub async fn add_new_basic_user_service(
     let random_str = generate_random_string(16);
     let password = hash_with_salt(basic_user.password.as_ref().unwrap(), &random_str);
     basic_user.password = Option::from(password);
+    let icon_url = format!("{}{}/{}", APP_DOMAIN, USER_FILE_PUBLIC, USER_DEFAULT_ICON);
+    basic_user.icon = Some(icon_url);
+    basic_user.info = Some("".to_string());
 
     let account_ref: &str = basic_user
         .account
@@ -67,12 +72,13 @@ pub async fn add_new_basic_user_service(
                     uuid: basic_user.uuid.clone(),
                     sign_up_salt: Option::from(random_str),
                 };
+                
                 let user_info = UserInfo {
                     uuid: basic_user.uuid.clone(),
                     gender: None,
-                    age: None,
-                    birthday: None,
-                    note: None,
+                    age: Some(0),
+                    birthday: Some(0),
+                    note: Some("这个人很勤快，但什么都没写".to_string()),
                     created_at: Some(now),
                     updated_at: Some(now),
                     phone: None,

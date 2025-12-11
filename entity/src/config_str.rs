@@ -20,3 +20,9 @@ pub static USER_ADD_FRIEND: &str = "USER_ADD_FRIEND_REQUEST";
 pub static USER_PROCESS_FRIEND: &str = "USER_PROCESS_FRIEND_REQUEST";
 // 用户上传文件公开目录
 pub static USER_FILE_PUBLIC_DIR: &str = "./resources/pub_file/";
+// 用户上传文件公开路径
+pub static USER_FILE_PUBLIC: &str = "/resources";
+// 默认用户头像
+pub static USER_DEFAULT_ICON: &str = "73983c6e-2f52-4fe5-95e8-f4302abc223d.jpg";
+// 应用域名
+pub static APP_DOMAIN: &str = "https://onlytalk.cn:8443";

@@ -358,12 +358,8 @@ CREATE TABLE user_info (
                            gender int4 DEFAULT 0 NULL, -- 性别
                            age int2 NULL, -- 年龄
                            birthday int8 DEFAULT 0 NULL,
-                           create_at int8 NULL, -- 创建时间
-                           update_at int8 NULL, -- 更新时间
-                           last_login_at int8 NULL, -- 最后一次登录时间
-                           last_login_equipment varchar NULL, -- 最后一次登陆设备
-                           last_login_ipv4 varchar NULL, -- 最后一次登录ip
-                           last_login_ipv6 varchar NULL, -- 最后一次登录ip
+                           created_at int8 NULL, -- 创建时间
+                           updated_at int8 NULL, -- 更新时间
                            phone varchar NULL, -- 手机号
                            email varchar NULL, -- 邮箱
                            address varchar NULL, -- 地址
@@ -377,12 +373,8 @@ CREATE TABLE user_info (
 COMMENT ON COLUMN public.user_info."uuid" IS '主键';
 COMMENT ON COLUMN public.user_info.gender IS '性别';
 COMMENT ON COLUMN public.user_info.age IS '年龄';
-COMMENT ON COLUMN public.user_info.create_at IS '创建时间';
-COMMENT ON COLUMN public.user_info.update_at IS '更新时间';
-COMMENT ON COLUMN public.user_info.last_login_at IS '最后一次登录时间';
-COMMENT ON COLUMN public.user_info.last_login_equipment IS '最后一次登陆设备';
-COMMENT ON COLUMN public.user_info.last_login_ipv4 IS '最后一次登录ip';
-COMMENT ON COLUMN public.user_info.last_login_ipv6 IS '最后一次登录ip';
+COMMENT ON COLUMN public.user_info.created_at IS '创建时间';
+COMMENT ON COLUMN public.user_info.updated_at IS '更新时间';
 COMMENT ON COLUMN public.user_info.phone IS '手机号';
 COMMENT ON COLUMN public.user_info.email IS '邮箱';
 COMMENT ON COLUMN public.user_info.address IS '地址';
@@ -690,12 +682,6 @@ CREATE TABLE user_info (
 COMMENT ON COLUMN public.user_info."uuid" IS '主键';
 COMMENT ON COLUMN public.user_info.gender IS '性别';
 COMMENT ON COLUMN public.user_info.age IS '年龄';
-COMMENT ON COLUMN public.user_info.create_at IS '创建时间';
-COMMENT ON COLUMN public.user_info.update_at IS '更新时间';
-COMMENT ON COLUMN public.user_info.last_login_at IS '最后一次登录时间';
-COMMENT ON COLUMN public.user_info.last_login_equipment IS '最后一次登陆设备';
-COMMENT ON COLUMN public.user_info.last_login_ipv4 IS '最后一次登录ip';
-COMMENT ON COLUMN public.user_info.last_login_ipv6 IS '最后一次登录ip';
 COMMENT ON COLUMN public.user_info.phone IS '手机号';
 COMMENT ON COLUMN public.user_info.email IS '邮箱';
 COMMENT ON COLUMN public.user_info.address IS '地址';

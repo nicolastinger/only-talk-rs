@@ -20,7 +20,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use toml::Value;
 use entity::{read_config, RBATIS_DATABASE, REDIS_CLIENT};
-use entity::config_str::USER_FILE_PUBLIC_DIR;
+use entity::config_str::{USER_FILE_PUBLIC, USER_FILE_PUBLIC_DIR};
 use http_service;
 use http_service::utils::record_bad_http::error_record_middleware;
 use crate::controller::configure_api_routes;
@@ -154,7 +154,7 @@ pub async fn start_server() -> anyhow::Result<()> {
             .configure(http_service::http_service::configure_routes)
             .configure(configure_api_routes)
             // 静态文件服务，用于访问公开文件夹
-            .service(Files::new("/resources", USER_FILE_PUBLIC_DIR).show_files_listing())
+            .service(Files::new(USER_FILE_PUBLIC, USER_FILE_PUBLIC_DIR).show_files_listing())
         // 这里可以继续添加其他路由
     })
     .bind_rustls_021(address, config)? // 绑定到 HTTPS 端口
