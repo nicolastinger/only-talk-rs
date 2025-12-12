@@ -6,7 +6,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use quinn::{ClientConfig, Endpoint, ServerConfig, TransportConfig};
 use rustls::{Certificate, PrivateKey, RootCertStore};
-use rustls_pemfile::{certs, ec_private_keys, rsa_private_keys};
+use rustls_pemfile::{certs, ec_private_keys, rsa_private_keys ,pkcs8_private_keys};
+use std::io::{Seek, SeekFrom};
 
 /// 配置客户端使用的QUIC设置。
 #[allow(dead_code)]
@@ -14,18 +15,6 @@ pub fn configure_client() -> ClientConfig {
     // 构建TLS配置，使用安全默认值，信任系统证书库
     let mut root_store = RootCertStore::empty();
 
-    let mut cert_file2 = BufReader::new(
-        File::open("./config/TLS/DigiCertGlobalRootCA.crt.pem").expect("打开pem文件失败"),
-    );
-    let ca_certs: Vec<Certificate> = certs(&mut cert_file2)
-        .map(|certs| certs.into_iter().map(Certificate).collect())
-        .map_err(|_| "无法解析证书文件")
-        .expect("解析失败");
-
-    // 添加CA证书到根证书存储
-    for cert in ca_certs {
-        root_store.add(&cert).expect("存储证书失败");
-    }
 
     let crypto = rustls::ClientConfig::builder()
         .with_safe_defaults()
@@ -58,17 +47,57 @@ pub fn make_server_endpoint(bind_addr: SocketAddr) -> Result<(Endpoint, Vec<u8>)
 pub fn configure_server() -> Result<(ServerConfig, Vec<u8>), Box<dyn Error>> {
     // 从.pem文件加载证书
     let mut cert_file =
-        BufReader::new(File::open("./config/TLS/onlytalk.cn.pem").expect("打开pem文件失败"));
+        BufReader::new(File::open("./config/ssl/fullchain.pem").expect("打开pem文件失败"));
     let cert_chain: Vec<Certificate> = certs(&mut cert_file)
         .map(|certs| certs.into_iter().map(Certificate).collect())
         .map_err(|_| "无法解析证书文件")?;
 
     // 从.key文件加载私钥
-    let mut key_file =
-        BufReader::new(File::open("./config/TLS/onlytalk.cn.key").expect("打开key文件失败"));
-    let mut keys = rsa_private_keys(&mut key_file)
-        .or_else(|_| ec_private_keys(&mut key_file))
-        .map_err(|_| "无法解析私钥文件")?;
+     let key_file =
+        &mut BufReader::new(File::open("./config/ssl/privkey.pem").expect("找不到TLS证书密钥"));
+
+    // 尝试读取不同类型的私钥
+    let mut keys = {
+        // 读取RSA私钥
+        key_file.seek(SeekFrom::Start(0)).expect("无法重置文件读取位置");
+        if let Ok(keys) = rsa_private_keys(key_file) {
+            if !keys.is_empty() {
+                keys
+            } else {
+                // 读取EC私钥
+                key_file.seek(SeekFrom::Start(0)).expect("无法重置文件读取位置");
+                if let Ok(keys) = ec_private_keys(key_file) {
+                    if !keys.is_empty() {
+                        keys
+                    } else {
+                        // 读取PKCS8私钥
+                        key_file.seek(SeekFrom::Start(0)).expect("无法重置文件读取位置");
+                        pkcs8_private_keys(key_file).expect("无法读取私钥")
+                    }
+                } else {
+                    // 读取PKCS8私钥
+                    key_file.seek(SeekFrom::Start(0)).expect("无法重置文件读取位置");
+                    pkcs8_private_keys(key_file).expect("无法读取私钥")
+                }
+            }
+        } else {
+            // 读取EC私钥
+            key_file.seek(SeekFrom::Start(0)).expect("无法重置文件读取位置");
+            if let Ok(keys) = ec_private_keys(key_file) {
+                if !keys.is_empty() {
+                    keys
+                } else {
+                    // 读取PKCS8私钥
+                    key_file.seek(SeekFrom::Start(0)).expect("无法重置文件读取位置");
+                    pkcs8_private_keys(key_file).expect("无法读取私钥")
+                }
+            } else {
+                // 读取PKCS8私钥
+                key_file.seek(SeekFrom::Start(0)).expect("无法重置文件读取位置");
+                pkcs8_private_keys(key_file).expect("无法读取私钥")
+            }
+        }
+    };
     if keys.is_empty() {
         return Err("私钥文件为空".into());
     }

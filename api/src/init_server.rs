@@ -11,7 +11,7 @@ use rbdc_pg::options::PgConnectOptions;
 use rbdc_pg::PgDriver;
 use rbdc_pool_fast::FastPool;
 use rustls::{Certificate, PrivateKey, ServerConfig};
-use rustls_pemfile::{certs, ec_private_keys, rsa_private_keys};
+use rustls_pemfile::{certs, ec_private_keys, pkcs8_private_keys, rsa_private_keys};
 use std::collections::HashMap;
 use std::fs;
 use std::fs::File;
@@ -42,9 +42,9 @@ fn init_redis(url: &str) -> Pool {
 fn init_cert_file() -> (Vec<Certificate>, PrivateKey) {
     // 加载证书
     let cert_file =
-        &mut BufReader::new(File::open("./config/TLS/onlytalk.cn.pem").expect("找不到TLS证书"));
+        &mut BufReader::new(File::open("./config/ssl/fullchain.pem").expect("找不到TLS证书"));
     let key_file =
-        &mut BufReader::new(File::open("./config/TLS/onlytalk.cn.key").expect("找不到TLS证书密钥"));
+        &mut BufReader::new(File::open("./config/ssl/privkey.pem").expect("找不到TLS证书密钥"));
 
     // 读取证书链
     let cert_chain = match certs(cert_file) {
@@ -57,21 +57,48 @@ fn init_cert_file() -> (Vec<Certificate>, PrivateKey) {
         }
     };
 
-    // 读取私钥
-    let mut key_content = String::new();
-    key_file.read_to_string(&mut key_content).unwrap();
-
-    key_file
-        .seek(SeekFrom::Start(0))
-        .expect("无法重置文件读取位置");
-
-    // 从.key文件加载私钥
-    let mut key_file =
-        BufReader::new(File::open("./config/TLS/onlytalk.cn.key").expect("打开key文件失败"));
-    let mut keys = rsa_private_keys(&mut key_file)
-        .or_else(|_| ec_private_keys(&mut key_file))
-        .map_err(|_| "无法解析私钥文件")
-        .unwrap();
+    // 尝试读取不同类型的私钥
+    let mut keys = {
+        // 读取RSA私钥
+        key_file.seek(SeekFrom::Start(0)).expect("无法重置文件读取位置");
+        if let Ok(keys) = rsa_private_keys(key_file) {
+            if !keys.is_empty() {
+                keys
+            } else {
+                // 读取EC私钥
+                key_file.seek(SeekFrom::Start(0)).expect("无法重置文件读取位置");
+                if let Ok(keys) = ec_private_keys(key_file) {
+                    if !keys.is_empty() {
+                        keys
+                    } else {
+                        // 读取PKCS8私钥
+                        key_file.seek(SeekFrom::Start(0)).expect("无法重置文件读取位置");
+                        pkcs8_private_keys(key_file).expect("无法读取私钥")
+                    }
+                } else {
+                    // 读取PKCS8私钥
+                    key_file.seek(SeekFrom::Start(0)).expect("无法重置文件读取位置");
+                    pkcs8_private_keys(key_file).expect("无法读取私钥")
+                }
+            }
+        } else {
+            // 读取EC私钥
+            key_file.seek(SeekFrom::Start(0)).expect("无法重置文件读取位置");
+            if let Ok(keys) = ec_private_keys(key_file) {
+                if !keys.is_empty() {
+                    keys
+                } else {
+                    // 读取PKCS8私钥
+                    key_file.seek(SeekFrom::Start(0)).expect("无法重置文件读取位置");
+                    pkcs8_private_keys(key_file).expect("无法读取私钥")
+                }
+            } else {
+                // 读取PKCS8私钥
+                key_file.seek(SeekFrom::Start(0)).expect("无法重置文件读取位置");
+                pkcs8_private_keys(key_file).expect("无法读取私钥")
+            }
+        }
+    };
 
     if keys.is_empty() {
         panic!("私钥文件中没有找到有效的私钥");
