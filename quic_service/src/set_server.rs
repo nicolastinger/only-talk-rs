@@ -14,7 +14,17 @@ use std::io::{Seek, SeekFrom};
 pub fn configure_client() -> ClientConfig {
     // 构建TLS配置，使用安全默认值，信任系统证书库
     let mut root_store = RootCertStore::empty();
-
+    // 添加Let's Encrypt根证书到信任存储
+    // 这将允许客户端验证Let's Encrypt颁发的证书
+    root_store.add_trust_anchors(
+        webpki_roots::TLS_SERVER_ROOTS.iter().map(|ta| {
+            rustls::OwnedTrustAnchor::from_subject_spki_name_constraints(
+                ta.subject.as_ref().to_vec(), 
+                ta.subject_public_key_info.as_ref().to_vec(),
+                ta.name_constraints.as_ref().map(|nc| nc.as_ref().to_vec())
+            )
+        })
+    );
 
     let crypto = rustls::ClientConfig::builder()
         .with_safe_defaults()

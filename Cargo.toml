@@ -24,6 +24,7 @@ path = "api"
 [workspace.dependencies]
 quinn = {version = "0.10.2"}
 rustls = { version = "0.21" }
+webpki-roots = "0.26"
 jsonwebtoken = "8.0"  # 请根据最新版本调整
 tokio ={ version = "1.0.0",features = ["full"]}
 serde_json = "1.0.128"

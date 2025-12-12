@@ -1933,6 +1933,7 @@ dependencies = [
  "tokio",
  "toml",
  "validator",
+ "webpki-roots 0.26.11",
 ]
 
 [[package]]
