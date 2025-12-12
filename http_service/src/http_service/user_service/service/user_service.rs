@@ -87,9 +87,9 @@ pub async fn add_new_basic_user_service(
                     status: None,
                 };
 
-                BasicUserSalt::insert(rb, &basic_user_salt).await?;
-                BasicUser::insert(rb, &basic_user).await?;
-                UserInfo::insert(rb, &user_info).await?;
+                BasicUserSalt::insert(&tx, &basic_user_salt).await?;
+                BasicUser::insert(&tx, &basic_user).await?;
+                UserInfo::insert(&tx, &user_info).await?;
 
                 tx.commit().await?;
                 Ok(())
@@ -99,6 +99,7 @@ pub async fn add_new_basic_user_service(
             // 如果事务中有错误，回滚事务
             if result.is_err() {
                 let _ = tx.rollback().await;
+                return Err(anyhow!("事务执行错误"));
             }
             Ok(CommonResponseNoDataRef::success_empty())
         }

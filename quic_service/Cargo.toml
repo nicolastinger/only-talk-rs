@@ -6,7 +6,6 @@ edition = "2024"
 [dependencies]
 entity = { path = "../entity" }
 serde = { workspace = true }
-webpki-roots = { workspace = true }
 rbatis = { workspace = true }
 validator = { workspace = true }
 anyhow = { workspace = true }
