@@ -23,3 +23,4 @@ crc-catalog = { workspace = true }
 bincode = { workspace = true }
 toml = { workspace = true }
 deadpool-redis = "0.18.0"
+webpki-roots = { workspace = true }

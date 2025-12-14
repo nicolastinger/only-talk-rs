@@ -1,18 +1,14 @@
 use crate::http_service::user_service::dto::basic_user_dto::SignInBasicUserDTO;
 use crate::http_service::user_service::service::user_service::{
-    add_new_basic_user_service, add_p2p_token_service, get_exit_user, get_user_info_by_account,
-    get_user_info_by_uuid, get_user_uuid_by_account_service, test_sql, user_sign_in,
-    verify_p2p_token_service,
+    add_new_basic_user_service, get_exit_user, get_user_info_by_account,
+    get_user_info_by_uuid, get_user_uuid_by_account_service, user_sign_in
 };
-use actix_web::{get, post, web, HttpRequest, HttpResponse, Responder};
-use deadpool_redis::redis::{cmd, RedisResult};
-use deadpool_redis::Pool;
+use actix_web::{post, web, HttpRequest, HttpResponse, Responder};
 use log::{error, info};
 use rbatis::RBatis;
-use entity::utils::jwt_util::{decode_jwt, get_jwt};
 use crate::http_service::user_service::dto::sign_up_basic_user_dto::SignUpBasicUserDTO;
 use crate::utils::http_response::CommonResponse;
-use crate::{get_uuid_from_header, respond_json, respond_json_any, serde_json_to_string, validate_and_respond};
+use crate::{get_uuid_from_header, respond_json_any, validate_and_respond};
 use crate::utils::http_response::CommonResponseNoDataRef;
 use crate::common::dto::base_dto::AuthAccount;
 

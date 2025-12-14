@@ -1,4 +1,3 @@
-use std::fmt::format;
 use crate::http_service::user_service::dto::basic_user_dto::SignInBasicUserDTO;
 use crate::http_service::user_service::dto::sign_up_basic_user_dto::SignUpBasicUserDTO;
 use crate::http_service::user_service::vo::user_info::UserInfoVO;

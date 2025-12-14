@@ -1933,7 +1933,7 @@ dependencies = [
  "tokio",
  "toml",
  "validator",
- "webpki-roots 0.26.11",
+ "webpki-roots 1.0.4",
 ]
 
 [[package]]
@@ -2386,6 +2386,7 @@ dependencies = [
  "toml",
  "uuid",
  "validator",
+ "webpki-roots 1.0.4",
 ]
 
 [[package]]
@@ -3310,14 +3311,14 @@ version = "0.26.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "521bc38abb08001b01866da9f51eb7c5d647a19260e00054a8c7fd5f9e57f7a9"
 dependencies = [
- "webpki-roots 1.0.1",
+ "webpki-roots 1.0.4",
 ]
 
 [[package]]
 name = "webpki-roots"
-version = "1.0.1"
+version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8782dd5a41a24eed3a4f40b606249b3e236ca61adf1f25ea4d45c73de122b502"
+checksum = "b2878ef029c47c6e8cf779119f20fcf52bde7ad42a731b2a304bc221df17571e"
 dependencies = [
  "rustls-pki-types",
 ]

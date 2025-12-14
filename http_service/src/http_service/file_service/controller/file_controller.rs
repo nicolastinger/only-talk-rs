@@ -1,10 +1,7 @@
 use std::fs;
 use actix_multipart::Multipart;
-use actix_web::{get, post, web, HttpMessage, HttpRequest, HttpResponse, Responder};
-use deadpool_redis::Pool;
+use actix_web::{post, web, HttpResponse, Responder};
 use entity::config_str::USER_FILE_PUBLIC_DIR;
-use crate::http_service;
-use crate::http_service::file_service::service::file_service::save_file_to_local;
 
 pub fn file_service(cfg: &mut web::ServiceConfig) {
     cfg

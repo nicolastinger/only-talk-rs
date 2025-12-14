@@ -15,7 +15,7 @@ use rustls_pemfile::{certs, ec_private_keys, pkcs8_private_keys, rsa_private_key
 use std::collections::HashMap;
 use std::fs;
 use std::fs::File;
-use std::io::{BufReader, Read, Seek, SeekFrom};
+use std::io::{BufReader, Seek, SeekFrom};
 use std::sync::Arc;
 use std::time::Duration;
 use toml::Value;

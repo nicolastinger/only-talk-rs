@@ -1,5 +1,4 @@
 use actix_web::web;
-use crate::http_service::file_service::controller::file_controller;
 use crate::http_service::file_service::controller::file_controller::file_service;
 
 pub mod controller;

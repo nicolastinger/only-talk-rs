@@ -24,7 +24,6 @@ path = "api"
 [workspace.dependencies]
 quinn = {version = "0.10.2"}
 rustls = { version = "0.21" }
-webpki-roots = "0.26"
 jsonwebtoken = "8.0"  # 请根据最新版本调整
 tokio ={ version = "1.0.0",features = ["full"]}
 serde_json = "1.0.128"
@@ -57,6 +56,7 @@ nanoid = "0.4.0"
 async-trait = "0.1.89"
 actix-multipart = "0.6"
 futures-util = "0.3"
+webpki-roots = "1.0.2"
 
 [dependencies]
 quinn = {workspace = true}
@@ -90,3 +90,4 @@ crc = { workspace = true }
 crc-catalog = { workspace = true }
 nanoid = { workspace = true }
 async-trait = { workspace = true }
+webpki-roots = { workspace = true }
