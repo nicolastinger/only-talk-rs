@@ -11,3 +11,5 @@ locales="zh-CN"
 [quic_server]
 address="0.0.0.0:4433"
 
+[file_upload]
+max_file_size = 10485760  # 10MB in bytes

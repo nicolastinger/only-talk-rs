@@ -3,8 +3,32 @@ use actix_multipart::Multipart;
 use futures::{TryStreamExt, StreamExt};
 use tokio::{fs::File, io::AsyncWriteExt};
 use std::path::PathBuf;
+use anyhow::anyhow;
+use rbatis::RBatis;
 use uuid::Uuid;
 use entity::config_str::USER_FILE_PUBLIC_DIR;
+use http_service::http_service::file_service::service::biz_service::create_avatar_biz;
+use http_service::http_service::file_service::service::file_service::upload_file_local;
+use http_service::http_service::user_service::service::user_service::update_user_avatar;
+use http_service::utils::http_response::CommonResponseNoDataRef;
+
+/// 用户头像上传
+pub async fn upload_user_avatar(rb: &RBatis, uuid: Option<String>, payload: Multipart) -> Result<String, anyhow::Error> {
+    let uuid = uuid.ok_or(anyhow!("用户ID不能为空"))?;
+    // 1. 保存文件到本地
+    let res = upload_file_local(rb, uuid, payload).await?;
+    let first_file = res.into_iter().next().ok_or(anyhow!("未找到上传文件"))?;
+    
+    // 2. 保存业务信息
+    let biz_record = create_avatar_biz(rb, first_file).await?;
+    
+    // 3. 更新用户头像
+    let biz_id = biz_record.uuid.ok_or(anyhow!("用户id为空"))?.to_string();
+    let user_id = biz_record.created_by.ok_or(anyhow!("用户id为空"))?;
+    update_user_avatar(rb, biz_id, user_id).await?;
+    
+    Ok(CommonResponseNoDataRef::success_empty())
+}
 
 
 // 确保目录存在
@@ -16,7 +40,7 @@ async fn create_upload_dir() -> std::io::Result<()> {
  * 处理文件上传请求
  * @param payload: Multipart，包含所有表单字段和文件
  */
-pub async fn upload_file_local(mut payload: Multipart) -> impl Responder {
+pub async fn upload_file_local_(mut payload: Multipart) -> impl Responder {
     // 确保上传目录存在
     if let Err(e) = create_upload_dir().await {
         eprintln!("无法创建上传目录: {}", e);

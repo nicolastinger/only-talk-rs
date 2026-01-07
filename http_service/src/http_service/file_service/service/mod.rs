@@ -1,2 +1,2 @@
 pub mod file_service;
-mod biz_service;
+pub mod biz_service;

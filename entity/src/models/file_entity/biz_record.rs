@@ -14,16 +14,18 @@ pub struct BizRecord {
     /// 业务描述
     pub description: Option<String>,
     /// 关联的文件UUID
-    pub file_uuid: Option<Uuid>,
+    pub file_ids: Option<String>,
     /// 创建用户UUID
-    pub creator_uuid: Option<Uuid>,
+    pub created_by: Option<Uuid>,
     /// 创建时间（Unix时间戳，毫秒）
-    pub create_time: Option<i64>,
+    pub created_at: Option<i64>,
     /// 更新时间（Unix时间戳，毫秒）
-    pub update_time: Option<i64>,
+    pub updated_at: Option<i64>,
     /// 业务状态（0-正常，1-已禁用，2-已删除）
     pub status: Option<i32>,
-    /// 业务类型
+    /// 审批状态(0-待处理,1-已通过,2-已拒绝)
+    pub approve_status: Option<i32>,
+    /// 业务类型(头像、身份证、用户背景)
     pub biz_type: Option<String>,
     /// 备注信息
     pub remark: Option<String>,

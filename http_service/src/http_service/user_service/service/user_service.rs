@@ -4,7 +4,7 @@ use crate::http_service::user_service::vo::user_info::UserInfoVO;
 use anyhow::anyhow;
 use deadpool_redis::redis::{cmd, RedisResult};
 use log::{error, info};
-use rbatis::RBatis;
+use rbatis::{rbdc, RBatis};
 use rbs::value;
 use std::str::FromStr;
 use uuid::Uuid;
@@ -13,6 +13,7 @@ use entity::models::user_entity::basic_user_salt::{get_user_salt, BasicUserSalt}
 use entity::models::user_entity::user_info::UserInfo;
 use entity::{RBATIS_DATABASE, REDIS_CLIENT};
 use entity::config_str::{APP_DOMAIN, USER_DEFAULT_ICON, USER_FILE_PUBLIC};
+use entity::models::file_entity::biz_record::BizRecord;
 use entity::utils::jwt_util::get_jwt;
 use entity::utils::redis_utils::get_redis_conn;
 use entity::utils::rsa_util::{generate_random_string, hash_with_salt};
@@ -275,8 +276,17 @@ pub async fn add_p2p_token_service(
     Ok(CommonResponseNoDataRef::success_empty())
 }
 
+pub async fn update_user_avatar(rb: &RBatis, biz_id: String, user_id: rbdc::types::uuid::Uuid) -> Result<(),  anyhow::Error> {
+    let mut basic_user = BasicUser::select_by_uuid(rb, &user_id).await?.ok_or(anyhow!("用户不存在"))?;
+    basic_user.icon = Some(biz_id);
+    BasicUser::update_by_map(rb, &basic_user, value!{ "uuid": &user_id }).await?;
+
+    Ok(())
+}
+
 // pub async fn search_user_info() -> Result<String, anyhow::Error> {
 //     let rb = RBATIS_DATABASE.read().await;
 //     let rb = rb.as_ref().ok_or(anyhow!("获取连接失败"))?;
 //     // 动态构建查询条件
 //  }
+

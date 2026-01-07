@@ -19,6 +19,7 @@ impl_select!(BasicUser{select_all_by_id(username:&str,account:&str) => "`where i
 impl_select!(BasicUser{select_by_account(account:&str) -> Option => "`where account = #{account} limit 1`"});
 impl_select!(BasicUser{select_by_uuid(uuid:&Uuid) -> Option => "`where uuid = #{uuid} limit 1`"});
 impl_update!(BasicUser{update_by_name(name:&str) => "`where id = 1`"});
+impl_update!(BasicUser{update_by_icon(icon:&str) => "`where id = 1`"});
 impl_delete!(BasicUser {delete_by_name(name:&str) => "`where name= '2'`"});
 impl_select_page!(BasicUser{select_page(name:&str) => "`where name != #{name}`"});
 
