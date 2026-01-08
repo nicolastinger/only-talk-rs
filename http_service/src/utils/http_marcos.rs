@@ -59,7 +59,7 @@ macro_rules! respond_json {
     ($model:expr) => {{
         match $model {
             Ok(t) => actix_web::HttpResponse::Ok().body(t),
-            Err(t) => HttpResponse::BadRequest().body(t),
+            Err(t) => actix_web::HttpResponse::BadRequest().body(t),
         }
     }};
 }
@@ -69,9 +69,8 @@ macro_rules! respond_json_any {
     ($model:expr) => {{
         use actix_web::HttpResponse;
         match $model {
-            Ok(t) => actix_web::HttpResponse::Ok().body(t),
+            Ok(t) => HttpResponse::Ok().body(t),
             Err(t) => {
-
                 use log::error;
                 error!("err_context {:?}", t);
                 error!("{}", t.backtrace());

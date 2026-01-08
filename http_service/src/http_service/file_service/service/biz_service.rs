@@ -1,5 +1,5 @@
 use rbatis::rbdc::types::Uuid as RbdcUuid;
-use rbatis::RBatis;
+use rbatis::{rbdc, RBatis};
 use entity::models::file_entity::biz_record::BizRecord;
 use entity::utils::time::get_now_time_stamp_as_millis;
 use std::str::FromStr;
@@ -36,5 +36,16 @@ pub async fn create_avatar_biz(rb: &RBatis, file_upload_record: FileUploadRecord
     
     // 将业务记录插入数据库
     BizRecord::insert(rb, &biz_record).await?;
+    Ok(biz_record)
+}
+
+/**
+ * 通过业务id获取文件记录信息
+ * @param biz_id: 业务id
+ */
+pub async fn get_pub_file_record_by_biz_id(rb: &RBatis, biz_id: &str) -> Result<BizRecord, anyhow::Error> {
+    // 通过业务id查询文件记录信息
+    let biz_id = rbdc::Uuid::from_str(biz_id)?;
+    let biz_record = BizRecord::select_by_uuid(rb, &biz_id).await?.ok_or(anyhow!("未找到对应的文件记录信息"))?;
     Ok(biz_record)
 }

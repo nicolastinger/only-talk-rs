@@ -21,3 +21,17 @@ pub async fn download_file_api(
         .insert_header(("Content-Disposition", format!("attachment; filename=hello.jpg")))
         .body(file_content)
 }
+
+#[post("/download_file_by_biz/{biz_id}")]
+pub async fn download_file_by_biz_api(
+    db: web::Data<rbatis::RBatis>,
+    biz_id: web::Path<String>,
+) -> impl Responder {
+    let test_icon_path =  format!("{}{}", USER_FILE_PUBLIC_DIR, "kun.webp");
+    let file_content = fs::read(test_icon_path).expect("Failed to read file");
+    // 返回文件内容作为二进制响应
+    HttpResponse::Ok()
+        .content_type("image/webp")
+        .insert_header(("Content-Disposition", format!("attachment; filename=hello.jpg")))
+        .body(file_content)
+}

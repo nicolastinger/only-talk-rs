@@ -4,10 +4,11 @@ use actix_multipart::Multipart;
 use actix_web::{HttpResponse, Responder};
 use anyhow::anyhow;
 use futures_util::{StreamExt, TryStreamExt};
-use log::{error, info};
+use log::{error, info, warn};
 use rbatis::{rbdc, RBatis};
 use rbatis::rbdc::rt::fs::File;
 use rbatis::rbdc::rt::{tokio, AsyncWriteExt};
+use rbs::value;
 use uuid::Uuid;
 use sha2::{Sha256, Digest};
 use entity::config_str::{USER_FILE_PUBLIC_DIR, DEFAULT_MAX_FILE_SIZE};
@@ -98,12 +99,15 @@ pub async fn upload_file_local(rb: &RBatis,user_id: String, mut payload: Multipa
                 }
             }
 
-            let now = get_now_time_stamp_as_millis()?;
             // 计算最终的哈希值
             let hash_result = hasher.finalize();
             let file_hash = format!("{:x}", hash_result);
 
-            let file_upload_record = FileUploadRecord {
+            // 查询是否有重复文件（相同哈希值和大小）
+            let file_upload_record_exist = FileUploadRecord::select_by_map(rb, value! {"file_size": file_size, "file_hash": &file_hash}).await?;
+
+            let now = get_now_time_stamp_as_millis()?;
+            let mut file_upload_record = FileUploadRecord {
                 id: None,
                 uuid: Some(rbdc::types::uuid::Uuid::from_str(&uuid_v4_str)?),
                 original_name: Some(filename.to_string()),
@@ -121,9 +125,29 @@ pub async fn upload_file_local(rb: &RBatis,user_id: String, mut payload: Multipa
                 is_oss: Some(0),
                 oss_type: None,
             };
-            FileUploadRecord::insert(rb, &file_upload_record).await?;
 
+            if file_upload_record_exist.len() > 0 {
+                warn!("文件已存在: {}", filename);
+                // 如果文件已存在，则删除刚上传的临时文件
+                if tokio::fs::try_exists(&filepath).await.unwrap_or(false) {
+                    if let Err(e) = tokio::fs::remove_file(&filepath).await {
+                        error!("删除重复文件失败: {}", e);
+                    }
+                }
+                
+                // 使用已存在的文件记录
+                let exist_record = file_upload_record_exist[0].clone();
+                file_upload_record.file_path = exist_record.file_path;
+                file_upload_record.file_size = exist_record.file_size;
+                file_upload_record.file_hash = exist_record.file_hash;
+                file_upload_record.mime_type = exist_record.mime_type;
+                file_upload_record.original_name = exist_record.original_name;
+                file_upload_record.stored_name = exist_record.stored_name;
+            }
+
+            FileUploadRecord::insert(rb, &file_upload_record).await?;
             file_upload_records.push(file_upload_record);
+
         }
     }
 
@@ -193,4 +217,40 @@ pub fn validate_file_type(file_name: &str, mime_type: Option<&str>) -> Result<()
     }
 
     Ok(())
+}
+
+/** 
+ * 记录用户下载文件操作
+ * @param file_id: 文件id
+ * @param user_id: 用户id
+ * TODO
+ */
+
+
+/**
+ * 通过文件id获取文件详情
+ * @param file_id: 文件id
+ */
+pub async fn get_file_record_by_id(rb: &RBatis, file_id: &str) -> Result<FileUploadRecord, anyhow::Error> {
+    let file_id = rbdc::types::uuid::Uuid::from_str(file_id)?;
+    let mut file_record = FileUploadRecord::select_by_map(rb, value! {"uuid": &file_id}).await?.pop().ok_or(anyhow!("文件不存在"))?;
+    
+    // 更新文件下载次数
+    file_record.download_count = Option::from(file_record.download_count.unwrap_or(0) + 1);
+    file_record.last_download_time = Option::from(get_now_time_stamp_as_millis()?);
+    FileUploadRecord::update_by_map(rb, &file_record,value! {"uuid": &file_id}).await?;
+    Ok(file_record)
+}
+
+/**
+ * 通过文件路径获取文件，公开文件
+ * @param file_path: 文件路径
+ */
+pub async fn get_file_by_path(file_path: &str) -> Result<File, anyhow::Error> {
+    // 检查文件是否以公开路径开头
+    let is_pub = file_path.starts_with(USER_FILE_PUBLIC_DIR);
+    if !is_pub {
+        return Err(anyhow!("文件路径错误"));
+    }
+    Ok(File::open(file_path).await?)
 }
