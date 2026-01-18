@@ -246,11 +246,34 @@ pub async fn get_file_record_by_id(rb: &RBatis, file_id: &str) -> Result<FileUpl
  * 通过文件路径获取文件，公开文件
  * @param file_path: 文件路径
  */
-pub async fn get_file_by_path(file_path: &str) -> Result<File, anyhow::Error> {
+pub async fn get_file_by_path(file_path: &str) -> Result<Option<File>, anyhow::Error> {
     // 检查文件是否以公开路径开头
     let is_pub = file_path.starts_with(USER_FILE_PUBLIC_DIR);
     if !is_pub {
         return Err(anyhow!("文件路径错误"));
     }
-    Ok(File::open(file_path).await?)
+    
+    // 检查文件是否存在
+    if !tokio::fs::try_exists(file_path).await.unwrap_or(false) {
+        return Ok(None);
+    }
+    
+    // 获取文件元数据以检查文件大小
+    let metadata = tokio::fs::metadata(file_path).await.map_err(|e| anyhow!(e))?;
+    
+    // 如果文件大小为0，则返回None
+    if metadata.len() == 0 {
+        return Ok(None);
+    }
+    
+    let file = File::open(file_path).await;
+    match file { 
+        Ok(file) => {
+            Ok(Some(file))
+        },
+        Err(e) => {
+            // 对于除文件不存在或空文件之外的其他错误，应该返回错误
+            Err(anyhow!(e))
+        }
+    }
 }

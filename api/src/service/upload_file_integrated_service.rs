@@ -12,7 +12,7 @@ use entity::config_str::USER_FILE_PUBLIC_DIR;
 use http_service::http_service::file_service::service::biz_service::{create_avatar_biz, get_pub_file_record_by_biz_id};
 use http_service::http_service::file_service::service::file_service::{get_file_by_path, get_file_record_by_id, upload_file_local};
 use http_service::http_service::user_service::service::user_service::update_user_avatar;
-use http_service::utils::http_response::CommonResponseNoDataRef;
+use http_service::utils::http_response::{CommonResponseNoDataRef, CommonResponseRef};
 
 /// 用户头像上传
 pub async fn upload_user_avatar(rb: &RBatis, uuid: Option<String>, payload: Multipart) -> Result<String, anyhow::Error> {
@@ -33,15 +33,27 @@ pub async fn upload_user_avatar(rb: &RBatis, uuid: Option<String>, payload: Mult
 }
 
 /// 用户头像下载
-pub async fn download_user_avatar(rb: &RBatis, uuid: Option<String>, biz_id: String) -> Result<HttpResponse, anyhow::Error> {
-    let uuid = uuid.ok_or(anyhow!("用户ID不能为空"))?;
+pub async fn download_pub_biz(rb: &RBatis, biz_id: String) -> Result<HttpResponse, anyhow::Error> {
     // 1. 获取业务信息
     let biz_record = get_pub_file_record_by_biz_id(rb, &biz_id).await?;
-    let file_id = biz_record.file_ids.ok_or(anyhow!("文件ID为空"))?;
+    let file_ids = biz_record.file_ids.ok_or(anyhow!("文件ID为空"))?;
+    if file_ids.is_empty() {
+        return Err(anyhow!("文件ID为空"));
+    }
+    // 按逗号分割文件id
+    let file_id_vec: Vec<&str> = file_ids.split(",").collect();
+    if file_id_vec.len() > 1 {
+        let res = CommonResponseRef::<Vec<&str>>::success_json(
+            &file_id_vec,
+        )?;
+        let result = HttpResponse::Ok().body(res);
+        return Ok(result);
+    }
+    let file_id = file_id_vec[0];
     // 2. 获取文件信息
     let file_record = get_file_record_by_id(rb, &file_id).await?;
     // 3. 返回文件
-    let mut file: File = get_file_by_path(&file_record.file_path.ok_or(anyhow!("文件路径为空"))?).await?;
+    let mut file: File = get_file_by_path(&file_record.file_path.ok_or(anyhow!("文件路径为空"))?).await?.ok_or(anyhow!("文件不存在"))?;
     let file_vec: Vec<u8> = {
         let mut buf = Vec::new();
         file.read_to_end(&mut buf).await?;
