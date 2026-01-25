@@ -1,6 +1,6 @@
 #![deny(clippy::unwrap_used)]
-use fast_log::Config;
 use api::init_server;
+use fast_log::Config;
 use log::{error, LevelFilter};
 use port_service::p2p_service::p2p_udp_service::run_udp_server;
 use quic_service::init_server::start_server;
@@ -9,11 +9,7 @@ use quic_service::init_server::start_server;
 #[actix_web::main]
 async fn main() {
     fast_log::init(
-        Config::new()
-            .console()
-            .level(LevelFilter::Info)
-            .file("log/rust_im.log")
-            .chan_len(Some(10)),
+        Config::new().console().level(LevelFilter::Info).file("log/rust_im.log").chan_len(Some(10)),
     )
     .expect("初始化日志失败");
 

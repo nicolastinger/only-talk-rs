@@ -1,36 +1,35 @@
-use actix_files::Files;
-use actix_web::middleware::from_fn;
-use actix_web::{middleware, web, App, HttpServer};
-use deadpool_redis::{Config as dp_config, Pool, Runtime};
-use log::{error, info};
-use rbatis::rbdc::db::ConnectOptions;
-use rbatis::{rbdc, Error, RBatis};
-use rbdc::pool::ConnectionManager;
-use rbdc::pool::Pool as rdbc_pool;
-use rbdc_pg::options::PgConnectOptions;
-use rbdc_pg::PgDriver;
-use rbdc_pool_fast::FastPool;
-use rustls::{Certificate, PrivateKey, ServerConfig};
-use rustls_pemfile::{certs, ec_private_keys, pkcs8_private_keys, rsa_private_keys};
 use std::collections::HashMap;
 use std::fs;
 use std::fs::File;
 use std::io::{BufReader, Seek, SeekFrom};
 use std::sync::Arc;
 use std::time::Duration;
-use toml::Value;
-use entity::{read_config, RBATIS_DATABASE, REDIS_CLIENT};
+
+use actix_files::Files;
+use actix_web::middleware::from_fn;
+use actix_web::{App, HttpServer, middleware, web};
+use deadpool_redis::{Config as dp_config, Pool, Runtime};
 use entity::config_str::{USER_FILE_PUBLIC, USER_FILE_PUBLIC_DIR};
+use entity::{RBATIS_DATABASE, REDIS_CLIENT, read_config};
 use http_service;
 use http_service::utils::record_bad_http::error_record_middleware;
+use log::{error, info};
+use rbatis::rbdc::db::ConnectOptions;
+use rbatis::{Error, RBatis, rbdc};
+use rbdc::pool::{ConnectionManager, Pool as rdbc_pool};
+use rbdc_pg::PgDriver;
+use rbdc_pg::options::PgConnectOptions;
+use rbdc_pool_fast::FastPool;
+use rustls::{Certificate, PrivateKey, ServerConfig};
+use rustls_pemfile::{certs, ec_private_keys, pkcs8_private_keys, rsa_private_keys};
+use toml::Value;
+
 use crate::controller::configure_api_routes;
 
 fn init_redis(url: &str) -> Pool {
     // 创建 Redis 连接池
     let config = dp_config::from_url(url);
-    let pool = config
-        .create_pool(Some(Runtime::Tokio1))
-        .expect("Failed to create Redis pool");
+    let pool = config.create_pool(Some(Runtime::Tokio1)).expect("Failed to create Redis pool");
     {
         let mut redis_guard = REDIS_CLIENT.try_write().expect("获取redis锁失败");
         *redis_guard = Some(pool.clone());
@@ -142,7 +141,7 @@ pub async fn start_server() -> anyhow::Result<()> {
     if !std::path::Path::new(pub_file_path).exists() {
         fs::create_dir_all(pub_file_path).expect("创建公开文件夹失败");
     }
-    
+
     // 读取配置文件内容
     let config_content = fs::read_to_string("./config/app_config.toml").expect("无法读取配置文件");
     // 解析配置文件内容
@@ -190,4 +189,3 @@ pub async fn start_server() -> anyhow::Result<()> {
     .await?;
     Ok(())
 }
-

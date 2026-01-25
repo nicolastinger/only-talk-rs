@@ -1,5 +1,6 @@
 use anyhow::anyhow;
 use rbatis::RBatis;
+
 use crate::RBATIS_DATABASE;
 
 pub async fn get_sql_client() -> Result<RBatis, anyhow::Error> {

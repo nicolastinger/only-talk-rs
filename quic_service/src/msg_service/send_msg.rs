@@ -1,5 +1,6 @@
-use log::error;
 use entity::config_str::{REDIS_QUIC_SERVERS, REDIS_SPLIT, SYSTEM};
+use log::error;
+
 use crate::GLOBAL_QUIC_SERVER_LIST;
 use crate::models::quic_connection::ConnectionType;
 use crate::msg_service::text_msg_service::generate_text_msg;
@@ -16,7 +17,7 @@ pub async fn send_quic_system_msg(
         REDIS_QUIC_SERVERS,
         current_user.as_str(),
         REDIS_SPLIT,
-        ConnectionType::Text.to_string()
+        ConnectionType::Text
     );
     let user_key = user_key.to_uppercase();
     let send_stream = {
@@ -29,12 +30,8 @@ pub async fn send_quic_system_msg(
             }
         }
     };
-    let res = generate_text_msg(
-        msg_type,
-        text.as_bytes().to_vec(),
-        current_user,
-        SYSTEM.to_string(),
-    )?;
+    let res =
+        generate_text_msg(msg_type, text.as_bytes().to_vec(), current_user, SYSTEM.to_string())?;
     if let Some(target_send_stream) = send_stream {
         // 处理在线消息
         target_send_stream.write().await.write_all(&res).await?;

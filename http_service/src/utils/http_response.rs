@@ -18,11 +18,7 @@ where
     T: Serialize,
 {
     pub fn new(code: u32, data: T, message: String) -> CommonResponse<T> {
-        CommonResponse {
-            code,
-            data,
-            message,
-        }
+        CommonResponse { code, data, message }
     }
 
     pub fn success(data: T) -> CommonResponse<T> {
@@ -57,11 +53,7 @@ where
     T: Serialize,
 {
     pub fn new(code: u16, data: Option<&'a T>, message: &'a str) -> Self {
-        Self {
-            code,
-            data,
-            message,
-        }
+        Self { code, data, message }
     }
 
     pub fn success(data: &'a T) -> CommonResponseRef<'a, T> {
@@ -81,20 +73,12 @@ pub struct CommonResponseNoDataRef<'a> {
 }
 impl<'a> CommonResponseNoDataRef<'a> {
     pub fn error_json(message: &'a str) -> String {
-        serde_json::to_string(&CommonResponseNoDataRef {
-            code: 500,
-            data: 0,
-            message,
-        })
-        .unwrap_or_else(|_| "{code:500,message:\"json Panic!\"}".to_string())
+        serde_json::to_string(&CommonResponseNoDataRef { code: 500, data: 0, message })
+            .unwrap_or_else(|_| "{code:500,message:\"json Panic!\"}".to_string())
     }
 
     pub fn success_empty() -> String {
-        serde_json::to_string(&CommonResponseNoDataRef {
-            code: 204,
-            data: 0,
-            message: "",
-        })
-        .unwrap_or_else(|_| "{code:500,message:\"json Panic!\"}".to_string())
+        serde_json::to_string(&CommonResponseNoDataRef { code: 204, data: 0, message: "" })
+            .unwrap_or_else(|_| "{code:500,message:\"json Panic!\"}".to_string())
     }
 }

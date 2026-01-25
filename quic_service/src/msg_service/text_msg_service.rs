@@ -1,11 +1,13 @@
-use crate::X25;
-use anyhow::anyhow;
-use log::{error};
-use nanoid::nanoid;
 use std::sync::Arc;
-use tokio::sync::{Mutex, MutexGuard};
+
+use anyhow::anyhow;
 use entity::utils::message_types::MSG_TYPE_TEXT;
 use entity::utils::time::get_now_time_stamp_as_millis;
+use log::error;
+use nanoid::nanoid;
+use tokio::sync::{Mutex, MutexGuard};
+
+use crate::X25;
 use crate::models::text_msg::{HeadMsg, TextMsg, TextQuicMsg};
 
 //生成文本消息
@@ -16,14 +18,8 @@ pub fn generate_text_msg(
     send_user: String,
 ) -> anyhow::Result<Vec<u8>> {
     let now = get_now_time_stamp_as_millis().unwrap_or(-99999999999);
-    let text_quic_msg = TextQuicMsg {
-        nano_id: nanoid!(),
-        text_type,
-        raw,
-        recv_user,
-        send_user,
-        timestamp: now,
-    };
+    let text_quic_msg =
+        TextQuicMsg { nano_id: nanoid!(), text_type, raw, recv_user, send_user, timestamp: now };
     build_text(text_quic_msg)
 }
 
@@ -36,14 +32,8 @@ pub fn generate_text_msg_with_id(
     send_user: String,
 ) -> anyhow::Result<Vec<u8>> {
     let now = get_now_time_stamp_as_millis().unwrap_or(-99999999999);
-    let text_quic_msg = TextQuicMsg {
-        nano_id,
-        text_type,
-        raw,
-        recv_user,
-        send_user,
-        timestamp: now,
-    };
+    let text_quic_msg =
+        TextQuicMsg { nano_id, text_type, raw, recv_user, send_user, timestamp: now };
     build_text(text_quic_msg)
 }
 
@@ -56,14 +46,7 @@ pub fn generate_text_msg_with_time(
     send_user: String,
     timestamp: i64,
 ) -> anyhow::Result<Vec<u8>> {
-    let text_quic_msg = TextQuicMsg {
-        nano_id,
-        text_type,
-        raw,
-        recv_user,
-        send_user,
-        timestamp,
-    };
+    let text_quic_msg = TextQuicMsg { nano_id, text_type, raw, recv_user, send_user, timestamp };
     build_text(text_quic_msg)
 }
 
@@ -73,8 +56,8 @@ fn build_text(text_quic_msg: TextQuicMsg) -> anyhow::Result<Vec<u8>> {
     let head_msg = HeadMsg {
         version: 1,
         crc,
-        body_len: meta_data.len() as u32,           // 消息体长度
-        message_type: MSG_TYPE_TEXT, // 消息类型
+        body_len: meta_data.len() as u32, // 消息体长度
+        message_type: MSG_TYPE_TEXT,      // 消息类型
     };
 
     build_text_msg(&head_msg, &text_quic_msg)
@@ -123,10 +106,7 @@ pub async fn get_text_msg(
         let round = i;
         let head_length_right = head_length + i;
         if head_length_right >= length {
-            buffer_msg
-                .lock()
-                .await
-                .append(&mut buffer[round..length].to_vec());
+            buffer_msg.lock().await.append(&mut buffer[round..length].to_vec());
             return Ok(result_vec);
         }
         let head_msg_vec = &buffer[i..head_length_right];
@@ -134,10 +114,7 @@ pub async fn get_text_msg(
             Ok(msg) => msg,
             Err(error) => {
                 error!("序列化粘包数据失败! {}", error);
-                buffer_msg
-                    .lock()
-                    .await
-                    .append(&mut buffer[round..length].to_vec());
+                buffer_msg.lock().await.append(&mut buffer[round..length].to_vec());
                 return Ok(result_vec);
             }
         };
@@ -145,10 +122,7 @@ pub async fn get_text_msg(
 
         let body_size = head_msg.body_len as usize + head_length_right;
         if body_size > length {
-            buffer_msg
-                .lock()
-                .await
-                .append(&mut buffer[round..length].to_vec());
+            buffer_msg.lock().await.append(&mut buffer[round..length].to_vec());
             return Ok(result_vec);
         }
 
@@ -157,10 +131,7 @@ pub async fn get_text_msg(
             Ok(msg) => msg,
             Err(error) => {
                 error!("序列化粘包数据失败! {}", error);
-                buffer_msg
-                    .lock()
-                    .await
-                    .append(&mut buffer[round..length].to_vec());
+                buffer_msg.lock().await.append(&mut buffer[round..length].to_vec());
                 return Ok(result_vec);
             }
         };

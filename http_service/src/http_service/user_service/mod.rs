@@ -1,6 +1,7 @@
+use actix_web::web;
+
 use crate::http_service::user_service::controller::friend_controller::friend_service;
 use crate::http_service::user_service::controller::user_controller::user_service;
-use actix_web::web;
 
 mod controller;
 pub mod dto;

@@ -1,9 +1,11 @@
+use std::fs;
+
 use anyhow::anyhow;
-use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
+use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use rsa::pkcs1::EncodeRsaPublicKey;
 use rsa::pkcs8::EncodePrivateKey;
 use serde::{Deserialize, Serialize};
-use std::fs;
+
 use crate::utils::rsa_util::generate_rsa_keys;
 use crate::utils::time::get_now_time_stamp_as_millis;
 
@@ -35,11 +37,8 @@ fn generate_keys() -> Result<(EncodingKey, DecodingKey), anyhow::Error> {
 
 pub fn get_jwt(uuid: String) -> Result<String, anyhow::Error> {
     let (encoding_key, _) = generate_keys()?;
-    let claims = Claims {
-        sub: 123123,
-        uuid,
-        exp: get_now_time_stamp_as_millis()? + (3600000 * 24),
-    };
+    let claims =
+        Claims { sub: 123123, uuid, exp: get_now_time_stamp_as_millis()? + (3600000 * 24) };
     // 使用 RSA 算法生成 JWT
     let header = Header::new(jsonwebtoken::Algorithm::RS256);
     let token = encode(&header, &claims, &encoding_key)?;

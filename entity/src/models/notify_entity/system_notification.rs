@@ -1,4 +1,5 @@
-use rbatis::{crud, impl_select, rbdc::Uuid};
+use rbatis::rbdc::Uuid;
+use rbatis::{crud, impl_select};
 use serde::{Deserialize, Serialize};
 
 /// 系统通知

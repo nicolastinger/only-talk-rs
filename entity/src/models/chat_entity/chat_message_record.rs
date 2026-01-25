@@ -1,5 +1,5 @@
 use rbatis::rbdc::{Bytes, Uuid};
-use rbatis::{crud, impl_select, RBatis};
+use rbatis::{RBatis, crud, impl_select};
 use rbs::value;
 use serde::{Deserialize, Serialize};
 

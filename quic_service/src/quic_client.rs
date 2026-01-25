@@ -1,13 +1,15 @@
-use log::{error, info};
-use quinn::{Endpoint, SendStream};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::io::AsyncWriteExt;
-use tokio::sync::{Mutex, RwLock};
+
 use entity::config_str::{PING, SYSTEM};
 use entity::utils::jwt_util::get_jwt;
 use entity::utils::message_types;
+use log::{error, info};
+use quinn::{Endpoint, SendStream};
+use tokio::io::AsyncWriteExt;
+use tokio::sync::{Mutex, RwLock};
+
 use crate::models::first_quic_msg::FirstQuicMsg;
 use crate::models::quic_connection::ConnectionType;
 use crate::msg_service::text_msg_service::{generate_text_msg, get_text_msg};
@@ -16,7 +18,7 @@ use crate::set_server::configure_client;
 #[allow(dead_code)]
 pub async fn run_client(server_addr: SocketAddr) {
     // 创建客户端端点
-    let mut endpoint = Endpoint::client("0.0.0.0:0".parse().unwrap()).expect("infallible");
+    let mut endpoint = Endpoint::client("0.0.0.0:0".parse().expect("infallible")).expect("infallible");
     endpoint.set_default_client_config(configure_client()); // 设置默认客户端配置
 
     // 尝试连接到服务器
@@ -85,13 +87,13 @@ async fn init_send_msg(mut send_stream: SendStream) -> Result<(), anyhow::Error>
     first_quic_msg.msg_type = ConnectionType::Text;
     let token = get_jwt(uuid.clone()).expect("获取token失败");
     first_quic_msg.token = token;
-    
+
     let first_msg_json = serde_json::to_string(&first_quic_msg)?;
     info!("[客户端] 准备发送初始化消息: {}", first_msg_json);
-    
+
     send_stream.write_all(first_msg_json.as_bytes()).await?;
     send_stream.flush().await?; // 确保数据被立即发送
-    
+
     info!("[客户端] 初始化消息发送完成，等待服务器响应");
 
     tokio::time::sleep(Duration::from_secs(1)).await; //初始化一秒，防止连发元数据

@@ -1,14 +1,14 @@
 pub mod chat_service;
-pub mod user_service;
-pub mod notify_service;
 pub mod file_service;
+pub mod notify_service;
+pub mod user_service;
 
 use actix_web::web;
 use chat_service::init_chat_service;
-use user_service::init_friend_service;
-use user_service::init_user_service;
-use crate::http_service::notify_service::init_notify_service;
+use user_service::{init_friend_service, init_user_service};
+
 use crate::http_service::file_service::init_file_service;
+use crate::http_service::notify_service::init_notify_service;
 
 // 主路由配置函数
 pub fn configure_routes(cfg: &mut web::ServiceConfig) {

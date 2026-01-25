@@ -1,16 +1,16 @@
-use crate::http_service::user_service::dto::basic_user_dto::SignInBasicUserDTO;
-use crate::http_service::user_service::service::user_service::{
-    add_new_basic_user_service, get_exit_user, get_user_info_by_account,
-    get_user_info_by_uuid, get_user_uuid_by_account_service, user_sign_in
-};
-use actix_web::{post, web, HttpRequest, HttpResponse, Responder};
-use log::{error, info};
+use actix_web::{HttpRequest, HttpResponse, Responder, post, web};
+use log::info;
 use rbatis::RBatis;
-use crate::http_service::user_service::dto::sign_up_basic_user_dto::SignUpBasicUserDTO;
-use crate::utils::http_response::CommonResponse;
-use crate::{get_uuid_from_header, respond_json_any, validate_and_respond};
-use crate::utils::http_response::CommonResponseNoDataRef;
+
 use crate::common::dto::base_dto::AuthAccount;
+use crate::http_service::user_service::dto::basic_user_dto::SignInBasicUserDTO;
+use crate::http_service::user_service::dto::sign_up_basic_user_dto::SignUpBasicUserDTO;
+use crate::http_service::user_service::service::user_service::{
+    add_new_basic_user_service, get_exit_user, get_user_info_by_account, get_user_info_by_uuid,
+    get_user_uuid_by_account_service, user_sign_in,
+};
+use crate::utils::http_response::{CommonResponse, CommonResponseNoDataRef};
+use crate::{get_uuid_from_header, respond_json_any, validate_and_respond};
 
 pub fn user_service(cfg: &mut web::ServiceConfig) {
     cfg.service(get_exit_user_flag)
@@ -21,7 +21,6 @@ pub fn user_service(cfg: &mut web::ServiceConfig) {
         .service(get_user_uuid_by_account_api);
 }
 
-
 #[post("/get_exit_user_flag/is_exit")]
 pub async fn get_exit_user_flag(state: web::Data<RBatis>, account: String) -> impl Responder {
     info!("获取到值 {}", account);
@@ -29,9 +28,11 @@ pub async fn get_exit_user_flag(state: web::Data<RBatis>, account: String) -> im
     HttpResponse::Ok().body(res.to_string())
 }
 
-
 #[post("/sign_up")]
-pub async fn sign_up(state: web::Data<RBatis>, basic_user: web::Json<SignUpBasicUserDTO>) -> impl Responder {
+pub async fn sign_up(
+    state: web::Data<RBatis>,
+    basic_user: web::Json<SignUpBasicUserDTO>,
+) -> impl Responder {
     let basic_user = validate_and_respond!(basic_user);
     let res = add_new_basic_user_service(state.get_ref(), basic_user).await;
     respond_json_any!(res)
@@ -70,4 +71,3 @@ pub async fn get_user_uuid_by_account_api(account: web::Path<String>) -> impl Re
     let res = get_user_uuid_by_account_service(account).await;
     respond_json_any!(res)
 }
-

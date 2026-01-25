@@ -1,5 +1,5 @@
 use rbatis::rbdc::Uuid;
-use rbatis::{crud, impl_delete, impl_select, impl_select_page, impl_update, RBatis};
+use rbatis::{RBatis, crud, impl_delete, impl_select, impl_select_page, impl_update};
 use serde::{Deserialize, Serialize};
 use validator::Validate;
 
@@ -23,9 +23,8 @@ impl_update!(BasicUser{update_by_icon(icon:&str) => "`where id = 1`"});
 impl_delete!(BasicUser {delete_by_name(name:&str) => "`where name= '2'`"});
 impl_select_page!(BasicUser{select_page(name:&str) => "`where name != #{name}`"});
 
-
 /// 是否存在某用户
-pub async fn is_exist_user_by_uuid(rb: &RBatis,uuid: &Uuid) -> Result<bool, anyhow::Error> {
+pub async fn is_exist_user_by_uuid(rb: &RBatis, uuid: &Uuid) -> Result<bool, anyhow::Error> {
     let user = BasicUser::select_by_uuid(rb, uuid).await?;
     if user.is_none() {
         return Ok(false);

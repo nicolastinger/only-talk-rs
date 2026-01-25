@@ -1,33 +1,30 @@
-use crate::http_service::user_service::dto::basic_user_dto::SignInBasicUserDTO;
-use crate::http_service::user_service::dto::sign_up_basic_user_dto::SignUpBasicUserDTO;
-use crate::http_service::user_service::vo::user_info::UserInfoVO;
-use anyhow::anyhow;
-use deadpool_redis::redis::{cmd, RedisResult};
-use log::{error, info};
-use rbatis::{rbdc, RBatis};
-use rbs::value;
 use std::str::FromStr;
-use uuid::Uuid;
-use entity::models::user_entity::basic_user::BasicUser;
-use entity::models::user_entity::basic_user_salt::{get_user_salt, BasicUserSalt};
-use entity::models::user_entity::user_info::UserInfo;
-use entity::{RBATIS_DATABASE, REDIS_CLIENT};
+
+use anyhow::anyhow;
+use deadpool_redis::redis::{RedisResult, cmd};
 use entity::config_str::{APP_DOMAIN, USER_DEFAULT_ICON, USER_FILE_PUBLIC};
-use entity::models::file_entity::biz_record::BizRecord;
+use entity::models::user_entity::basic_user::BasicUser;
+use entity::models::user_entity::basic_user_salt::{BasicUserSalt, get_user_salt};
+use entity::models::user_entity::user_info::UserInfo;
 use entity::utils::jwt_util::get_jwt;
 use entity::utils::redis_utils::get_redis_conn;
 use entity::utils::rsa_util::{generate_random_string, hash_with_salt};
 use entity::utils::time::get_now_time_stamp_as_millis;
+use entity::{RBATIS_DATABASE, REDIS_CLIENT};
+use log::{error, info};
+use rbatis::{RBatis, rbdc};
+use rbs::value;
+use uuid::Uuid;
+
+use crate::http_service::user_service::dto::basic_user_dto::SignInBasicUserDTO;
+use crate::http_service::user_service::dto::sign_up_basic_user_dto::SignUpBasicUserDTO;
+use crate::http_service::user_service::vo::user_info::UserInfoVO;
 use crate::utils::http_response::{CommonResponseNoDataRef, CommonResponseRef};
 
 pub async fn test_sql(rb: &RBatis) -> Vec<BasicUser> {
-    let basic_user_all = BasicUser::select_all(rb).await.unwrap();
-    let basic_user_icon = BasicUser::select_by_map(rb, value! { "icon": "33333" })
-        .await
-        .unwrap();
-    let basic_user_all_id = BasicUser::select_all_by_id(rb, "33333", "4444444")
-        .await
-        .unwrap();
+    let basic_user_all = BasicUser::select_all(rb).await.expect("查询出错");
+    let basic_user_icon = BasicUser::select_by_map(rb, value! { "icon": "33333" }).await.expect("查询出错");
+    let basic_user_all_id = BasicUser::select_all_by_id(rb, "33333", "4444444").await.expect("查询出错");
     info!("1 {:?}", basic_user_all);
     info!("2 {:?}", basic_user_icon);
     info!("3 {:?}", basic_user_all_id);
@@ -51,16 +48,13 @@ pub async fn add_new_basic_user_service(
     let mut basic_user = SignUpBasicUserDTO::to_basic_user(basic_user);
     basic_user.uuid = Some(Uuid::now_v7().to_string().parse()?);
     let random_str = generate_random_string(16);
-    let password = hash_with_salt(basic_user.password.as_ref().unwrap(), &random_str);
+    let password = hash_with_salt(basic_user.password.as_ref().ok_or(anyhow!("密码为空"))?, &random_str);
     basic_user.password = Option::from(password);
     let icon_url = format!("{}{}/{}", APP_DOMAIN, USER_FILE_PUBLIC, USER_DEFAULT_ICON);
     basic_user.icon = Some(icon_url);
     basic_user.info = Some("".to_string());
 
-    let account_ref: &str = basic_user
-        .account
-        .as_deref()
-        .unwrap_or("");
+    let account_ref: &str = basic_user.account.as_deref().unwrap_or("");
     match get_exit_user(rb, account_ref).await {
         true => Err(anyhow!("该账号已存在!".to_string())),
         false => {
@@ -72,7 +66,7 @@ pub async fn add_new_basic_user_service(
                     uuid: basic_user.uuid.clone(),
                     sign_up_salt: Option::from(random_str),
                 };
-                
+
                 let user_info = UserInfo {
                     uuid: basic_user.uuid.clone(),
                     gender: None,
@@ -114,27 +108,22 @@ pub async fn user_sign_in(
     // 解构 basic_user 以获取 account 和 password 的引用
     let basic_user = SignInBasicUserDTO::to_basic_user(basic_user_dto);
 
-    let BasicUser {
-        account, password, ..
-    } = basic_user;
+    let BasicUser { account, password, .. } = basic_user;
 
     // 验证 account 和 password 是否存在
     let account_str = account.as_ref().ok_or(anyhow!("账号为空".to_string()))?;
     let password_str = password.as_ref().ok_or(anyhow!("密码为空".to_string()))?;
 
     // 查询用户
-    let basic_user = BasicUser::select_by_account(rb, account_str)
-        .await?
-        .ok_or(anyhow!("用户不存在"))?;
+    let basic_user =
+        BasicUser::select_by_account(rb, account_str).await?.ok_or(anyhow!("用户不存在"))?;
 
     let salt = get_user_salt(rb, &basic_user.uuid).await?;
 
     // 哈希输入密码
     let hashed_password = hash_with_salt(
         password_str,
-        salt.sign_up_salt
-            .as_ref()
-            .ok_or(anyhow!("加密盐查询失败".to_string()))?,
+        salt.sign_up_salt.as_ref().ok_or(anyhow!("加密盐查询失败".to_string()))?,
     );
 
     let exit_password = basic_user.password.as_ref().ok_or(anyhow!("账号为空"))?;
@@ -156,17 +145,12 @@ pub async fn get_user_info_by_account(
 ) -> Result<String, anyhow::Error> {
     let account = account.ok_or(anyhow!("账号为空"))?;
 
-    let basic_user = BasicUser::select_by_account(rbatis, &account)
-        .await?
-        .ok_or(anyhow!("查询为空"))?;
-    let uuid = basic_user.uuid.as_ref().unwrap();
-    let user_info = UserInfo::select_by_uuid(rbatis, uuid)
-        .await?
-        .ok_or(anyhow!("查询为空"))?;
+    let basic_user =
+        BasicUser::select_by_account(rbatis, &account).await?.ok_or(anyhow!("查询为空"))?;
+    let uuid = basic_user.uuid.as_ref().ok_or(anyhow!("账号id为空"))?;
+    let user_info = UserInfo::select_by_uuid(rbatis, uuid).await?.ok_or(anyhow!("查询为空"))?;
     let user_info_vo = UserInfoVO::from((user_info, basic_user));
-    Ok(CommonResponseRef::<UserInfoVO>::success_json(
-        &user_info_vo,
-    )?)
+    Ok(CommonResponseRef::<UserInfoVO>::success_json(&user_info_vo)?)
 }
 
 pub async fn get_user_info_by_uuid(
@@ -176,25 +160,17 @@ pub async fn get_user_info_by_uuid(
     let uuid = uuid.ok_or(anyhow!("账号为空"))?;
     let uuid = rbatis::rbdc::Uuid::from_str(uuid.as_str())?;
 
-    let basic_user = BasicUser::select_by_uuid(rbatis, &uuid)
-        .await?
-        .ok_or(anyhow!("查询为空"))?;
-    let uuid = basic_user.uuid.as_ref().unwrap();
-    let user_info = UserInfo::select_by_uuid(rbatis, uuid)
-        .await?
-        .ok_or(anyhow!("查询为空"))?;
+    let basic_user = BasicUser::select_by_uuid(rbatis, &uuid).await?.ok_or(anyhow!("查询为空"))?;
+    let uuid = basic_user.uuid.as_ref().ok_or(anyhow!("账号id为空"))?;
+    let user_info = UserInfo::select_by_uuid(rbatis, uuid).await?.ok_or(anyhow!("查询为空"))?;
     let user_info_vo = UserInfoVO::from((user_info, basic_user));
-    Ok(CommonResponseRef::<UserInfoVO>::success_json(
-        &user_info_vo,
-    )?)
+    Ok(CommonResponseRef::<UserInfoVO>::success_json(&user_info_vo)?)
 }
 
 /// 获取用户的uuid
 pub async fn get_user_uuid_by_account_service(account: String) -> Result<String, anyhow::Error> {
     let result = get_user_uuid_by_account(account).await?;
-    Ok(CommonResponseRef::<String>::success_json(
-        &result.to_string(),
-    )?)
+    Ok(CommonResponseRef::<String>::success_json(&result.to_string())?)
 }
 
 /// 获取用户的uuid
@@ -212,9 +188,8 @@ pub async fn get_user_uuid_by_account(account: String) -> Result<Uuid, anyhow::E
     let uuid = match result {
         Ok(v) => return Ok(Uuid::parse_str(v.as_str())?),
         Err(_) => {
-            let basic_user = BasicUser::select_by_account(rb, &account)
-                .await?
-                .ok_or(anyhow!("账号不存在"))?;
+            let basic_user =
+                BasicUser::select_by_account(rb, &account).await?.ok_or(anyhow!("账号不存在"))?;
             basic_user.uuid.ok_or(anyhow!("账号id为空"))?
         }
     };
@@ -276,10 +251,15 @@ pub async fn add_p2p_token_service(
     Ok(CommonResponseNoDataRef::success_empty())
 }
 
-pub async fn update_user_avatar(rb: &RBatis, biz_id: String, user_id: rbdc::types::uuid::Uuid) -> Result<(),  anyhow::Error> {
-    let mut basic_user = BasicUser::select_by_uuid(rb, &user_id).await?.ok_or(anyhow!("用户不存在"))?;
+pub async fn update_user_avatar(
+    rb: &RBatis,
+    biz_id: String,
+    user_id: rbdc::types::uuid::Uuid,
+) -> Result<(), anyhow::Error> {
+    let mut basic_user =
+        BasicUser::select_by_uuid(rb, &user_id).await?.ok_or(anyhow!("用户不存在"))?;
     basic_user.icon = Some(biz_id);
-    BasicUser::update_by_map(rb, &basic_user, value!{ "uuid": &user_id }).await?;
+    BasicUser::update_by_map(rb, &basic_user, value! { "uuid": &user_id }).await?;
 
     Ok(())
 }
@@ -289,4 +269,3 @@ pub async fn update_user_avatar(rb: &RBatis, biz_id: String, user_id: rbdc::type
 //     let rb = rb.as_ref().ok_or(anyhow!("获取连接失败"))?;
 //     // 动态构建查询条件
 //  }
-

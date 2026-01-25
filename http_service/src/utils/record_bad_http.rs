@@ -1,16 +1,15 @@
-use crate::common::dto::base_dto::AuthAccount;
-
-use actix_web::{
-    body::MessageBody,
-    dev::{ServiceRequest, ServiceResponse},
-    middleware::Next,
-    Error, HttpMessage,
-};
-use lazy_static::lazy_static;
-use log::info;
 use std::collections::HashSet;
 use std::sync::RwLock;
+
+use actix_web::body::MessageBody;
+use actix_web::dev::{ServiceRequest, ServiceResponse};
+use actix_web::middleware::Next;
+use actix_web::{Error, HttpMessage};
 use entity::utils::jwt_util::decode_jwt;
+use lazy_static::lazy_static;
+use log::info;
+
+use crate::common::dto::base_dto::AuthAccount;
 
 lazy_static! {
     static ref IGNORED_PATHS: RwLock<HashSet<String>> = {
@@ -33,10 +32,10 @@ pub async fn error_record_middleware(
 
     info!("{} 路径 {}", method, path);
     // 检查路径是否在忽略列表中
-    if IGNORED_PATHS.read().unwrap().contains(&path) {
+    if IGNORED_PATHS.read().expect("读取忽略路径出错").contains(&path) {
         return next.call(req).await;
     }
-    
+
     // 检查是否是/resources开头的路径
     if path.starts_with("/resources/") {
         return next.call(req).await;
@@ -47,7 +46,7 @@ pub async fn error_record_middleware(
 
     let token = match authorization {
         None => return Err(actix_web::error::ErrorUnauthorized("Unauthorized")),
-        Some(token) => token.to_str().unwrap().to_string(),
+        Some(token) => token.to_str().expect("token转换出错").to_string(),
     };
     //校验token
     let account = match decode_jwt(&token) {

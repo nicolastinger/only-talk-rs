@@ -1,8 +1,9 @@
-use quinn::{SendStream};
-use serde::{Deserialize, Serialize};
-use std::sync::Arc;
-use tokio::sync::RwLock;
 use std::fmt;
+use std::sync::Arc;
+
+use quinn::SendStream;
+use serde::{Deserialize, Serialize};
+use tokio::sync::RwLock;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum ConnectionType {

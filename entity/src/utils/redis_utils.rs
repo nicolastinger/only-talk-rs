@@ -1,8 +1,9 @@
-use crate::REDIS_CLIENT;
 use anyhow::anyhow;
-use deadpool_redis::redis::cmd;
 use deadpool_redis::Connection;
+use deadpool_redis::redis::cmd;
 use uuid::Uuid;
+
+use crate::REDIS_CLIENT;
 
 pub async fn get_redis_conn() -> Result<Connection, anyhow::Error> {
     let redis_client = REDIS_CLIENT.read().await;
@@ -49,13 +50,8 @@ pub async fn release_lock(
             return 0
         end
     "#;
-    let deleted: i32 = cmd("EVAL")
-        .arg(script)
-        .arg(1)
-        .arg(key)
-        .arg(lock_id)
-        .query_async(conn)
-        .await?;
+    let deleted: i32 =
+        cmd("EVAL").arg(script).arg(1).arg(key).arg(lock_id).query_async(conn).await?;
 
     Ok(deleted == 1) // 是否成功释放
 }

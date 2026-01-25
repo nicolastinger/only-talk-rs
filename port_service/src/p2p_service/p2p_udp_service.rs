@@ -1,17 +1,19 @@
-use crate::p2p_service::model::{UserAddressInfo};
-use deadpool_redis::redis::{cmd, AsyncCommands};
-use log::{error, info, warn};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use tokio::net::UdpSocket;
-use tokio::signal;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+use deadpool_redis::redis::{AsyncCommands, cmd};
 use entity::config_str::SYSTEM;
 use entity::utils::jwt_util::decode_jwt;
 use entity::utils::message_types;
 use entity::utils::redis_utils::{acquire_lock, get_redis_conn, release_lock};
+use log::{error, info, warn};
 use quic_service::models::quic_connection::ConnectionType;
 use quic_service::msg_service::get_send_stream_by_uuid;
 use quic_service::msg_service::text_msg_service::generate_text_msg;
+use tokio::net::UdpSocket;
+use tokio::signal;
+
+use crate::p2p_service::model::UserAddressInfo;
 
 pub async fn run_udp_server() -> Result<(), anyhow::Error> {
     tokio::spawn(async {
@@ -203,9 +205,9 @@ async fn process_p2p_user_info(
                 let lock_id =
                     acquire_lock(&mut conn, &lock_key, 30, user_address_info.address.clone())
                         .await?;
-                if lock_id.is_some() {
+                if let Some(item) = lock_id {
                     acquire_flag = true;
-                    user_address_info.lock_uuid = lock_id.unwrap();
+                    user_address_info.lock_uuid = item;
                 }
             }
 
@@ -249,10 +251,7 @@ async fn process_p2p_user_info(
                             let target_key = target_key.to_uppercase();
                             conn.del::<_, ()>(&target_key).await?;
                         }
-                        match (
-                            user_address_info.nat_type,
-                            target_user_address_info.nat_type,
-                        ) {
+                        match (user_address_info.nat_type, target_user_address_info.nat_type) {
                             (4, 4) => {
                                 error!(
                                     "双方均为对称型NAT，无法建立连接!停止处理 {},{}",
@@ -332,10 +331,7 @@ async fn process_p2p_user_info(
                     return Ok(());
                 }
                 Err(e) => {
-                    warn!(
-                        "获取目标用户信息失败 {}，等待目标用户上传redis",
-                        e
-                    );
+                    warn!("获取目标用户信息失败 {}，等待目标用户上传redis", e);
                 }
             }
 

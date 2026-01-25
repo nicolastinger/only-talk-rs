@@ -1,13 +1,9 @@
-use rbatis::rbdc::Uuid;
 use rbatis::RBatis;
+use rbatis::rbdc::Uuid;
 use rbs::value;
 use serde::{Deserialize, Serialize};
-use crate::utils::http_response::CommonResponseRef;
 
-#[derive(Serialize, Debug)]
-pub struct FriendVO<'a> {
-    pub uuid: &'a str,
-}
+use crate::utils::http_response::CommonResponseRef;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct FriendListVO {

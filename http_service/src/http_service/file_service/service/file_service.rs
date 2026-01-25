@@ -1,19 +1,19 @@
 use std::path::PathBuf;
 use std::str::FromStr;
+
 use actix_multipart::Multipart;
-use actix_web::{HttpResponse, Responder};
 use anyhow::anyhow;
-use futures_util::{StreamExt, TryStreamExt};
-use log::{error, info, warn};
-use rbatis::{rbdc, RBatis};
-use rbatis::rbdc::rt::fs::File;
-use rbatis::rbdc::rt::{tokio, AsyncWriteExt};
-use rbs::value;
-use uuid::Uuid;
-use sha2::{Sha256, Digest};
-use entity::config_str::{USER_FILE_PUBLIC_DIR, DEFAULT_MAX_FILE_SIZE};
+use entity::config_str::{DEFAULT_MAX_FILE_SIZE, USER_FILE_PUBLIC_DIR};
 use entity::models::file_entity::file_upload_record::FileUploadRecord;
 use entity::utils::time::get_now_time_stamp_as_millis;
+use futures_util::{StreamExt, TryStreamExt};
+use log::{error, warn};
+use rbatis::rbdc::rt::fs::File;
+use rbatis::rbdc::rt::{AsyncWriteExt, tokio};
+use rbatis::{RBatis, rbdc};
+use rbs::value;
+use sha2::{Digest, Sha256};
+use uuid::Uuid;
 
 // 确保目录存在
 async fn create_upload_dir() -> std::io::Result<()> {
@@ -24,17 +24,23 @@ async fn create_upload_dir() -> std::io::Result<()> {
  * 处理文件上传请求
  * @param payload: Multipart，包含所有表单字段和文件
  */
-pub async fn upload_file_local(rb: &RBatis,user_id: String, mut payload: Multipart) -> Result<Vec<FileUploadRecord>, anyhow::Error> {
+pub async fn upload_file_local(
+    rb: &RBatis,
+    user_id: String,
+    mut payload: Multipart,
+) -> Result<Vec<FileUploadRecord>, anyhow::Error> {
     // 确保上传目录存在
     if let Err(e) = create_upload_dir().await {
         eprintln!("无法创建上传目录: {}", e);
         return Err(anyhow!("无法创建目录"));
     }
-    
+
     let mut file_upload_records = Vec::<FileUploadRecord>::new();
 
     // 遍历 multipart/form-data 中的每个字段
-    while let Some(mut field) = payload.try_next().await.map_err(|e| anyhow!("无法获取字段: {}", e))? {
+    while let Some(mut field) =
+        payload.try_next().await.map_err(|e| anyhow!("无法获取字段: {}", e))?
+    {
         // 检查这个字段是否是一个文件（通过 content-disposition 的 filename）
         let content_disposition = field.content_disposition().clone();
 
@@ -45,13 +51,12 @@ pub async fn upload_file_local(rb: &RBatis,user_id: String, mut payload: Multipa
                 .extension()
                 .and_then(std::ffi::OsStr::to_str)
                 .unwrap_or("");
-            
+
             // 验证文件类型
             let mime_type = field.content_type().map(|ct| ct.essence_str().to_string());
-            validate_file_type(filename, mime_type.as_deref())
-                .map_err(|e| anyhow!(e))?;
+            validate_file_type(filename, mime_type.as_deref()).map_err(|e| anyhow!(e))?;
 
-            let uuid_v4= Uuid::new_v4();
+            let uuid_v4 = Uuid::new_v4();
             let uuid_v4_str = uuid_v4.to_string();
 
             let safe_filename = if !extension.is_empty() {
@@ -59,7 +64,7 @@ pub async fn upload_file_local(rb: &RBatis,user_id: String, mut payload: Multipa
             } else {
                 uuid_v4_str.clone()
             };
-            
+
             // 构造完整的保存路径
             let filepath = PathBuf::from(USER_FILE_PUBLIC_DIR).join(&safe_filename);
 
@@ -77,15 +82,16 @@ pub async fn upload_file_local(rb: &RBatis,user_id: String, mut payload: Multipa
                         return Err(anyhow!("未知错误"));
                     }
                 };
-                
 
                 // 检查文件大小是否超出限制
                 let new_size = file_size + data.len() as i64;
                 if new_size > DEFAULT_MAX_FILE_SIZE {
                     error!("文件大小超出限制: {} > {}", new_size, DEFAULT_MAX_FILE_SIZE);
-                    return Err(anyhow!("文件大小超出限制，最大允许 {} 字节", DEFAULT_MAX_FILE_SIZE));
+                    return Err(anyhow!(
+                        "文件大小超出限制，最大允许 {} 字节",
+                        DEFAULT_MAX_FILE_SIZE
+                    ));
                 }
-                
 
                 file_size = new_size;
 
@@ -104,7 +110,11 @@ pub async fn upload_file_local(rb: &RBatis,user_id: String, mut payload: Multipa
             let file_hash = format!("{:x}", hash_result);
 
             // 查询是否有重复文件（相同哈希值和大小）
-            let file_upload_record_exist = FileUploadRecord::select_by_map(rb, value! {"file_size": file_size, "file_hash": &file_hash}).await?;
+            let file_upload_record_exist = FileUploadRecord::select_by_map(
+                rb,
+                value! {"file_size": file_size, "file_hash": &file_hash},
+            )
+            .await?;
 
             let now = get_now_time_stamp_as_millis()?;
             let mut file_upload_record = FileUploadRecord {
@@ -126,13 +136,12 @@ pub async fn upload_file_local(rb: &RBatis,user_id: String, mut payload: Multipa
                 oss_type: None,
             };
 
-            if file_upload_record_exist.len() > 0 {
+            if !file_upload_record_exist.is_empty() {
                 warn!("文件已存在: {}", filename);
                 // 如果文件已存在，则删除刚上传的临时文件
-                if tokio::fs::try_exists(&filepath).await.unwrap_or(false) {
-                    if let Err(e) = tokio::fs::remove_file(&filepath).await {
-                        error!("删除重复文件失败: {}", e);
-                    }
+
+                if let Err(e) = tokio::fs::remove_file(&filepath).await {
+                    error!("删除重复文件失败: {}", e);
                 }
                 
                 // 使用已存在的文件记录
@@ -147,7 +156,6 @@ pub async fn upload_file_local(rb: &RBatis,user_id: String, mut payload: Multipa
 
             FileUploadRecord::insert(rb, &file_upload_record).await?;
             file_upload_records.push(file_upload_record);
-
         }
     }
 
@@ -163,25 +171,15 @@ pub fn validate_file_type(file_name: &str, mime_type: Option<&str>) -> Result<()
     // 检查文件扩展名
     let valid_extensions = [
         // 图片格式
-        "jpg", "jpeg", "png", "gif", "webp", "bmp",
-        // 文档格式
-        "txt", "pdf", "doc", "docx", "xls", "xlsx",
-        // 压缩格式
-        "zip", "rar", "7z",
-        // 音频格式
-        "mp3", "wav", "flac", "aac", "ogg", "m4a",
-        // 视频格式
-        "mp4", "avi", "mkv", "mov", "wmv", "flv", "webm",
-        // 代码格式
-        "json", "xml",
-        // 其他格式 
-        "md"
+        "jpg", "jpeg", "png", "gif", "webp", "bmp", // 文档格式
+        "txt", "pdf", "doc", "docx", "xls", "xlsx", // 压缩格式
+        "zip", "rar", "7z", // 音频格式
+        "mp3", "wav", "flac", "aac", "ogg", "m4a", // 视频格式
+        "mp4", "avi", "mkv", "mov", "wmv", "flv", "webm", // 代码格式
+        "json", "xml", // 其他格式
+        "md",
     ];
-    let file_extension = file_name
-        .split('.')
-        .last()
-        .map(|s| s.to_lowercase())
-        .unwrap_or_default();
+    let file_extension = file_name.split('.').next_back().map(|s| s.to_lowercase()).unwrap_or_default();
 
     if !valid_extensions.contains(&file_extension.as_str()) {
         return Err(format!(
@@ -195,16 +193,27 @@ pub fn validate_file_type(file_name: &str, mime_type: Option<&str>) -> Result<()
     if let Some(mime) = mime_type {
         let valid_mime_types = [
             // 图片MIME类型
-            "image/jpeg", "image/jpg", "image/png",
-            "image/gif", "image/webp",
+            "image/jpeg",
+            "image/jpg",
+            "image/png",
+            "image/gif",
+            "image/webp",
             // 压缩MIME类型
-            "application/zip", 
+            "application/zip",
             // 音频MIME类型
-            "audio/mpeg", "audio/wav", "audio/x-flac", "audio/aac", "audio/ogg", "audio/x-m4a",
+            "audio/mpeg",
+            "audio/wav",
+            "audio/x-flac",
+            "audio/aac",
+            "audio/ogg",
+            "audio/x-m4a",
             // 视频MIME类型
-            "video/mp4",  "video/webm",
+            "video/mp4",
+            "video/webm",
             // 代码和文本MIME类型
-            "application/json", "application/xml", "text/markdown"
+            "application/json",
+            "application/xml",
+            "text/markdown",
         ];
 
         if !valid_mime_types.contains(&mime) {
@@ -219,26 +228,36 @@ pub fn validate_file_type(file_name: &str, mime_type: Option<&str>) -> Result<()
     Ok(())
 }
 
-/** 
+/**
  * 记录用户下载文件操作
  * @param file_id: 文件id
  * @param user_id: 用户id
- * TODO
  */
+pub async fn record_file_download(
 
+) -> Result<(), anyhow::Error> {
+    // TODO
+    Ok(())
+}
 
 /**
  * 通过文件id获取文件详情
  * @param file_id: 文件id
  */
-pub async fn get_file_record_by_id(rb: &RBatis, file_id: &str) -> Result<FileUploadRecord, anyhow::Error> {
+pub async fn get_file_record_by_id(
+    rb: &RBatis,
+    file_id: &str,
+) -> Result<FileUploadRecord, anyhow::Error> {
     let file_id = rbdc::types::uuid::Uuid::from_str(file_id)?;
-    let mut file_record = FileUploadRecord::select_by_map(rb, value! {"uuid": &file_id}).await?.pop().ok_or(anyhow!("文件不存在"))?;
-    
+    let mut file_record = FileUploadRecord::select_by_map(rb, value! {"uuid": &file_id})
+        .await?
+        .pop()
+        .ok_or(anyhow!("文件不存在"))?;
+
     // 更新文件下载次数
     file_record.download_count = Option::from(file_record.download_count.unwrap_or(0) + 1);
     file_record.last_download_time = Option::from(get_now_time_stamp_as_millis()?);
-    FileUploadRecord::update_by_map(rb, &file_record,value! {"uuid": &file_id}).await?;
+    FileUploadRecord::update_by_map(rb, &file_record, value! {"uuid": &file_id}).await?;
     Ok(file_record)
 }
 
@@ -252,25 +271,23 @@ pub async fn get_file_by_path(file_path: &str) -> Result<Option<File>, anyhow::E
     if !is_pub {
         return Err(anyhow!("文件路径错误"));
     }
-    
+
     // 检查文件是否存在
     if !tokio::fs::try_exists(file_path).await.unwrap_or(false) {
         return Ok(None);
     }
-    
+
     // 获取文件元数据以检查文件大小
     let metadata = tokio::fs::metadata(file_path).await.map_err(|e| anyhow!(e))?;
-    
+
     // 如果文件大小为0，则返回None
     if metadata.len() == 0 {
         return Ok(None);
     }
-    
+
     let file = File::open(file_path).await;
-    match file { 
-        Ok(file) => {
-            Ok(Some(file))
-        },
+    match file {
+        Ok(file) => Ok(Some(file)),
         Err(e) => {
             // 对于除文件不存在或空文件之外的其他错误，应该返回错误
             Err(anyhow!(e))

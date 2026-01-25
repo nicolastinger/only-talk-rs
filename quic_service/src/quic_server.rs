@@ -1,20 +1,22 @@
-use crate::{GLOBAL_QUIC_SERVER_LIST};
-use anyhow::{anyhow, Result};
-use log::{error, info};
-use quinn::{Connection, RecvStream, SendStream};
 use std::net::SocketAddr;
 use std::sync::Arc;
+
+use anyhow::{Result, anyhow};
 use deadpool_redis::redis::AsyncCommands;
-use rbatis::dark_std::err;
-use rbs::value;
-use tokio::sync::{Mutex, RwLock};
-use entity::{RBATIS_DATABASE, REDIS_CLIENT};
+use entity::config_str::{MAX_QUIC_BUFFER_LEN, MAX_QUIC_SERVERS, SERVER_NAME, USER_READ_MSG};
 use entity::models::chat_entity::chat_message_read::ChatMessageRecordRead;
 use entity::models::chat_entity::chat_message_record::ChatMessageRecord;
-use entity::config_str::{MAX_QUIC_BUFFER_LEN, MAX_QUIC_SERVERS, SERVER_NAME, USER_READ_MSG};
 use entity::utils::jwt_util::decode_jwt;
 use entity::utils::redis_utils::get_redis_conn;
 use entity::utils::time::get_now_time_stamp_as_millis;
+use entity::{RBATIS_DATABASE, REDIS_CLIENT};
+use log::{error, info};
+use quinn::{Connection, RecvStream, SendStream};
+use rbatis::dark_std::err;
+use rbs::value;
+use tokio::sync::{Mutex, RwLock};
+
+use crate::GLOBAL_QUIC_SERVER_LIST;
 use crate::models::first_quic_msg::FirstQuicMsg;
 use crate::models::quic_connection::{ConnectionType, QuicConnection};
 use crate::msg_service::process_msg_service::process_rec_msg;
@@ -27,12 +29,18 @@ pub(crate) fn init_server(addr: SocketAddr) {
 /// 启动并运行QUIC服务器，持续监听新连接
 async fn run_server(addr: SocketAddr) {
     // 创建服务器端点和证书
-    let (endpoint, _server_cert) = make_server_endpoint(addr).unwrap();
+    let (endpoint, _server_cert) = make_server_endpoint(addr).expect("创建服务器端点失败");
     info!("quic服务器启动成功,使用地址为: {}", addr);
 
     // 持续监听新连接请求
     loop {
-        let incoming_conn = endpoint.accept().await.unwrap(); // 接收新连接请求
+        let incoming_conn = match endpoint.accept().await {
+            Some(conn) => conn,
+            None => {
+                error!("接收新连接请求失败: endpoint 已关闭");
+                continue;
+            }
+        }; // 接收新连接请求
         let conn = match incoming_conn.await {
             Ok(t) => t,
             Err(e) => {
@@ -93,8 +101,10 @@ async fn process_first_msg(
             match serde_json::from_str(&origin_str) {
                 Ok(t) => {
                     _first_quic_msg = t;
-                    info!("[服务端] 成功解析客户端初始化消息: uuid={}, msg_type={:?}", 
-                          _first_quic_msg.uuid, _first_quic_msg.msg_type);
+                    info!(
+                        "[服务端] 成功解析客户端初始化消息: uuid={}, msg_type={:?}",
+                        _first_quic_msg.uuid, _first_quic_msg.msg_type
+                    );
                 }
                 Err(e) => {
                     error!("序列化流数据的元数据失败: {}，原始数据: {}", e, origin_str);
@@ -104,16 +114,15 @@ async fn process_first_msg(
             };
         }
         Ok(None) => {
-            error!("[服务端] 接收客户端初始化消息失败: 客户端在发送初始化消息前关闭了连接，客户端地址: {}", address);
+            error!(
+                "[服务端] 接收客户端初始化消息失败: 客户端在发送初始化消息前关闭了连接，客户端地址: {}",
+                address
+            );
             send_stream.finish().await?;
             return Err(anyhow!("[服务端] 客户端未发送初始化消息就关闭了连接"));
         }
         Err(e) => {
-            error!(
-                "[服务端] 初始化读取元数据错误: {}, 客户端地址: {}",
-                e,
-                address.as_str()
-            );
+            error!("[服务端] 初始化读取元数据错误: {}, 客户端地址: {}", e, address.as_str());
             send_stream.finish().await?;
             return Err(anyhow!("[服务端] 读取客户端初始化消息时发生错误"));
         }
@@ -183,14 +192,10 @@ async fn set_conn_info(
         let redis = redis.as_ref().ok_or(anyhow!("获取连接失败"))?;
 
         let mut conn = redis.get().await?;
-        conn.set_ex::<&str, &str, ()>(connection_key, SERVER_NAME, 7200)
-            .await?;
+        conn.set_ex::<&str, &str, ()>(connection_key, SERVER_NAME, 7200).await?;
     }
 
-    info!(
-        "当前的在线客户端 {}",
-        GLOBAL_QUIC_SERVER_LIST.read().await.len()
-    );
+    info!("当前的在线客户端 {}", GLOBAL_QUIC_SERVER_LIST.read().await.len());
     Ok(())
 }
 
@@ -201,7 +206,7 @@ async fn handle_conn(
     address: String,
 ) -> Result<(), anyhow::Error> {
     info!("[服务端] 开始处理新连接，客户端地址: {}", address);
-    
+
     let first_quic_msg =
         process_first_msg(&mut send_stream, &mut recv_stream, &address.clone()).await?;
     let head_length = first_quic_msg.dyn_header_size;
@@ -212,13 +217,8 @@ async fn handle_conn(
 
     let msg_type = first_quic_msg.msg_type.clone();
 
-    let connection_key = format!(
-        "{}{}{}{}",
-        "QUIC:SERVER:",
-        uuid,
-        ":",
-        first_quic_msg.msg_type.to_string()
-    );
+    let connection_key =
+        format!("{}{}{}{}", "QUIC:SERVER:", uuid, ":", first_quic_msg.msg_type);
     let connection_key = connection_key.to_uppercase();
     info!("connection key: {}", connection_key);
     let close_key = connection_key.clone();
@@ -297,9 +297,7 @@ async fn end_server(
                 let redis = redis.as_ref().expect("获取redis连接失败");
 
                 let mut conn = redis.get().await.expect("打开redis连接失败");
-                conn.del::<&str, ()>(connection_key)
-                    .await
-                    .expect("删除连接信息失败");
+                conn.del::<&str, ()>(connection_key).await.expect("删除连接信息失败");
             }
         }
     }
@@ -331,12 +329,15 @@ async fn user_offline(uuid: String) -> std::result::Result<(), anyhow::Error> {
     // TODO已读消息有效校验
     let rb = rb.as_ref().ok_or(anyhow!("获取连接失败"))?;
     for item in last_chat_message_read.into_iter() {
-        let is_exist = ChatMessageRecord::select_by_map(rb, value! {"nano_id": &item.nano_id}).await?;
-        if is_exist.is_empty() || is_exist.len() > 1{
+        let is_exist =
+            ChatMessageRecord::select_by_map(rb, value! {"nano_id": &item.nano_id}).await?;
+        if is_exist.is_empty() || is_exist.len() > 1 {
             continue;
         }
         let exit_item = is_exist.first().expect("获取已读消息失败");
-        if exit_item.recv_user.to_string() != item.recv_user.to_string() && exit_item.send_user.to_string() != item.recv_user.to_string(){ 
+        if exit_item.recv_user.to_string() != item.recv_user.to_string()
+            && exit_item.send_user.to_string() != item.recv_user.to_string()
+        {
             err!("已读消息无效 {:?}", item);
             continue;
         }
@@ -352,7 +353,7 @@ async fn user_offline(uuid: String) -> std::result::Result<(), anyhow::Error> {
             &item,
             value! {"send_user": &item.send_user, "recv_user": &item.recv_user},
         )
-            .await
+        .await
         {
             Ok(d) => {
                 if d.rows_affected < 1u64 {

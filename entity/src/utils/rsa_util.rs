@@ -1,9 +1,10 @@
-use rand::distributions::Alphanumeric;
+use std::fs;
+
 use rand::Rng;
+use rand::distributions::Alphanumeric;
 use rsa::pkcs8::DecodePrivateKey;
 use rsa::{RsaPrivateKey, RsaPublicKey};
 use sha2::{Digest, Sha256};
-use std::fs;
 
 pub fn generate_rsa_keys() -> Result<(RsaPrivateKey, RsaPublicKey), anyhow::Error> {
     let private_key_str = fs::read_to_string("./config/jwt/private.key")?;

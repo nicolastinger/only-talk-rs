@@ -1,12 +1,16 @@
-use crate::http_service::user_service::dto::friend_dto::FriendDTO;
-use crate::http_service::user_service::dto::friend_request_info_dto::FriendRequestInfoDTO;
-use crate::http_service::user_service::service::friend_service::{add_friend, get_accept_friend_request_list, get_friend_list, get_friend_request_list, process_friend};
-use actix_web::{post, web, HttpMessage, HttpRequest, HttpResponse, Responder};
+use actix_web::{HttpMessage, HttpRequest, HttpResponse, Responder, post, web};
 use log::{error, info};
 use rbatis::RBatis;
+
 use crate::common::dto::base_dto::{AuthAccount, ReqList};
-use crate::{get_uuid_from_header, respond_json_any, validate_and_respond};
+use crate::http_service::user_service::dto::friend_dto::FriendDTO;
+use crate::http_service::user_service::dto::friend_request_info_dto::FriendRequestInfoDTO;
+use crate::http_service::user_service::service::friend_service::{
+    add_friend, get_accept_friend_request_list, get_friend_list, get_friend_request_list,
+    process_friend,
+};
 use crate::utils::http_response::CommonResponseNoDataRef;
+use crate::{get_uuid_from_header, respond_json_any, validate_and_respond};
 
 pub fn friend_service(cfg: &mut web::ServiceConfig) {
     cfg.service(qry_friend_list)
@@ -42,8 +46,9 @@ pub async fn add_friend_api(
     let res = add_friend(state.as_ref(), friend).await;
     if let Err(t) = res {
         error!("err_context {:?}", t);
-        error!("{}", t.backtrace()); 
-        return HttpResponse::BadRequest().body(CommonResponseNoDataRef::error_json(&t.to_string()));
+        error!("{}", t.backtrace());
+        return HttpResponse::BadRequest()
+            .body(CommonResponseNoDataRef::error_json(&t.to_string()));
     }
     let res = CommonResponseNoDataRef::success_empty();
     HttpResponse::Ok().body(res)
@@ -62,10 +67,11 @@ pub async fn process_friend_api(
     if let Err(t) = res {
         error!("err_context {:?}", t);
         error!("{}", t.backtrace());
-        return HttpResponse::BadRequest().body(CommonResponseNoDataRef::error_json(&t.to_string()));
+        return HttpResponse::BadRequest()
+            .body(CommonResponseNoDataRef::error_json(&t.to_string()));
     }
     let res = CommonResponseNoDataRef::success_empty();
-    HttpResponse::Ok().body(res) 
+    HttpResponse::Ok().body(res)
 }
 
 #[post("/get_friend/{last_uuid}/{version}")]

@@ -1,13 +1,14 @@
 use anyhow::anyhow;
-use log::{info};
-use rbatis::rbdc::Uuid;
-use rbatis::RBatis;
-use rbs::value;
+use deadpool_redis::redis::AsyncCommands;
+use entity::config_str::USER_READ_MSG;
 use entity::models::chat_entity::chat_message_read::ChatMessageRecordRead;
 use entity::models::chat_entity::chat_message_record::ChatMessageRecord;
-use entity::config_str::USER_READ_MSG;
 use entity::utils::redis_utils::get_redis_conn;
-use deadpool_redis::redis::AsyncCommands;
+use log::info;
+use rbatis::RBatis;
+use rbatis::rbdc::Uuid;
+use rbs::value;
+
 use crate::common::dto::base_page_dto::BasePageDTO;
 use crate::utils::http_response::{CommonResponseNoDataRef, CommonResponseRef};
 
@@ -28,11 +29,8 @@ pub async fn get_chat_by_limit(
     let vec = chat.raw.clone();
     let str = String::from_utf8(vec.into_inner())?;
     info!("结果为 {}", str);
-    Ok(CommonResponseRef::<Vec<ChatMessageRecord>>::success_json(
-        &res,
-    )?)
+    Ok(CommonResponseRef::<Vec<ChatMessageRecord>>::success_json(&res)?)
 }
-
 
 // 用户新增聊天记录
 // pub async fn add_user_chat_record(text_msg: TextQuicMsg) -> Result<(), anyhow::Error> {
@@ -67,9 +65,7 @@ pub async fn get_unread_chat_record(
         return Ok(CommonResponseRef::<Vec<ChatMessageRecord>>::success_json(&unread_msg)?);
     }
     // 4、查找已读消息有没有最新消息
-    let res = read_msg
-        .iter()
-        .find(|x| x.nano_id == last_msg.as_ref().unwrap().nano_id);
+    let res = read_msg.iter().find(|x| x.nano_id == last_msg.as_ref().expect("获取最新消息id失败").nano_id);
     if res.is_some() {
         return Ok(empty_vec);
     }
@@ -113,17 +109,13 @@ pub async fn add_user_chat_read(
     let res: Result<String, _> = redis.get(&key).await;
 
     if res.is_err() {
-        let _: ()= redis
-            .set_ex(&key, chat_message_read_str, 60 * 60 * 24)
-            .await?;
+        let _: () = redis.set_ex(&key, chat_message_read_str, 60 * 60 * 24).await?;
     } else {
         let mut last_chat_message_read: Vec<ChatMessageRecordRead> = serde_json::from_str(&res?)?;
         for item in chat_message_read.into_iter() {
-            let new_item = last_chat_message_read
-                .iter_mut()
-                .find(|x| x.send_user == item.send_user);
-            if new_item.is_some() {
-                let new_item = new_item.unwrap();
+            let new_item =
+                last_chat_message_read.iter_mut().find(|x| x.send_user == item.send_user);
+            if let Some(new_item) = new_item {
                 new_item.timestamp = item.timestamp;
                 new_item.nano_id = item.nano_id.clone();
                 info!("update last_chat_message_read: {:?}", new_item);
@@ -132,12 +124,8 @@ pub async fn add_user_chat_read(
             }
         }
 
-        let _:() = redis
-            .set_ex(
-                &key,
-                serde_json::to_string(&last_chat_message_read)?,
-                60 * 60 * 24,
-            )
+        let _: () = redis
+            .set_ex(&key, serde_json::to_string(&last_chat_message_read)?, 60 * 60 * 24)
             .await?;
     }
 

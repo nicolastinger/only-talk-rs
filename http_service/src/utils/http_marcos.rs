@@ -8,7 +8,7 @@ macro_rules! validate_and_respond {
         if let Err(errors) = value.validate() {
             return HttpResponse::BadRequest().body(
                 serde_json::to_string(&CommonResponse::error(errors, "errorValidate".to_string()))
-                    .unwrap(),
+                    .expect("validate_and_respond json序列化失败"),
             );
         }
         value
@@ -34,7 +34,6 @@ macro_rules! validate_and_respond {
 #[macro_export]
 macro_rules! respond_to_json {
     ($model:expr) => {{
-
         match $model {
             Ok(t) => actix_web::HttpResponse::Ok()
                 .body(serde_json::to_string(&CommonResponse::success(t)).unwrap()),
@@ -44,7 +43,6 @@ macro_rules! respond_to_json {
         }
     }};
     ($model:expr, $error_str:expr) => {{
-
         match $model {
             Ok(t) => actix_web::HttpResponse::Ok()
                 .body(serde_json::to_string(&CommonResponse::success(t)).unwrap()),

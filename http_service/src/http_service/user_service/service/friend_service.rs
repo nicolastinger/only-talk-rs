@@ -1,16 +1,17 @@
-use crate::http_service::user_service::dto::friend_request_info_dto::FriendRequestInfoDTO;
-use crate::http_service::user_service::vo::friend_vo::{query_friend_list};
-use anyhow::anyhow;
-use rbatis::RBatis;
-use rbs::value;
-use serde_json::json;
 use std::str::FromStr;
-use uuid::Uuid;
+
+use anyhow::anyhow;
 use entity::models::user_entity::basic_user::is_exist_user_by_uuid;
 use entity::models::user_entity::friend_link::FriendLink;
 use entity::models::user_entity::friend_request_info::FriendRequestInfo;
 use entity::utils::time::get_now_time_stamp_as_millis;
-use crate::utils::http_response::{CommonResponseRef};
+use rbatis::RBatis;
+use rbs::value;
+use uuid::Uuid;
+
+use crate::http_service::user_service::dto::friend_request_info_dto::FriendRequestInfoDTO;
+use crate::http_service::user_service::vo::friend_vo::query_friend_list;
+use crate::utils::http_response::CommonResponseRef;
 
 ///发起好友申请
 pub async fn add_friend(
@@ -20,13 +21,11 @@ pub async fn add_friend(
     let uuid = Uuid::now_v7().to_string();
     // 开启事务
     let tx = rb.acquire_begin().await?;
-    let request_user = friend_request_info_dto
-        .request_user
-        .ok_or_else(|| anyhow!("request_user is None"))?;
+    let request_user =
+        friend_request_info_dto.request_user.ok_or_else(|| anyhow!("request_user is None"))?;
     let request_user = rbatis::rbdc::Uuid::from_str(request_user.as_str())?;
-    let accept_user_str = friend_request_info_dto
-        .accept_user
-        .ok_or(anyhow!("accept_user is None"))?;
+    let accept_user_str =
+        friend_request_info_dto.accept_user.ok_or(anyhow!("accept_user is None"))?;
     let accept_user = accept_user_str.clone();
     let accept_user = rbatis::rbdc::Uuid::from_str(accept_user.as_str())?;
 
@@ -40,7 +39,7 @@ pub async fn add_friend(
 
     // 查询是否为已添加
     let friend_link = FriendLink::select_by_last_uuid(rb, &request_user, &accept_user).await?;
-    if friend_link.is_some() && !friend_link.as_ref().unwrap().is_del.unwrap_or(true) {
+    if friend_link.is_some() && !friend_link.as_ref().ok_or(anyhow!("friend_link is None"))?.is_del.unwrap_or(true) {
         return Err(anyhow!("已添加"));
     }
 
@@ -90,13 +89,10 @@ pub async fn process_friend(
     rb: &RBatis,
     friend_request_info_dto: FriendRequestInfoDTO,
 ) -> Result<FriendRequestInfo, anyhow::Error> {
-    let request_user = friend_request_info_dto
-        .request_user
-        .ok_or_else(|| anyhow!("request_user is None"))?;
+    let request_user =
+        friend_request_info_dto.request_user.ok_or_else(|| anyhow!("request_user is None"))?;
     let request_user = rbatis::rbdc::Uuid::from_str(request_user.as_str())?;
-    let accept_user = friend_request_info_dto
-        .accept_user
-        .ok_or(anyhow!("accept_user is None"))?;
+    let accept_user = friend_request_info_dto.accept_user.ok_or(anyhow!("accept_user is None"))?;
     let accept_user = rbatis::rbdc::Uuid::from_str(accept_user.as_str())?;
 
     // 是否存在这个发起用户
@@ -108,7 +104,7 @@ pub async fn process_friend(
 
     // 查询是否为已添加
     let friend_link = FriendLink::select_by_last_uuid(rb, &request_user, &accept_user).await?;
-    if friend_link.is_some() && !friend_link.as_ref().unwrap().is_del.unwrap_or(true) {
+    if friend_link.is_some() && !friend_link.as_ref().ok_or(anyhow!("friend_link is None"))?.is_del.unwrap_or(true) {
         return Err(anyhow!("已添加"));
     }
 
@@ -129,10 +125,7 @@ pub async fn process_friend(
     // 使用事务块包裹逻辑
     let result = async {
         let now = get_now_time_stamp_as_millis()?;
-        let uuid = exit_request_info
-            .uuid
-            .clone()
-            .ok_or(anyhow!("uuid is None"))?;
+        let uuid = exit_request_info.uuid.clone().ok_or(anyhow!("uuid is None"))?;
 
         exit_request_info.accept_status = friend_request_info_dto.accept_status;
         exit_request_info.accept_message = friend_request_info_dto.accept_message;
@@ -140,7 +133,7 @@ pub async fn process_friend(
         exit_request_info.updated_at = Some(now);
 
         let update_value = value! {"id":&exit_request_info.id};
-        let data = FriendRequestInfo::update_by_map(rb, &exit_request_info, update_value).await?;
+        FriendRequestInfo::update_by_map(rb, &exit_request_info, update_value).await?;
         match friend_request_info_dto.accept_status {
             // 接受
             Some(1) => {
@@ -162,7 +155,6 @@ pub async fn process_friend(
             }
         }
         tx.commit().await?;
-        println!("update_by_map = {}", json!(data));
 
         Ok(exit_request_info)
     }
@@ -193,17 +185,9 @@ pub async fn get_friend_list(
     let res = FriendLink::select_by_last_uuid(rb, &uuid, &uuid_v7).await?;
 
     if res.is_some()
-        && res
-            .as_ref()
-            .ok_or(anyhow!("获取时间戳失败"))?
-            .version
-            .unwrap_or(-1i32)
-            == version
+        && res.as_ref().ok_or(anyhow!("获取时间戳失败"))?.version.unwrap_or(-1i32) == version
     {
-        timestamp = res
-            .ok_or(anyhow!("获取时间戳失败"))?
-            .created_at
-            .unwrap_or(0i64);
+        timestamp = res.ok_or(anyhow!("获取时间戳失败"))?.created_at.unwrap_or(0i64);
     }
 
     query_friend_list(rb, &uuid, timestamp).await
@@ -222,7 +206,6 @@ pub async fn get_accept_friend_request_list(
     Ok(CommonResponseRef::<Vec<FriendRequestInfo>>::success_json(&res)?)
 }
 
-
 /// 获取我请求的好友申请列表
 pub async fn get_friend_request_list(
     rb: &RBatis,
@@ -232,6 +215,7 @@ pub async fn get_friend_request_list(
     let uuid = uuid.ok_or(anyhow!("获取账号失败!"))?;
     let uuid = rbatis::rbdc::uuid::Uuid::from_str(&uuid)?;
 
-    let res = FriendRequestInfo::select_by_request_user_and_status(rb, &uuid, accept_status).await?;
+    let res =
+        FriendRequestInfo::select_by_request_user_and_status(rb, &uuid, accept_status).await?;
     Ok(CommonResponseRef::<Vec<FriendRequestInfo>>::success_json(&res)?)
 }

@@ -1,19 +1,23 @@
-use crate::GLOBAL_QUIC_SERVER_LIST;
+use std::sync::Arc;
+
 use anyhow::anyhow;
+use entity::RBATIS_DATABASE;
+use entity::config_str::{PONG, REDIS_QUIC_SERVERS, REDIS_SPLIT, SYSTEM};
+use entity::models::chat_entity::chat_message_record::ChatMessageRecord;
+use entity::utils::message_types;
+use entity::utils::time::get_now_time_stamp_as_millis;
 use log::{error, info};
 use nanoid::nanoid;
 use quinn::SendStream;
-use std::sync::Arc;
 use rbatis::rbdc::{Bytes, Uuid};
 use tokio::sync::{Mutex, RwLock};
-use entity::models::chat_entity::chat_message_record::ChatMessageRecord;
-use entity::RBATIS_DATABASE;
-use entity::config_str::{PONG, REDIS_QUIC_SERVERS, REDIS_SPLIT, SYSTEM};
-use entity::utils::message_types;
-use entity::utils::time::get_now_time_stamp_as_millis;
+
+use crate::GLOBAL_QUIC_SERVER_LIST;
 use crate::models::quic_connection::ConnectionType;
 use crate::models::text_msg::TextQuicMsg;
-use crate::msg_service::text_msg_service::{generate_text_msg, generate_text_msg_with_time, get_text_msg};
+use crate::msg_service::text_msg_service::{
+    generate_text_msg, generate_text_msg_with_time, get_text_msg,
+};
 
 pub async fn process_rec_msg(
     buffer: &mut Vec<u8>,
@@ -75,7 +79,7 @@ async fn process_text_msg(
             REDIS_QUIC_SERVERS,
             text_msg.recv_user.as_str(),
             REDIS_SPLIT,
-            ConnectionType::Text.to_string()
+            ConnectionType::Text
         );
         let user_key = user_key.to_uppercase();
 
@@ -83,19 +87,11 @@ async fn process_text_msg(
         let send_stream_clone = send_stream.clone();
         tokio::spawn(async move {
             let current_user = text_msg_clone.send_user.clone();
-            add_user_chat_record(text_msg_clone)
-                .await
-                .expect("插入用户消息失败");
+            add_user_chat_record(text_msg_clone).await.expect("插入用户消息失败");
             // 发送ack消息
-            send_msg_record_success(
-                ack_nano_id,
-                send_stream_clone,
-                current_user,
-                ack_raw_id,
-                now,
-            )
-            .await
-            .expect("发送ack消息失败");
+            send_msg_record_success(ack_nano_id, send_stream_clone, current_user, ack_raw_id, now)
+                .await
+                .expect("发送ack消息失败");
         });
 
         // 目标用户的发送流
@@ -135,11 +131,7 @@ async fn send_ping(
         current_user,
         SYSTEM.to_string(),
     )?;
-    send_stream
-        .write()
-        .await
-        .write_all(ping_msg.as_ref())
-        .await?;
+    send_stream.write().await.write_all(ping_msg.as_ref()).await?;
     Ok(())
 }
 
@@ -158,12 +150,7 @@ async fn pass_text_msg(
     )?;
     send_msg_permissions().await.expect("鉴权失败");
     {
-        recv_send_stream
-            .write()
-            .await
-            .write_all(&res)
-            .await
-            .expect("发送消息失败");
+        recv_send_stream.write().await.write_all(&res).await.expect("发送消息失败");
     };
     Ok(())
 }

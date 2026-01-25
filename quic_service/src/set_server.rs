@@ -1,13 +1,13 @@
 use std::error::Error;
 use std::fs::File;
-use std::io::BufReader;
+use std::io::{BufReader, Seek, SeekFrom};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
+
 use quinn::{ClientConfig, Endpoint, ServerConfig, TransportConfig};
 use rustls::{Certificate, PrivateKey, RootCertStore};
-use rustls_pemfile::{certs, ec_private_keys, rsa_private_keys ,pkcs8_private_keys};
-use std::io::{Seek, SeekFrom};
+use rustls_pemfile::{certs, ec_private_keys, pkcs8_private_keys, rsa_private_keys};
 
 /// 配置客户端使用的QUIC设置。
 #[allow(dead_code)]
@@ -16,15 +16,13 @@ pub fn configure_client() -> ClientConfig {
     let mut root_store = RootCertStore::empty();
     // 添加Let's Encrypt根证书到信任存储
     // 这将允许客户端验证Let's Encrypt颁发的证书
-    root_store.add_trust_anchors(
-        webpki_roots::TLS_SERVER_ROOTS.iter().map(|ta| {
-            rustls::OwnedTrustAnchor::from_subject_spki_name_constraints(
-                ta.subject.as_ref().to_vec(), 
-                ta.subject_public_key_info.as_ref().to_vec(),
-                ta.name_constraints.as_ref().map(|nc| nc.as_ref().to_vec())
-            )
-        })
-    );
+    root_store.add_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.iter().map(|ta| {
+        rustls::OwnedTrustAnchor::from_subject_spki_name_constraints(
+            ta.subject.as_ref().to_vec(),
+            ta.subject_public_key_info.as_ref().to_vec(),
+            ta.name_constraints.as_ref().map(|nc| nc.as_ref().to_vec()),
+        )
+    }));
 
     let crypto = rustls::ClientConfig::builder()
         .with_safe_defaults()
@@ -34,7 +32,7 @@ pub fn configure_client() -> ClientConfig {
     // 创建QUIC客户端配置
     let mut config = ClientConfig::new(Arc::new(crypto));
     let mut time_out_config = TransportConfig::default();
-    time_out_config.max_idle_timeout(Some(Duration::from_secs(1800).try_into().unwrap()));
+    time_out_config.max_idle_timeout(Some(Duration::from_secs(1800).try_into().expect("设置超时时间失败")));
     // 获取传输配置并设置最大空闲超时时间（例如3分钟）
     config.transport_config(Arc::from(time_out_config));
     config
@@ -63,7 +61,7 @@ pub fn configure_server() -> Result<(ServerConfig, Vec<u8>), Box<dyn Error>> {
         .map_err(|_| "无法解析证书文件")?;
 
     // 从.key文件加载私钥
-     let key_file =
+    let key_file =
         &mut BufReader::new(File::open("./config/ssl/privkey.pem").expect("找不到TLS证书密钥"));
 
     // 尝试读取不同类型的私钥
@@ -118,9 +116,9 @@ pub fn configure_server() -> Result<(ServerConfig, Vec<u8>), Box<dyn Error>> {
 
     // 创建服务器配置
     let mut server_config = ServerConfig::with_single_cert(cert_chain.clone(), key)?;
-    let transport_config = Arc::get_mut(&mut server_config.transport).unwrap();
+    let transport_config = Arc::get_mut(&mut server_config.transport).expect("获取传输配置失败");
     transport_config.max_concurrent_uni_streams(0_u8.into()); // 设置最大并发单向流数量
-    transport_config.max_idle_timeout(Some(Duration::from_secs(190).try_into().unwrap())); //最大容忍三次连接超时
+    transport_config.max_idle_timeout(Some(Duration::from_secs(190).try_into().expect("设置超时时间失败"))); //最大容忍三次连接超时
     // 返回服务器配置和证书
     Ok((server_config, cert_der))
 }

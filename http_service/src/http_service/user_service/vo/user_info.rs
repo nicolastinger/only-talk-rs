@@ -1,7 +1,7 @@
-use rbatis::rbdc::Uuid;
-use serde::{Deserialize, Serialize};
 use entity::models::user_entity::basic_user::BasicUser;
 use entity::models::user_entity::user_info::UserInfo;
+use rbatis::rbdc::Uuid;
+use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize, Serialize, Debug)]
 pub struct UserInfoVO {
