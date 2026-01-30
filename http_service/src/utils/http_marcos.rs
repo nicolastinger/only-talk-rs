@@ -69,7 +69,7 @@ macro_rules! respond_json_any {
         match $model {
             Ok(t) => HttpResponse::Ok().body(t),
             Err(t) => {
-                use log::error;
+                use tracing::error;
                 error!("err_context {:?}", t);
                 error!("{}", t.backtrace());
                 HttpResponse::BadRequest().body(CommonResponseNoDataRef::error_json(&t.to_string()))
@@ -81,7 +81,7 @@ macro_rules! respond_json_any {
 #[macro_export]
 macro_rules! serde_json_to_string {
     ($model:expr) => {{
-        use log::error;
+        use tracing::error;
 
         match serde_json::to_string($model) {
             Ok(t) => Ok(t),

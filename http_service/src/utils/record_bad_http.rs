@@ -7,7 +7,7 @@ use actix_web::middleware::Next;
 use actix_web::{Error, HttpMessage};
 use entity::utils::jwt_util::decode_jwt;
 use lazy_static::lazy_static;
-use log::info;
+use tracing::info;
 
 use crate::common::dto::base_dto::AuthAccount;
 

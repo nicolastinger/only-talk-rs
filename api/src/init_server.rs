@@ -12,8 +12,9 @@ use deadpool_redis::{Config as dp_config, Pool, Runtime};
 use entity::config_str::{USER_FILE_PUBLIC, USER_FILE_PUBLIC_DIR};
 use entity::{RBATIS_DATABASE, REDIS_CLIENT, init_global_config, read_global_config};
 use http_service;
+use http_service::middleware::TraceIdMiddleware;
 use http_service::utils::record_bad_http::error_record_middleware;
-use log::{error, info};
+use tracing::{error, info};
 use rbatis::rbdc::db::ConnectOptions;
 use rbatis::{Error, RBatis, rbdc};
 use rbdc::pool::{ConnectionManager, Pool as rdbc_pool};
@@ -176,16 +177,14 @@ pub async fn start_server() -> anyhow::Result<()> {
 
     HttpServer::new(move || {
         App::new()
+            .wrap(TraceIdMiddleware)
             .wrap(from_fn(error_record_middleware))
             .app_data(web::Data::new(redis_pool.clone()))
             .app_data(web::Data::new(pool.clone()))
-            // 设置中间件，让actix-web打印日志
             .wrap(middleware::Logger::default())
             .configure(http_service::http_service::configure_routes)
             .configure(configure_api_routes)
-            // 静态文件服务，用于访问公开文件夹
             .service(Files::new(USER_FILE_PUBLIC, USER_FILE_PUBLIC_DIR).show_files_listing())
-        // 这里可以继续添加其他路由
     })
     .bind_rustls_021(address, config)? // 绑定到 HTTPS 端口
     //.bind(address)?

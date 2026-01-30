@@ -4,7 +4,7 @@ use entity::config_str::USER_READ_MSG;
 use entity::models::chat_entity::chat_message_read::ChatMessageRecordRead;
 use entity::models::chat_entity::chat_message_record::ChatMessageRecord;
 use entity::utils::redis_utils::get_redis_conn;
-use log::info;
+use tracing::info;
 use rbatis::RBatis;
 use rbatis::rbdc::Uuid;
 use rbs::value;

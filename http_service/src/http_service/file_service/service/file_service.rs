@@ -8,7 +8,7 @@ use entity::config_str::{DEFAULT_MAX_FILE_SIZE, USER_FILE_PUBLIC_DIR};
 use entity::models::file_entity::file_upload_record::FileUploadRecord;
 use entity::utils::time::get_now_time_stamp_as_millis;
 use futures_util::{StreamExt, TryStreamExt};
-use log::{error, warn};
+use tracing::{error, info, warn};
 use rbatis::rbdc::rt::fs::File;
 use rbatis::rbdc::rt::{AsyncWriteExt, tokio, AsyncReadExt};
 use rbatis::{RBatis, rbdc};
@@ -300,6 +300,7 @@ pub async fn get_file_by_path(file_path: &str) -> Result<Option<File>, anyhow::E
 /// 单个文件下载
 pub async fn download_pub_file_by_id(rb: &RBatis, biz_id: String, file_id: String) -> Result<HttpResponse, anyhow::Error> {
     // 1. 获取业务信息
+    info!("biz_id: {}, file_id: {}", biz_id, file_id);
     let biz_record = get_pub_file_record_by_biz_id(rb, &biz_id).await?;
     let file_ids = biz_record.file_ids.ok_or(anyhow!("文件ID为空"))?;
     if file_ids.is_empty() {

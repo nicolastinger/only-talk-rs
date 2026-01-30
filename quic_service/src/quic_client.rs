@@ -5,7 +5,7 @@ use std::time::Duration;
 use entity::config_str::{PING, SYSTEM};
 use entity::utils::jwt_util::get_jwt;
 use entity::utils::message_types;
-use log::{error, info};
+use tracing::{error, info};
 use quinn::{Endpoint, SendStream};
 use tokio::io::AsyncWriteExt;
 use tokio::sync::{Mutex, RwLock};

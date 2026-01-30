@@ -11,7 +11,7 @@ use entity::utils::redis_utils::get_redis_conn;
 use entity::utils::rsa_util::{generate_random_string, hash_with_salt};
 use entity::utils::time::get_now_time_stamp_as_millis;
 use entity::{RBATIS_DATABASE, REDIS_CLIENT};
-use log::{error, info};
+use tracing::{error, info};
 use rbatis::{RBatis, rbdc};
 use rbs::value;
 use uuid::Uuid;

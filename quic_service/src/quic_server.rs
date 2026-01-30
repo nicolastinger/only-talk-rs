@@ -10,7 +10,7 @@ use entity::utils::jwt_util::decode_jwt;
 use entity::utils::redis_utils::get_redis_conn;
 use entity::utils::time::get_now_time_stamp_as_millis;
 use entity::{RBATIS_DATABASE, REDIS_CLIENT};
-use log::{error, info};
+use tracing::{error, info};
 use quinn::{Connection, RecvStream, SendStream};
 use rbatis::dark_std::err;
 use rbs::value;

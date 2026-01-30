@@ -1,7 +1,7 @@
 use std::fs;
 
 use actix_web::{HttpResponse, Responder, post, web, get};
-use log::error;
+use tracing::error;
 use rbatis::RBatis;
 use entity::config_str::USER_FILE_PUBLIC_DIR;
 use crate::http_service::file_service::service::file_service::download_pub_file_by_id;
@@ -45,7 +45,7 @@ pub async fn download_pub_file_id_api(state: web::Data<RBatis>, params: web::Pat
  * 通过业务id和文件id下载聊天文件
  */
 #[get("/download_chat_file/{biz_id}/{file_id}")]
-pub async fn download_chat_file_api(params: web::Path<(String, String)>) -> impl Responder {
+pub async fn download_chat_file_api(_params: web::Path<(String, String)>) -> impl Responder {
     // 返回文件内容作为二进制响应
     HttpResponse::Ok()
         .content_type("image/webp")
@@ -57,7 +57,7 @@ pub async fn download_chat_file_api(params: web::Path<(String, String)>) -> impl
  * 通过业务id和文件id下载私密文件
  */
 #[get("/download_private_file/{biz_id}/{file_id}")]
-pub async fn download_private_file_api(params: web::Path<(String, String)>) -> impl Responder {
+pub async fn download_private_file_api(_params: web::Path<(String, String)>) -> impl Responder {
     // 返回文件内容作为二进制响应
     HttpResponse::Ok()
         .content_type("image/webp")

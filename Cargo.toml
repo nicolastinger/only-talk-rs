@@ -27,8 +27,10 @@ rustls = { version = "0.21" }
 jsonwebtoken = "8.0"  # 请根据最新版本调整
 tokio ={ version = "1.0.0",features = ["full"]}
 serde_json = "1.0.128"
-fast_log = "1.7.4" #使用简单的异步日志库
-log = "0.4" # 日志库
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-appender = "0.2"
+tracing-actix-web = "0.7"
 serde = { version = "1", features = ["derive"] }
 lazy_static = "1.4"
 redis = { version = "0.22" ,features = ["tokio-comp"]}
@@ -64,8 +66,10 @@ rustls = { workspace = true }
 jsonwebtoken = { workspace = true }
 tokio = { workspace = true }
 serde_json = { workspace = true }
-fast_log = { workspace = true }
-log = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tracing-appender = { workspace = true }
+tracing-actix-web = { workspace = true }
 serde = { workspace = true }
 lazy_static = { workspace = true }
 redis = { workspace = true }

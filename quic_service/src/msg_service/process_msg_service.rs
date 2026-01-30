@@ -6,7 +6,7 @@ use entity::config_str::{PONG, REDIS_QUIC_SERVERS, REDIS_SPLIT, SYSTEM};
 use entity::models::chat_entity::chat_message_record::ChatMessageRecord;
 use entity::utils::message_types;
 use entity::utils::time::get_now_time_stamp_as_millis;
-use log::{error, info};
+use tracing::{error, info};
 use nanoid::nanoid;
 use quinn::SendStream;
 use rbatis::rbdc::{Bytes, Uuid};

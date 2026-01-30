@@ -9,7 +9,7 @@ rbatis = { workspace = true }
 validator = { workspace = true }
 anyhow = { workspace = true }
 rbs = { workspace = true }
-log = { workspace = true }
+tracing = { workspace = true }
 lazy_static = { workspace = true }
 tokio = { workspace = true }
 deadpool-redis = { workspace = true }

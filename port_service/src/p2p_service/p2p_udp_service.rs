@@ -6,7 +6,7 @@ use entity::config_str::SYSTEM;
 use entity::utils::jwt_util::decode_jwt;
 use entity::utils::message_types;
 use entity::utils::redis_utils::{acquire_lock, get_redis_conn, release_lock};
-use log::{error, info, warn};
+use tracing::{error, info, warn};
 use quic_service::models::quic_connection::ConnectionType;
 use quic_service::msg_service::get_send_stream_by_uuid;
 use quic_service::msg_service::text_msg_service::generate_text_msg;

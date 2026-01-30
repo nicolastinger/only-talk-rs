@@ -3,7 +3,7 @@ use actix_web::{HttpRequest, HttpResponse, Responder, post, web};
 use http_service::common::dto::base_dto::AuthAccount;
 use http_service::utils::http_response::CommonResponseNoDataRef;
 use http_service::{get_uuid_from_header, respond_json_any};
-use log::error;
+use tracing::error;
 use rbatis::RBatis;
 
 use crate::service::upload_file_integrated_service::{download_pub_biz, upload_user_avatar};
