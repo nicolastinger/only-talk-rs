@@ -1,4 +1,6 @@
-/target
-/log/**
-/.idea/**
-/resource/**
+target/
+log/
+.idea/
+resources/
+jwt/
+ssl/
