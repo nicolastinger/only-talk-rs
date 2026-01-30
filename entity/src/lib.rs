@@ -6,6 +6,7 @@ use rbatis::RBatis;
 use tokio::sync::RwLock;
 
 pub mod config_str;
+pub mod config_manager;
 pub mod marcos;
 pub mod models;
 pub mod utils;

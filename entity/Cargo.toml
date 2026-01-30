@@ -20,3 +20,4 @@ rand = { workspace = true }
 sha2 = { workspace = true }
 once_cell = { workspace = true }
 regex = { workspace = true }
+dashmap = "6.1"

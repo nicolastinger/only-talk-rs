@@ -2,6 +2,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 
 use actix_multipart::Multipart;
+use actix_web::HttpResponse;
 use anyhow::anyhow;
 use entity::config_str::{DEFAULT_MAX_FILE_SIZE, USER_FILE_PUBLIC_DIR};
 use entity::models::file_entity::file_upload_record::FileUploadRecord;
@@ -9,11 +10,12 @@ use entity::utils::time::get_now_time_stamp_as_millis;
 use futures_util::{StreamExt, TryStreamExt};
 use log::{error, warn};
 use rbatis::rbdc::rt::fs::File;
-use rbatis::rbdc::rt::{AsyncWriteExt, tokio};
+use rbatis::rbdc::rt::{AsyncWriteExt, tokio, AsyncReadExt};
 use rbatis::{RBatis, rbdc};
 use rbs::value;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
+use crate::http_service::file_service::service::biz_service::get_pub_file_record_by_biz_id;
 
 // 确保目录存在
 async fn create_upload_dir() -> std::io::Result<()> {
@@ -293,4 +295,41 @@ pub async fn get_file_by_path(file_path: &str) -> Result<Option<File>, anyhow::E
             Err(anyhow!(e))
         }
     }
+}
+
+/// 单个文件下载
+pub async fn download_pub_file_by_id(rb: &RBatis, biz_id: String, file_id: String) -> Result<HttpResponse, anyhow::Error> {
+    // 1. 获取业务信息
+    let biz_record = get_pub_file_record_by_biz_id(rb, &biz_id).await?;
+    let file_ids = biz_record.file_ids.ok_or(anyhow!("文件ID为空"))?;
+    if file_ids.is_empty() {
+        return Err(anyhow!("文件ID为空"));
+    }
+    // 按逗号分割文件id
+    let file_id_vec: Vec<&str> = file_ids.split(",").collect();
+    if !file_id_vec.contains(&file_id.as_str()) {
+        return Err(anyhow!("文件ID不存在"));
+    }
+
+    // 2. 获取文件信息
+    let file_record = get_file_record_by_id(rb, &file_id).await?;
+    // 3. 返回文件
+    let mut file: File = get_file_by_path(&file_record.file_path.ok_or(anyhow!("文件路径为空"))?)
+        .await?
+        .ok_or(anyhow!("文件不存在"))?;
+    let file_vec: Vec<u8> = {
+        let mut buf = Vec::new();
+        file.read_to_end(&mut buf).await?;
+        buf
+    };
+    Ok(HttpResponse::Ok()
+        .content_type(file_record.mime_type.ok_or(anyhow!("文件类型为空"))?)
+        .insert_header((
+            "Content-Disposition",
+            format!(
+                "attachment; filename={}",
+                file_record.original_name.ok_or(anyhow!("文件名称为空"))?
+            ),
+        ))
+        .body(file_vec))
 }

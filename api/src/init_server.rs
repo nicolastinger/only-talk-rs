@@ -10,7 +10,7 @@ use actix_web::middleware::from_fn;
 use actix_web::{App, HttpServer, middleware, web};
 use deadpool_redis::{Config as dp_config, Pool, Runtime};
 use entity::config_str::{USER_FILE_PUBLIC, USER_FILE_PUBLIC_DIR};
-use entity::{RBATIS_DATABASE, REDIS_CLIENT, read_config};
+use entity::{RBATIS_DATABASE, REDIS_CLIENT, init_global_config, read_global_config};
 use http_service;
 use http_service::utils::record_bad_http::error_record_middleware;
 use log::{error, info};
@@ -149,9 +149,13 @@ pub async fn start_server() -> anyhow::Result<()> {
 
     // 将解析后的配置转换为 HashMap
     let config_map: HashMap<String, Value> = config_value.try_into()?;
-    let url = read_config!(config_map, ("database"), "url");
+    
+    // 初始化全局配置到 DashMap
+    init_global_config!(&config_map);
+    
+    let url = read_global_config!("database", "url");
 
-    let pool = init_sql_pool(url).await;
+    let pool = init_sql_pool(&url).await;
 
     let (cert_chain, key) = init_cert_file();
 
@@ -165,10 +169,10 @@ pub async fn start_server() -> anyhow::Result<()> {
             std::io::Error::other("无法设置证书和私钥")
         })?;
 
-    let redis_url = read_config!(config_map, ("redis"), "url");
-    let redis_pool = init_redis(redis_url);
+    let redis_url = read_global_config!("redis", "url");
+    let redis_pool = init_redis(&redis_url);
 
-    let address = read_config!(config_map, ("server"), "address");
+    let address = read_global_config!("server", "address");
 
     HttpServer::new(move || {
         App::new()

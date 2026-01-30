@@ -26,6 +26,7 @@ pub async fn create_avatar_biz(
         biz_name: Some("用户头像上传".to_string()),
         description: Some("用户上传头像文件的业务记录".to_string()),
         file_ids: Some(file_id),
+        preview_file_ids: None,
         created_by: Some(user_id),
         created_at: Some(now),
         updated_at: Some(now),
