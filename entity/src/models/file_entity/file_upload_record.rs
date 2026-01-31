@@ -39,5 +39,29 @@ pub struct FileUploadRecord {
     pub oss_type: Option<i32>,
 }
 
+impl FileUploadRecord {
+    /// 创建空的文件记录（用于非图片类型或压缩失败的情况）
+    pub fn empty() -> Self {
+        FileUploadRecord {
+            id: None,
+            uuid: None,
+            original_name: None,
+            stored_name: None,
+            file_path: None,
+            file_size: None,
+            mime_type: None,
+            file_hash: None,
+            upload_user_uuid: None,
+            upload_time: None,
+            status: None,
+            description: None,
+            download_count: None,
+            last_download_time: None,
+            is_oss: None,
+            oss_type: None,
+        }
+    }
+}
+
 crud!(FileUploadRecord {});
 impl_select!(FileUploadRecord{select_by_uuid(uuid:&Uuid) -> Option => "`where uuid = #{uuid} limit 1`"});

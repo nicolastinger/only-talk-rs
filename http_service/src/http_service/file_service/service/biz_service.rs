@@ -11,6 +11,7 @@ use uuid::Uuid;
 pub async fn create_avatar_biz(
     rb: &RBatis,
     file_upload_record: FileUploadRecord,
+    compressed_record: Option<FileUploadRecord>,
 ) -> Result<BizRecord, anyhow::Error> {
     let now = get_now_time_stamp_as_millis()?;
     let uuid_v4 = Uuid::new_v4();
@@ -19,6 +20,11 @@ pub async fn create_avatar_biz(
     let user_id = file_upload_record.upload_user_uuid.ok_or(anyhow!("上传用户ID不能为空"))?;
     let file_id = file_upload_record.uuid.ok_or(anyhow!("文件ID不能为空"))?.to_string();
     let remark = format!("用户头像上传，用户ID: {}", user_id);
+    let mut compressed_file_id: String = String::new();
+    
+    if let Some(compressed_record) = compressed_record {
+        compressed_file_id = compressed_record.uuid.ok_or(anyhow!("压缩文件ID不能为空"))?.to_string();
+    }
 
     let biz_record = BizRecord {
         id: None, // ID由数据库自动生成
@@ -26,7 +32,7 @@ pub async fn create_avatar_biz(
         biz_name: Some("用户头像上传".to_string()),
         description: Some("用户上传头像文件的业务记录".to_string()),
         file_ids: Some(file_id),
-        preview_file_ids: None,
+        preview_file_ids: Some(compressed_file_id),
         created_by: Some(user_id),
         created_at: Some(now),
         updated_at: Some(now),

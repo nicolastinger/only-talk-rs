@@ -21,3 +21,20 @@ pub fn remove_config(key: &str) -> Option<String> {
 pub fn clear_config() {
     GLOBAL_CONFIG.clear();
 }
+
+/// 设置数组类型的配置，使用逗号分隔
+pub fn set_array_config(key: String, values: Vec<String>) {
+    let value = values.join(",");
+    GLOBAL_CONFIG.insert(key, value);
+}
+
+/// 获取数组类型的配置
+pub fn get_array_config(key: &str) -> Option<Vec<String>> {
+    GLOBAL_CONFIG.get(key).map(|v| {
+        v.value()
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect()
+    })
+}

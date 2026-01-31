@@ -27,3 +27,4 @@ uuid = { workspace = true }
 sha2 = { workspace = true }
 actix-multipart = "0.6"
 futures-util = "0.3"
+image = "0.25"

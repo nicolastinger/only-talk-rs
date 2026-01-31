@@ -13,3 +13,23 @@ address="0.0.0.0:4433"
 
 [file_upload]
 max_file_size = 10485760  # 10MB in bytes
+
+[file_types.image]
+extensions = ["jpg", "jpeg", "png", "gif", "webp", "bmp"]
+mime_types = ["image/jpeg", "image/jpg", "image/png", "image/gif", "image/webp"]
+
+[file_types.document]
+extensions = ["txt", "pdf", "doc", "docx", "xls", "xlsx", "json", "xml", "md"]
+mime_types = ["application/json", "application/xml", "text/markdown"]
+
+[file_types.archive]
+extensions = ["zip", "rar", "7z"]
+mime_types = ["application/zip"]
+
+[file_types.audio]
+extensions = ["mp3", "wav", "flac", "aac", "ogg", "m4a"]
+mime_types = ["audio/mpeg", "audio/wav", "audio/x-flac", "audio/aac", "audio/ogg", "audio/x-m4a"]
+
+[file_types.video]
+extensions = ["mp4", "avi", "mkv", "mov", "wmv", "flv", "webm"]
+mime_types = ["video/mp4", "video/webm"]
