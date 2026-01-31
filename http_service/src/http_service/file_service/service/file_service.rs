@@ -17,6 +17,7 @@ use sha2::{Digest, Sha256};
 use uuid::Uuid;
 use crate::http_service::file_service::model::file_type_config::{get_file_type_config, FileTypeConfig};
 use crate::http_service::file_service::service::biz_service::get_pub_file_record_by_biz_id;
+use crate::http_service::file_service::service::chat_biz_service::get_chat_file_record_by_biz_id;
 use crate::utils::http_response::CommonResponseRef;
 use crate::utils::file_utils::compress_image;
 
@@ -537,7 +538,7 @@ pub async fn download_pub_file_by_id(rb: &RBatis, biz_id: String, file_id: Strin
 }
 
 /// 公开业务文件下载link
-pub async fn download_link_pub_biz(rb: &RBatis, biz_id: String, is_preview: bool) -> Result<HttpResponse, anyhow::Error> {
+pub async fn download_link_pub_biz(rb: &RBatis, biz_id: String, is_preview: bool) -> Result<String, anyhow::Error> {
     // 1. 获取业务信息
     let biz_record = get_pub_file_record_by_biz_id(rb, &biz_id).await?;
     let file_ids = match is_preview {
@@ -560,6 +561,89 @@ pub async fn download_link_pub_biz(rb: &RBatis, biz_id: String, is_preview: bool
         download_link_vec.push(str);
     }
     let res = CommonResponseRef::<Vec<String>>::success_json(&download_link_vec)?;
-    let result = HttpResponse::Ok().body(res);
-    Ok(result)
+    Ok(res)
+}
+
+/// 聊天业务文件下载link
+pub async fn download_link_chat_biz(rb: &RBatis, uuid: Option<String>, biz_id: String, is_preview: bool) -> Result<String, anyhow::Error> {
+    // 1. 获取业务信息
+    let chat_biz_record = get_chat_file_record_by_biz_id(rb, &biz_id).await?;
+    let file_ids = match is_preview {
+        true => {
+            chat_biz_record.preview_file_ids.ok_or(anyhow!("预览文件ID为空"))?
+        }
+        false => {
+            chat_biz_record.file_ids.ok_or(anyhow!("原始文件ID为空"))?
+        }
+    };
+    if file_ids.is_empty() {
+        return Err(anyhow!("文件ID为空"));
+    }
+    // 2. 校验文件权限
+    let user_id = uuid.ok_or(anyhow!("用户ID为空"))?;
+    let user_id = rbdc::types::uuid::Uuid::from_str(&user_id)?;
+    let created_by = chat_biz_record.created_by.ok_or(anyhow!("创建者ID为空"))?;
+    let recv_user_id = chat_biz_record.receiver.ok_or(anyhow!("接收者ID为空"))?;
+    if created_by != user_id && recv_user_id != user_id {
+        return Err(anyhow!("无权限访问"));
+    }
+    // 3.按逗号分割文件id
+    let file_id_vec: Vec<&str> = file_ids.split(",").collect();
+    // 4.组建下载链接
+    let mut download_link_vec: Vec<String> = vec![];
+    for item in file_id_vec.iter() {
+        let str = format!("/download_chat_file/{}/{}", biz_id, item);
+        download_link_vec.push(str);
+    }
+    let res = CommonResponseRef::<Vec<String>>::success_json(&download_link_vec)?;
+    Ok(res)
+}
+
+/// 聊天业务文件下载
+pub async fn download_chat_file_by_id(rb: &RBatis, uuid: Option<String>, biz_id: String, file_id: String) -> Result<HttpResponse, anyhow::Error> {
+    // 1. 获取业务信息
+    info!("biz_id: {}, file_id: {}", biz_id, file_id);
+    let chat_biz_record = get_chat_file_record_by_biz_id(rb, &biz_id).await?;
+    // 2. 校验文件权限
+    let user_id = uuid.ok_or(anyhow!("用户ID为空"))?;
+    let user_id = rbdc::types::uuid::Uuid::from_str(&user_id)?;
+    let created_by = chat_biz_record.created_by.ok_or(anyhow!("创建者ID为空"))?;
+    let recv_user_id = chat_biz_record.receiver.ok_or(anyhow!("接收者ID为空"))?;
+    if created_by != user_id && recv_user_id != user_id {
+        return Err(anyhow!("无权限访问"));
+    }
+    // 3. 组装文件id
+    let file_ids = chat_biz_record.file_ids.ok_or(anyhow!("文件ID为空"))?;
+    let preview_ids = chat_biz_record.preview_file_ids.ok_or(anyhow!("预览文件ID为空"))?;
+    if file_ids.is_empty() && preview_ids.is_empty(){
+        return Err(anyhow!("文件ID为空"));
+    }
+    // 按逗号分割文件id
+    let file_id_vec: Vec<&str> = file_ids.split(",").collect();
+    let preview_id_vec: Vec<&str> = preview_ids.split(",").collect();
+    if !file_id_vec.contains(&file_id.as_str()) && !preview_id_vec.contains(&file_id.as_str()){
+        return Err(anyhow!("文件ID不存在"));
+    }
+
+    // 4. 获取文件信息-本地文件
+    let file_record = get_file_record_by_id(rb, &file_id).await?;
+    // 5. 返回文件
+    let mut file: File = get_file_by_path(&file_record.file_path.ok_or(anyhow!("文件路径为空"))?)
+        .await?
+        .ok_or(anyhow!("文件不存在"))?;
+    let file_vec: Vec<u8> = {
+        let mut buf = Vec::new();
+        file.read_to_end(&mut buf).await?;
+        buf
+    };
+    Ok(HttpResponse::Ok()
+        .content_type(file_record.mime_type.ok_or(anyhow!("文件类型为空"))?)
+        .insert_header((
+            "Content-Disposition",
+            format!(
+                "attachment; filename={}",
+                file_record.original_name.ok_or(anyhow!("文件名称为空"))?
+            ),
+        ))
+        .body(file_vec))
 }
