@@ -5,7 +5,7 @@ use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode}
 use rsa::pkcs1::EncodeRsaPublicKey;
 use rsa::pkcs8::EncodePrivateKey;
 use serde::{Deserialize, Serialize};
-
+use tracing::info;
 use crate::utils::rsa_util::generate_rsa_keys;
 use crate::utils::time::get_now_time_stamp_as_millis;
 
@@ -29,9 +29,6 @@ fn generate_keys() -> Result<(EncodingKey, DecodingKey), anyhow::Error> {
     let encoding_key = EncodingKey::from_rsa_pem(private_key_str.as_ref())?;
     let decoding_key = DecodingKey::from_rsa_pem(public_key_str.as_ref())?;
 
-    // 保存生成的密钥到文件（可选）
-    fs::write("./config/jwt/private.key", private_key_str)?;
-    fs::write("./config/jwt/public.key", public_key_str)?;
     Ok((encoding_key, decoding_key))
 }
 
@@ -46,12 +43,14 @@ pub fn get_jwt(uuid: String) -> Result<String, anyhow::Error> {
 }
 
 pub fn decode_jwt(token: &str) -> Result<String, anyhow::Error> {
+    info!("开始解码");
     let (_, decoding_key) = generate_keys()?;
     // 使用 RSA 算法解码 JWT
     let validation = Validation::new(jsonwebtoken::Algorithm::RS256);
     let decoded = decode::<Claims>(token, &decoding_key, &validation)?;
 
     let now = get_now_time_stamp_as_millis()?;
+    info!("结束解码");
     match now < decoded.claims.exp {
         true => Ok(decoded.claims.uuid),
         false => Err(anyhow!("token超时")),

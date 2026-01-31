@@ -47,6 +47,7 @@ pub async fn get_unread_chat_record(
     rb: &RBatis,
     uuid: Option<String>,
 ) -> Result<String, anyhow::Error> {
+    info!("收到请求");
     let uuid = uuid.ok_or(anyhow!("账号获取失败"))?.parse::<Uuid>()?;
 
     let empty_vec = CommonResponseNoDataRef::success_empty();
@@ -67,6 +68,7 @@ pub async fn get_unread_chat_record(
     // 4、查找已读消息有没有最新消息
     let res = read_msg.iter().find(|x| x.nano_id == last_msg.as_ref().expect("获取最新消息id失败").nano_id);
     if res.is_some() {
+        info!("结束请求");
         return Ok(empty_vec);
     }
     // 5、获取未读消息
@@ -91,8 +93,10 @@ pub async fn get_unread_chat_record(
                 x
             })
             .collect();
+        info!("结束请求");
         return Ok(CommonResponseRef::<Vec<ChatMessageRecord>>::success_json(&unread_msg)?);
     }
+    info!("结束请求");
     Ok(empty_vec)
 }
 
