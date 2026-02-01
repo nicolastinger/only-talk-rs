@@ -15,10 +15,6 @@ pub struct PrivateBizRecord {
     pub biz_name: Option<String>,
     /// 业务描述
     pub description: Option<String>,
-    /// 关联的文件UUID
-    pub file_ids: Option<String>,
-    /// 关联的压缩后的文件UUID
-    pub preview_file_ids: Option<String>,
     /// 创建用户UUID
     pub created_by: Option<Uuid>,
     /// 创建时间（Unix时间戳，毫秒）

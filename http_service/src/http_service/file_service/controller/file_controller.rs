@@ -1,11 +1,12 @@
 use crate::common::dto::base_dto::AuthAccount;
 use std::fs;
-
+use actix_multipart::Multipart;
 use actix_web::{HttpResponse, Responder, post, web, get, HttpRequest};
 use tracing::error;
 use rbatis::RBatis;
 use entity::config_str::USER_FILE_PUBLIC_DIR;
 use crate::{get_uuid_from_header, respond_json_any};
+use crate::http_service::file_service::service::biz_service::upload_original_file_by_biz_id;
 use crate::http_service::file_service::service::file_service::{download_chat_file_by_id, download_link_chat_biz, download_link_pub_biz, download_pub_file_by_id};
 use crate::utils::http_response::CommonResponseNoDataRef;
 
@@ -115,4 +116,24 @@ pub async fn download_private_file_api(_params: web::Path<(String, String)>) -> 
         .content_type("image/webp")
         .insert_header(("Content-Disposition", "attachment; filename=hello.jpg".to_string()))
         .body("")
+}
+
+/**
+ * 通过业务id上传原始文件
+ */
+#[post("/upload/origin_file")]
+async fn upload_origin_file_by_biz_api(
+    state: web::Data<RBatis>,
+    biz_id: web::Query<String>,
+    biz_record_type: web::Query<String>,
+    preview_id: web::Query<String>,
+    req: HttpRequest,
+    payload: Multipart
+) -> impl Responder {
+    let biz_id= biz_id.into_inner();
+    let biz_record_type = biz_record_type.into_inner();
+    let preview_id = preview_id.into_inner();
+    let uuid = get_uuid_from_header!(req);
+    let res = upload_original_file_by_biz_id(state.as_ref(), uuid, biz_id, biz_record_type, preview_id, payload).await;
+    respond_json_any!(res)
 }

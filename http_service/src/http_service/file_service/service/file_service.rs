@@ -15,11 +15,11 @@ use rbatis::{RBatis, rbdc};
 use rbs::value;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
+use entity::models::file_entity::biz_file_link::BizFileLink;
 use crate::http_service::file_service::model::file_type_config::{get_file_type_config, FileTypeConfig};
 use crate::http_service::file_service::service::biz_service::get_pub_file_record_by_biz_id;
 use crate::http_service::file_service::service::chat_biz_service::get_chat_file_record_by_biz_id;
 use crate::utils::http_response::CommonResponseRef;
-use crate::utils::file_utils::compress_image;
 
 
 
@@ -176,82 +176,14 @@ async fn save_uploaded_file(
 
 /// 处理图片文件（压缩）
 async fn process_image_file(
-    rb: &RBatis,
-    user_id: &str,
-    filename: &str,
-    filepath: &PathBuf,
-    now: i64,
+    _rb: &RBatis,
+    _user_id: &str,
+    _filename: &str,
+    _filepath: &PathBuf,
+    _now: i64,
 ) -> Result<Option<FileUploadRecord>, anyhow::Error> {
-    match compress_image(&filepath.display().to_string(), Some(1024 * 1024)).await {
-        Ok(compressed_data) => {
-            info!("图片压缩成功，压缩后大小: {}", compressed_data.len());
-
-            // 生成压缩文件的文件名
-            let compressed_uuid = Uuid::new_v4();
-            let compressed_filename = format!("{}_compressed.webp", compressed_uuid);
-            let compressed_filepath = PathBuf::from(USER_FILE_PUBLIC_DIR).join(&compressed_filename);
-
-            // 保存压缩文件
-            tokio::fs::write(&compressed_filepath, &compressed_data).await
-                .map_err(|e| anyhow!("保存压缩文件失败: {}", e))?;
-
-            // 计算压缩文件的哈希
-            let mut hasher = Sha256::new();
-            hasher.update(&compressed_data);
-            let compressed_hash = format!("{:x}", hasher.finalize());
-
-            // 查询是否有重复的压缩文件
-            let compressed_exist = FileUploadRecord::select_by_map(
-                rb,
-                value! {"file_size": compressed_data.len() as i64, "file_hash": &compressed_hash},
-            )
-            .await?;
-
-            let mut compressed_record = FileUploadRecord {
-                id: None,
-                uuid: Some(rbdc::types::uuid::Uuid::from_str(&compressed_uuid.to_string())?),
-                original_name: Some(format!("compressed_{}", filename)),
-                stored_name: Some(compressed_filename),
-                file_path: Some(compressed_filepath.display().to_string()),
-                file_size: Some(compressed_data.len() as i64),
-                mime_type: Some("image/webp".to_string()),
-                file_hash: Some(compressed_hash),
-                upload_user_uuid: Some(rbdc::types::uuid::Uuid::from_str(user_id)?),
-                upload_time: Some(now),
-                status: Some(0),
-                description: Some("Compressed version".to_string()),
-                download_count: None,
-                last_download_time: None,
-                is_oss: Some(0),
-                oss_type: None,
-            };
-
-            if !compressed_exist.is_empty() {
-                // 如果压缩文件已存在，删除刚创建的临时文件
-                if let Err(e) = tokio::fs::remove_file(&compressed_filepath).await {
-                    error!("删除重复压缩文件失败: {}", e);
-                }
-
-                let exist_record = compressed_exist[0].clone();
-                compressed_record.uuid = exist_record.uuid;
-                compressed_record.file_path = exist_record.file_path;
-                compressed_record.file_size = exist_record.file_size;
-                compressed_record.file_hash = exist_record.file_hash;
-                compressed_record.mime_type = exist_record.mime_type;
-                compressed_record.original_name = exist_record.original_name;
-                compressed_record.stored_name = exist_record.stored_name;
-            } else {
-                // 插入压缩文件记录
-                FileUploadRecord::insert(rb, &compressed_record).await?;
-            }
-            
-            Ok(Some(compressed_record))
-        }
-        Err(e) => {
-            warn!("图片压缩失败: {}", e);
-            Ok(None)
-        }
-    }
+    // TODO: 实现图片文件的处理逻辑
+    Ok(None)
 }
 
 /// 处理文档文件
@@ -311,7 +243,7 @@ pub async fn upload_file_local(
     rb: &RBatis,
     user_id: String,
     mut payload: Multipart,
-) -> Result<Vec<(FileUploadRecord, Option<FileUploadRecord>)>, anyhow::Error> {
+) -> Result<Vec<FileUploadRecord>, anyhow::Error> {
     // 确保上传目录存在
     if let Err(e) = create_upload_dir().await {
         eprintln!("无法创建上传目录: {}", e);
@@ -319,7 +251,7 @@ pub async fn upload_file_local(
     }
 
     let config = get_file_type_config();
-    let mut file_upload_records = Vec::<(FileUploadRecord, Option<FileUploadRecord>)>::new();
+    let mut file_upload_records = Vec::<FileUploadRecord>::new();
 
     // 遍历 multipart/form-data 中的每个字段
     while let Some(mut field) =
@@ -348,7 +280,7 @@ pub async fn upload_file_local(
             let now = get_now_time_stamp_as_millis()?;
 
             // 根据文件类型进行不同的处理
-            let processed_record = if let Some(file_type) = detect_file_type(filename, &config) {
+            let _processed_record = if let Some(file_type) = detect_file_type(filename, &config) {
                 match file_type {
                     FileType::Image => {
                         process_image_file(rb, &user_id, filename, &filepath, now).await?
@@ -370,7 +302,7 @@ pub async fn upload_file_local(
                 None
             };
 
-            file_upload_records.push((original_record, processed_record));
+            file_upload_records.push(original_record);
         }
     }
 
@@ -504,17 +436,17 @@ pub async fn get_file_by_path(file_path: &str) -> Result<Option<File>, anyhow::E
 pub async fn download_pub_file_by_id(rb: &RBatis, biz_id: String, file_id: String) -> Result<HttpResponse, anyhow::Error> {
     // 1. 获取业务信息
     info!("biz_id: {}, file_id: {}", biz_id, file_id);
-    let biz_record = get_pub_file_record_by_biz_id(rb, &biz_id).await?;
-    let file_ids = biz_record.file_ids.ok_or(anyhow!("文件ID为空"))?;
-    let preview_ids = biz_record.preview_file_ids.ok_or(anyhow!("预览文件ID为空"))?;
-    if file_ids.is_empty() && preview_ids.is_empty(){
+    // 校验业务id是否存在
+    get_pub_file_record_by_biz_id(rb, &biz_id).await?;
+
+    let _biz_id = rbdc::Uuid::from_str(&biz_id)?;
+    let _file_id = rbdc::Uuid::from_str(&file_id)?;
+    let biz_file_link = BizFileLink::select_by_biz_and_file(rb, &_biz_id, &_file_id).await?.ok_or(anyhow!("文件不存在"))?;
+
+    let preview_file_id = biz_file_link.file_id.ok_or(anyhow!("文件ID为空"))?;
+    let origin_file_id = biz_file_link.origin_file_id.ok_or(anyhow!("预览文件ID为空"))?;
+    if preview_file_id.to_string() != file_id && origin_file_id.to_string() != file_id{
         return Err(anyhow!("文件ID为空"));
-    }
-    // 按逗号分割文件id
-    let file_id_vec: Vec<&str> = file_ids.split(",").collect();
-    let preview_id_vec: Vec<&str> = preview_ids.split(",").collect();
-    if !file_id_vec.contains(&file_id.as_str()) && !preview_id_vec.contains(&file_id.as_str()){
-        return Err(anyhow!("文件ID不存在"));
     }
 
     // 2. 获取文件信息-本地文件
@@ -543,23 +475,23 @@ pub async fn download_pub_file_by_id(rb: &RBatis, biz_id: String, file_id: Strin
 /// 公开业务文件下载link
 pub async fn download_link_pub_biz(rb: &RBatis, biz_id: String, is_preview: bool) -> Result<String, anyhow::Error> {
     // 1. 获取业务信息
-    let biz_record = get_pub_file_record_by_biz_id(rb, &biz_id).await?;
+    let _biz_record = get_pub_file_record_by_biz_id(rb, &biz_id).await?;
+    let _biz_id = rbdc::Uuid::from_str(&biz_id)?;
+    let biz_file_link = BizFileLink::select_by_biz(rb, &_biz_id).await?;
     let file_ids = match is_preview {
         true => {
-            biz_record.preview_file_ids.ok_or(anyhow!("预览文件ID为空"))?
+            biz_file_link.into_iter().map(|item| item.file_id.unwrap_or_default().to_string()).collect::<Vec<String>>()
         }
         false => {
-            biz_record.file_ids.ok_or(anyhow!("原始文件ID为空"))?
+            biz_file_link.into_iter().map(|item| item.origin_file_id.unwrap_or_default().to_string()).collect::<Vec<String>>()
         }
     };
     if file_ids.is_empty() {
         return Err(anyhow!("文件ID为空"));
     }
-    // 按逗号分割文件id
-    let file_id_vec: Vec<&str> = file_ids.split(",").collect();
     // 组建下载链接
     let mut download_link_vec: Vec<String> = vec![];
-    for item in file_id_vec.iter() {
+    for item in file_ids.iter() {
         let str = format!("/download_pub_file/{}/{}", biz_id, item);
         download_link_vec.push(str);
     }
@@ -571,17 +503,6 @@ pub async fn download_link_pub_biz(rb: &RBatis, biz_id: String, is_preview: bool
 pub async fn download_link_chat_biz(rb: &RBatis, uuid: Option<String>, biz_id: String, is_preview: bool) -> Result<String, anyhow::Error> {
     // 1. 获取业务信息
     let chat_biz_record = get_chat_file_record_by_biz_id(rb, &biz_id).await?;
-    let file_ids = match is_preview {
-        true => {
-            chat_biz_record.preview_file_ids.ok_or(anyhow!("预览文件ID为空"))?
-        }
-        false => {
-            chat_biz_record.file_ids.ok_or(anyhow!("原始文件ID为空"))?
-        }
-    };
-    if file_ids.is_empty() {
-        return Err(anyhow!("文件ID为空"));
-    }
     // 2. 校验文件权限
     let user_id = uuid.ok_or(anyhow!("用户ID为空"))?;
     let user_id = rbdc::types::uuid::Uuid::from_str(&user_id)?;
@@ -590,11 +511,23 @@ pub async fn download_link_chat_biz(rb: &RBatis, uuid: Option<String>, biz_id: S
     if created_by != user_id && recv_user_id != user_id {
         return Err(anyhow!("无权限访问"));
     }
-    // 3.按逗号分割文件id
-    let file_id_vec: Vec<&str> = file_ids.split(",").collect();
+
+    let _biz_id = rbdc::Uuid::from_str(&biz_id)?;
+    let biz_file_link = BizFileLink::select_by_biz(rb, &_biz_id).await?;
+    let file_ids = match is_preview {
+        true => {
+            biz_file_link.into_iter().map(|item| item.file_id.unwrap_or_default().to_string()).collect::<Vec<String>>()
+        }
+        false => {
+            biz_file_link.into_iter().map(|item| item.origin_file_id.unwrap_or_default().to_string()).collect::<Vec<String>>()
+        }
+    };
+    if file_ids.is_empty() {
+        return Err(anyhow!("文件ID为空"));
+    }
     // 4.组建下载链接
     let mut download_link_vec: Vec<String> = vec![];
-    for item in file_id_vec.iter() {
+    for item in file_ids.iter() {
         let str = format!("/download_chat_file/{}/{}", biz_id, item);
         download_link_vec.push(str);
     }
@@ -616,16 +549,14 @@ pub async fn download_chat_file_by_id(rb: &RBatis, uuid: Option<String>, biz_id:
         return Err(anyhow!("无权限访问"));
     }
     // 3. 组装文件id
-    let file_ids = chat_biz_record.file_ids.ok_or(anyhow!("文件ID为空"))?;
-    let preview_ids = chat_biz_record.preview_file_ids.ok_or(anyhow!("预览文件ID为空"))?;
-    if file_ids.is_empty() && preview_ids.is_empty(){
+    let _biz_id = rbdc::Uuid::from_str(&biz_id)?;
+    let _file_id = rbdc::Uuid::from_str(&file_id)?;
+    let biz_file_link = BizFileLink::select_by_biz_and_file(rb, &_biz_id, &_file_id).await?.ok_or(anyhow!("文件不存在"))?;
+
+    let preview_file_id = biz_file_link.file_id.ok_or(anyhow!("文件ID为空"))?;
+    let origin_file_id = biz_file_link.origin_file_id.ok_or(anyhow!("预览文件ID为空"))?;
+    if preview_file_id.to_string() != file_id && origin_file_id.to_string() != file_id{
         return Err(anyhow!("文件ID为空"));
-    }
-    // 按逗号分割文件id
-    let file_id_vec: Vec<&str> = file_ids.split(",").collect();
-    let preview_id_vec: Vec<&str> = preview_ids.split(",").collect();
-    if !file_id_vec.contains(&file_id.as_str()) && !preview_id_vec.contains(&file_id.as_str()){
-        return Err(anyhow!("文件ID不存在"));
     }
 
     // 4. 获取文件信息-本地文件

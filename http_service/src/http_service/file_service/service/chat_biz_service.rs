@@ -6,36 +6,34 @@ use entity::utils::time::get_now_time_stamp_as_millis;
 use rbatis::{RBatis, rbdc};
 use uuid::Uuid;
 use entity::models::file_entity::chat_biz_record::ChatBizRecord;
+use entity::models::user_entity::friend_link::FriendLink;
 
-/// 创建上传用户头像业务id
+/// 创建上传用户聊天文件业务id
 pub async fn create_user_chat_biz(
     rb: &RBatis,
-    file_upload_record: FileUploadRecord,
-    compressed_record: Option<FileUploadRecord>,
+    user_id: rbdc::Uuid,
     friend_uuid: rbdc::Uuid,
 ) -> Result<ChatBizRecord, anyhow::Error> {
     // 1、检测双方是否为好友
-    let user_id = file_upload_record.upload_user_uuid.ok_or(anyhow!("上传用户ID不能为空"))?;
+    let friend_link = FriendLink::select_by_last_uuid(rb, &user_id, &friend_uuid).await?;
+    let is_friend = friend_link.as_ref()
+        .map(|link| !link.is_del.unwrap_or(true))
+        .unwrap_or(false);
+    if !is_friend {
+        return Err(anyhow!("双方不是好友关系，无法发送消息"));
+    }
 
     let now = get_now_time_stamp_as_millis()?;
     let uuid_v4 = Uuid::new_v4();
     let uuid_v4_str = uuid_v4.to_string();
-    let biz_id = rbatis::rbdc::Uuid::from_str(&uuid_v4_str)?;
-    let file_id = file_upload_record.uuid.ok_or(anyhow!("文件ID不能为空"))?.to_string();
+    let biz_id = rbdc::Uuid::from_str(&uuid_v4_str)?;
     let remark = format!("用户头像上传，用户ID: {}", user_id);
-    let mut compressed_file_id: String = String::new();
-
-    if let Some(compressed_record) = compressed_record {
-        compressed_file_id = compressed_record.uuid.ok_or(anyhow!("压缩文件ID不能为空"))?.to_string();
-    }
 
     let chat_biz_record = ChatBizRecord {
         id: None, // ID由数据库自动生成
         uuid: Some(biz_id),
         biz_name: Some("用户头像上传".to_string()),
         description: Some("用户上传头像文件的业务记录".to_string()),
-        file_ids: Some(file_id),
-        preview_file_ids: Some(compressed_file_id),
         created_by: Some(user_id),
         receiver: Some(friend_uuid),
         created_at: Some(now),
