@@ -66,6 +66,7 @@ async fn save_uploaded_file(
     user_id: &str,
     filename: &str,
     extension: &str,
+    mime_type: Option<String>,
     field: &mut actix_multipart::Field,
 ) -> Result<(FileUploadRecord, PathBuf, i64), anyhow::Error> {
     let uuid_v4 = Uuid::new_v4();
@@ -136,7 +137,7 @@ async fn save_uploaded_file(
         stored_name: Some(safe_filename.clone()),
         file_path: Some(filepath.display().to_string()),
         file_size: Some(file_size),
-        mime_type: None,
+        mime_type,
         file_hash: Some(file_hash.clone()),
         upload_user_uuid: Some(rbdc::types::uuid::Uuid::from_str(user_id)?),
         upload_time: Some(now),
@@ -159,6 +160,7 @@ async fn save_uploaded_file(
         let exist_record = file_upload_record_exist[0].clone();
         let exist_file_path = exist_record.file_path.ok_or(anyhow!("文件路径为空"))?;
         filepath = PathBuf::from(&exist_file_path);
+        file_record.uuid = exist_record.uuid;
         file_record.file_path = Some(exist_file_path);
         file_record.file_size = exist_record.file_size;
         file_record.file_hash = exist_record.file_hash;
@@ -186,7 +188,7 @@ async fn process_image_file(
 
             // 生成压缩文件的文件名
             let compressed_uuid = Uuid::new_v4();
-            let compressed_filename = format!("{}_compressed.jpg", compressed_uuid);
+            let compressed_filename = format!("{}_compressed.webp", compressed_uuid);
             let compressed_filepath = PathBuf::from(USER_FILE_PUBLIC_DIR).join(&compressed_filename);
 
             // 保存压缩文件
@@ -212,7 +214,7 @@ async fn process_image_file(
                 stored_name: Some(compressed_filename),
                 file_path: Some(compressed_filepath.display().to_string()),
                 file_size: Some(compressed_data.len() as i64),
-                mime_type: Some("image/jpeg".to_string()),
+                mime_type: Some("image/webp".to_string()),
                 file_hash: Some(compressed_hash),
                 upload_user_uuid: Some(rbdc::types::uuid::Uuid::from_str(user_id)?),
                 upload_time: Some(now),
@@ -231,6 +233,7 @@ async fn process_image_file(
                 }
 
                 let exist_record = compressed_exist[0].clone();
+                compressed_record.uuid = exist_record.uuid;
                 compressed_record.file_path = exist_record.file_path;
                 compressed_record.file_size = exist_record.file_size;
                 compressed_record.file_hash = exist_record.file_hash;
@@ -339,7 +342,7 @@ pub async fn upload_file_local(
 
             // 保存上传的文件
             let (original_record, filepath, _file_size) =
-                save_uploaded_file(rb, &user_id, filename, extension, &mut field).await?;
+                save_uploaded_file(rb, &user_id, filename, extension, mime_type, &mut field).await?;
 
             // 获取当前时间戳
             let now = get_now_time_stamp_as_millis()?;

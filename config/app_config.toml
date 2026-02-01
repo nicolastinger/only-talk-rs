@@ -12,7 +12,7 @@ locales="zh-CN"
 address="0.0.0.0:4433"
 
 [file_upload]
-max_file_size = 10485760  # 10MB in bytes
+max_file_size = 20485760  # 20MB in bytes
 
 [file_types.image]
 extensions = ["jpg", "jpeg", "png", "gif", "webp", "bmp"]
