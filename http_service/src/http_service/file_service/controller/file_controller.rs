@@ -14,6 +14,7 @@ pub fn file_service(cfg: &mut web::ServiceConfig) {
     cfg.service(download_file_api)
         .service(download_pub_file_id_api)
         .service(download_chat_file_api)
+        .service(upload_origin_file_by_biz_api)
         .service(download_private_file_api);
 }
 
