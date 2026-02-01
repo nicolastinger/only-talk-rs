@@ -14,6 +14,7 @@ pub fn file_service(cfg: &mut web::ServiceConfig) {
     cfg.service(download_file_api)
         .service(download_pub_file_id_api)
         .service(download_chat_file_api)
+        .service(download_pub_biz_api)
         .service(upload_origin_file_by_biz_api)
         .service(download_private_file_api);
 }
@@ -36,16 +37,10 @@ pub async fn download_file_api() -> impl Responder {
 async fn download_pub_biz_api(
     state: web::Data<RBatis>,
     biz_id: web::Path<String>,
-    is_preview: web::Query<Option<String>>
 ) -> impl Responder {
     let biz_id = biz_id.into_inner();
-    let is_preview = is_preview.into_inner();
     let mut is_preview_bool = true;
-    if let Some(is_preview) = is_preview{
-        if is_preview == "0" {
-            is_preview_bool = false;
-        }
-    }
+
     let res = download_link_pub_biz(state.as_ref(), biz_id, is_preview_bool).await;
     respond_json_any!(res)
 }

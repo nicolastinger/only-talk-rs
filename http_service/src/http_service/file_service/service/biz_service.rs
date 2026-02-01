@@ -18,14 +18,12 @@ use crate::utils::http_response::{CommonResponseNoDataRef, CommonResponseRef};
 /// 创建上传用户头像业务id
 pub async fn create_avatar_biz(
     rb: &RBatis,
-    file_upload_record: FileUploadRecord,
+    user_id: rbdc::Uuid,
 ) -> Result<BizRecord, anyhow::Error> {
     let now = get_now_time_stamp_as_millis()?;
     let uuid_v4 = Uuid::new_v4();
     let uuid_v4_str = uuid_v4.to_string();
     let biz_id = rbatis::rbdc::Uuid::from_str(&uuid_v4_str)?;
-    let user_id = file_upload_record.upload_user_uuid.ok_or(anyhow!("上传用户ID不能为空"))?;
-    let file_id = file_upload_record.uuid.ok_or(anyhow!("文件ID不能为空"))?.to_string();
     let remark = format!("用户头像上传，用户ID: {}", user_id);
 
 

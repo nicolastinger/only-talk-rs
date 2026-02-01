@@ -443,11 +443,26 @@ pub async fn download_pub_file_by_id(rb: &RBatis, biz_id: String, file_id: Strin
     let _file_id = rbdc::Uuid::from_str(&file_id)?;
     let biz_file_link = BizFileLink::select_by_biz_and_file(rb, &_biz_id, &_file_id).await?.ok_or(anyhow!("文件不存在"))?;
 
-    let preview_file_id = biz_file_link.file_id.ok_or(anyhow!("文件ID为空"))?;
-    let origin_file_id = biz_file_link.origin_file_id.ok_or(anyhow!("预览文件ID为空"))?;
-    if preview_file_id.to_string() != file_id && origin_file_id.to_string() != file_id{
-        return Err(anyhow!("文件ID为空"));
+    let preview_file_id = biz_file_link.file_id;
+    let origin_file_id = biz_file_link.origin_file_id;
+    
+    let mut flag = false;
+
+    if let Some(preview_file_id) = preview_file_id {
+        if preview_file_id.to_string() == file_id {
+            flag = true;
+        }
     }
+    
+    if let Some(origin_file_id) = origin_file_id {
+        if origin_file_id.to_string() == file_id {
+            flag = true;
+        }
+    }
+    if !flag {
+        return Err(anyhow!("文件不存在"));
+    }
+    
 
     // 2. 获取文件信息-本地文件
     let file_record = get_file_record_by_id(rb, &file_id).await?;
@@ -553,12 +568,24 @@ pub async fn download_chat_file_by_id(rb: &RBatis, uuid: Option<String>, biz_id:
     let _file_id = rbdc::Uuid::from_str(&file_id)?;
     let biz_file_link = BizFileLink::select_by_biz_and_file(rb, &_biz_id, &_file_id).await?.ok_or(anyhow!("文件不存在"))?;
 
-    let preview_file_id = biz_file_link.file_id.ok_or(anyhow!("文件ID为空"))?;
-    let origin_file_id = biz_file_link.origin_file_id.ok_or(anyhow!("预览文件ID为空"))?;
-    if preview_file_id.to_string() != file_id && origin_file_id.to_string() != file_id{
-        return Err(anyhow!("文件ID为空"));
+    let preview_file_id = biz_file_link.file_id;
+    let origin_file_id = biz_file_link.origin_file_id;
+    let mut flag = false;
+
+    if let Some(preview_file_id) = preview_file_id {
+        if preview_file_id.to_string() == file_id {
+            flag = true;
+        }
     }
 
+    if let Some(origin_file_id) = origin_file_id {
+        if origin_file_id.to_string() == file_id {
+            flag = true;
+        }
+    }
+    if !flag {
+        return Err(anyhow!("文件不存在"));
+    }
     // 4. 获取文件信息-本地文件
     let file_record = get_file_record_by_id(rb, &file_id).await?;
     // 5. 返回文件

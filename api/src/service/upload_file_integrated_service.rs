@@ -23,14 +23,23 @@ pub async fn upload_user_avatar(
     payload: Multipart,
 ) -> Result<String, anyhow::Error> {
     let uuid = uuid.ok_or(anyhow!("用户ID不能为空"))?;
+    let user_id = rbdc::Uuid::from_str(&uuid)?;
     // 1. 保存文件到本地
     let res = upload_file_local(rb, uuid, payload).await?;
     let original_record = res.into_iter().next().ok_or(anyhow!("未找到上传文件"))?;
     // 2. 保存业务信息
-    let biz_record = create_avatar_biz(rb, original_record).await?;
+    let biz_record = create_avatar_biz(rb, user_id).await?;
+    let biz_file_link = BizFileLink {
+        id: None,
+        biz_id: biz_record.uuid,
+        origin_file_id: None,
+        file_id: original_record.uuid,
+        is_del: Some(false),
+    };
+    BizFileLink::insert(rb, &biz_file_link).await?;
 
     // 3. 更新用户头像
-    let biz_id = biz_record.uuid.ok_or(anyhow!("用户id为空"))?.to_string();
+    let biz_id = biz_file_link.biz_id.ok_or(anyhow!("用户id为空"))?.to_string();
     let user_id = biz_record.created_by.ok_or(anyhow!("用户id为空"))?;
     update_user_avatar(rb, biz_id, user_id).await?;
 
