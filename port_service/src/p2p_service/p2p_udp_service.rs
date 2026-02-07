@@ -189,7 +189,8 @@ async fn process_p2p_user_info(
     mut user_address_info: UserAddressInfo,
 ) -> Result<(), anyhow::Error> {
     match decode_jwt(user_address_info.token.as_ref()) {
-        Ok(uuid) => {
+        Ok(claims) => {
+            let uuid = claims.uuid;
             info!("收到来自 {} 的消息, 用户uuid: {}", udp_addr, uuid);
             // 用户的udp连接地址
             let key = format!("{}{}_{}", "USER_UDP_ADDRESS_", ip_type, uuid);

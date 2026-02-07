@@ -6,7 +6,7 @@ use deadpool_redis::redis::AsyncCommands;
 use entity::config_str::{MAX_QUIC_BUFFER_LEN, MAX_QUIC_SERVERS, SERVER_NAME, USER_READ_MSG};
 use entity::models::chat_entity::chat_message_read::ChatMessageRecordRead;
 use entity::models::chat_entity::chat_message_record::ChatMessageRecord;
-use entity::utils::jwt_util::decode_jwt;
+use entity::utils::jwt_util::{decode_jwt, Claims};
 use entity::utils::redis_utils::get_redis_conn;
 use entity::utils::time::get_now_time_stamp_as_millis;
 use entity::{RBATIS_DATABASE, REDIS_CLIENT};
@@ -15,7 +15,7 @@ use quinn::{Connection, RecvStream, SendStream};
 use rbatis::dark_std::err;
 use rbs::value;
 use tokio::sync::{Mutex, RwLock};
-
+use entity::utils::sql_utils::get_sql_client;
 use crate::GLOBAL_QUIC_SERVER_LIST;
 use crate::models::first_quic_msg::FirstQuicMsg;
 use crate::models::quic_connection::{ConnectionType, QuicConnection};
@@ -134,10 +134,10 @@ async fn process_first_msg(
 async fn verify_token(
     first_quic_msg: &FirstQuicMsg,
     send_stream: &mut SendStream,
-) -> Result<String, anyhow::Error> {
-    let uuid = match decode_jwt(first_quic_msg.token.as_ref()).map_err(|_| "解析token失败") {
+) -> Result<Claims, anyhow::Error> {
+    let claims = match decode_jwt(first_quic_msg.token.as_ref()).map_err(|_| "解析token失败") {
         Ok(t) => {
-            if t != first_quic_msg.uuid {
+            if t.uuid != first_quic_msg.uuid {
                 error!("令牌跟账号不匹配！");
                 send_stream.finish().await?;
                 return Err(anyhow!("令牌跟账号不匹配！"));
@@ -150,7 +150,7 @@ async fn verify_token(
             return Err(anyhow!("解析令牌失败！"));
         }
     };
-    Ok(uuid)
+    Ok(claims)
 }
 
 /// 检测是否达到最大连接数
@@ -210,18 +210,19 @@ async fn handle_conn(
     let first_quic_msg =
         process_first_msg(&mut send_stream, &mut recv_stream, &address.clone()).await?;
     let head_length = first_quic_msg.dyn_header_size;
-    let uuid = verify_token(&first_quic_msg, &mut send_stream).await?;
+    let claims = verify_token(&first_quic_msg, &mut send_stream).await?;
+    let platform = claims.sub;
+    let uuid = claims.uuid;
     verify_max_client(&mut send_stream).await?;
-    user_online(uuid.clone()).await?;
+    user_online(&uuid, &platform).await?;
     let current_uuid = uuid.clone();
 
     let msg_type = first_quic_msg.msg_type.clone();
 
     let connection_key =
-        format!("{}{}{}{}", "QUIC:SERVER:", uuid, ":", first_quic_msg.msg_type);
+        format!("{}{}{}{}{}", platform, ":QUIC:SERVER:", uuid, ":", first_quic_msg.msg_type);
     let connection_key = connection_key.to_uppercase();
     info!("connection key: {}", connection_key);
-    let close_key = connection_key.clone();
 
     //通过原子计数和异步锁共享变量
     let send_stream = Arc::new(RwLock::new(send_stream));
@@ -242,14 +243,13 @@ async fn handle_conn(
         let change_buffer = &mut buffer;
         match recv_stream.read(change_buffer).await {
             Ok(Some(length)) => {
-                let new_close_key = close_key.clone();
 
                 match process_rec_msg(
                     change_buffer,
                     current_uuid.clone(),
                     length,
-                    new_close_key,
-                    &msg_type,
+                    &connection_key,
+                    &platform,
                     buffer_msg.clone(),
                     head_length,
                 )
@@ -274,13 +274,13 @@ async fn handle_conn(
         }
     }
 
-    end_server(&close_key, &connection_key, now).await?;
+    end_server(&connection_key, &connection_key, now).await?;
     Ok(())
 }
 
 /// 用户下线
 async fn end_server(
-    close_key: &String,
+    close_key: &str,
     connection_key: &str,
     close_now: i64,
 ) -> Result<(), anyhow::Error> {
@@ -317,7 +317,7 @@ async fn end_server(
 async fn user_offline(uuid: String) -> std::result::Result<(), anyhow::Error> {
     // TODO
     let mut redis = get_redis_conn().await?;
-    let rb = RBATIS_DATABASE.read().await;
+    let rb = get_sql_client().await?;
     // 1.设置redis分布式锁，防止用户下线的同时立马上线
     // 2.同步所有redis缓存到数据库，记录用户操作
     // 已读消息从redis中持久化到数据库
@@ -327,10 +327,10 @@ async fn user_offline(uuid: String) -> std::result::Result<(), anyhow::Error> {
     let last_chat_message_read: Vec<ChatMessageRecordRead> = serde_json::from_str(&read_record)?;
     info!("已读消息, 转换 {:?}", last_chat_message_read);
     // TODO已读消息有效校验
-    let rb = rb.as_ref().ok_or(anyhow!("获取连接失败"))?;
+
     for item in last_chat_message_read.into_iter() {
         let is_exist =
-            ChatMessageRecord::select_by_map(rb, value! {"nano_id": &item.nano_id}).await?;
+            ChatMessageRecord::select_by_map(&rb, value! {"nano_id": &item.nano_id}).await?;
         if is_exist.is_empty() || is_exist.len() > 1 {
             continue;
         }
@@ -342,14 +342,14 @@ async fn user_offline(uuid: String) -> std::result::Result<(), anyhow::Error> {
             continue;
         }
 
-        let insert_item = async |e| match ChatMessageRecordRead::insert(rb, &item).await {
+        let insert_item = async |e| match ChatMessageRecordRead::insert(&rb, &item).await {
             Ok(_) => {}
             Err(x) => {
                 err!("更新已读消息失败 {} {}", e, x);
             }
         };
         match ChatMessageRecordRead::update_by_map(
-            rb,
+            &rb,
             &item,
             value! {"send_user": &item.send_user, "recv_user": &item.recv_user},
         )
@@ -371,7 +371,7 @@ async fn user_offline(uuid: String) -> std::result::Result<(), anyhow::Error> {
 }
 
 /// 用户上线
-async fn user_online(uuid: String) -> std::result::Result<(), anyhow::Error> {
+async fn user_online(uuid: &str, platform: &str) -> std::result::Result<(), anyhow::Error> {
     info!("用户上线 {}", uuid);
     // TODO
     // 1.设置redis分布式锁，防止用户上线的同时立马下线

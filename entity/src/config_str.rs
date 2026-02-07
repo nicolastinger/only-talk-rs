@@ -28,3 +28,7 @@ pub static USER_DEFAULT_ICON: &str = "73983c6e-2f52-4fe5-95e8-f4302abc223d.jpg";
 pub static APP_DOMAIN: &str = "https://onlytalk.cn:8443";
 // 默认最大文件大小 (20MB)
 pub static DEFAULT_MAX_FILE_SIZE: i64 = 20 * 1024 * 1024;
+// pc平台
+pub static PC_PLATFORM: &str = "PC";
+// 移动平台
+pub static MOBILE_PLATFORM: &str = "MOBILE";

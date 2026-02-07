@@ -14,6 +14,8 @@ pub struct SignInBasicUserDTO {
         )
     )]
     pub password: Option<String>,
+    #[validate(required(message = "需要输入平台"), length(min = 2, message = "平台长度必须大于5"))]
+    pub platform: Option<String>,
 }
 
 impl SignInBasicUserDTO {

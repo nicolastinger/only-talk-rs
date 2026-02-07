@@ -2,7 +2,7 @@ use std::str::FromStr;
 
 use anyhow::anyhow;
 use deadpool_redis::redis::{RedisResult, cmd};
-use entity::config_str::{APP_DOMAIN, USER_DEFAULT_ICON, USER_FILE_PUBLIC};
+use entity::config_str::{APP_DOMAIN, MOBILE_PLATFORM, PC_PLATFORM, USER_DEFAULT_ICON, USER_FILE_PUBLIC};
 use entity::models::user_entity::basic_user::BasicUser;
 use entity::models::user_entity::basic_user_salt::{BasicUserSalt, get_user_salt};
 use entity::models::user_entity::user_info::UserInfo;
@@ -105,8 +105,14 @@ pub async fn user_sign_in(
     rb: &RBatis,
     basic_user_dto: SignInBasicUserDTO,
 ) -> Result<String, anyhow::Error> {
+    let platform = basic_user_dto.platform.as_ref().cloned().ok_or(anyhow!("平台为空".to_string()))?;
+    if platform != PC_PLATFORM && platform != MOBILE_PLATFORM {
+        return Err(anyhow!("暂不支持该平台登录".to_string()))
+    }
     // 解构 basic_user 以获取 account 和 password 的引用
     let basic_user = SignInBasicUserDTO::to_basic_user(basic_user_dto);
+    
+    
 
     let BasicUser { account, password, .. } = basic_user;
 
@@ -133,6 +139,7 @@ pub async fn user_sign_in(
         // 生成 JWT
         Ok(CommonResponseRef::<String>::success_json(&get_jwt(
             basic_user.uuid.ok_or(anyhow!("账号为空"))?.to_string(),
+            platform
         )?)?)
     } else {
         Err(anyhow!("用户或密码不正确!"))

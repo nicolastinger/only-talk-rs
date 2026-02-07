@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use entity::config_str::{PING, SYSTEM};
+use entity::config_str::{PC_PLATFORM, PING, SYSTEM};
 use entity::utils::jwt_util::get_jwt;
 use entity::utils::message_types;
 use tracing::{error, info};
@@ -85,7 +85,7 @@ async fn init_send_msg(mut send_stream: SendStream) -> Result<(), anyhow::Error>
     first_quic_msg.uuid = uuid.clone();
     first_quic_msg.text_serde_struct = "user_chat_json".to_string();
     first_quic_msg.msg_type = ConnectionType::Text;
-    let token = get_jwt(uuid.clone()).expect("获取token失败");
+    let token = get_jwt(uuid.clone(), PC_PLATFORM.to_string()).expect("获取token失败");
     first_quic_msg.token = token;
 
     let first_msg_json = serde_json::to_string(&first_quic_msg)?;

@@ -2,11 +2,11 @@ use std::sync::Arc;
 
 use anyhow::anyhow;
 use entity::RBATIS_DATABASE;
-use entity::config_str::{PONG, REDIS_QUIC_SERVERS, REDIS_SPLIT, SYSTEM};
+use entity::config_str::{MOBILE_PLATFORM, PC_PLATFORM, PONG, REDIS_QUIC_SERVERS, REDIS_SPLIT, SYSTEM};
 use entity::models::chat_entity::chat_message_record::ChatMessageRecord;
 use entity::utils::message_types;
 use entity::utils::time::get_now_time_stamp_as_millis;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use nanoid::nanoid;
 use quinn::SendStream;
 use rbatis::rbdc::{Bytes, Uuid};
@@ -23,30 +23,21 @@ pub async fn process_rec_msg(
     buffer: &mut Vec<u8>,
     uuid: String,
     length: usize,
-    close_key: String,
-    msg_type: &ConnectionType,
+    connection_key: &str,
+    platform: &str,
     buffer_msg: Arc<Mutex<Vec<u8>>>,
     head_length: usize,
 ) -> anyhow::Result<()> {
     let my_send_stream = {
         let bind = GLOBAL_QUIC_SERVER_LIST.read().await;
-        let send = bind.get(&close_key).ok_or(anyhow!("连接不可用"))?;
+        let send = bind.get(connection_key).ok_or(anyhow!("连接不可用"))?;
         send.send_stream.clone()
     };
 
-    match msg_type {
-        // 文本消息，用户请求消息，比如发起视频请求，p2p请求
-        ConnectionType::Text => {
-            let text_vec = get_text_msg(buffer, length, buffer_msg, head_length).await?;
-            info!("接收到客户端信息 {:?}", text_vec);
-            process_text_msg(my_send_stream, text_vec, uuid).await?;
-        }
-        // 图片消息
-        ConnectionType::Img => {}
-        ConnectionType::Video => {}
-        ConnectionType::File => {}
-        ConnectionType::Other => {}
-    }
+    let text_vec = get_text_msg(buffer, length, buffer_msg, head_length).await?;
+    info!("接收到客户端信息 {:?}", text_vec);
+    process_text_msg(my_send_stream, text_vec, uuid, platform).await?;
+
     Ok(())
 }
 
@@ -54,6 +45,7 @@ async fn process_text_msg(
     send_stream: Arc<RwLock<SendStream>>,
     text_quic_msg: Vec<TextQuicMsg>,
     uuid: String,
+    platform: &str,
 ) -> anyhow::Result<()> {
     for mut text_msg in text_quic_msg.into_iter() {
         if uuid != text_msg.send_user {
@@ -74,14 +66,6 @@ async fn process_text_msg(
         let now = get_now_time_stamp_as_millis()?;
         text_msg.timestamp = now;
 
-        let user_key = format!(
-            "{}{}{}{}",
-            REDIS_QUIC_SERVERS,
-            text_msg.recv_user.as_str(),
-            REDIS_SPLIT,
-            ConnectionType::Text
-        );
-        let user_key = user_key.to_uppercase();
 
         let text_msg_clone = text_msg.clone();
         let send_stream_clone = send_stream.clone();
@@ -93,30 +77,70 @@ async fn process_text_msg(
                 .await
                 .expect("发送ack消息失败");
         });
+        send_msg_to_user(text_msg, platform).await?;
 
-        // 目标用户的发送流
-        let target_send_stream: Option<Arc<RwLock<SendStream>>> = {
-            let bind = GLOBAL_QUIC_SERVER_LIST.read().await;
-            match bind.get(&user_key) {
-                Some(s) => Some(s.send_stream.clone()),
-                None => {
-                    error!("当前用户不在线: {}", user_key);
-                    None
-                }
-            }
-        };
-
-        if let Some(target_send_stream) = target_send_stream {
-            // 处理在线消息
-            pass_text_msg(target_send_stream.clone(), text_msg).await?;
-        } else {
-            // 处理 my_send_stream 为 None 的情况
-            info!("用户不在线，无法发送消息: {}", user_key);
-            // TODO这里可以添加其他处理逻辑
-        }
     }
 
     info!("处理完成");
+    Ok(())
+}
+
+async fn send_msg_to_user(
+    text_msg: TextQuicMsg,
+    platform: &str,
+) -> anyhow::Result<()> {
+    let recv_user = text_msg.recv_user.clone();
+    let send_user = text_msg.send_user.clone();
+    
+    let res = generate_text_msg_with_time(
+        text_msg.nano_id,
+        text_msg.text_type,
+        text_msg.raw,
+        text_msg.recv_user,
+        text_msg.send_user,
+        text_msg.timestamp,
+    )?;
+    send_msg_to_user_by_platform(&res, PC_PLATFORM, &recv_user).await?;
+    send_msg_to_user_by_platform(&res, MOBILE_PLATFORM, &recv_user).await?;
+    if platform == PC_PLATFORM {
+        send_msg_to_user_by_platform(&res, MOBILE_PLATFORM, &send_user).await?;
+    } else {
+        send_msg_to_user_by_platform(&res, PC_PLATFORM, &send_user).await?;
+    }
+    Ok(())
+}
+
+async fn send_msg_to_user_by_platform(
+    res: &Vec<u8>,
+    platform: &str,
+    target_user: &str,
+) -> anyhow::Result<()> {
+    let user_key = format!(
+        "{}:{}{}{}{}",
+        platform,
+        REDIS_QUIC_SERVERS,
+        target_user,
+        REDIS_SPLIT,
+        ConnectionType::Text
+    );
+    let user_key = user_key.to_uppercase();
+
+    // 目标用户的发送流
+    let target_send_stream: Option<Arc<RwLock<SendStream>>> = {
+        let bind = GLOBAL_QUIC_SERVER_LIST.read().await;
+        match bind.get(&user_key) {
+            Some(s) => Some(s.send_stream.clone()),
+            None => {
+                warn!("当前用户不在线: {}", user_key);
+                None
+            }
+        }
+    };
+
+    if let Some(target_send_stream) = target_send_stream {
+        // 发送消息
+        target_send_stream.write().await.write_all(res).await.expect("发送消息失败");
+    }
     Ok(())
 }
 
@@ -140,26 +164,11 @@ async fn pass_text_msg(
     recv_send_stream: Arc<RwLock<SendStream>>,
     text_msg: TextQuicMsg,
 ) -> anyhow::Result<()> {
-    let res = generate_text_msg_with_time(
-        text_msg.nano_id,
-        text_msg.text_type,
-        text_msg.raw,
-        text_msg.recv_user,
-        text_msg.send_user,
-        text_msg.timestamp,
-    )?;
-    send_msg_permissions().await.expect("鉴权失败");
-    {
-        recv_send_stream.write().await.write_all(&res).await.expect("发送消息失败");
-    };
+    
+    
     Ok(())
 }
 
-/// 判断是否有权限发送消息
-async fn send_msg_permissions() -> anyhow::Result<bool> {
-    // TODO
-    Ok(true)
-}
 
 /// 发送ack消息
 async fn send_msg_record_success(

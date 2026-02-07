@@ -50,7 +50,7 @@ pub async fn error_record_middleware(
     };
     //校验token
     let account = match decode_jwt(&token) {
-        Ok(t) => t,
+        Ok(t) => t.uuid,
         Err(_) => {
             return Err(actix_web::error::ErrorUnauthorized("Unauthorized"));
         }
