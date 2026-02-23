@@ -507,7 +507,7 @@ pub async fn download_link_pub_biz(rb: &RBatis, biz_id: String, is_preview: bool
     // 组建下载链接
     let mut download_link_vec: Vec<String> = vec![];
     for item in file_ids.iter() {
-        let str = format!("/file/pub_file/{}/{}", biz_id, item);
+        let str = format!("/file/download_pub_file/{}/{}", biz_id, item);
         download_link_vec.push(str);
     }
     let res = CommonResponseRef::<Vec<String>>::success_json(&download_link_vec)?;
