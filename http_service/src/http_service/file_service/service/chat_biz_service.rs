@@ -27,20 +27,20 @@ pub async fn create_user_chat_biz(
     let uuid_v4 = Uuid::new_v4();
     let uuid_v4_str = uuid_v4.to_string();
     let biz_id = rbdc::Uuid::from_str(&uuid_v4_str)?;
-    let remark = format!("用户头像上传，用户ID: {}", user_id);
+    let remark = format!("用户聊天上传，用户ID: {}", user_id);
 
     let chat_biz_record = ChatBizRecord {
         id: None, // ID由数据库自动生成
         uuid: Some(biz_id),
-        biz_name: Some("用户头像上传".to_string()),
-        description: Some("用户上传头像文件的业务记录".to_string()),
+        biz_name: Some("用户聊天上传".to_string()),
+        description: Some("用户上传聊天文件的业务记录".to_string()),
         created_by: Some(user_id),
         receiver: Some(friend_uuid),
         created_at: Some(now),
         updated_at: Some(now),
         status: Some(0),                      // 0-正常
         approve_status: Some(1),              // 1-已通过
-        biz_type: Some("avatar".to_string()), // 业务类型为头像
+        biz_type: Some("chat".to_string()), // 业务类型为聊天
         remark: Some(remark),
     };
 

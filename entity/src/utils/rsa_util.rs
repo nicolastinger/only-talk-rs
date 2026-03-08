@@ -15,12 +15,10 @@ pub fn generate_rsa_keys() -> Result<(RsaPrivateKey, RsaPublicKey), anyhow::Erro
     let public_key_config = get_config("jwt_public_key");
     
     let (private_key_str, public_key_str) = if private_key_config.is_some() && public_key_config.is_some() {
-        info!("从内存读取 RSA 密钥对");
         let private_key_str = private_key_config.ok_or(anyhow!("jwt_private_key 配置不存在"))?;
         let public_key_str = public_key_config.ok_or(anyhow!("jwt_public_key 配置不存在"))?;
         (private_key_str, public_key_str)
     } else {
-        info!("从文件读取 RSA 密钥对");
         let private_key_text = fs::read_to_string("./config/jwt/private.key");
         let public_key_text = fs::read_to_string("./config/jwt/public.key");
         if private_key_text.is_err() || public_key_text.is_err() {
@@ -35,7 +33,6 @@ pub fn generate_rsa_keys() -> Result<(RsaPrivateKey, RsaPublicKey), anyhow::Erro
     };
     
     if private_key_str.len() > 100 && public_key_str.len() > 50 {
-        info!("使用旧 RSA 密钥对");
         let private_key = RsaPrivateKey::from_pkcs8_pem(private_key_str.as_str())?;
         let public_key = RsaPublicKey::from(&private_key);
         return Ok((private_key, public_key));
@@ -46,7 +43,6 @@ pub fn generate_rsa_keys() -> Result<(RsaPrivateKey, RsaPublicKey), anyhow::Erro
 
 fn new_rsa_key() -> Result<(RsaPrivateKey, RsaPublicKey), anyhow::Error> {
     // 如果没有现有的密钥文件，则生成新的 RSA 密钥对
-    info!("生成新的 RSA 密钥对");
     let mut rng = rand::thread_rng();
     let bits = 2048;
     let private_key = RsaPrivateKey::new(&mut rng, bits).expect("failed to generate a key");

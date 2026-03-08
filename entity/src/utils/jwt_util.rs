@@ -41,14 +41,12 @@ pub fn get_jwt(uuid: String, platform: String) -> Result<String, anyhow::Error> 
 }
 
 pub fn decode_jwt(token: &str) -> Result<Claims, anyhow::Error> {
-    info!("开始解码");
     let (_, decoding_key) = generate_keys()?;
     // 使用 RSA 算法解码 JWT
     let validation = Validation::new(jsonwebtoken::Algorithm::RS256);
     let decoded = decode::<Claims>(token, &decoding_key, &validation)?;
 
     let now = get_now_time_stamp_as_millis()?;
-    info!("结束解码");
     match now < decoded.claims.exp {
         true => Ok(decoded.claims),
         false => Err(anyhow!("token超时")),

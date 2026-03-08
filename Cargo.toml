@@ -67,7 +67,7 @@ jsonwebtoken = { workspace = true }
 tokio = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
-tracing-subscriber = { workspace = true }
+tracing-subscriber = { workspace = true, version = "1.0.0", features = ["local-time"] }
 tracing-appender = { workspace = true }
 tracing-actix-web = { workspace = true }
 serde = { workspace = true }

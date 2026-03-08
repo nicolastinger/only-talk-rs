@@ -13,6 +13,7 @@ use crate::utils::http_response::CommonResponseNoDataRef;
 pub fn file_service(cfg: &mut web::ServiceConfig) {
     cfg.service(download_file_api)
         .service(download_pub_file_id_api)
+        .service(download_chat_biz_api)
         .service(download_chat_file_api)
         .service(download_pub_biz_api)
         .service(upload_origin_file_by_biz_api)
@@ -64,19 +65,19 @@ pub async fn download_pub_file_id_api(state: web::Data<RBatis>, params: web::Pat
 /**
  * 获取聊天业务文件下载link
  */
-#[post("/download_link/chat_biz/{biz_id}")]
+#[post("/download_link/chat_biz/{biz_id}/{is_preview}")]
 async fn download_chat_biz_api(
     req: HttpRequest,
     state: web::Data<RBatis>,
-    biz_id: web::Path<String>,
-    is_preview: web::Query<Option<String>>
+    biz_id: web::Path<(String, String)>,
 ) -> impl Responder {
-    let biz_id = biz_id.into_inner();
-    let is_preview = is_preview.into_inner();
+    let (biz_id,is_preview) = biz_id.into_inner();
     let uuid = get_uuid_from_header!(req);
     let mut is_preview_bool = true;
-    if let Some(is_preview) = is_preview{
-        if is_preview == "0" {
+    match is_preview.as_str() {
+        "1" => is_preview_bool = true,
+        "0" => is_preview_bool = false,
+        _ => {
             is_preview_bool = false;
         }
     }
