@@ -41,9 +41,9 @@ pub async fn upload_user_avatar(
     // 3. 更新用户头像
     let biz_id = biz_file_link.biz_id.ok_or(anyhow!("用户id为空"))?.to_string();
     let user_id = biz_record.created_by.ok_or(anyhow!("用户id为空"))?;
-    update_user_avatar(rb, biz_id, user_id).await?;
+    update_user_avatar(rb, biz_id.clone(), user_id).await?;
 
-    Ok(CommonResponseNoDataRef::success_empty())
+    Ok(CommonResponseRef::<String>::success_json(&biz_id)?)
 }
 
 /// 用户聊天文件上传

@@ -476,7 +476,7 @@ pub async fn download_pub_file_by_id(rb: &RBatis, biz_id: String, file_id: Strin
         buf
     };
     Ok(HttpResponse::Ok()
-        .content_type(file_record.mime_type.ok_or(anyhow!("文件类型为空"))?)
+        .content_type(file_record.mime_type.unwrap_or("image/webp".to_string()))
         .insert_header((
             "Content-Disposition",
             format!(
