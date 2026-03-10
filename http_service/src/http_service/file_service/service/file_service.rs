@@ -598,7 +598,7 @@ pub async fn download_chat_file_by_id(rb: &RBatis, uuid: Option<String>, biz_id:
         buf
     };
     Ok(HttpResponse::Ok()
-        .content_type(file_record.mime_type.ok_or(anyhow!("文件类型为空"))?)
+        .content_type(file_record.mime_type.unwrap_or("image/webp".to_string()))
         .insert_header((
             "Content-Disposition",
             format!(
