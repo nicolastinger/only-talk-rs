@@ -6,8 +6,8 @@ use crate::common::dto::base_dto::{AuthAccount, ReqList};
 use crate::http_service::user_service::dto::friend_dto::FriendDTO;
 use crate::http_service::user_service::dto::friend_request_info_dto::FriendRequestInfoDTO;
 use crate::http_service::user_service::service::friend_service::{
-    add_friend, get_accept_friend_request_list, get_friend_list, get_friend_request_list,
-    process_friend,
+    add_friend, delete_friend_service, get_accept_friend_request_list, get_friend_list,
+    get_friend_request_list, process_friend,
 };
 use crate::utils::http_response::CommonResponseNoDataRef;
 use crate::{get_uuid_from_header, respond_json_any, validate_and_respond};
@@ -17,7 +17,8 @@ pub fn friend_service(cfg: &mut web::ServiceConfig) {
         .service(add_friend_api)
         .service(get_friend_api)
         .service(get_accept_friend_request_list_api)
-        .service(get_friend_request_list_api);
+        .service(get_friend_request_list_api)
+        .service(delete_friend_api);
 }
 
 #[post("/friend_list")]
@@ -108,4 +109,23 @@ pub async fn get_friend_request_list_api(
     let accept_status = friend.into_inner().accept_status;
 
     respond_json_any!(get_friend_request_list(state.as_ref(), uuid, accept_status).await)
+}
+
+#[post("/delete_friend/{friend_uuid}")]
+pub async fn delete_friend_api(
+    req: HttpRequest,
+    state: web::Data<RBatis>,
+    path: web::Path<String>,
+) -> impl Responder {
+    let friend_uuid = path.into_inner();
+    let my_uuid = get_uuid_from_header!(req);
+    let res = delete_friend_service(state.as_ref(), my_uuid, friend_uuid).await;
+    if let Err(t) = res {
+        error!("err_context {:?}", t);
+        error!("{}", t.backtrace());
+        return HttpResponse::BadRequest()
+            .body(CommonResponseNoDataRef::error_json(&t.to_string()));
+    }
+    let res = CommonResponseNoDataRef::success_empty();
+    HttpResponse::Ok().body(res)
 }

@@ -1,16 +1,13 @@
 use rbatis::rbdc::Uuid;
-use rbatis::{crud, impl_select};
+use rbatis::{crud, impl_select, impl_update};
 use serde::{Deserialize, Serialize};
 
-/// 用户详情表
 #[derive(Clone, Deserialize, Serialize, Debug)]
 pub struct UserInfo {
     pub uuid: Option<Uuid>,
-    /// 0-m,1-s,2-男,3-女,4-机器人,5-other,etc
     pub gender: Option<u8>,
     pub age: Option<u8>,
     pub birthday: Option<i64>,
-    /// 个人简介
     pub note: Option<String>,
     pub created_at: Option<i64>,
     pub updated_at: Option<i64>,
@@ -23,3 +20,4 @@ pub struct UserInfo {
 crud!(UserInfo {});
 
 impl_select!(UserInfo{select_by_uuid(uuid: &Uuid) -> Option => "`where uuid = #{uuid} limit 1`"});
+impl_update!(UserInfo{update_by_uuid(uuid: &Uuid) => "`where uuid = #{uuid}`"});

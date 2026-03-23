@@ -18,6 +18,7 @@ use uuid::Uuid;
 
 use crate::http_service::user_service::dto::basic_user_dto::SignInBasicUserDTO;
 use crate::http_service::user_service::dto::sign_up_basic_user_dto::SignUpBasicUserDTO;
+use crate::http_service::user_service::dto::update_user_dto::UpdateUserDTO;
 use crate::http_service::user_service::vo::user_info::UserInfoVO;
 use crate::utils::http_response::{CommonResponseNoDataRef, CommonResponseRef};
 
@@ -269,6 +270,36 @@ pub async fn update_user_avatar(
     BasicUser::update_by_map(rb, &basic_user, value! { "uuid": &user_id }).await?;
 
     Ok(())
+}
+
+pub async fn update_user_info_service(
+    rb: &RBatis,
+    uuid: Option<String>,
+    update_dto: UpdateUserDTO,
+) -> Result<String, anyhow::Error> {
+    let uuid_str = uuid.ok_or(anyhow!("用户ID为空"))?;
+    let uuid = rbatis::rbdc::Uuid::from_str(&uuid_str)?;
+
+    let mut basic_user = BasicUser::select_by_uuid(rb, &uuid).await?.ok_or(anyhow!("用户不存在"))?;
+    let mut user_info = UserInfo::select_by_uuid(rb, &uuid).await?.ok_or(anyhow!("用户详情不存在"))?;
+
+    update_dto.apply_to_basic_user(&mut basic_user);
+    update_dto.apply_to_user_info(&mut user_info)?;
+
+    let tx = rb.acquire_begin().await?;
+    let result: Result<(), anyhow::Error> = async {
+        BasicUser::update_by_map(&tx, &basic_user, value! { "uuid": &uuid }).await?;
+        UserInfo::update_by_uuid(&tx, &user_info, &uuid).await?;
+        tx.commit().await?;
+        Ok(())
+    }.await;
+
+    if result.is_err() {
+        let _ = tx.rollback().await;
+        return Err(anyhow!("更新用户信息失败"));
+    }
+
+    Ok(CommonResponseNoDataRef::success_empty())
 }
 
 // pub async fn search_user_info() -> Result<String, anyhow::Error> {

@@ -596,7 +596,7 @@ pub async fn download_chat_file_by_id(rb: &RBatis, uuid: Option<String>, biz_id:
         let mut buf = Vec::new();
         file.read_to_end(&mut buf).await?;
         buf
-    };
+    }; 
     Ok(HttpResponse::Ok()
         .content_type(file_record.mime_type.unwrap_or("image/webp".to_string()))
         .insert_header((

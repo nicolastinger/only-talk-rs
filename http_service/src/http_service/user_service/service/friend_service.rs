@@ -219,3 +219,32 @@ pub async fn get_friend_request_list(
         FriendRequestInfo::select_by_request_user_and_status(rb, &uuid, accept_status).await?;
     Ok(CommonResponseRef::<Vec<FriendRequestInfo>>::success_json(&res)?)
 }
+
+/// 删除好友
+pub async fn delete_friend_service(
+    rb: &RBatis,
+    my_uuid: Option<String>,
+    friend_uuid: String,
+) -> Result<String, anyhow::Error> {
+    let my_uuid_str = my_uuid.ok_or(anyhow!("获取当前用户ID失败"))?;
+    let my_uuid = rbatis::rbdc::Uuid::from_str(&my_uuid_str)?;
+    let friend_uuid = rbatis::rbdc::Uuid::from_str(&friend_uuid)?;
+
+    let friend_link = FriendLink::select_by_last_uuid(rb, &my_uuid, &friend_uuid).await?;
+    if friend_link.is_none() {
+        return Err(anyhow!("好友关系不存在"));
+    }
+    let mut friend_link = friend_link.ok_or(anyhow!("好友关系不存在"))?;
+    if friend_link.is_del.unwrap_or(true) {
+        return Err(anyhow!("好友关系已删除"));
+    }
+
+    let now = get_now_time_stamp_as_millis()?;
+    friend_link.is_del = Some(true);
+    friend_link.updated_at = Some(now);
+    friend_link.version = Some(friend_link.version.unwrap_or(0) + 1);
+
+    FriendLink::update_is_del_by_users(rb, &friend_link, &my_uuid, &friend_uuid).await?;
+
+    Ok(crate::utils::http_response::CommonResponseNoDataRef::success_empty())
+}
