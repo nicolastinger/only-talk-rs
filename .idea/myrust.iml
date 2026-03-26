@@ -10,6 +10,7 @@
       <sourceFolder url="file://$MODULE_DIR$/quic_service/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/api/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/entity/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/http_service/tests" isTestSource="true" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
       <excludeFolder url="file://$MODULE_DIR$/entity/target" />
       <excludeFolder url="file://$MODULE_DIR$/http_service/src/http_service/user_service/target" />

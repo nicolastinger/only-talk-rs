@@ -1,0 +1,44 @@
+[package]
+name = "email_service"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+async-trait = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+thiserror = "1.0"
+tracing = { workspace = true }
+uuid = { workspace = true }
+chrono = { version = "0.4", features = ["serde"] }
+reqwest = { version = "0.11", features = ["json", "multipart", "rustls-tls"] }
+base64 = "0.22"
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
+futures = "0.3"
+dashmap = "6.1"
+parking_lot = "0.12"
+rand = { workspace = true }
+backoff = "0.4"
+regex = { workspace = true }
+once_cell = { workspace = true }
+urlencoding = "2.1"
+mime = "0.3"
+
+[dev-dependencies]
+tracing-subscriber = { workspace = true }
+
+[[example]]
+name = "basic_usage"
+path = "examples/basic_usage.rs"
+
+[[example]]
+name = "batch_send"
+path = "examples/batch_send.rs"
+
+[[example]]
+name = "with_attachments"
+path = "examples/with_attachments.rs"
