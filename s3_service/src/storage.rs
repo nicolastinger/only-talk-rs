@@ -43,6 +43,10 @@ impl fmt::Display for StorageType {
 /// - `storage_type`: 存储类型
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct StorageInfo {
+    /// 存储桶名称
+    /// S3模式下表示对象所在的桶
+    pub bucket: Option<String>,
+    
     /// 对象key
     /// S3模式为object key,本地模式为相对路径
     pub key: String,
@@ -507,6 +511,7 @@ impl StorageBackend for LocalStorage {
         tokio::fs::write(&path, &data).await?;
         
         Ok(StorageInfo {
+            bucket: None,  // 本地存储无bucket概念
             key: key.to_string(),
             size: data.len() as i64,
             content_type: content_type.map(|s| s.to_string()),
@@ -855,6 +860,7 @@ impl StorageBackend for S3Storage {
         let result = builder.send().await.map_err(map_sdk_error)?;
 
         Ok(StorageInfo {
+            bucket: Some(self.bucket.clone()),
             key: key.to_string(),
             size,
             content_type: content_type.map(|s| s.to_string()),

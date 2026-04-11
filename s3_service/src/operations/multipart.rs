@@ -121,6 +121,7 @@ pub async fn multipart_upload(
         .map_err(|e| S3Error::MultipartError(format!("完成分片上传失败: {}", e)))?;
 
     Ok(StorageInfo {
+        bucket: Some(bucket.to_string()),
         key: key.to_string(),
         size,
         content_type: content_type.map(|s| s.to_string()),

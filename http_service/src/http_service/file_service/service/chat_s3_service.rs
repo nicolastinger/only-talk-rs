@@ -18,6 +18,64 @@ use entity::utils::time::get_now_time_stamp_as_millis;
 
 use crate::http_service::file_service::service::file_service::validate_file_type;
 
+/// 根据文件扩展名推断 MIME 类型
+fn infer_mime_from_extension(filename: &str) -> Option<String> {
+    let extension = std::path::Path::new(filename)
+        .extension()
+        .and_then(std::ffi::OsStr::to_str)
+        .unwrap_or("")
+        .to_lowercase();
+    
+    match extension.as_str() {
+        // 图片类型
+        "jpg" | "jpeg" => Some("image/jpeg".to_string()),
+        "png" => Some("image/png".to_string()),
+        "gif" => Some("image/gif".to_string()),
+        "webp" => Some("image/webp".to_string()),
+        "bmp" => Some("image/bmp".to_string()),
+        "svg" => Some("image/svg+xml".to_string()),
+        "ico" => Some("image/x-icon".to_string()),
+        
+        // 文档类型
+        "pdf" => Some("application/pdf".to_string()),
+        "doc" => Some("application/msword".to_string()),
+        "docx" => Some("application/vnd.openxmlformats-officedocument.wordprocessingml.document".to_string()),
+        "xls" => Some("application/vnd.ms-excel".to_string()),
+        "xlsx" => Some("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet".to_string()),
+        "ppt" => Some("application/vnd.ms-powerpoint".to_string()),
+        "pptx" => Some("application/vnd.openxmlformats-officedocument.presentationml.presentation".to_string()),
+        "txt" => Some("text/plain".to_string()),
+        "csv" => Some("text/csv".to_string()),
+        "html" | "htm" => Some("text/html".to_string()),
+        "xml" => Some("application/xml".to_string()),
+        "json" => Some("application/json".to_string()),
+        
+        // 压缩文件
+        "zip" => Some("application/zip".to_string()),
+        "rar" => Some("application/x-rar-compressed".to_string()),
+        "7z" => Some("application/x-7z-compressed".to_string()),
+        "tar" => Some("application/x-tar".to_string()),
+        "gz" => Some("application/gzip".to_string()),
+        
+        // 音频文件
+        "mp3" => Some("audio/mpeg".to_string()),
+        "wav" => Some("audio/wav".to_string()),
+        "ogg" => Some("audio/ogg".to_string()),
+        "flac" => Some("audio/flac".to_string()),
+        "aac" => Some("audio/aac".to_string()),
+        
+        // 视频文件
+        "mp4" => Some("video/mp4".to_string()),
+        "avi" => Some("video/x-msvideo".to_string()),
+        "mkv" => Some("video/x-matroska".to_string()),
+        "mov" => Some("video/quicktime".to_string()),
+        "wmv" => Some("video/x-ms-wmv".to_string()),
+        "webm" => Some("video/webm".to_string()),
+        
+        _ => None,
+    }
+}
+
 /// 获取provider对应的oss_type值
 fn get_oss_type(provider: &s3_service::config::S3Provider) -> i32 {
     match provider {
@@ -94,7 +152,7 @@ async fn upload_chat_file_to_bucket(
     s3_client: Arc<S3Client>,
     bucket: String,
 ) -> Result<FileUploadRecord, anyhow::Error> {
-    let storage = S3Storage::new(s3_client.clone());
+    let storage = S3Storage::with_bucket(s3_client.clone(), bucket.clone());
 
     // 获取第一个文件字段
     let mut field = payload
@@ -112,6 +170,12 @@ async fn upload_chat_file_to_bucket(
             .unwrap_or("");
 
         let mime_type = field.content_type().map(|ct| ct.essence_str().to_string());
+        
+        // 如果客户端没有提供 MIME 类型，则根据文件扩展名推断
+        let mime_type = mime_type.or_else(|| {
+            infer_mime_from_extension(filename)
+        });
+        
         validate_file_type(filename, mime_type.as_deref()).map_err(|e| anyhow!(e))?;
 
         // 读取文件数据
@@ -148,17 +212,16 @@ async fn upload_chat_file_to_bucket(
         // 查询重复文件
         let file_upload_record_exist = FileUploadRecord::select_by_map(
             rb,
-            rbs::value! {"file_size": file_size, "file_hash": &file_hash},
+            rbs::value! {"file_size": file_size, "file_hash": &file_hash, "bucket": &bucket},
         )
         .await?;
 
         let uuid_v4 = Uuid::new_v4();
         let uuid_v4_str = uuid_v4.to_string();
 
-        // 生成S3对象key：按日期+用户+UUID组织
+        // 生成S3对象key：按日期+用户+UUID组织（不再包含bucket前缀）
         let s3_key = format!(
-            "{}/{}/{}/{}.{}",
-            bucket,
+            "{}/{}/{}.{}",
             &user_id[..8.min(user_id.len())],
             chrono_like_date_path(),
             uuid_v4,
@@ -175,17 +238,22 @@ async fn upload_chat_file_to_bucket(
 
             // 已有文件，如果原来存本地则重新上传S3，原来就S3则直接复用
             if exist_record.is_oss.unwrap_or(0) == 0 {
-                // 原来是本地文件，上传到S3
+                // 原来是本地文件，上传到S3（使用已有的 stored_name 作为 S3 key）
                 let local_data = tokio::fs::read(&exist_file_path).await?;
                 let _ = storage.upload(&s3_key, local_data, mime_type.as_deref()).await?;
+                
+                let mut file_record = exist_record.clone();
+                file_record.is_oss = Some(1);
+                file_record.oss_type = Some(oss_type);
+                file_record.stored_name = Some(s3_key.clone());
+                file_record.file_path = Some(s3_key.clone());
+                // file_path 和 stored_name 保持不变
+                FileUploadRecord::update_by_map(rb, &file_record, value! {"uuid": &file_record.uuid}).await?;
+                return Ok(file_record);
             }
 
-            let mut file_record = exist_record.clone();
-            file_record.is_oss = Some(1);
-            file_record.oss_type = Some(oss_type);
-            file_record.file_path = Some(s3_key.clone());
-            FileUploadRecord::update_by_map(rb, &file_record, value! {"uuid": &file_record.uuid}).await?;
-            Ok(file_record)
+            // 原来就是S3文件，直接复用
+            Ok(exist_record)
         } else {
             // 上传到S3
             let storage_info = storage
@@ -201,6 +269,7 @@ async fn upload_chat_file_to_bucket(
                 original_name: Some(filename.to_string()),
                 stored_name: Some(s3_key.clone()),
                 file_path: Some(s3_key),
+                bucket: Some(bucket.clone()),
                 file_size: Some(file_size),
                 mime_type,
                 file_hash: Some(file_hash),
@@ -229,7 +298,11 @@ pub async fn download_chat_file_s3(
 ) -> Result<Vec<u8>, anyhow::Error> {
     let s3_key = file_record.file_path.as_ref().ok_or(anyhow!("S3对象key为空"))?;
     
-    let storage = S3Storage::new(s3_client);
+    // 聊天文件可能在 preview 或 origin 桶中，根据文件路径判断或使用默认origin桶
+    // 简单处理：统一使用 origin 桶（因为新上传的文件key不再包含bucket前缀）
+    let bucket = s3_client.config.chat_file_origin_bucket.clone();
+    
+    let storage = S3Storage::with_bucket(s3_client.clone(), bucket);
     let data = storage
         .download(s3_key)
         .await
@@ -244,7 +317,11 @@ pub async fn get_chat_s3_presigned_download_url(
 ) -> Result<String, anyhow::Error> {
     let s3_key = file_record.file_path.as_ref().ok_or(anyhow!("S3对象key为空"))?;
     let presign_expire_seconds = s3_client.config.presign_expire_seconds;
-    let storage = S3Storage::new(s3_client);
+    
+    // 聊天文件可能在 preview 或 origin 桶中，统一使用 origin 桶
+    let bucket = s3_client.config.chat_file_origin_bucket.clone();
+    
+    let storage = S3Storage::with_bucket(s3_client.clone(), bucket);
     let url = storage
         .presigned_url(
             s3_key,
@@ -263,7 +340,11 @@ pub async fn delete_chat_file_s3(
 ) -> Result<(), anyhow::Error> {
     if file_record.is_oss.unwrap_or(0) == 1 {
         let s3_key = file_record.file_path.as_ref().ok_or(anyhow!("S3对象key为空"))?;
-        let storage = S3Storage::new(s3_client);
+        
+        // 聊天文件可能在 preview 或 origin 桶中，统一使用 origin 桶
+        let bucket = s3_client.config.chat_file_origin_bucket.clone();
+        
+        let storage = S3Storage::with_bucket(s3_client.clone(), bucket);
         storage
             .delete(s3_key)
             .await

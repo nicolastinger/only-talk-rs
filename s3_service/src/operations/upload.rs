@@ -68,6 +68,7 @@ pub async fn upload_object(
         .map_err(|e| S3Error::AwsError(format!("上传对象失败: {}", e)))?;
 
     Ok(StorageInfo {
+        bucket: Some(bucket.to_string()),
         key: key.to_string(),
         size,
         content_type: content_type.map(|s| s.to_string()),
@@ -151,6 +152,7 @@ pub async fn upload_object_with_metadata(
         .map_err(|e| S3Error::AwsError(format!("上传对象(带元数据)失败: {}", e)))?;
 
     Ok(StorageInfo {
+        bucket: Some(bucket.to_string()),
         key: key.to_string(),
         size,
         content_type: content_type.map(|s| s.to_string()),

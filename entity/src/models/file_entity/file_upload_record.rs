@@ -13,7 +13,7 @@ pub struct FileUploadRecord {
     pub original_name: Option<String>,
     /// 存储文件名
     pub stored_name: Option<String>,
-    /// 文件路径
+    /// 文件路径（S3对象key或本地文件路径）
     pub file_path: Option<String>,
     /// 文件大小（字节）
     pub file_size: Option<i64>,
@@ -37,6 +37,8 @@ pub struct FileUploadRecord {
     pub is_oss: Option<i32>,
     /// OSS类型（0-阿里云，1-腾讯云，2-亚马逊AWS，3-其他）
     pub oss_type: Option<i32>,
+    /// S3存储桶名称（仅S3存储时有效）
+    pub bucket: Option<String>,
 }
 
 impl FileUploadRecord {
@@ -59,6 +61,7 @@ impl FileUploadRecord {
             last_download_time: None,
             is_oss: None,
             oss_type: None,
+            bucket: None,
         }
     }
 }

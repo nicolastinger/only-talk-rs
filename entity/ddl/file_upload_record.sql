@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS file_upload_record (
     original_name varchar(255) NULL, -- 原始文件名
     stored_name varchar(255) NULL, -- 存储文件名
     file_path varchar(512) NOT NULL, -- 文件路径
+    bucket varchar(255) NULL, -- S3存储桶名称（仅S3存储时有效）
     file_size int8 NOT NULL, -- 文件大小（字节）
     mime_type varchar(128) NULL, -- 文件MIME类型
     file_hash varchar(128) NULL, -- 文件哈希值（用于去重）

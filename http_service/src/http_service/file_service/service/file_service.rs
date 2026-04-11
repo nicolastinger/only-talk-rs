@@ -15,6 +15,7 @@ use rbatis::rbdc::rt::{AsyncWriteExt, tokio, AsyncReadExt};
 use rbatis::{RBatis, rbdc};
 use rbs::value;
 use s3_service::S3Client;
+use s3_service::storage::StorageBackend;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 use entity::models::file_entity::biz_file_link::BizFileLink;
@@ -23,6 +24,64 @@ use crate::http_service::file_service::service::biz_service::get_pub_file_record
 use crate::http_service::file_service::service::chat_biz_service::get_chat_file_record_by_biz_id;
 use crate::http_service::file_service::service::chat_s3_service::download_chat_file_s3;
 use crate::utils::http_response::CommonResponseRef;
+
+/// 根据文件扩展名推断 MIME 类型
+fn infer_mime_from_extension(filename: &str) -> Option<String> {
+    let extension = std::path::Path::new(filename)
+        .extension()
+        .and_then(std::ffi::OsStr::to_str)
+        .unwrap_or("")
+        .to_lowercase();
+    
+    match extension.as_str() {
+        // 图片类型
+        "jpg" | "jpeg" => Some("image/jpeg".to_string()),
+        "png" => Some("image/png".to_string()),
+        "gif" => Some("image/gif".to_string()),
+        "webp" => Some("image/webp".to_string()),
+        "bmp" => Some("image/bmp".to_string()),
+        "svg" => Some("image/svg+xml".to_string()),
+        "ico" => Some("image/x-icon".to_string()),
+        
+        // 文档类型
+        "pdf" => Some("application/pdf".to_string()),
+        "doc" => Some("application/msword".to_string()),
+        "docx" => Some("application/vnd.openxmlformats-officedocument.wordprocessingml.document".to_string()),
+        "xls" => Some("application/vnd.ms-excel".to_string()),
+        "xlsx" => Some("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet".to_string()),
+        "ppt" => Some("application/vnd.ms-powerpoint".to_string()),
+        "pptx" => Some("application/vnd.openxmlformats-officedocument.presentationml.presentation".to_string()),
+        "txt" => Some("text/plain".to_string()),
+        "csv" => Some("text/csv".to_string()),
+        "html" | "htm" => Some("text/html".to_string()),
+        "xml" => Some("application/xml".to_string()),
+        "json" => Some("application/json".to_string()),
+        
+        // 压缩文件
+        "zip" => Some("application/zip".to_string()),
+        "rar" => Some("application/x-rar-compressed".to_string()),
+        "7z" => Some("application/x-7z-compressed".to_string()),
+        "tar" => Some("application/x-tar".to_string()),
+        "gz" => Some("application/gzip".to_string()),
+        
+        // 音频文件
+        "mp3" => Some("audio/mpeg".to_string()),
+        "wav" => Some("audio/wav".to_string()),
+        "ogg" => Some("audio/ogg".to_string()),
+        "flac" => Some("audio/flac".to_string()),
+        "aac" => Some("audio/aac".to_string()),
+        
+        // 视频文件
+        "mp4" => Some("video/mp4".to_string()),
+        "avi" => Some("video/x-msvideo".to_string()),
+        "mkv" => Some("video/x-matroska".to_string()),
+        "mov" => Some("video/quicktime".to_string()),
+        "wmv" => Some("video/x-ms-wmv".to_string()),
+        "webm" => Some("video/webm".to_string()),
+        
+        _ => None,
+    }
+}
 
 
 
@@ -132,6 +191,8 @@ async fn save_uploaded_file(
     )
     .await?;
 
+    info!("上传的文件mime_type: {:?}", mime_type);
+
     let now = get_now_time_stamp_as_millis()?;
     let mut file_record = FileUploadRecord {
         id: None,
@@ -139,6 +200,7 @@ async fn save_uploaded_file(
         original_name: Some(filename.to_string()),
         stored_name: Some(safe_filename.clone()),
         file_path: Some(filepath.display().to_string()),
+        bucket: None,  // 本地存储无bucket
         file_size: Some(file_size),
         mime_type,
         file_hash: Some(file_hash.clone()),
@@ -273,6 +335,12 @@ pub async fn upload_file_local(
 
             // 验证文件类型
             let mime_type = field.content_type().map(|ct| ct.essence_str().to_string());
+            
+            // 如果客户端没有提供 MIME 类型，则根据文件扩展名推断
+            let mime_type = mime_type.or_else(|| {
+                infer_mime_from_extension(filename)
+            });
+            
             validate_file_type(filename, mime_type.as_deref()).map_err(|e| anyhow!(e))?;
 
             // 保存上传的文件
@@ -476,9 +544,21 @@ pub async fn download_pub_file_by_id(
     
     // 3. 判断是否为OSS存储
     let file_vec = if file_record.is_oss.unwrap_or(0) == 1 {
-        // 从S3下载
+        // 从S3下载 - 使用文件记录中的bucket信息
         let s3_client = s3_client.ok_or(anyhow!("S3客户端未初始化"))?;
-        download_chat_file_s3(s3_client, &file_record).await?
+        if let Some(ref bucket) = file_record.bucket {
+            // 有bucket信息，使用对应的bucket
+            let storage = s3_service::storage::S3Storage::with_bucket(s3_client.clone(), bucket.clone());
+            storage.download(&file_record.file_path.ok_or(anyhow!("文件路径为空"))?)
+                .await
+                .map_err(|e| anyhow!("S3下载失败: {}", e))?
+        } else {
+            // 旧数据没有bucket信息，使用默认桶
+            let storage = s3_service::storage::S3Storage::with_bucket(s3_client.clone(), s3_client.config.default_bucket.clone());
+            storage.download(&file_record.file_path.ok_or(anyhow!("文件路径为空"))?)
+                .await
+                .map_err(|e| anyhow!("S3下载失败: {}", e))?
+        }
     } else {
         // 从本地文件系统读取
         let mut file: File = get_file_by_path(&file_record.file_path.ok_or(anyhow!("文件路径为空"))?)
@@ -534,12 +614,25 @@ pub async fn download_link_pub_biz(
         
         // 判断是否为 OSS 文件
         if file_record.is_oss.unwrap_or(0) == 1 {
-            // S3 文件：返回预签名 URL
+            // S3 文件：返回预签名 URL - 使用文件记录中的bucket信息
             if let Some(ref client) = s3_client {
-                let presigned_url = crate::http_service::file_service::service::chat_s3_service::get_chat_s3_presigned_download_url(
-                    client.clone(), 
-                    &file_record
-                ).await?;
+                let presigned_url = if let Some(ref bucket) = file_record.bucket {
+                    // 有bucket信息，使用对应的bucket
+                    let storage = s3_service::storage::S3Storage::with_bucket(client.clone(), bucket.clone());
+                    storage.presigned_url(
+                        &file_record.file_path.ok_or(anyhow!("文件路径为空"))?,
+                        std::time::Duration::from_secs(client.config.presign_expire_seconds),
+                        s3_service::storage::PresignedMethod::Get,
+                    ).await.map_err(|e| anyhow!("生成预签名URL失败: {}", e))?
+                } else {
+                    // 旧数据没有bucket信息，使用默认桶
+                    let storage = s3_service::storage::S3Storage::with_bucket(client.clone(), client.config.default_bucket.clone());
+                    storage.presigned_url(
+                        &file_record.file_path.ok_or(anyhow!("文件路径为空"))?,
+                        std::time::Duration::from_secs(client.config.presign_expire_seconds),
+                        s3_service::storage::PresignedMethod::Get,
+                    ).await.map_err(|e| anyhow!("生成预签名URL失败: {}", e))?
+                };
                 download_link_vec.push(presigned_url);
             } else {
                 // S3 客户端未初始化，回退到服务器下载
@@ -599,12 +692,25 @@ pub async fn download_link_chat_biz(
         
         // 判断是否为 OSS 文件
         if file_record.is_oss.unwrap_or(0) == 1 {
-            // S3 文件：返回预签名 URL
+            // S3 文件：返回预签名 URL - 使用文件记录中的bucket信息
             if let Some(ref client) = s3_client {
-                let presigned_url = crate::http_service::file_service::service::chat_s3_service::get_chat_s3_presigned_download_url(
-                    client.clone(), 
-                    &file_record
-                ).await?;
+                let presigned_url = if let Some(ref bucket) = file_record.bucket {
+                    // 有bucket信息，使用对应的bucket
+                    let storage = s3_service::storage::S3Storage::with_bucket(client.clone(), bucket.clone());
+                    storage.presigned_url(
+                        &file_record.file_path.ok_or(anyhow!("文件路径为空"))?,
+                        std::time::Duration::from_secs(client.config.presign_expire_seconds),
+                        s3_service::storage::PresignedMethod::Get,
+                    ).await.map_err(|e| anyhow!("生成预签名URL失败: {}", e))?
+                } else {
+                    // 旧数据没有bucket信息，使用聊天文件origin桶
+                    let storage = s3_service::storage::S3Storage::with_bucket(client.clone(), client.config.chat_file_origin_bucket.clone());
+                    storage.presigned_url(
+                        &file_record.file_path.ok_or(anyhow!("文件路径为空"))?,
+                        std::time::Duration::from_secs(client.config.presign_expire_seconds),
+                        s3_service::storage::PresignedMethod::Get,
+                    ).await.map_err(|e| anyhow!("生成预签名URL失败: {}", e))?
+                };
                 download_link_vec.push(presigned_url);
             } else {
                 // S3 客户端未初始化，回退到服务器下载
