@@ -31,6 +31,9 @@ path = "api"
 [dependencies.email_service]
 path = "email_service"
 
+[dependencies.s3_service]
+path = "s3_service"
+
 [workspace.dependencies]
 quinn = {version = "0.10.2"}
 rustls = { version = "0.21" }

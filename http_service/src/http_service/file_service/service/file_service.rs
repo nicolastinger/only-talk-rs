@@ -1,10 +1,11 @@
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::sync::Arc;
 
 use actix_multipart::Multipart;
 use actix_web::HttpResponse;
 use anyhow::anyhow;
-use entity::config_str::{DEFAULT_MAX_FILE_SIZE, USER_FILE_PUBLIC_DIR};
+use entity::config_str::{APP_DOMAIN, DEFAULT_MAX_FILE_SIZE, USER_FILE_PUBLIC_DIR};
 use entity::models::file_entity::file_upload_record::FileUploadRecord;
 use entity::utils::time::get_now_time_stamp_as_millis;
 use futures_util::{StreamExt, TryStreamExt};
@@ -13,12 +14,14 @@ use rbatis::rbdc::rt::fs::File;
 use rbatis::rbdc::rt::{AsyncWriteExt, tokio, AsyncReadExt};
 use rbatis::{RBatis, rbdc};
 use rbs::value;
+use s3_service::S3Client;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 use entity::models::file_entity::biz_file_link::BizFileLink;
 use crate::http_service::file_service::model::file_type_config::{get_file_type_config, FileTypeConfig};
 use crate::http_service::file_service::service::biz_service::get_pub_file_record_by_biz_id;
 use crate::http_service::file_service::service::chat_biz_service::get_chat_file_record_by_biz_id;
+use crate::http_service::file_service::service::chat_s3_service::download_chat_file_s3;
 use crate::utils::http_response::CommonResponseRef;
 
 
@@ -433,7 +436,12 @@ pub async fn get_file_by_path(file_path: &str) -> Result<Option<File>, anyhow::E
 }
 
 /// 单个文件下载
-pub async fn download_pub_file_by_id(rb: &RBatis, biz_id: String, file_id: String) -> Result<HttpResponse, anyhow::Error> {
+pub async fn download_pub_file_by_id(
+    rb: &RBatis, 
+    s3_client: Option<Arc<S3Client>>,
+    biz_id: String, 
+    file_id: String
+) -> Result<HttpResponse, anyhow::Error> {
     // 1. 获取业务信息
     info!("biz_id: {}, file_id: {}", biz_id, file_id);
     // 校验业务id是否存在
@@ -463,18 +471,25 @@ pub async fn download_pub_file_by_id(rb: &RBatis, biz_id: String, file_id: Strin
         return Err(anyhow!("文件不存在"));
     }
     
-
-    // 2. 获取文件信息-本地文件
+    // 2. 获取文件信息
     let file_record = get_file_record_by_id(rb, &file_id).await?;
-    // 3. 返回文件
-    let mut file: File = get_file_by_path(&file_record.file_path.ok_or(anyhow!("文件路径为空"))?)
-        .await?
-        .ok_or(anyhow!("文件不存在"))?;
-    let file_vec: Vec<u8> = {
+    
+    // 3. 判断是否为OSS存储
+    let file_vec = if file_record.is_oss.unwrap_or(0) == 1 {
+        // 从S3下载
+        let s3_client = s3_client.ok_or(anyhow!("S3客户端未初始化"))?;
+        download_chat_file_s3(s3_client, &file_record).await?
+    } else {
+        // 从本地文件系统读取
+        let mut file: File = get_file_by_path(&file_record.file_path.ok_or(anyhow!("文件路径为空"))?)
+            .await?
+            .ok_or(anyhow!("文件不存在"))?;
         let mut buf = Vec::new();
         file.read_to_end(&mut buf).await?;
         buf
     };
+    
+    // 4. 返回文件
     Ok(HttpResponse::Ok()
         .content_type(file_record.mime_type.unwrap_or("image/webp".to_string()))
         .insert_header((
@@ -488,7 +503,12 @@ pub async fn download_pub_file_by_id(rb: &RBatis, biz_id: String, file_id: Strin
 }
 
 /// 公开业务文件下载link
-pub async fn download_link_pub_biz(rb: &RBatis, biz_id: String, is_preview: bool) -> Result<String, anyhow::Error> {
+pub async fn download_link_pub_biz(
+    rb: &RBatis, 
+    s3_client: Option<Arc<S3Client>>, 
+    biz_id: String, 
+    is_preview: bool
+) -> Result<String, anyhow::Error> {
     // 1. 获取业务信息
     let _biz_record = get_pub_file_record_by_biz_id(rb, &biz_id).await?;
     let _biz_id = rbdc::Uuid::from_str(&biz_id)?;
@@ -504,18 +524,47 @@ pub async fn download_link_pub_biz(rb: &RBatis, biz_id: String, is_preview: bool
     if file_ids.is_empty() {
         return Err(anyhow!("文件ID为空"));
     }
-    // 组建下载链接
+    
+    // 2. 组建下载链接 - S3 文件返回预签名 URL，本地文件返回服务器链接
     let mut download_link_vec: Vec<String> = vec![];
-    for item in file_ids.iter() {
-        let str = format!("/file/download_pub_file/{}/{}", biz_id, item);
-        download_link_vec.push(str);
+    
+    for file_id in file_ids.iter() {
+        // 获取文件记录
+        let file_record = get_file_record_by_id(rb, file_id).await?;
+        
+        // 判断是否为 OSS 文件
+        if file_record.is_oss.unwrap_or(0) == 1 {
+            // S3 文件：返回预签名 URL
+            if let Some(ref client) = s3_client {
+                let presigned_url = crate::http_service::file_service::service::chat_s3_service::get_chat_s3_presigned_download_url(
+                    client.clone(), 
+                    &file_record
+                ).await?;
+                download_link_vec.push(presigned_url);
+            } else {
+                // S3 客户端未初始化，回退到服务器下载
+                let str = format!("{}/file/download_pub_file/{}/{}", APP_DOMAIN, biz_id, file_id);
+                download_link_vec.push(str);
+            }
+        } else {
+            // 本地文件：返回服务器链接
+            let str = format!("{}/file/download_pub_file/{}/{}", APP_DOMAIN, biz_id, file_id);
+            download_link_vec.push(str);
+        }
     }
+    
     let res = CommonResponseRef::<Vec<String>>::success_json(&download_link_vec)?;
     Ok(res)
 }
 
 /// 聊天业务文件下载link
-pub async fn download_link_chat_biz(rb: &RBatis, uuid: Option<String>, biz_id: String, is_preview: bool) -> Result<String, anyhow::Error> {
+pub async fn download_link_chat_biz(
+    rb: &RBatis, 
+    s3_client: Option<Arc<S3Client>>,
+    uuid: Option<String>, 
+    biz_id: String, 
+    is_preview: bool
+) -> Result<String, anyhow::Error> {
     // 1. 获取业务信息
     let chat_biz_record = get_chat_file_record_by_biz_id(rb, &biz_id).await?;
     // 2. 校验文件权限
@@ -540,18 +589,47 @@ pub async fn download_link_chat_biz(rb: &RBatis, uuid: Option<String>, biz_id: S
     if file_ids.is_empty() {
         return Err(anyhow!("文件ID为空"));
     }
-    // 4.组建下载链接
+    
+    // 3. 组建下载链接 - S3 文件返回预签名 URL，本地文件返回服务器链接
     let mut download_link_vec: Vec<String> = vec![];
-    for item in file_ids.iter() {
-        let str = format!("/file/download_chat_file/{}/{}", biz_id, item);
-        download_link_vec.push(str);
+    
+    for file_id in file_ids.iter() {
+        // 获取文件记录
+        let file_record = get_file_record_by_id(rb, file_id).await?;
+        
+        // 判断是否为 OSS 文件
+        if file_record.is_oss.unwrap_or(0) == 1 {
+            // S3 文件：返回预签名 URL
+            if let Some(ref client) = s3_client {
+                let presigned_url = crate::http_service::file_service::service::chat_s3_service::get_chat_s3_presigned_download_url(
+                    client.clone(), 
+                    &file_record
+                ).await?;
+                download_link_vec.push(presigned_url);
+            } else {
+                // S3 客户端未初始化，回退到服务器下载
+                let str = format!("{}/file/download_chat_file/{}/{}", APP_DOMAIN, biz_id, file_id);
+                download_link_vec.push(str);
+            }
+        } else {
+            // 本地文件：返回服务器链接
+            let str = format!("{}/file/download_chat_file/{}/{}", APP_DOMAIN ,biz_id, file_id);
+            download_link_vec.push(str);
+        }
     }
+    
     let res = CommonResponseRef::<Vec<String>>::success_json(&download_link_vec)?;
     Ok(res)
 }
 
 /// 聊天业务文件下载
-pub async fn download_chat_file_by_id(rb: &RBatis, uuid: Option<String>, biz_id: String, file_id: String) -> Result<HttpResponse, anyhow::Error> {
+pub async fn download_chat_file_by_id(
+    rb: &RBatis, 
+    s3_client: Option<Arc<S3Client>>,
+    uuid: Option<String>, 
+    biz_id: String, 
+    file_id: String
+) -> Result<HttpResponse, anyhow::Error> {
     // 1. 获取业务信息
     info!("biz_id: {}, file_id: {}", biz_id, file_id);
     let chat_biz_record = get_chat_file_record_by_biz_id(rb, &biz_id).await?;
@@ -586,17 +664,26 @@ pub async fn download_chat_file_by_id(rb: &RBatis, uuid: Option<String>, biz_id:
     if !flag {
         return Err(anyhow!("文件不存在"));
     }
-    // 4. 获取文件信息-本地文件
+    
+    // 4. 获取文件信息
     let file_record = get_file_record_by_id(rb, &file_id).await?;
-    // 5. 返回文件
-    let mut file: File = get_file_by_path(&file_record.file_path.ok_or(anyhow!("文件路径为空"))?)
-        .await?
-        .ok_or(anyhow!("文件不存在"))?;
-    let file_vec: Vec<u8> = {
+    
+    // 5. 判断是否为OSS存储
+    let file_vec = if file_record.is_oss.unwrap_or(0) == 1 {
+        // 从S3下载
+        let s3_client = s3_client.ok_or(anyhow!("S3客户端未初始化"))?;
+        download_chat_file_s3(s3_client, &file_record).await?
+    } else {
+        // 从本地文件系统读取
+        let mut file: File = get_file_by_path(&file_record.file_path.ok_or(anyhow!("文件路径为空"))?)
+            .await?
+            .ok_or(anyhow!("文件不存在"))?;
         let mut buf = Vec::new();
         file.read_to_end(&mut buf).await?;
         buf
-    }; 
+    };
+    
+    // 6. 返回文件
     Ok(HttpResponse::Ok()
         .content_type(file_record.mime_type.unwrap_or("image/webp".to_string()))
         .insert_header((

@@ -1,9 +1,11 @@
 use crate::common::dto::base_dto::AuthAccount;
 use std::fs;
+use std::sync::Arc;
 use actix_multipart::Multipart;
 use actix_web::{HttpResponse, Responder, post, web, get, HttpRequest};
 use tracing::error;
 use rbatis::RBatis;
+use s3_service::S3Client;
 use entity::config_str::USER_FILE_PUBLIC_DIR;
 use crate::{get_uuid_from_header, respond_json_any};
 use crate::http_service::file_service::service::biz_service::upload_original_file_by_biz_id;
@@ -37,12 +39,14 @@ pub async fn download_file_api() -> impl Responder {
 #[post("/download_link/pub_biz/{biz_id}")]
 async fn download_pub_biz_api(
     state: web::Data<RBatis>,
+    s3_client: web::Data<Arc<S3Client>>,
     biz_id: web::Path<String>,
 ) -> impl Responder {
     let biz_id = biz_id.into_inner();
-    let mut is_preview_bool = true;
+    let is_preview_bool = true;
+    let s3_client = (*s3_client.into_inner()).clone();
 
-    let res = download_link_pub_biz(state.as_ref(), biz_id, is_preview_bool).await;
+    let res = download_link_pub_biz(state.as_ref(), Some(s3_client), biz_id, is_preview_bool).await;
     respond_json_any!(res)
 }
 
@@ -50,9 +54,14 @@ async fn download_pub_biz_api(
  * 通过业务id和文件id下载公开文件
  */
 #[get("/download_pub_file/{biz_id}/{file_id}")]
-pub async fn download_pub_file_id_api(state: web::Data<RBatis>, params: web::Path<(String, String)>) -> impl Responder {
+pub async fn download_pub_file_id_api(
+    state: web::Data<RBatis>,
+    s3_client: web::Data<Arc<S3Client>>,
+    params: web::Path<(String, String)>
+) -> impl Responder {
     let (biz_id, file_id) = params.into_inner();
-    let res = download_pub_file_by_id(state.as_ref(), biz_id, file_id).await;
+    let s3_client = (*s3_client.into_inner()).clone();
+    let res = download_pub_file_by_id(state.as_ref(), Some(s3_client), biz_id, file_id).await;
     match res {
         Ok(res) => res,
         Err(t) => {
@@ -69,6 +78,7 @@ pub async fn download_pub_file_id_api(state: web::Data<RBatis>, params: web::Pat
 async fn download_chat_biz_api(
     req: HttpRequest,
     state: web::Data<RBatis>,
+    s3_client: web::Data<Arc<S3Client>>,
     biz_id: web::Path<(String, String)>,
 ) -> impl Responder {
     let (biz_id,is_preview) = biz_id.into_inner();
@@ -81,7 +91,8 @@ async fn download_chat_biz_api(
             is_preview_bool = false;
         }
     }
-    let res = download_link_chat_biz(state.as_ref(), uuid, biz_id, is_preview_bool).await;
+    let s3_client = (*s3_client.into_inner()).clone();
+    let res = download_link_chat_biz(state.as_ref(), Some(s3_client), uuid, biz_id, is_preview_bool).await;
     respond_json_any!(res)
 }
 
@@ -89,10 +100,16 @@ async fn download_chat_biz_api(
  * 通过业务id和文件id下载聊天文件
  */
 #[get("/download_chat_file/{biz_id}/{file_id}")]
-pub async fn download_chat_file_api(req: HttpRequest, state: web::Data<RBatis>,params: web::Path<(String, String)>) -> impl Responder {
+pub async fn download_chat_file_api(
+    req: HttpRequest, 
+    state: web::Data<RBatis>,
+    s3_client: web::Data<Arc<S3Client>>,
+    params: web::Path<(String, String)>
+) -> impl Responder {
     let uuid = get_uuid_from_header!(req);
     let (biz_id, file_id) = params.into_inner();
-    let res = download_chat_file_by_id(state.as_ref(),uuid, biz_id, file_id).await;
+    let s3_client = (*s3_client.into_inner()).clone();
+    let res = download_chat_file_by_id(state.as_ref(), Some(s3_client), uuid, biz_id, file_id).await;
 
     match res {
         Ok(res) => res,

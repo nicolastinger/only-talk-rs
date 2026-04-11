@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 entity = { path = "../entity" }
+s3_service = { path = "../s3_service" }
 serde = { workspace = true }
 rbatis = { workspace = true }
 validator = { workspace = true }
@@ -29,3 +30,4 @@ actix-multipart = "0.6"
 futures-util = "0.3"
 image = "0.25"
 webp = "0.3"
+tokio = { workspace = true }

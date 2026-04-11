@@ -32,3 +32,20 @@ pub static DEFAULT_MAX_FILE_SIZE: i64 = 20 * 1024 * 1024;
 pub static PC_PLATFORM: &str = "PC";
 // 移动平台
 pub static MOBILE_PLATFORM: &str = "MOBILE";
+// S3 OSS类型（对应FileUploadRecord.oss_type字段）
+pub static OSS_TYPE_MINIO: i32 = 0;
+pub static OSS_TYPE_ALIYUN: i32 = 1;
+pub static OSS_TYPE_AWS: i32 = 2;
+pub static OSS_TYPE_OTHER: i32 = 3;
+// S3存储桶默认名称
+pub static S3_DEFAULT_BUCKET: &str = "rust-my-app";
+// S3聊天文件预览桶名称（压缩文件）
+pub static S3_CHAT_FILE_PREVIEW_BUCKET: &str = "chat-file-preview";
+// S3聊天文件原文件桶名称
+pub static S3_CHAT_FILE_ORIGIN_BUCKET: &str = "chat-file-origin";
+// S3用户头像桶名称
+pub static S3_USER_AVATAR_BUCKET: &str = "user-avatar";
+// S3 provider名称
+pub static S3_PROVIDER_MINIO: &str = "minio";
+pub static S3_PROVIDER_ALIYUN_OSS: &str = "aliyun_oss";
+pub static S3_PROVIDER_AWS_S3: &str = "aws_s3";

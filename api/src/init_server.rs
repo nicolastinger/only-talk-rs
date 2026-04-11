@@ -14,7 +14,9 @@ use entity::{RBATIS_DATABASE, REDIS_CLIENT, init_global_config, read_global_conf
 use http_service;
 use http_service::middleware::TraceIdMiddleware;
 use http_service::utils::record_bad_http::error_record_middleware;
-use tracing::{error, info};
+use s3_service::client::GlobalS3Client;
+use s3_service::config::S3Config;
+use tracing::{error, info, warn};
 use rbatis::rbdc::db::ConnectOptions;
 use rbatis::{Error, RBatis, rbdc};
 use rbdc::pool::{ConnectionManager, Pool as rdbc_pool};
@@ -135,6 +137,40 @@ async fn init_sql_pool(url: &str) -> RBatis {
     rb
 }
 
+/// 初始化S3客户端
+async fn init_s3_client() -> Option<Arc<s3_service::S3Client>> {
+    // 尝试读取S3配置
+    let enabled = entity::config_manager::get_config("s3.enabled")
+        .unwrap_or_else(|| "false".to_string())
+        .parse::<bool>()
+        .unwrap_or(false);
+
+    if !enabled {
+        info!("S3存储未启用，使用本地存储");
+        return None;
+    }
+
+    match S3Config::from_global_config() {
+        Ok(config) => {
+            info!("正在初始化S3客户端 - Provider: {}", config.provider);
+            match GlobalS3Client::init(config).await {
+                Ok(client) => {
+                    info!("S3客户端初始化成功");
+                    Some(client)
+                }
+                Err(e) => {
+                    error!("S3客户端初始化失败: {}，将降级为本地存储", e);
+                    None
+                }
+            }
+        }
+        Err(e) => {
+            warn!("读取S3配置失败: {}，使用本地存储", e);
+            None
+        }
+    }
+}
+
 ///初始化服务
 pub async fn start_server() -> anyhow::Result<()> {
     // 创建公开文件夹
@@ -173,7 +209,22 @@ pub async fn start_server() -> anyhow::Result<()> {
     let redis_url = read_global_config!("redis", "url");
     let redis_pool = init_redis(&redis_url);
 
+    // 初始化S3客户端
+    let s3_client = init_s3_client().await;
+
     let address = read_global_config!("server", "address");
+
+    let s3_data = match s3_client {
+        Some(client) => web::Data::new(client),
+        None => {
+            warn!("S3客户端未初始化，S3相关功能不可用");
+            // 创建一个placeholder，不会实际使用
+            let config = S3Config::default_minio();
+            web::Data::new(Arc::new(s3_service::S3Client::new(config).await.unwrap_or_else(|_| {
+                panic!("S3客户端创建失败")
+            })))
+        }
+    };
 
     HttpServer::new(move || {
         App::new()
@@ -181,6 +232,7 @@ pub async fn start_server() -> anyhow::Result<()> {
             .wrap(from_fn(error_record_middleware))
             .app_data(web::Data::new(redis_pool.clone()))
             .app_data(web::Data::new(pool.clone()))
+            .app_data(s3_data.clone())
             .wrap(middleware::Logger::default())
             .configure(http_service::http_service::configure_routes)
             .configure(configure_api_routes)
