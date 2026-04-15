@@ -10,6 +10,7 @@ use crate::models::quic_connection::QuicConnection;
 pub mod init_server;
 pub mod models;
 pub mod msg_service;
+pub mod p2p_service;
 pub(crate) mod quic_client;
 pub(crate) mod quic_server;
 mod set_server;

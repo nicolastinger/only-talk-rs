@@ -7,9 +7,9 @@ use entity::utils::jwt_util::decode_jwt;
 use entity::utils::message_types;
 use entity::utils::redis_utils::{acquire_lock, get_redis_conn, release_lock};
 use tracing::{error, info, warn};
-use quic_service::models::quic_connection::ConnectionType;
-use quic_service::msg_service::get_send_stream_by_uuid;
-use quic_service::msg_service::text_msg_service::generate_text_msg;
+use crate::models::quic_connection::ConnectionType;
+use crate::msg_service::get_send_stream_by_uuid;
+use crate::msg_service::text_msg_service::generate_text_msg;
 use tokio::net::UdpSocket;
 use tokio::signal;
 
@@ -22,10 +22,8 @@ pub async fn run_udp_server() -> Result<(), anyhow::Error> {
         let addr_3 = "0.0.0.0:9564";
         let addr_4 = "[::]:9565";
 
-        // 创建一个共享的退出标志
         let shutdown_flag = Arc::new(AtomicBool::new(false));
 
-        // 启动udp连接1
         let handle1 = {
             let shutdown = shutdown_flag.clone();
             tokio::spawn(async move {
@@ -62,26 +60,21 @@ pub async fn run_udp_server() -> Result<(), anyhow::Error> {
             })
         };
 
-        // 等待 Ctrl+C 信号
         signal::ctrl_c().await.expect("无法注册 Ctrl+C 处理器");
         info!("收到 Ctrl+C 信号，正在关闭服务...");
 
-        // 设置退出标志
         shutdown_flag.store(true, Ordering::Relaxed);
 
-        // 等待所有任务完成
         let _ = tokio::join!(handle1, handle2, handle3, handle4);
     });
     Ok(())
 }
 
-/// p2p通信使用udp端口
 pub async fn get_p2p_udp_socket_with_shutdown(
     address: &str,
     ip_type: String,
     shutdown: Arc<AtomicBool>,
 ) -> anyhow::Result<()> {
-    // 绑定到所有网络接口的 udp 端口
     let socket = UdpSocket::bind(address).await?;
     info!("udp服务端已启动，监听地址 {}", address);
 
@@ -93,7 +86,6 @@ pub async fn get_p2p_udp_socket_with_shutdown(
                 info!("收到 Ctrl+C 信号，正在关闭 {} 服务...", address);
                 return Ok(());
             }
-            // 检查共享的退出标志
             _ = tokio::time::sleep(tokio::time::Duration::from_millis(100)), if shutdown.load(Ordering::Relaxed) => {
                 info!("收到退出信号，正在关闭 {} 服务...", address);
                 return Ok(());
@@ -101,15 +93,12 @@ pub async fn get_p2p_udp_socket_with_shutdown(
             result = socket.recv_from(&mut buf) => {
                 match result {
                     Ok((size, src)) => {
-                        // 提取客户端信息
                         let client_ip = src.ip();
                         let client_port = src.port();
 
                         let udp_addr = format!("{}:{}", client_ip, client_port);
                         info!("收到来自 {}:{} 的消息", udp_addr, size);
 
-                        // 转换消息为字符串（自动处理非 UTF-8 字符）[2](@ref)
-                        //let user_address_info = String::from_utf8_lossy(&buf[..size]);
                         let res = serde_json::from_slice::<UserAddressInfo>(&buf[..size]);
                         match res {
                            Ok(msg) => {
@@ -123,7 +112,6 @@ pub async fn get_p2p_udp_socket_with_shutdown(
                             continue;
                            }
                         };
-                        // 清空缓冲区（避免残留数据）
                         buf[..size].fill(0);
                     }
                     Err(e) => error!("接收错误: {}", e),
@@ -133,9 +121,7 @@ pub async fn get_p2p_udp_socket_with_shutdown(
     }
 }
 
-/// p2p通信使用udp端口
 pub async fn get_p2p_udp_socket(address: &str, ip_type: String) -> anyhow::Result<()> {
-    // 绑定到所有网络接口的 udp 端口
     let socket = UdpSocket::bind(address).await?;
     info!("udp服务端已启动，监听地址 {}", address);
 
@@ -150,14 +136,10 @@ pub async fn get_p2p_udp_socket(address: &str, ip_type: String) -> anyhow::Resul
             result = socket.recv_from(&mut buf) => {
                 match result {
                     Ok((size, src)) => {
-                        // 提取客户端信息
                         let client_ip = src.ip();
                         let client_port = src.port();
 
                         let udp_addr = format!("{}:{}", client_ip, client_port);
-
-                        // 转换消息为字符串（自动处理非 UTF-8 字符）[2](@ref)
-                        //let user_address_info = String::from_utf8_lossy(&buf[..size]);
 
                         match serde_json::from_slice::<UserAddressInfo>(&buf[..size]){
                            Ok(msg) => {
@@ -171,7 +153,6 @@ pub async fn get_p2p_udp_socket(address: &str, ip_type: String) -> anyhow::Resul
                             continue;
                            }
                         };
-                        // 清空缓冲区（避免残留数据）
                         buf[..size].fill(0);
                     }
                     Err(e) => error!("接收错误: {}", e),
@@ -181,8 +162,6 @@ pub async fn get_p2p_udp_socket(address: &str, ip_type: String) -> anyhow::Resul
     }
 }
 
-/// 处理用户p2p连接
-// 给对应用户id的redis加锁，成功则新增数据写入，失败则读取数据并对本次的
 async fn process_p2p_user_info(
     udp_addr: String,
     ip_type: String,
@@ -192,7 +171,6 @@ async fn process_p2p_user_info(
         Ok(claims) => {
             let uuid = claims.uuid;
             info!("收到来自 {} 的消息, 用户uuid: {}", udp_addr, uuid);
-            // 用户的udp连接地址
             let key = format!("{}{}_{}", "USER_UDP_ADDRESS_", ip_type, uuid);
             let lock_key = format!("{}{}_{}", "USER_UDP_ADDRESS_LOCK_", ip_type, uuid);
             let lock_key = lock_key.to_uppercase();
@@ -200,7 +178,6 @@ async fn process_p2p_user_info(
             let mut acquire_flag = false;
             user_address_info.address = udp_addr;
 
-            // 针对这个key加30秒过期的redis锁
             {
                 let mut conn = get_redis_conn().await?;
                 let lock_id =
@@ -212,7 +189,6 @@ async fn process_p2p_user_info(
                 }
             }
 
-            // 加锁失败，代表之前有录入过消息，对比两次端口得出是否对称型nat
             if !acquire_flag {
                 info!("进入redis锁");
                 let mut conn = get_redis_conn().await?;
@@ -221,30 +197,23 @@ async fn process_p2p_user_info(
 
                 info!("获取自身值为 {:?},值2为 {:?}", user_addr, user_address_info);
                 if user_addr == user_address_info.address {
-                    user_address_info.nat_type = 3; //ip端口限制型
+                    user_address_info.nat_type = 3;
                 } else {
-                    user_address_info.nat_type = 4; //对称型
+                    user_address_info.nat_type = 4;
                 }
                 let mut conn = get_redis_conn().await?;
-                // 手动释放锁
                 release_lock(&mut conn, &lock_key, &result).await?;
-                // 标记为已经释放锁了，可以给目标用户使用
                 user_address_info.is_lock = true;
-                // 避免传输用户token敏感信息
                 user_address_info.token = "".to_string();
             }
 
-            // 获取目标用户的ip地址
             match get_target_user_address_info(&user_address_info.target_uuid, &ip_type).await {
                 Ok(mut target_user_address_info) => {
                     info!("进入到服务器和连接端匹配");
-                    // 只有当检测完NAT类型后再进行比较
                     if target_user_address_info.is_lock && !acquire_flag {
                         {
                             let mut conn = get_redis_conn().await?;
-                            // 删除自身
                             conn.del::<_, ()>(&key).await?;
-                            // 删除对方
                             let target_key = format!(
                                 "{}{}_{}",
                                 "USER_UDP_ADDRESS_", ip_type, target_user_address_info.uuid
@@ -282,7 +251,6 @@ async fn process_p2p_user_info(
                             }
                         }
                         let mut server = {
-                            // 本用户是服务端，向对方发送客户端信息
                             if user_address_info.is_server {
                                 message_types::MSG_TYPE_P2P_USER_CLIENT
                             } else {
@@ -290,7 +258,6 @@ async fn process_p2p_user_info(
                             }
                         };
                         {
-                            // 获取目标方发送流
                             let my_send_stream = get_send_stream_by_uuid(
                                 &target_user_address_info.uuid,
                                 &ConnectionType::Text.to_string(),
@@ -341,7 +308,6 @@ async fn process_p2p_user_info(
                 let mut conn = get_redis_conn().await?;
                 let user_address_info_json =
                     serde_json::to_string(&user_address_info).unwrap_or_default();
-                // 设置1分钟超时
                 let _: () = cmd("SET")
                     .arg(&key)
                     .arg(&user_address_info_json)
@@ -360,7 +326,6 @@ async fn process_p2p_user_info(
     Ok(())
 }
 
-/// 获取目标用户地址
 async fn get_target_user_address_info(
     target_uuid: &String,
     ip_type: &String,

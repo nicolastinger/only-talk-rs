@@ -8,13 +8,9 @@ members = [
     "entity", 
     "http_service", 
     "quic_service", 
-    "port_service", 
     "api", 
     "email_service",
 ]
-
-[dependencies.port_service]
-path = "port_service"
 
 [dependencies.quic_service]
 path = "quic_service"

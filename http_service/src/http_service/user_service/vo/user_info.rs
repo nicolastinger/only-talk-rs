@@ -5,20 +5,30 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize, Serialize, Debug)]
 pub struct UserInfoVO {
-    uuid: Option<Uuid>,
-    username: Option<String>,
-    account: Option<String>,
-    icon: Option<String>, //头像的超链接
-    gender: Option<u8>,   //0-m,1-s,2-男,3-女,4-机器人,5-other,etc
-    age: Option<u8>,
-    birthday: Option<i64>,
-    info: Option<String>, //简介
-    created_at: Option<i64>,
-    updated_at: Option<i64>,
-    phone: Option<String>,
-    email: Option<String>,
-    address: Option<String>,
-    status: Option<u8>,
+    /// 用户唯一标识符 (UUID)
+    pub uuid: Option<Uuid>,
+    /// 用户名
+    pub username: Option<String>,
+    /// 用户账号
+    pub account: Option<String>,
+    /// 头像的业务 ID
+    pub icon: Option<String>,
+    /// 用户性别 (0: 未知, 1: 保密, 2: 男, 3: 女, 4: 机器人, 5: 其他)
+    pub gender: Option<u8>,
+    /// 用户年龄
+    pub age: Option<u8>,
+    /// 用户生日 (Unix 时间戳，单位：秒)
+    pub birthday: Option<i64>,
+    /// 用户简介
+    pub info: Option<String>,
+    /// 用户手机号码
+    pub phone: Option<String>,
+    /// 用户电子邮箱
+    pub email: Option<String>,
+    /// 用户地址信息
+    pub address: Option<String>,
+    /// 用户状态 (0: 正常, 1: 禁用, 2: 注销等)
+    pub status: Option<u8>,
 }
 
 impl From<(UserInfo, BasicUser)> for UserInfoVO {
@@ -32,8 +42,6 @@ impl From<(UserInfo, BasicUser)> for UserInfoVO {
             age: sources.0.age,
             birthday: sources.0.birthday,
             info: sources.1.info,
-            created_at: sources.0.created_at,
-            updated_at: sources.0.updated_at,
             phone: sources.0.phone,
             email: sources.0.email,
             address: sources.0.address,

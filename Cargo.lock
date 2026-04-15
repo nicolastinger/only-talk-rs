@@ -360,7 +360,6 @@ dependencies = [
  "futures-util",
  "http_service",
  "lazy_static",
- "port_service",
  "quic_service",
  "rbatis",
  "rbdc-pg",
@@ -3285,32 +3284,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "port_service"
-version = "0.1.0"
-dependencies = [
- "actix-web",
- "anyhow",
- "deadpool-redis",
- "entity",
- "lazy_static",
- "quic_service",
- "rbatis",
- "rbdc-pg",
- "rbdc-pool-fast",
- "rbs",
- "redis 0.22.3",
- "rustls 0.21.12",
- "rustls-pemfile 1.0.4",
- "serde",
- "serde_json",
- "tokio",
- "toml",
- "tracing",
- "uuid",
- "validator",
-]
-
-[[package]]
 name = "potential_utf"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3420,6 +3393,7 @@ dependencies = [
  "quinn",
  "rbatis",
  "rbs",
+ "redis 0.22.3",
  "rustls 0.21.12",
  "rustls-pemfile 1.0.4",
  "serde",
@@ -3998,7 +3972,6 @@ dependencies = [
  "lazy_static",
  "nanoid",
  "once_cell",
- "port_service",
  "quic_service",
  "quinn",
  "rand 0.8.5",
