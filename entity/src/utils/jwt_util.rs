@@ -1,11 +1,9 @@
-use anyhow::anyhow;
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use rsa::pkcs1::EncodeRsaPublicKey;
 use rsa::pkcs8::EncodePrivateKey;
 use serde::{Deserialize, Serialize};
-use tracing::info;
 use crate::utils::rsa_util::generate_rsa_keys;
-use crate::utils::time::get_now_time_stamp_as_millis;
+use crate::utils::time::get_now_time_stamp_as_secs;
 
 // 定义 JWT 的 Claims 结构体
 #[derive(Debug, Serialize, Deserialize)]
@@ -33,7 +31,7 @@ fn generate_keys() -> Result<(EncodingKey, DecodingKey), anyhow::Error> {
 pub fn get_jwt(uuid: String, platform: String) -> Result<String, anyhow::Error> {
     let (encoding_key, _) = generate_keys()?;
     let claims =
-        Claims { sub: platform, uuid, exp: get_now_time_stamp_as_millis()? + (3600000 * 24) };
+        Claims { sub: platform, uuid, exp: get_now_time_stamp_as_secs()? + (3600 * 24) };
     // 使用 RSA 算法生成 JWT
     let header = Header::new(jsonwebtoken::Algorithm::RS256);
     let token = encode(&header, &claims, &encoding_key)?;
@@ -42,13 +40,7 @@ pub fn get_jwt(uuid: String, platform: String) -> Result<String, anyhow::Error> 
 
 pub fn decode_jwt(token: &str) -> Result<Claims, anyhow::Error> {
     let (_, decoding_key) = generate_keys()?;
-    // 使用 RSA 算法解码 JWT
     let validation = Validation::new(jsonwebtoken::Algorithm::RS256);
     let decoded = decode::<Claims>(token, &decoding_key, &validation)?;
-
-    let now = get_now_time_stamp_as_millis()?;
-    match now < decoded.claims.exp {
-        true => Ok(decoded.claims),
-        false => Err(anyhow!("token超时")),
-    }
+    Ok(decoded.claims)
 }

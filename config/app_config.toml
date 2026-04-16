@@ -1,8 +1,8 @@
 [database]
-url = "postgres://postgres:REDACTED_DB_PASSWORD_LOCAL@127.0.0.1:5432/postgres"
+url = "postgres://postgres:REDACTED_DB_PASSWORD@@127.0.0.1:22303/postgres"
 
 [redis]
-url = "redis://:REDACTED_REDIS_PASSWORD@101.33.75.40:10279/"
+url = "redis://:REDACTED_REDIS_PASSWORD@127.0.0.1:10279/"
 
 [server]
 address="0.0.0.0:8443"
@@ -38,10 +38,10 @@ mime_types = ["video/mp4", "video/webm"]
 # 存储提供者类型: minio / aliyun_oss / aws_s3
 provider = "minio"
 # S3兼容端点
-endpoint = "http://101.33.75.40:19000"
+endpoint = "http://127.0.0.1:19000"
 # 访问密钥
 access_key = "REDACTED_S3_ACCESS_KEY"
-secret_key = "REDACTED_S3_SECRET_KEY_V2"
+secret_key = "REDACTED_S3_SECRET_KEY"
 # 默认存储桶
 default_bucket = "rust-my-app"
 # 聊天文件预览桶（压缩文件）
