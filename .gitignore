@@ -1,1 +1,6 @@
-/target
+target/
+log/
+.idea/
+resources/
+jwt/
+ssl/

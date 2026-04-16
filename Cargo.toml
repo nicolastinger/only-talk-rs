@@ -3,38 +3,104 @@ name = "rust_my_app"
 version = "0.1.0"
 edition = "2021"
 
-[dependencies]
+[workspace]
+members = [
+    "entity", 
+    "http_service", 
+    "quic_service", 
+    "api", 
+    "email_service",
+]
+
+[dependencies.quic_service]
+path = "quic_service"
+
+[dependencies.http_service]
+path = "http_service"
+
+[dependencies.entity]
+path = "entity"
+
+[dependencies.api]
+path = "api"
+
+[dependencies.email_service]
+path = "email_service"
+
+[dependencies.s3_service]
+path = "s3_service"
+
+[workspace.dependencies]
 quinn = {version = "0.10.2"}
 rustls = { version = "0.21" }
 jsonwebtoken = "8.0"  # 请根据最新版本调整
-rcgen = "0.11.1"
 tokio ={ version = "1.0.0",features = ["full"]}
 serde_json = "1.0.128"
-fast_log = "1.7.4" #使用简单的异步日志库
-log = "0.4" # 日志库
 tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-appender = "0.2"
+tracing-actix-web = "0.7"
 serde = { version = "1", features = ["derive"] }
 lazy_static = "1.4"
 redis = { version = "0.22" ,features = ["tokio-comp"]}
+actix-files = "0.6"
 actix-web = { version = "4.9", features = ["rustls-0_21"] } # 请根据实际情况调整版本
 deadpool-redis = "0.18.0"
 rustls-pemfile = "1.0.4"
-tokio-rustls = "0.23.4"
-uuid = { version = "1", features = ["v4"] }
-time = "0.3.4"
-backtrace = "0.3.74"
+uuid = { version = "1", features = ["v4", "v7", "serde"] }
 anyhow = "1.0"
 validator = { version = "0.16", features = ["derive"] }
-rbs = { version = "4.5"}
-rbatis = { version = "4.5"}
+rbs = { version = "4.6"}
+rbatis = { version = "4.6.7", features = ["debug_mode"]}
 toml = "0.8.19"
-rbdc-mysql={version="4.5"}
-rbdc-pool-deadpool="4.5"
+rbdc-pg={version="4.6.1"}
+rbdc-pool-fast = "4.6.0"
 once_cell = "1.20.2"
 regex = "1.11.0"
-futures-util = "0.3.31"
-futures = "0.3.31"
 rsa = "0.9.7"
 rand = "0.8.5"
 sha2 = "0.10.8"
 bincode = "1.3.3"
+crc = { version = "3.0" }  # 当前最新稳定版（2025年5月）
+crc-catalog = "2.0"  # 可选，用于预置标准CRC算法
+nanoid = "0.4.0"
+async-trait = "0.1.89"
+actix-multipart = "0.6"
+futures-util = "0.3"
+webpki-roots = "1.0.2"
+
+[dependencies]
+quinn = {workspace = true}
+rustls = { workspace = true }
+jsonwebtoken = { workspace = true }
+tokio = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, version = "1.0.0", features = ["local-time"] }
+tracing-appender = { workspace = true }
+tracing-actix-web = { workspace = true }
+serde = { workspace = true }
+lazy_static = { workspace = true }
+redis = { workspace = true }
+actix-web = { workspace = true }
+deadpool-redis = { workspace = true }
+rustls-pemfile = { workspace = true }
+uuid = { workspace = true }
+anyhow = { workspace = true }
+validator = { workspace = true }
+rbs = { workspace = true }
+rbatis = { workspace = true }
+toml = { workspace = true }
+rbdc-pg = { workspace = true }
+rbdc-pool-fast = { workspace = true }
+once_cell = { workspace = true }
+regex = { workspace = true }
+rsa = { workspace = true }
+rand = { workspace = true }
+sha2 = { workspace = true }
+bincode = { workspace = true }
+crc = { workspace = true }
+crc-catalog = { workspace = true }
+nanoid = { workspace = true }
+async-trait = { workspace = true }
+webpki-roots = { workspace = true }

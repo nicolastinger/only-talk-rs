@@ -1,41 +1,56 @@
-mod module;
-mod common;
-mod marcos;
-mod utils;
+#![deny(clippy::unwrap_used)]
+use api::init_server;
+use quic_service::p2p_service::p2p_udp_service::run_udp_server;
+use quic_service::init_server::start_server;
+use tracing::{debug, error, info};
+use tracing_appender::non_blocking::WorkerGuard;
+use tracing_subscriber::{fmt, EnvFilter, Registry, prelude::*};
+use tracing_subscriber::fmt::time::LocalTime;
 
-use module::*;
-use common::*;
-use common::quic_network_service::models::quic_connection::QuicConnection;
-use log::{error, info, warn, LevelFilter};
-use std::{error::Error, net::SocketAddr};
-use std::collections::HashMap;
-use std::string::ToString;
-use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use fast_log::Config;
-use lazy_static::lazy_static;
-use regex::Regex;
-use tokio::sync::RwLock as TokioRwLock;
-use quic_network_service::quic_client;
-// 创建一个quic服务器维护列表全局变量，使用 RwLock 包装
-// 使用 lazy_static 初始化全局共享变量
-lazy_static! {
-    pub static ref GLOBAL_QUIC_SERVER_LIST: Arc<TokioRwLock<HashMap<String, QuicConnection>>> = Arc::new(TokioRwLock::new(HashMap::new()));
+fn init_tracing() -> WorkerGuard {
+    let file_appender = tracing_appender::rolling::never("log", "rust_im.log");
+    let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
+
+    let env_filter = EnvFilter::new("info");
+
+    let timer = LocalTime::rfc_3339();
+
+    let subscriber = Registry::default()
+        .with(env_filter)
+        .with(
+            fmt::layer()
+                .with_writer(std::io::stdout)
+                .with_ansi(true)
+                .with_target(true)
+                .with_thread_ids(true)
+                .with_timer(timer.clone())
+        )
+        .with(
+            fmt::layer()
+                .with_writer(non_blocking)
+                .with_ansi(false)
+                .with_target(true)
+                .with_thread_ids(true)
+                .with_timer(timer)
+        );
+
+    tracing::subscriber::set_global_default(subscriber)
+        .expect("设置全局 tracing subscriber 失败");
+
+    guard
 }
-static QUIC_MSG_SPLIT: &str = "#$#";   //quic服务解析间隔符
-// 主函数入口点，使用Tokio异步运行时
+
+/// 主函数入口点，使用Tokio异步运行时
 #[actix_web::main]
 async fn main() {
-    fast_log::init(Config::new().console().level(LevelFilter::Info).file("log/rust_im.log").chan_len(Some(10))).unwrap();
+    let _guard = init_tracing();
 
-    let addr = "127.0.0.1:4433".parse().unwrap();
-    tokio::spawn(async move{
-        quic_client::run_client(addr).await;
-    });
+    debug!("日志级别为debug");
+    info!("启动应用");
 
-    init_web::start_server().await.expect("初始化失败!");
-    info!("运行结束!")
+    run_udp_server().await.expect("启动UDP服务器失败");
+    start_server().await.expect("启动quic服务失败");
+    init_server::start_server()
+        .await
+        .unwrap_or_else(|err| error!("启动http服务失败 {}, 堆栈信息 {:?}", err, err.backtrace()));
 }
-
-
-

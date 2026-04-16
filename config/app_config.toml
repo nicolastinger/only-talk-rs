@@ -1,8 +1,66 @@
 [database]
-url = "mysql://rust_dev:REDACTED_DB_PASSWORD_REMOTE@175.178.17.158:10222/rust_dev"
+url = "postgres://postgres:REDACTED_DB_PASSWORD@@127.0.0.1:22303/postgres"
+
+[redis]
+url = "redis://:REDACTED_REDIS_PASSWORD@127.0.0.1:10279/"
 
 [server]
 address="0.0.0.0:8443"
+locales="zh-CN"
 
 [quic_server]
 address="0.0.0.0:4433"
+
+[file_upload]
+max_file_size = 20485760  # 20MB in bytes
+
+[file_types.image]
+extensions = ["jpg", "jpeg", "png", "gif", "webp", "bmp"]
+mime_types = ["image/jpeg", "image/jpg", "image/png", "image/gif", "image/webp"]
+
+[file_types.document]
+extensions = ["txt", "pdf", "doc", "docx", "xls", "xlsx", "json", "xml", "md"]
+mime_types = ["application/json", "application/xml", "text/markdown"]
+
+[file_types.archive]
+extensions = ["zip", "rar", "7z"]
+mime_types = ["application/zip"]
+
+[file_types.audio]
+extensions = ["mp3", "wav", "flac", "aac", "ogg", "m4a"]
+mime_types = ["audio/mpeg", "audio/wav", "audio/x-flac", "audio/aac", "audio/ogg", "audio/x-m4a"]
+
+[file_types.video]
+extensions = ["mp4", "avi", "mkv", "mov", "wmv", "flv", "webm"]
+mime_types = ["video/mp4", "video/webm"]
+
+[s3]
+# 存储提供者类型: minio / aliyun_oss / aws_s3
+provider = "minio"
+# S3兼容端点
+endpoint = "http://127.0.0.1:19000"
+# 访问密钥
+access_key = "REDACTED_S3_ACCESS_KEY"
+secret_key = "REDACTED_S3_SECRET_KEY"
+# 默认存储桶
+default_bucket = "rust-my-app"
+# 聊天文件预览桶（压缩文件）
+chat_file_preview_bucket = "chat-file-preview"
+# 聊天文件原文件桶
+chat_file_origin_bucket = "chat-file-origin"
+# 用户头像桶
+user_avatar_bucket = "user-avatar"
+# 区域
+region = "us-east-1"
+# 是否启用路径风格访问（MinIO必须为true）
+force_path_style = true
+# 是否启用S3存储（false则走本地存储）
+enabled = true
+# 预签名URL过期时间（秒）
+presign_expire_seconds = 3600
+# 分片上传阈值（字节，超过此大小使用分片上传）
+multipart_threshold = 10485760
+# 分片大小（字节）
+multipart_chunk_size = 5242880
+# 最大并发上传数
+max_concurrent_uploads = 10
