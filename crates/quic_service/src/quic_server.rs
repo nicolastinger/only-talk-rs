@@ -9,7 +9,7 @@ use entity::models::chat_entity::chat_message_record::ChatMessageRecord;
 use entity::utils::jwt_util::{decode_jwt, Claims};
 use entity::utils::redis_utils::get_redis_conn;
 use entity::utils::time::get_now_time_stamp_as_millis;
-use entity::{RBATIS_DATABASE, REDIS_CLIENT};
+use entity::{REDIS_CLIENT};
 use tracing::{error, info};
 use quinn::{Connection, RecvStream, SendStream};
 use rbatis::dark_std::err;

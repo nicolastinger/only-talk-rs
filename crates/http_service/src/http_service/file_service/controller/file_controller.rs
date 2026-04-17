@@ -83,6 +83,7 @@ async fn download_chat_biz_api(
 ) -> impl Responder {
     let (biz_id,is_preview) = biz_id.into_inner();
     let uuid = get_uuid_from_header!(req);
+    #[warn(unused_assignments)]
     let mut is_preview_bool = true;
     match is_preview.as_str() {
         "1" => is_preview_bool = true,

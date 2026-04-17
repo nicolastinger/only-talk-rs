@@ -171,6 +171,26 @@ async fn init_s3_client() -> Option<Arc<s3_service::S3Client>> {
     }
 }
 
+/// 替换字符串中的环境变量占位符 ${VAR_NAME} 为实际环境变量值
+fn substitute_env_vars(content: String) -> String {
+    let mut result = content;
+    // 简单替换 ${VAR_NAME} 格式的环境变量
+    loop {
+        if let Some(start) = result.find("${") {
+            if let Some(end) = result[start..].find('}') {
+                let var_name = &result[start + 2..start + end];
+                let var_value = std::env::var(var_name).unwrap_or_default();
+                result = result.replace(&format!("${{{}}}", var_name), &var_value);
+            } else {
+                break;
+            }
+        } else {
+            break;
+        }
+    }
+    result
+}
+
 ///初始化服务
 pub async fn start_server() -> anyhow::Result<()> {
     // 创建公开文件夹
@@ -181,6 +201,8 @@ pub async fn start_server() -> anyhow::Result<()> {
 
     // 读取配置文件内容
     let config_content = fs::read_to_string("./config/app_config.toml").expect("无法读取配置文件");
+    // 替换环境变量占位符
+    let config_content = substitute_env_vars(config_content);
     // 解析配置文件内容
     let config_value: Value = config_content.parse()?;
 

@@ -122,7 +122,7 @@ cargo run
 - `chat_message_record`: 聊天记录
 - `system_notification`: 系统通知
 
-完整的数据库结构请参考 [entity/ddl/v1_0_0.sql](entity/ddl/v1_0_0.sql)
+完整的数据库结构请参考 [entity/ddl/v1_0_0.sql](crates/entity/ddl/v1_0_0.sql)
 
 ## API 接口
 

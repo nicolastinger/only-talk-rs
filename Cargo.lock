@@ -1559,6 +1559,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "dotenvy"
+version = "0.15.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1aaf95b3e5c8f23aa320147307562d361db0ae0d51242340f558153b4eb2439b"
+
+[[package]]
 name = "dunce"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3958,45 +3964,12 @@ name = "rust_my_app"
 version = "0.1.0"
 dependencies = [
  "actix-web",
- "anyhow",
  "api",
- "async-trait",
- "bincode",
- "crc",
- "crc-catalog",
- "deadpool-redis",
- "email_service",
- "entity",
- "http_service",
- "jsonwebtoken",
- "lazy_static",
- "nanoid",
- "once_cell",
+ "dotenvy",
  "quic_service",
- "quinn",
- "rand 0.8.5",
- "rbatis",
- "rbdc-pg",
- "rbdc-pool-fast",
- "rbs",
- "redis 0.22.3",
- "regex",
- "rsa",
- "rustls 0.21.12",
- "rustls-pemfile 1.0.4",
- "s3_service",
- "serde",
- "serde_json",
- "sha2",
- "tokio",
- "toml",
  "tracing",
- "tracing-actix-web",
  "tracing-appender",
  "tracing-subscriber",
- "uuid",
- "validator",
- "webpki-roots 1.0.4",
 ]
 
 [[package]]

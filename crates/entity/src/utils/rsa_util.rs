@@ -7,7 +7,6 @@ use rsa::pkcs8::{DecodePrivateKey, EncodePrivateKey};
 use rsa::{RsaPrivateKey, RsaPublicKey};
 use rsa::pkcs1::EncodeRsaPublicKey;
 use sha2::{Digest, Sha256};
-use tracing::info;
 use crate::config_manager::{get_config, set_config};
 
 pub fn generate_rsa_keys() -> Result<(RsaPrivateKey, RsaPublicKey), anyhow::Error> {

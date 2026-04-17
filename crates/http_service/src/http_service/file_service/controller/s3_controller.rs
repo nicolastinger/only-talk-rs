@@ -4,8 +4,6 @@ use actix_web::{web, Responder, HttpResponse, get, post, delete};
 use s3_service::S3Client;
 use serde::{Deserialize, Serialize};
 
-use crate::utils::http_response::CommonResponseNoDataRef;
-
 pub fn s3_service_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(
         web::scope("/s3")
