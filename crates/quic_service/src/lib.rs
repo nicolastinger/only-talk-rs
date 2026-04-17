@@ -14,6 +14,7 @@ pub mod p2p_service;
 pub(crate) mod quic_client;
 pub(crate) mod quic_server;
 mod set_server;
+pub mod tls_monitor;
 
 // 创建CRC-16/X25计算器
 const X25: Crc<u16> = Crc::<u16>::new(&crc::CRC_16_IBM_SDLC);

@@ -21,43 +21,98 @@ use crate::models::first_quic_msg::FirstQuicMsg;
 use crate::models::quic_connection::{ConnectionType, QuicConnection};
 use crate::msg_service::process_msg_service::process_rec_msg;
 use crate::set_server::make_server_endpoint;
+use crate::tls_monitor::{start_tls_monitor, TlsReloadRequest};
 
 pub(crate) fn init_server(addr: SocketAddr) {
     tokio::spawn(run_server(addr));
 }
 
 /// 启动并运行QUIC服务器，持续监听新连接
+/// 使用Arc<RwLock<Endpoint>>支持TLS热重载
 async fn run_server(addr: SocketAddr) {
     // 创建服务器端点和证书
     let (endpoint, _server_cert) = make_server_endpoint(addr).expect("创建服务器端点失败");
+    let endpoint = Arc::new(RwLock::new(endpoint));
     info!("quic服务器启动成功,使用地址为: {}", addr);
+
+    // 创建TLS重载请求通道
+    let reload_request = Arc::new(RwLock::new(TlsReloadRequest::new()));
+
+    // 启动TLS证书监控
+    start_tls_monitor(addr, reload_request.clone());
 
     // 持续监听新连接请求
     loop {
-        let incoming_conn = match endpoint.accept().await {
-            Some(conn) => conn,
-            None => {
-                error!("接收新连接请求失败: endpoint 已关闭");
-                continue;
+        // 检查是否需要重载
+        let should_reload = {
+            let reload = reload_request.read().await;
+            reload.should_reload()
+        };
+
+        if should_reload {
+            info!("开始热重载QUIC端点...");
+            match reload_endpoint(&endpoint, addr).await {
+                Ok(_) => {
+                    info!("QUIC端点热重载成功");
+                    let mut reload = reload_request.write().await;
+                    reload.acknowledge();
+                }
+                Err(e) => {
+                    error!("QUIC端点热重载失败: {}", e);
+                }
             }
-        }; // 接收新连接请求
+        }
+
+        // 接受新连接
+        let incoming_conn = {
+            let endpoint_guard = endpoint.read().await;
+            match endpoint_guard.accept().await {
+                Some(conn) => conn,
+                None => {
+                    error!("接收新连接请求失败: endpoint 已关闭");
+                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                    continue;
+                }
+            }
+        };
+
         let conn = match incoming_conn.await {
             Ok(t) => t,
             Err(e) => {
                 error!("建立链接失败 {}", e);
                 continue;
             }
-        }; // 确认连接建立
+        };
 
         info!(
             "[服务端] 连接已接受: 地址={}",
-            conn.remote_address() // 打印客户端地址
+            conn.remote_address()
         );
         tokio::spawn(async move {
-            // 异步处理每个连接
             handle_connection(conn).await.expect("打开双向流失败");
         });
     }
+}
+
+/// 热重载QUIC端点
+/// 关闭旧端点并创建新端点，已有连接不受影响
+async fn reload_endpoint(
+    endpoint: &Arc<RwLock<quinn::Endpoint>>,
+    addr: SocketAddr,
+) -> Result<(), anyhow::Error> {
+    // 创建新端点
+    let (new_endpoint, _server_cert) = make_server_endpoint(addr)
+        .map_err(|e| anyhow!("创建新端点失败: {}", e))?;
+
+    // 关闭旧端点（不等待现有连接完成）
+    {
+        let mut old_endpoint = endpoint.write().await;
+        // 替换为新端点
+        *old_endpoint = new_endpoint;
+    }
+
+    info!("QUIC端点已重载，新连接将使用新TLS配置");
+    Ok(())
 }
 
 // 单个连接的多流处理函数

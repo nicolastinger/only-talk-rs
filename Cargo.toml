@@ -57,6 +57,7 @@ async-trait = "0.1.89"
 actix-multipart = "0.6"
 futures-util = "0.3"
 webpki-roots = "1.0.2"
+x509-parser = "0.16"
 
 [dependencies]
 tracing = { workspace = true }

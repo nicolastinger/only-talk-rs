@@ -65,47 +65,7 @@ pub fn configure_server() -> Result<(ServerConfig, Vec<u8>), Box<dyn Error>> {
         &mut BufReader::new(File::open("./config/ssl/privkey.pem").expect("找不到TLS证书密钥"));
 
     // 尝试读取不同类型的私钥
-    let mut keys = {
-        // 读取RSA私钥
-        key_file.seek(SeekFrom::Start(0)).expect("无法重置文件读取位置");
-        if let Ok(keys) = rsa_private_keys(key_file) {
-            if !keys.is_empty() {
-                keys
-            } else {
-                // 读取EC私钥
-                key_file.seek(SeekFrom::Start(0)).expect("无法重置文件读取位置");
-                if let Ok(keys) = ec_private_keys(key_file) {
-                    if !keys.is_empty() {
-                        keys
-                    } else {
-                        // 读取PKCS8私钥
-                        key_file.seek(SeekFrom::Start(0)).expect("无法重置文件读取位置");
-                        pkcs8_private_keys(key_file).expect("无法读取私钥")
-                    }
-                } else {
-                    // 读取PKCS8私钥
-                    key_file.seek(SeekFrom::Start(0)).expect("无法重置文件读取位置");
-                    pkcs8_private_keys(key_file).expect("无法读取私钥")
-                }
-            }
-        } else {
-            // 读取EC私钥
-            key_file.seek(SeekFrom::Start(0)).expect("无法重置文件读取位置");
-            if let Ok(keys) = ec_private_keys(key_file) {
-                if !keys.is_empty() {
-                    keys
-                } else {
-                    // 读取PKCS8私钥
-                    key_file.seek(SeekFrom::Start(0)).expect("无法重置文件读取位置");
-                    pkcs8_private_keys(key_file).expect("无法读取私钥")
-                }
-            } else {
-                // 读取PKCS8私钥
-                key_file.seek(SeekFrom::Start(0)).expect("无法重置文件读取位置");
-                pkcs8_private_keys(key_file).expect("无法读取私钥")
-            }
-        }
-    };
+    let mut keys = load_private_keys(key_file)?;
     if keys.is_empty() {
         return Err("私钥文件为空".into());
     }
@@ -115,10 +75,38 @@ pub fn configure_server() -> Result<(ServerConfig, Vec<u8>), Box<dyn Error>> {
     let cert_der = cert_chain.first().cloned().ok_or("证书链为空")?.0;
 
     // 创建服务器配置
-    let mut server_config = ServerConfig::with_single_cert(cert_chain.clone(), key)?;
+    let server_config = create_server_config(cert_chain, key)?;
+
+    // 返回服务器配置和证书
+    Ok((server_config, cert_der))
+}
+
+/// 创建服务器配置（公开函数，用于热重载）
+pub fn create_server_config(cert_chain: Vec<Certificate>, key: PrivateKey) -> Result<ServerConfig, Box<dyn Error>> {
+    let mut server_config = ServerConfig::with_single_cert(cert_chain, key)?;
     let transport_config = Arc::get_mut(&mut server_config.transport).expect("获取传输配置失败");
     transport_config.max_concurrent_uni_streams(0_u8.into()); // 设置最大并发单向流数量
     transport_config.max_idle_timeout(Some(Duration::from_secs(190).try_into().expect("设置超时时间失败"))); //最大容忍三次连接超时
-    // 返回服务器配置和证书
-    Ok((server_config, cert_der))
+    Ok(server_config)
+}
+
+/// 加载私钥，尝试不同类型的私钥格式
+fn load_private_keys(key_file: &mut BufReader<File>) -> Result<Vec<Vec<u8>>, Box<dyn Error>> {
+    key_file.seek(SeekFrom::Start(0)).expect("无法重置文件读取位置");
+    if let Ok(keys) = rsa_private_keys(key_file) {
+        if !keys.is_empty() {
+            return Ok(keys);
+        }
+    }
+
+    key_file.seek(SeekFrom::Start(0)).expect("无法重置文件读取位置");
+    if let Ok(keys) = ec_private_keys(key_file) {
+        if !keys.is_empty() {
+            return Ok(keys);
+        }
+    }
+
+    key_file.seek(SeekFrom::Start(0)).expect("无法重置文件读取位置");
+    let keys = pkcs8_private_keys(key_file).expect("无法读取私钥");
+    Ok(keys)
 }

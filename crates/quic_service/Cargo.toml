@@ -26,3 +26,5 @@ deadpool-redis = { workspace = true }
 redis = { workspace = true }
 webpki-roots = { workspace = true }
 futures-util = "0.3"
+x509-parser = { workspace = true }
+sha2 = { workspace = true }
