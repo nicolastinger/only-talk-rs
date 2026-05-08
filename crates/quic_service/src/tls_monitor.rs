@@ -1,14 +1,13 @@
 use std::fs::File;
 use std::io::{BufReader, Read, Seek, SeekFrom};
-use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
+use quinn::Endpoint;
 use rustls::{Certificate, PrivateKey};
 use rustls_pemfile::{certs, ec_private_keys, pkcs8_private_keys, rsa_private_keys};
 use sha2::Digest;
 use tokio::time;
-use tokio::sync::RwLock;
 use tracing::{error, info, warn};
 use x509_parser::prelude::*;
 
@@ -31,34 +30,6 @@ pub struct CertStatus {
     pub is_near_expiry: bool,
 }
 
-/// TLS重载请求标志
-/// 用于通知服务器需要重载TLS配置
-pub struct TlsReloadRequest {
-    pending: bool,
-}
-
-impl TlsReloadRequest {
-    pub fn new() -> Self {
-        Self { pending: false }
-    }
-
-    /// 标记需要重载
-    pub fn request_reload(&mut self) {
-        self.pending = true;
-    }
-
-    /// 检查是否有待处理的重载请求
-    pub fn should_reload(&self) -> bool {
-        self.pending
-    }
-
-    /// 确认重载已完成
-    pub fn acknowledge(&mut self) {
-        self.pending = false;
-    }
-}
-
-/// 加载TLS证书和私钥
 pub fn load_tls_certificates() -> Result<(Vec<Certificate>, PrivateKey, CertStatus), Box<dyn std::error::Error>> {
     // 加载证书
     let mut cert_file = BufReader::new(File::open(CERT_PATH)?);
@@ -183,14 +154,11 @@ fn log_cert_status(status: &CertStatus) {
 /// 启动TLS证书监控任务
 /// - 每分钟检测证书文件是否更新
 /// - 当证书剩余有效期<=3天时，每小时打印一次证书有效期信息
-pub fn start_tls_monitor(
-    _server_addr: SocketAddr,
-    reload_request: Arc<RwLock<TlsReloadRequest>>,
-) {
+/// - 使用Quinn 0.10+的set_server_config()实现热重载
+pub fn start_tls_monitor(endpoint: Arc<Endpoint>) {
     tokio::spawn(async move {
         info!("TLS证书监控任务已启动");
 
-        // 记录当前证书哈希
         let mut last_cert_hash = compute_file_hash(CERT_PATH).unwrap_or_else(|e| {
             error!("计算初始证书哈希失败: {}", e);
             [0u8; 32]
@@ -203,7 +171,6 @@ pub fn start_tls_monitor(
         loop {
             interval.tick().await;
 
-            // 检测证书文件是否更新
             let current_hash = match compute_file_hash(CERT_PATH) {
                 Ok(h) => h,
                 Err(e) => {
@@ -213,35 +180,26 @@ pub fn start_tls_monitor(
             };
 
             if current_hash != last_cert_hash {
-                info!("检测到TLS证书文件已更新，触发quinn重载机制...");
+                info!("检测到TLS证书文件已更新，触发quinn热重载机制...");
 
-                let verify_result = verify_new_certificates().map(|s| (s, true)).map_err(|e| e.to_string());
-                match verify_result {
-                    Ok((new_status, _)) => {
-                        info!("TLS证书验证成功，触发端点重载");
+                match reload_tls_config(&endpoint) {
+                    Ok(new_status) => {
+                        info!("TLS证书热重载成功");
                         last_cert_hash = current_hash;
                         log_cert_status(&new_status);
                         last_expiry_log = SystemTime::now();
-
-                        // 发送重载请求
-                        {
-                            let mut reload = reload_request.write().await;
-                            reload.request_reload();
-                        }
                     }
                     Err(e) => {
-                        error!("TLS证书验证失败: {}", e);
+                        error!("TLS证书热重载失败: {}", e);
                     }
                 }
             }
 
-            // 检查证书有效期
             let cert_result = load_tls_certificates().map(|(c, k, s)| (c, k, s)).map_err(|e| e.to_string());
             if let Ok((_, _, status)) = cert_result {
                 let now = SystemTime::now();
 
                 if status.is_near_expiry || status.is_expired {
-                    // 如果接近过期或已过期，检查是否应该打印日志（每小时一次）
                     let should_log = now
                         .duration_since(last_expiry_log)
                         .map(|d| d.as_secs() >= EXPIRY_CHECK_INTERVAL_SECS)
@@ -257,12 +215,15 @@ pub fn start_tls_monitor(
     });
 }
 
-/// 验证新证书是否可以正常加载
-fn verify_new_certificates() -> Result<CertStatus, Box<dyn std::error::Error>> {
+/// 热重载TLS配置
+/// 使用Quinn 0.10+的set_server_config() API
+fn reload_tls_config(endpoint: &Arc<Endpoint>) -> Result<CertStatus, Box<dyn std::error::Error>> {
     let (cert_chain, key, cert_status) = load_tls_certificates()?;
 
-    // 尝试创建服务器配置以验证证书有效性
-    create_server_config(cert_chain, key)?;
+    let server_config = create_server_config(cert_chain, key)?;
 
+    endpoint.set_server_config(Some(server_config));
+
+    info!("已通过set_server_config()更新TLS配置，新连接将使用新证书");
     Ok(cert_status)
 }
