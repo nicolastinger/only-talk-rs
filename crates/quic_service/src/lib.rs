@@ -28,4 +28,4 @@ pub use lifecycle::ServiceLifecycle;
 pub use state::{ServiceError, ServiceState};
 
 // 创建CRC-16/X25计算器
-const X25: Crc<u16> = Crc::<u16>::new(&crc::CRC_16_IBM_SDLC);
+pub const X25: Crc<u16> = Crc::<u16>::new(&crc::CRC_16_IBM_SDLC);
