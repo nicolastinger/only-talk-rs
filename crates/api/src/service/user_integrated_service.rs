@@ -9,11 +9,13 @@ use http_service::http_service::user_service::service::friend_service::{
 };
 use http_service::utils::http_response::CommonResponseNoDataRef;
 use quic_service::msg_service::send_msg::send_quic_system_msg;
+use quic_service::ConnectionsMap;
 use rbatis::RBatis;
 
 pub async fn add_user_with_notify(
     rb: &RBatis,
     friend: FriendRequestInfoDTO,
+    connections: &ConnectionsMap,
 ) -> Result<String, anyhow::Error> {
     // 1 添加好友
     let friend_request = add_friend(rb, friend).await?;
@@ -32,7 +34,7 @@ pub async fn add_user_with_notify(
     let json_str: String = serde_json::to_string(&quic_msg)?;
     let target_id = quic_msg.user_id.ok_or(anyhow!("请填写申请理由"))?.to_string();
     // 3 发送quic通知
-    send_quic_system_msg(target_id, NOTIFY_TYPE_MSG, json_str).await?;
+    send_quic_system_msg(target_id, NOTIFY_TYPE_MSG, json_str, connections).await?;
     Ok(CommonResponseNoDataRef::success_empty())
 }
 
@@ -40,6 +42,7 @@ pub async fn add_user_with_notify(
 pub async fn process_friend_with_notify(
     rb: &RBatis,
     friend_request_info_dto: FriendRequestInfoDTO,
+    connections: &ConnectionsMap,
 ) -> Result<String, anyhow::Error> {
     // 1、处理好友申请
     let friend_request = process_friend(rb, friend_request_info_dto).await?;
@@ -56,6 +59,6 @@ pub async fn process_friend_with_notify(
     let json_str: String = serde_json::to_string(&quic_msg)?;
     let target_id = quic_msg.user_id.ok_or(anyhow!("请填写申请理由"))?.to_string();
     // 3、发送quic通知
-    send_quic_system_msg(target_id, NOTIFY_TYPE_MSG, json_str).await?;
+    send_quic_system_msg(target_id, NOTIFY_TYPE_MSG, json_str, connections).await?;
     Ok(CommonResponseNoDataRef::success_empty())
 }

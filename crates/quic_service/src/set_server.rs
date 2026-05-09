@@ -43,26 +43,26 @@ pub fn configure_client() -> ClientConfig {
 ///
 /// - 一个QUIC连接的输入流
 /// - 服务器证书序列化为DER格式
-pub fn make_server_endpoint(bind_addr: SocketAddr) -> Result<(Endpoint, Vec<u8>), Box<dyn Error>> {
+pub fn make_server_endpoint(bind_addr: SocketAddr, cert_path: &str, key_path: &str) -> Result<(Endpoint, Vec<u8>), Box<dyn Error>> {
     // 配置服务器设置，包括生成自签名证书
-    let (server_config, server_cert) = configure_server()?;
+    let (server_config, server_cert) = configure_server(cert_path, key_path)?;
     // 创建服务器端点
     let endpoint = Endpoint::server(server_config, bind_addr)?;
     Ok((endpoint, server_cert))
 }
 
 /// 返回默认的服务器配置及其证书。
-pub fn configure_server() -> Result<(ServerConfig, Vec<u8>), Box<dyn Error>> {
+pub fn configure_server(cert_path: &str, key_path: &str) -> Result<(ServerConfig, Vec<u8>), Box<dyn Error>> {
     // 从.pem文件加载证书
     let mut cert_file =
-        BufReader::new(File::open("./config/ssl/fullchain.pem").expect("打开pem文件失败"));
+        BufReader::new(File::open(cert_path).expect("打开pem文件失败"));
     let cert_chain: Vec<Certificate> = certs(&mut cert_file)
         .map(|certs| certs.into_iter().map(Certificate).collect())
         .map_err(|_| "无法解析证书文件")?;
 
     // 从.key文件加载私钥
     let key_file =
-        &mut BufReader::new(File::open("./config/ssl/privkey.pem").expect("找不到TLS证书密钥"));
+        &mut BufReader::new(File::open(key_path).expect("找不到TLS证书密钥"));
 
     // 尝试读取不同类型的私钥
     let mut keys = load_private_keys(key_file)?;

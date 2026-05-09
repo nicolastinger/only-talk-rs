@@ -1,9 +1,9 @@
-use std::net::SocketAddr;
 use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
+use dashmap::DashMap;
 use deadpool_redis::redis::AsyncCommands;
-use entity::config_str::{MAX_QUIC_BUFFER_LEN, MAX_QUIC_SERVERS, SERVER_NAME, USER_READ_MSG};
+use entity::config_str::{USER_READ_MSG};
 use entity::models::chat_entity::chat_message_read::ChatMessageRecordRead;
 use entity::models::chat_entity::chat_message_record::ChatMessageRecord;
 use entity::utils::jwt_util::{decode_jwt, Claims};
@@ -11,39 +11,44 @@ use entity::utils::redis_utils::get_redis_conn;
 use entity::utils::time::get_now_time_stamp_as_millis;
 use entity::{REDIS_CLIENT};
 use tracing::{error, info};
-use quinn::{Connection, RecvStream, SendStream};
+use quinn::{Connection, Endpoint, RecvStream, SendStream};
 use rbatis::dark_std::err;
 use rbs::value;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::{Mutex, RwLock, watch};
 use entity::utils::sql_utils::get_sql_client;
-use crate::GLOBAL_QUIC_SERVER_LIST;
+use crate::config::ChatNodeConfig;
 use crate::models::first_quic_msg::FirstQuicMsg;
 use crate::models::quic_connection::{ConnectionType, QuicConnection};
 use crate::msg_service::process_msg_service::process_rec_msg;
-use crate::set_server::make_server_endpoint;
-use crate::tls_monitor::start_tls_monitor;
-
-pub(crate) fn init_server(addr: SocketAddr) {
-    tokio::spawn(run_server(addr));
-}
 
 /// 启动并运行QUIC服务器，持续监听新连接
-/// 使用Quinn 0.10+的set_server_config()实现TLS热重载
-async fn run_server(addr: SocketAddr) {
-    let (endpoint, _server_cert) = make_server_endpoint(addr).expect("创建服务器端点失败");
-    info!("quic服务器启动成功,使用地址为: {}", addr);
-
-    let endpoint = Arc::new(endpoint);
-
-    start_tls_monitor(endpoint.clone());
+pub(crate) async fn run_server(
+    endpoint: Arc<Endpoint>,
+    connections: Arc<DashMap<String, QuicConnection>>,
+    config: ChatNodeConfig,
+    mut shutdown_rx: watch::Receiver<bool>,
+) {
+    info!(
+        "quic服务器启动成功,使用地址为: {}",
+        config.bind_address
+    );
 
     loop {
-        let incoming_conn = match endpoint.accept().await {
-            Some(conn) => conn,
-            None => {
-                error!("接收新连接请求失败: endpoint 已关闭");
-                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                continue;
+        let incoming_conn = {
+            tokio::select! {
+                _ = shutdown_rx.changed() => {
+                    info!("收到关闭信号，停止接受新连接");
+                    return;
+                }
+                result = endpoint.accept() => {
+                    match result {
+                        Some(conn) => conn,
+                        None => {
+                            error!("接收新连接请求失败: endpoint 已关闭");
+                            return;
+                        }
+                    }
+                }
             }
         };
 
@@ -59,23 +64,29 @@ async fn run_server(addr: SocketAddr) {
             "[服务端] 连接已接受: 地址={}",
             conn.remote_address()
         );
+        let conns = connections.clone();
+        let cfg = config.clone();
         tokio::spawn(async move {
-            handle_connection(conn).await.expect("打开双向流失败");
+            handle_connection(conn, conns, cfg).await.expect("打开双向流失败");
         });
     }
 }
 
-async fn handle_connection(conn: Connection) -> Result<(), anyhow::Error> {
+async fn handle_connection(
+    conn: Connection,
+    connections: Arc<DashMap<String, QuicConnection>>,
+    config: ChatNodeConfig,
+) -> Result<(), anyhow::Error> {
     info!("新连接来源: {:?}", conn.remote_address());
 
-    // 4. 循环接受该连接的双向流
     loop {
         match conn.accept_bi().await {
             Ok((send_stream, recv_stream)) => {
-                // 5. 为每个流生成独立异步任务
                 let address = conn.remote_address().to_string().clone();
+                let conns = connections.clone();
+                let cfg = config.clone();
                 tokio::spawn(async move {
-                    handle_conn(send_stream, recv_stream, address)
+                    handle_conn(send_stream, recv_stream, address, conns, cfg)
                         .await
                         .unwrap_or_else(|x| error!("初始化连接失败 {}", x));
                 });
@@ -158,10 +169,13 @@ async fn verify_token(
 }
 
 /// 检测是否达到最大连接数
-async fn verify_max_client(send_stream: &mut SendStream) -> Result<(), anyhow::Error> {
-    let server_book = GLOBAL_QUIC_SERVER_LIST.read().await;
-    let server_book_len = server_book.len();
-    if server_book_len > MAX_QUIC_SERVERS {
+async fn verify_max_client(
+    send_stream: &mut SendStream,
+    connections: &Arc<DashMap<String, QuicConnection>>,
+    max_connections: usize,
+) -> Result<(), anyhow::Error> {
+    let server_book_len = connections.len();
+    if server_book_len > max_connections {
         error!("达到最大连接数 {}", server_book_len);
         send_stream.finish().await?;
     }
@@ -175,6 +189,8 @@ async fn set_conn_info(
     connection_key: &str,
     address: String,
     now: i64,
+    connections: &Arc<DashMap<String, QuicConnection>>,
+    server_name: &str,
 ) -> Result<(), anyhow::Error> {
     let new_connection = QuicConnection {
         is_online: true,
@@ -188,18 +204,17 @@ async fn set_conn_info(
     };
 
     {
-        let mut server_book = GLOBAL_QUIC_SERVER_LIST.write().await;
-        server_book.insert(connection_key.to_owned(), new_connection);
+        connections.insert(connection_key.to_owned(), new_connection);
     }
     {
         let redis = REDIS_CLIENT.read().await;
         let redis = redis.as_ref().ok_or(anyhow!("获取连接失败"))?;
 
         let mut conn = redis.get().await?;
-        conn.set_ex::<&str, &str, ()>(connection_key, SERVER_NAME, 7200).await?;
+        conn.set_ex::<&str, &str, ()>(connection_key, server_name, 7200).await?;
     }
 
-    info!("当前的在线客户端 {}", GLOBAL_QUIC_SERVER_LIST.read().await.len());
+    info!("当前的在线客户端 {}", connections.len());
     Ok(())
 }
 
@@ -208,6 +223,8 @@ async fn handle_conn(
     mut send_stream: SendStream,
     mut recv_stream: RecvStream,
     address: String,
+    connections: Arc<DashMap<String, QuicConnection>>,
+    config: ChatNodeConfig,
 ) -> Result<(), anyhow::Error> {
     info!("[服务端] 开始处理新连接，客户端地址: {}", address);
 
@@ -217,7 +234,7 @@ async fn handle_conn(
     let claims = verify_token(&first_quic_msg, &mut send_stream).await?;
     let platform = claims.sub;
     let uuid = claims.uuid;
-    verify_max_client(&mut send_stream).await?;
+    verify_max_client(&mut send_stream, &connections, config.max_connections).await?;
     user_online(&uuid, &platform).await?;
     let current_uuid = uuid.clone();
 
@@ -231,7 +248,7 @@ async fn handle_conn(
     //通过原子计数和异步锁共享变量
     let send_stream = Arc::new(RwLock::new(send_stream));
     let now = get_now_time_stamp_as_millis().unwrap_or(0);
-    set_conn_info(uuid, send_stream, &connection_key, address, now).await?;
+    set_conn_info(uuid, send_stream, &connection_key, address, now, &connections, &config.server_name).await?;
 
     let buffer_msg: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
 
@@ -239,7 +256,7 @@ async fn handle_conn(
         // 循环处理流中的数据
         let mut buffer = vec![0u8; 1024 * 10]; //设置缓冲区为10KB
         let buffer_len = buffer_msg.lock().await.len();
-        if buffer_len > MAX_QUIC_BUFFER_LEN {
+        if buffer_len > config.max_buffer_length {
             error!("半包长度超过限制 {}", buffer.len());
             // TODO发送限制消息给客户端纠错
             break;
@@ -256,6 +273,7 @@ async fn handle_conn(
                     &platform,
                     buffer_msg.clone(),
                     head_length,
+                    connections.clone(),
                 )
                 .await
                 {
@@ -278,7 +296,7 @@ async fn handle_conn(
         }
     }
 
-    end_server(&connection_key, &connection_key, now).await?;
+    end_server(&connection_key, &connection_key, now, &connections).await?;
     Ok(())
 }
 
@@ -287,16 +305,17 @@ async fn end_server(
     close_key: &str,
     connection_key: &str,
     close_now: i64,
+    connections: &Arc<DashMap<String, QuicConnection>>,
 ) -> Result<(), anyhow::Error> {
     let mut uuid = "".to_string();
     {
-        let mut server_book = GLOBAL_QUIC_SERVER_LIST.write().await;
-        if let Some(book) = server_book.get_mut(close_key) {
+        if let Some(book) = connections.get_mut(close_key) {
             let now = book.update_time;
             if now == close_now as u64 {
                 info!("用户下线 {}", close_key);
                 uuid = book.uuid.clone();
-                server_book.remove(close_key);
+                drop(book);
+                connections.remove(close_key);
                 let redis = REDIS_CLIENT.read().await;
                 let redis = redis.as_ref().expect("获取redis连接失败");
 
@@ -309,7 +328,7 @@ async fn end_server(
     info!(
         "[服务器] 处理完成连接 {} 完成, 在线连接数为 {}",
         close_key,
-        GLOBAL_QUIC_SERVER_LIST.read().await.len()
+        connections.len()
     );
 
     user_offline(uuid).await?;

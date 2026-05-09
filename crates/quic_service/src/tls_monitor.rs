@@ -7,17 +7,12 @@ use quinn::Endpoint;
 use rustls::{Certificate, PrivateKey};
 use rustls_pemfile::{certs, ec_private_keys, pkcs8_private_keys, rsa_private_keys};
 use sha2::Digest;
+use tokio::sync::watch;
 use tokio::time;
 use tracing::{error, info, warn};
 use x509_parser::prelude::*;
 
 use crate::set_server::create_server_config;
-
-const CERT_PATH: &str = "./config/ssl/fullchain.pem";
-const KEY_PATH: &str = "./config/ssl/privkey.pem";
-const EXPIRY_WARNING_DAYS: i64 = 3;
-const EXPIRY_CHECK_INTERVAL_SECS: u64 = 3600; // 1 hour
-const CERT_WATCH_INTERVAL_SECS: u64 = 60; // 1 minute
 
 /// TLS证书状态信息
 #[derive(Debug, Clone)]
@@ -30,9 +25,9 @@ pub struct CertStatus {
     pub is_near_expiry: bool,
 }
 
-pub fn load_tls_certificates() -> Result<(Vec<Certificate>, PrivateKey, CertStatus), Box<dyn std::error::Error>> {
+pub fn load_tls_certificates(cert_path: &str, key_path: &str, expiry_warning_days: i64) -> Result<(Vec<Certificate>, PrivateKey, CertStatus), Box<dyn std::error::Error>> {
     // 加载证书
-    let mut cert_file = BufReader::new(File::open(CERT_PATH)?);
+    let mut cert_file = BufReader::new(File::open(cert_path)?);
     let cert_chain: Vec<Certificate> = certs(&mut cert_file)
         .map(|certs| certs.into_iter().map(Certificate).collect())
         .map_err(|_| "无法解析证书文件")?;
@@ -42,10 +37,10 @@ pub fn load_tls_certificates() -> Result<(Vec<Certificate>, PrivateKey, CertStat
     }
 
     // 解析证书以获取有效期信息
-    let cert_status = parse_cert_expiry(&cert_chain[0].0)?;
+    let cert_status = parse_cert_expiry(&cert_chain[0].0, expiry_warning_days)?;
 
     // 加载私钥
-    let mut key_file = BufReader::new(File::open(KEY_PATH)?);
+    let mut key_file = BufReader::new(File::open(key_path)?);
     let mut keys = load_private_keys(&mut key_file)?;
 
     if keys.is_empty() {
@@ -79,7 +74,7 @@ fn load_private_keys(key_file: &mut BufReader<File>) -> Result<Vec<Vec<u8>>, Box
 }
 
 /// 解析证书的有效期信息
-fn parse_cert_expiry(cert_der: &[u8]) -> Result<CertStatus, Box<dyn std::error::Error>> {
+fn parse_cert_expiry(cert_der: &[u8], expiry_warning_days: i64) -> Result<CertStatus, Box<dyn std::error::Error>> {
     let (_, cert) = X509Certificate::from_der(cert_der)?;
 
     let not_before = cert.validity().not_before.to_datetime().unix_timestamp();
@@ -94,7 +89,7 @@ fn parse_cert_expiry(cert_der: &[u8]) -> Result<CertStatus, Box<dyn std::error::
 
     let days_remaining = (not_after - now) / 86400;
     let is_expired = days_remaining <= 0;
-    let is_near_expiry = days_remaining > 0 && days_remaining <= EXPIRY_WARNING_DAYS;
+    let is_near_expiry = days_remaining > 0 && days_remaining <= expiry_warning_days;
 
     let subject = cert
         .subject()
@@ -152,62 +147,80 @@ fn log_cert_status(status: &CertStatus) {
 }
 
 /// 启动TLS证书监控任务
-/// - 每分钟检测证书文件是否更新
-/// - 当证书剩余有效期<=3天时，每小时打印一次证书有效期信息
+/// - 检测证书文件是否更新
+/// - 当证书剩余有效期<=阈值时，定时打印警告
 /// - 使用Quinn 0.10+的set_server_config()实现热重载
-pub fn start_tls_monitor(endpoint: Arc<Endpoint>) {
+pub fn start_tls_monitor(
+    endpoint: Arc<Endpoint>,
+    mut shutdown_rx: watch::Receiver<bool>,
+    cert_path: String,
+    key_path: String,
+    watch_interval_secs: u64,
+    expiry_warning_days: i64,
+    expiry_check_interval_secs: u64,
+) {
     tokio::spawn(async move {
         info!("TLS证书监控任务已启动");
 
-        let mut last_cert_hash = compute_file_hash(CERT_PATH).unwrap_or_else(|e| {
+        let mut last_cert_hash = compute_file_hash(&cert_path).unwrap_or_else(|e| {
             error!("计算初始证书哈希失败: {}", e);
             [0u8; 32]
         });
 
         let mut last_expiry_log = SystemTime::now();
 
-        let mut interval = time::interval(Duration::from_secs(CERT_WATCH_INTERVAL_SECS));
+        let mut interval = time::interval(Duration::from_secs(watch_interval_secs));
 
         loop {
-            interval.tick().await;
-
-            let current_hash = match compute_file_hash(CERT_PATH) {
-                Ok(h) => h,
-                Err(e) => {
-                    error!("计算证书文件哈希失败: {}", e);
-                    continue;
+            tokio::select! {
+                _ = shutdown_rx.changed() => {
+                    info!("TLS证书监控收到关闭信号，正在退出...");
+                    return;
                 }
-            };
+                _ = interval.tick() => {
+                    let current_hash = match compute_file_hash(&cert_path) {
+                        Ok(h) => h,
+                        Err(e) => {
+                            error!("计算证书文件哈希失败: {}", e);
+                            continue;
+                        }
+                    };
 
-            if current_hash != last_cert_hash {
-                info!("检测到TLS证书文件已更新，触发quinn热重载机制...");
+                    if current_hash != last_cert_hash {
+                        info!("检测到TLS证书文件已更新，触发quinn热重载机制...");
 
-                match reload_tls_config(&endpoint) {
-                    Ok(new_status) => {
-                        info!("TLS证书热重载成功");
-                        last_cert_hash = current_hash;
-                        log_cert_status(&new_status);
-                        last_expiry_log = SystemTime::now();
+                        match reload_tls_config(&endpoint, &cert_path, &key_path, expiry_warning_days) {
+                            Ok(new_status) => {
+                                info!("TLS证书热重载成功");
+                                last_cert_hash = current_hash;
+                                log_cert_status(&new_status);
+                                last_expiry_log = SystemTime::now();
+                            }
+                            Err(e) => {
+                                error!("TLS证书热重载失败: {}", e);
+                            }
+                        }
                     }
-                    Err(e) => {
-                        error!("TLS证书热重载失败: {}", e);
-                    }
-                }
-            }
 
-            let cert_result = load_tls_certificates().map(|(c, k, s)| (c, k, s)).map_err(|e| e.to_string());
-            if let Ok((_, _, status)) = cert_result {
-                let now = SystemTime::now();
+                    match load_tls_certificates(&cert_path, &key_path, expiry_warning_days) {
+                        Ok((_, _, status)) => {
+                            let now = SystemTime::now();
 
-                if status.is_near_expiry || status.is_expired {
-                    let should_log = now
-                        .duration_since(last_expiry_log)
-                        .map(|d| d.as_secs() >= EXPIRY_CHECK_INTERVAL_SECS)
-                        .unwrap_or(true);
+                            if status.is_near_expiry || status.is_expired {
+                                let should_log = now
+                                    .duration_since(last_expiry_log)
+                                    .map(|d| d.as_secs() >= expiry_check_interval_secs)
+                                    .unwrap_or(true);
 
-                    if should_log {
-                        log_cert_status(&status);
-                        last_expiry_log = now;
+                                if should_log {
+                                    log_cert_status(&status);
+                                    last_expiry_log = now;
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            error!("读取证书状态失败: {}", e);
+                        }
                     }
                 }
             }
@@ -217,8 +230,13 @@ pub fn start_tls_monitor(endpoint: Arc<Endpoint>) {
 
 /// 热重载TLS配置
 /// 使用Quinn 0.10+的set_server_config() API
-fn reload_tls_config(endpoint: &Arc<Endpoint>) -> Result<CertStatus, Box<dyn std::error::Error>> {
-    let (cert_chain, key, cert_status) = load_tls_certificates()?;
+fn reload_tls_config(
+    endpoint: &Arc<Endpoint>,
+    cert_path: &str,
+    key_path: &str,
+    expiry_warning_days: i64,
+) -> Result<CertStatus, Box<dyn std::error::Error>> {
+    let (cert_chain, key, cert_status) = load_tls_certificates(cert_path, key_path, expiry_warning_days)?;
 
     let server_config = create_server_config(cert_chain, key)?;
 

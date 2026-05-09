@@ -15,6 +15,7 @@ quinn = { workspace = true }
 rustls = { workspace = true }
 rustls-pemfile = { workspace = true }
 lazy_static = { workspace = true }
+async-trait = { workspace = true }
 tokio = { workspace = true }
 serde_json = { workspace = true }
 nanoid = { workspace = true }
@@ -26,5 +27,7 @@ deadpool-redis = { workspace = true }
 redis = { workspace = true }
 webpki-roots = { workspace = true }
 futures-util = "0.3"
+dashmap = "6.1"
 x509-parser = { workspace = true }
 sha2 = { workspace = true }
+thiserror = "2.0"

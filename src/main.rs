@@ -1,6 +1,6 @@
 #![deny(clippy::unwrap_used)]
 use api::init_server;
-use quic_service::p2p_service::p2p_udp_service::run_udp_server;
+use quic_service::nat_ip::nat_udp_service::run_udp_server;
 use quic_service::init_server::start_server;
 use tracing::{debug, error, info};
 use tracing_appender::non_blocking::WorkerGuard;
@@ -53,9 +53,15 @@ async fn main() {
     debug!("日志级别为debug");
     info!("启动应用");
 
-    run_udp_server().await.expect("启动UDP服务器失败");
-    start_server().await.expect("启动quic服务失败");
-    init_server::start_server()
+    // 1. 创建并启动 QUIC ChatNode
+    let chat_node = start_server().await.expect("启动quic服务失败");
+
+    // 2. P2P UDP 服务使用 connections
+    let connections = chat_node.connections();
+    run_udp_server(connections.clone()).await.expect("启动UDP服务器失败");
+
+    // 3. HTTP API 服务
+    init_server::start_server(connections)
         .await
         .unwrap_or_else(|err| error!("启动http服务失败 {}, 堆栈信息 {:?}", err, err.backtrace()));
 }

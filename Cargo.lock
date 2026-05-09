@@ -3472,9 +3472,11 @@ name = "quic_service"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "bincode",
  "crc",
  "crc-catalog",
+ "dashmap",
  "deadpool-redis",
  "entity",
  "futures-util",
@@ -3489,6 +3491,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "thiserror 2.0.12",
  "tokio",
  "toml",
  "tracing",

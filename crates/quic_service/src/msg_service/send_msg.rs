@@ -1,8 +1,10 @@
+use std::sync::Arc;
+
+use dashmap::DashMap;
 use entity::config_str::{REDIS_QUIC_SERVERS, REDIS_SPLIT, SYSTEM};
 use tracing::error;
 
-use crate::GLOBAL_QUIC_SERVER_LIST;
-use crate::models::quic_connection::ConnectionType;
+use crate::models::quic_connection::{ConnectionType, QuicConnection};
 use crate::msg_service::text_msg_service::generate_text_msg;
 
 /// 针对用户发送系统消息
@@ -10,6 +12,7 @@ pub async fn send_quic_system_msg(
     current_user: String,
     msg_type: u16,
     text: String,
+    connections: &Arc<DashMap<String, QuicConnection>>,
 ) -> anyhow::Result<()> {
     // 目标用户的发送流
     let user_key = format!(
@@ -21,8 +24,7 @@ pub async fn send_quic_system_msg(
     );
     let user_key = user_key.to_uppercase();
     let send_stream = {
-        let bind = GLOBAL_QUIC_SERVER_LIST.read().await;
-        match bind.get(&user_key) {
+        match connections.get(&user_key) {
             Some(s) => Some(s.send_stream.clone()),
             None => {
                 error!("当前用户不在线: {}", user_key);

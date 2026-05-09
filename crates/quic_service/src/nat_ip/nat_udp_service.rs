@@ -1,22 +1,23 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use dashmap::DashMap;
 use deadpool_redis::redis::{AsyncCommands, cmd};
 use entity::config_str::SYSTEM;
 use entity::utils::jwt_util::decode_jwt;
 use entity::utils::message_types;
 use entity::utils::redis_utils::{acquire_lock, get_redis_conn, release_lock};
 use tracing::{error, info, warn};
-use crate::models::quic_connection::ConnectionType;
+use crate::models::quic_connection::{ConnectionType, QuicConnection};
 use crate::msg_service::get_send_stream_by_uuid;
 use crate::msg_service::text_msg_service::generate_text_msg;
 use tokio::net::UdpSocket;
 use tokio::signal;
 
-use crate::p2p_service::model::UserAddressInfo;
+use crate::nat_ip::model::UserAddressInfo;
 
-pub async fn run_udp_server() -> Result<(), anyhow::Error> {
-    tokio::spawn(async {
+pub async fn run_udp_server(connections: Arc<DashMap<String, QuicConnection>>) -> Result<(), anyhow::Error> {
+    tokio::spawn(async move {
         let addr_1 = "0.0.0.0:9562";
         let addr_2 = "[::]:9563";
         let addr_3 = "0.0.0.0:9564";
@@ -26,8 +27,9 @@ pub async fn run_udp_server() -> Result<(), anyhow::Error> {
 
         let handle1 = {
             let shutdown = shutdown_flag.clone();
+            let conns = connections.clone();
             tokio::spawn(async move {
-                get_p2p_udp_socket_with_shutdown(addr_1, "V4".to_string(), shutdown)
+                get_p2p_udp_socket_with_shutdown(addr_1, "V4".to_string(), shutdown, conns)
                     .await
                     .expect("9562 Failed to get UDP socket");
             })
@@ -35,8 +37,9 @@ pub async fn run_udp_server() -> Result<(), anyhow::Error> {
 
         let handle2 = {
             let shutdown = shutdown_flag.clone();
+            let conns = connections.clone();
             tokio::spawn(async move {
-                get_p2p_udp_socket_with_shutdown(addr_2, "V6".to_string(), shutdown)
+                get_p2p_udp_socket_with_shutdown(addr_2, "V6".to_string(), shutdown, conns)
                     .await
                     .expect("9563 Failed to get UDP socket");
             })
@@ -44,8 +47,9 @@ pub async fn run_udp_server() -> Result<(), anyhow::Error> {
 
         let handle3 = {
             let shutdown = shutdown_flag.clone();
+            let conns = connections.clone();
             tokio::spawn(async move {
-                get_p2p_udp_socket_with_shutdown(addr_3, "V4".to_string(), shutdown)
+                get_p2p_udp_socket_with_shutdown(addr_3, "V4".to_string(), shutdown, conns)
                     .await
                     .expect("9564 to get UDP socket");
             })
@@ -53,8 +57,9 @@ pub async fn run_udp_server() -> Result<(), anyhow::Error> {
 
         let handle4 = {
             let shutdown = shutdown_flag.clone();
+            let conns = connections.clone();
             tokio::spawn(async move {
-                get_p2p_udp_socket_with_shutdown(addr_4, "V6".to_string(), shutdown)
+                get_p2p_udp_socket_with_shutdown(addr_4, "V6".to_string(), shutdown, conns)
                     .await
                     .expect("9565 to get UDP socket");
             })
@@ -74,9 +79,10 @@ pub async fn get_p2p_udp_socket_with_shutdown(
     address: &str,
     ip_type: String,
     shutdown: Arc<AtomicBool>,
+    connections: Arc<DashMap<String, QuicConnection>>,
 ) -> anyhow::Result<()> {
     let socket = UdpSocket::bind(address).await?;
-    info!("udp服务端已启动，监听地址 {}", address);
+    info!("nat服务端已启动，监听地址 {}", address);
 
     let mut buf = [0u8; 1024];
 
@@ -102,7 +108,9 @@ pub async fn get_p2p_udp_socket_with_shutdown(
                         let res = serde_json::from_slice::<UserAddressInfo>(&buf[..size]);
                         match res {
                            Ok(msg) => {
-                              process_p2p_user_info(udp_addr, ip_type.clone(), msg).await.unwrap_or_else(|err| {
+                              let conns = connections.clone();
+                              let ip = ip_type.clone();
+                              process_p2p_user_info(udp_addr, ip, msg, conns).await.unwrap_or_else(|err| {
                                 error!("处理用户p2p连接失败 {}", err);
                             })
                            },
@@ -121,9 +129,9 @@ pub async fn get_p2p_udp_socket_with_shutdown(
     }
 }
 
-pub async fn get_p2p_udp_socket(address: &str, ip_type: String) -> anyhow::Result<()> {
+pub async fn get_p2p_udp_socket(address: &str, ip_type: String, connections: Arc<DashMap<String, QuicConnection>>) -> anyhow::Result<()> {
     let socket = UdpSocket::bind(address).await?;
-    info!("udp服务端已启动，监听地址 {}", address);
+    info!("nat服务端已启动，监听地址 {}", address);
 
     let mut buf = [0u8; 1024];
 
@@ -143,7 +151,9 @@ pub async fn get_p2p_udp_socket(address: &str, ip_type: String) -> anyhow::Resul
 
                         match serde_json::from_slice::<UserAddressInfo>(&buf[..size]){
                            Ok(msg) => {
-                              process_p2p_user_info(udp_addr, ip_type.clone(), msg).await.unwrap_or_else(|err| {
+                              let conns = connections.clone();
+                              let ip = ip_type.clone();
+                              process_p2p_user_info(udp_addr, ip, msg, conns).await.unwrap_or_else(|err| {
                                 error!("处理用户p2p连接失败 {}", err);
                             })
                            },
@@ -166,6 +176,7 @@ async fn process_p2p_user_info(
     udp_addr: String,
     ip_type: String,
     mut user_address_info: UserAddressInfo,
+    connections: Arc<DashMap<String, QuicConnection>>,
 ) -> Result<(), anyhow::Error> {
     match decode_jwt(user_address_info.token.as_ref()) {
         Ok(claims) => {
@@ -261,6 +272,7 @@ async fn process_p2p_user_info(
                             let my_send_stream = get_send_stream_by_uuid(
                                 &target_user_address_info.uuid,
                                 &ConnectionType::Text.to_string(),
+                                &connections,
                             )
                             .await?;
 
@@ -278,6 +290,7 @@ async fn process_p2p_user_info(
                             let my_send_stream = get_send_stream_by_uuid(
                                 &user_address_info.uuid,
                                 &ConnectionType::Text.to_string(),
+                                &connections,
                             )
                             .await?;
                             if server == message_types::MSG_TYPE_P2P_USER_CLIENT {

@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::anyhow;
+use dashmap::DashMap;
 use entity::RBATIS_DATABASE;
 use entity::config_str::{MOBILE_PLATFORM, PC_PLATFORM, PONG, REDIS_QUIC_SERVERS, REDIS_SPLIT, SYSTEM};
 use entity::models::chat_entity::chat_message_record::ChatMessageRecord;
@@ -12,8 +13,7 @@ use quinn::SendStream;
 use rbatis::rbdc::{Bytes, Uuid};
 use tokio::sync::{Mutex, RwLock};
 
-use crate::GLOBAL_QUIC_SERVER_LIST;
-use crate::models::quic_connection::ConnectionType;
+use crate::models::quic_connection::{ConnectionType, QuicConnection};
 use crate::models::text_msg::TextQuicMsg;
 use crate::msg_service::text_msg_service::{
     generate_text_msg, generate_text_msg_with_time, get_text_msg,
@@ -27,16 +27,16 @@ pub async fn process_rec_msg(
     platform: &str,
     buffer_msg: Arc<Mutex<Vec<u8>>>,
     head_length: usize,
+    connections: Arc<DashMap<String, QuicConnection>>,
 ) -> anyhow::Result<()> {
     let my_send_stream = {
-        let bind = GLOBAL_QUIC_SERVER_LIST.read().await;
-        let send = bind.get(connection_key).ok_or(anyhow!("连接不可用"))?;
+        let send = connections.get(connection_key).ok_or(anyhow!("连接不可用"))?;
         send.send_stream.clone()
     };
 
     let text_vec = get_text_msg(buffer, length, buffer_msg, head_length).await?;
     info!("接收到客户端信息 {:?}", text_vec);
-    process_text_msg(my_send_stream, text_vec, uuid, platform).await?;
+    process_text_msg(my_send_stream, text_vec, uuid, platform, &connections).await?;
 
     Ok(())
 }
@@ -46,6 +46,7 @@ async fn process_text_msg(
     text_quic_msg: Vec<TextQuicMsg>,
     uuid: String,
     platform: &str,
+    connections: &Arc<DashMap<String, QuicConnection>>,
 ) -> anyhow::Result<()> {
     for mut text_msg in text_quic_msg.into_iter() {
         if uuid != text_msg.send_user {
@@ -77,7 +78,7 @@ async fn process_text_msg(
                 .await
                 .expect("发送ack消息失败");
         });
-        send_msg_to_user(text_msg, platform).await?;
+        send_msg_to_user(text_msg, platform, connections).await?;
 
     }
 
@@ -88,10 +89,11 @@ async fn process_text_msg(
 async fn send_msg_to_user(
     text_msg: TextQuicMsg,
     platform: &str,
+    connections: &Arc<DashMap<String, QuicConnection>>,
 ) -> anyhow::Result<()> {
     let recv_user = text_msg.recv_user.clone();
     let send_user = text_msg.send_user.clone();
-    
+
     let res = generate_text_msg_with_time(
         text_msg.nano_id,
         text_msg.text_type,
@@ -100,12 +102,12 @@ async fn send_msg_to_user(
         text_msg.send_user,
         text_msg.timestamp,
     )?;
-    send_msg_to_user_by_platform(&res, PC_PLATFORM, &recv_user).await?;
-    send_msg_to_user_by_platform(&res, MOBILE_PLATFORM, &recv_user).await?;
+    send_msg_to_user_by_platform(&res, PC_PLATFORM, &recv_user, connections).await?;
+    send_msg_to_user_by_platform(&res, MOBILE_PLATFORM, &recv_user, connections).await?;
     if platform == PC_PLATFORM {
-        send_msg_to_user_by_platform(&res, MOBILE_PLATFORM, &send_user).await?;
+        send_msg_to_user_by_platform(&res, MOBILE_PLATFORM, &send_user, connections).await?;
     } else {
-        send_msg_to_user_by_platform(&res, PC_PLATFORM, &send_user).await?;
+        send_msg_to_user_by_platform(&res, PC_PLATFORM, &send_user, connections).await?;
     }
     Ok(())
 }
@@ -114,6 +116,7 @@ async fn send_msg_to_user_by_platform(
     res: &Vec<u8>,
     platform: &str,
     target_user: &str,
+    connections: &Arc<DashMap<String, QuicConnection>>,
 ) -> anyhow::Result<()> {
     let user_key = format!(
         "{}:{}{}{}{}",
@@ -127,8 +130,7 @@ async fn send_msg_to_user_by_platform(
 
     // 目标用户的发送流
     let target_send_stream: Option<Arc<RwLock<SendStream>>> = {
-        let bind = GLOBAL_QUIC_SERVER_LIST.read().await;
-        match bind.get(&user_key) {
+        match connections.get(&user_key) {
             Some(s) => Some(s.send_stream.clone()),
             None => {
                 warn!("当前用户不在线: {}", user_key);

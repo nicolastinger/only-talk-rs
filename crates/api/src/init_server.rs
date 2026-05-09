@@ -30,6 +30,7 @@ use toml::Value;
 use crate::controller::configure_api_routes;
 
 fn init_redis(url: &str) -> Pool {
+    info!("正在连接 Redis - 地址: {}", url);
     // 创建 Redis 连接池
     let config = dp_config::from_url(url);
     let pool = config.create_pool(Some(Runtime::Tokio1)).expect("Failed to create Redis pool");
@@ -39,6 +40,30 @@ fn init_redis(url: &str) -> Pool {
     }
 
     pool
+}
+
+async fn verify_redis(pool: &Pool) {
+    match pool.get().await {
+        Ok(mut conn) => {
+            let result: Result<String, _> = deadpool_redis::redis::cmd("PING")
+                .query_async(&mut conn)
+                .await;
+            match result {
+                Ok(ref s) if s == "PONG" => {
+                    info!("Redis 连接成功 (PING: {})", s);
+                }
+                Ok(s) => {
+                    warn!("Redis PING 返回异常: {}", s);
+                }
+                Err(e) => {
+                    error!("Redis 连接失败: {}", e);
+                }
+            }
+        }
+        Err(e) => {
+            error!("Redis 获取连接失败: {}", e);
+        }
+    }
 }
 
 fn init_cert_file() -> (Vec<Certificate>, PrivateKey) {
@@ -111,6 +136,7 @@ fn init_cert_file() -> (Vec<Certificate>, PrivateKey) {
 }
 
 async fn init_sql_pool(url: &str) -> RBatis {
+    info!("正在连接数据库 - 地址: {}", url);
     let rb = RBatis::new();
 
     let mut opts = PgConnectOptions::new();
@@ -132,6 +158,17 @@ async fn init_sql_pool(url: &str) -> RBatis {
     {
         let mut database = RBATIS_DATABASE.try_write().expect("获取数据库锁失败");
         *database = Some(rb.clone());
+    }
+
+    // 验证数据库连接
+    match rb.query_decode("SELECT 1 as _dummy", vec![]).await {
+        Ok(results) => {
+            let count: Vec<rbs::Value> = results;
+            info!("数据库连接成功 (SELECT 1 返回 {} 行)", count.len());
+        }
+        Err(e) => {
+            error!("数据库连接失败: {}", e);
+        }
     }
 
     rb
@@ -191,8 +228,10 @@ fn substitute_env_vars(content: String) -> String {
     result
 }
 
+pub use quic_service::ConnectionsMap;
+
 ///初始化服务
-pub async fn start_server() -> anyhow::Result<()> {
+pub async fn start_server(connections: ConnectionsMap) -> anyhow::Result<()> {
     // 创建公开文件夹
     let pub_file_path = USER_FILE_PUBLIC_DIR;
     if !std::path::Path::new(pub_file_path).exists() {
@@ -230,6 +269,7 @@ pub async fn start_server() -> anyhow::Result<()> {
 
     let redis_url = read_global_config!("redis", "url");
     let redis_pool = init_redis(&redis_url);
+    verify_redis(&redis_pool).await;
 
     // 初始化S3客户端
     let s3_client = init_s3_client().await;
@@ -248,6 +288,7 @@ pub async fn start_server() -> anyhow::Result<()> {
         }
     };
 
+    let conns = connections.clone();
     HttpServer::new(move || {
         App::new()
             .wrap(TraceIdMiddleware)
@@ -255,6 +296,7 @@ pub async fn start_server() -> anyhow::Result<()> {
             .app_data(web::Data::new(redis_pool.clone()))
             .app_data(web::Data::new(pool.clone()))
             .app_data(s3_data.clone())
+            .app_data(web::Data::new(conns.clone()))
             .wrap(middleware::Logger::default())
             .configure(http_service::http_service::configure_routes)
             .configure(configure_api_routes)
