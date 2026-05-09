@@ -8,6 +8,8 @@ use crate::models::quic_connection::QuicConnection;
 pub mod chat_node;
 pub mod config;
 pub mod init_server;
+pub mod internal_config;
+pub mod internal_quic_server;
 pub mod lifecycle;
 pub mod models;
 pub mod msg_service;
@@ -24,6 +26,8 @@ pub type ConnectionsMap = Arc<DashMap<String, QuicConnection>>;
 // Re-exports
 pub use chat_node::ChatNode;
 pub use config::ChatNodeConfig;
+pub use internal_config::InternalQuicConfig;
+pub use internal_quic_server::run_internal_server;
 pub use lifecycle::ServiceLifecycle;
 pub use state::{ServiceError, ServiceState};
 

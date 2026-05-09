@@ -41,3 +41,6 @@ pub const NOTIFY_TYPE_MSG: u16 = 1024;
 
 /// 系统消息
 pub const MSG_TYPE_SYSTEM: u16 = 10001;
+
+/// 内网服务转发的好友通知消息
+pub const INTERNAL_FRIEND_NOTIFY: u16 = 20001;

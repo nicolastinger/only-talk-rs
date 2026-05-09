@@ -21,7 +21,7 @@ path = "crates/api"
 
 [workspace.dependencies]
 quinn = {version = "0.10.2"}
-rustls = { version = "0.21" }
+rustls = { version = "0.21", features = ["dangerous_configuration"] }
 jsonwebtoken = "8.0"  # 请根据最新版本调整
 tokio ={ version = "1.0.0",features = ["full"]}
 serde_json = "1.0.128"
@@ -58,11 +58,12 @@ actix-multipart = "0.6"
 futures-util = "0.3"
 webpki-roots = "1.0.2"
 x509-parser = "0.16"
+rcgen = "0.13"
 
 [dependencies]
+entity = { path = "crates/entity" }
 tracing = { workspace = true }
-tracing-subscriber = { workspace = true, version = "1.0.0", features = ["local-time"] }
-tracing-appender = { workspace = true }
 actix-web = { workspace = true }
+tokio = { workspace = true }
 dotenvy = "0.15"
 

@@ -14,6 +14,10 @@ cert_path="./config/ssl/fullchain.pem"
 key_path="./config/ssl/privkey.pem"
 server_name="127.0.0.1:4433"
 
+[internal_quic_server]
+address="127.0.0.1:4434"
+server_name="INTERNAL_SERVER_1"
+
 [file_upload]
 max_file_size = 20485760  # 20MB in bytes
 

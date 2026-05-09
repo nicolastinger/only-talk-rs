@@ -1,9 +1,40 @@
 use anyhow::anyhow;
 use deadpool_redis::Connection;
 use deadpool_redis::redis::cmd;
+use deadpool_redis::{Config as RedisConfig, Pool, Runtime};
+use tracing::info;
 use uuid::Uuid;
 
-use crate::REDIS_CLIENT;
+use crate::{REDIS_CLIENT, REDIS_INIT_ONCE};
+
+/// 初始化 Redis 连接池（仅首次调用生效）
+pub fn init_redis(url: &str) -> Result<Pool, anyhow::Error> {
+    if REDIS_INIT_ONCE.get().is_some() {
+        return REDIS_CLIENT
+            .try_read()
+            .map_err(|_| anyhow!("获取Redis读锁失败"))?
+            .clone()
+            .ok_or_else(|| anyhow!("Redis未初始化"));
+    }
+
+    info!("正在连接 Redis - 地址: {}", url);
+    let config = RedisConfig::from_url(url);
+    let pool = config
+        .create_pool(Some(Runtime::Tokio1))
+        .map_err(|e| anyhow!("创建Redis连接池失败: {}", e))?;
+
+    {
+        let mut guard = REDIS_CLIENT
+            .try_write()
+            .map_err(|_| anyhow!("获取Redis写锁失败"))?;
+        if REDIS_INIT_ONCE.set(()).is_ok() {
+            *guard = Some(pool.clone());
+        }
+    }
+
+    info!("Redis 连接池初始化成功");
+    Ok(pool)
+}
 
 pub async fn get_redis_conn() -> Result<Connection, anyhow::Error> {
     let redis_client = REDIS_CLIENT.read().await;

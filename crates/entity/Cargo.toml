@@ -4,12 +4,19 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+quinn = { workspace = true }
+rustls = { workspace = true }
+serde_json = { workspace = true }
 serde = { workspace = true }
 rbatis = { workspace = true }
+rbdc-pg = { workspace = true }
+rbdc-pool-fast = { workspace = true }
 validator = { workspace = true }
 anyhow = { workspace = true }
 rbs = { workspace = true }
 tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["local-time"] }
+tracing-appender = { workspace = true }
 lazy_static = { workspace = true }
 tokio = { workspace = true }
 deadpool-redis = { workspace = true }

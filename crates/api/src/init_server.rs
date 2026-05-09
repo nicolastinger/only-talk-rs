@@ -3,44 +3,27 @@ use std::fs;
 use std::fs::File;
 use std::io::{BufReader, Seek, SeekFrom};
 use std::sync::Arc;
-use std::time::Duration;
 
 use actix_files::Files;
 use actix_web::middleware::from_fn;
 use actix_web::{App, HttpServer, middleware, web};
-use deadpool_redis::{Config as dp_config, Pool, Runtime};
+use deadpool_redis::Pool;
 use entity::config_str::{USER_FILE_PUBLIC, USER_FILE_PUBLIC_DIR};
-use entity::{RBATIS_DATABASE, REDIS_CLIENT, init_global_config, read_global_config};
+use entity::{init_global_config, init_redis, init_sql_pool, read_global_config};
 use http_service;
 use http_service::middleware::TraceIdMiddleware;
 use http_service::utils::record_bad_http::error_record_middleware;
 use s3_service::client::GlobalS3Client;
 use s3_service::config::S3Config;
 use tracing::{error, info, warn};
-use rbatis::rbdc::db::ConnectOptions;
-use rbatis::{Error, RBatis, rbdc};
-use rbdc::pool::{ConnectionManager, Pool as rdbc_pool};
-use rbdc_pg::PgDriver;
-use rbdc_pg::options::PgConnectOptions;
-use rbdc_pool_fast::FastPool;
 use rustls::{Certificate, PrivateKey, ServerConfig};
 use rustls_pemfile::{certs, ec_private_keys, pkcs8_private_keys, rsa_private_keys};
 use toml::Value;
 
+use quic_service::internal_config::InternalQuicConfig;
+use quic_service::internal_quic_server::run_internal_server;
+
 use crate::controller::configure_api_routes;
-
-fn init_redis(url: &str) -> Pool {
-    info!("正在连接 Redis - 地址: {}", url);
-    // 创建 Redis 连接池
-    let config = dp_config::from_url(url);
-    let pool = config.create_pool(Some(Runtime::Tokio1)).expect("Failed to create Redis pool");
-    {
-        let mut redis_guard = REDIS_CLIENT.try_write().expect("获取redis锁失败");
-        *redis_guard = Some(pool.clone());
-    }
-
-    pool
-}
 
 async fn verify_redis(pool: &Pool) {
     match pool.get().await {
@@ -135,45 +118,6 @@ fn init_cert_file() -> (Vec<Certificate>, PrivateKey) {
     (cert_chain, key)
 }
 
-async fn init_sql_pool(url: &str) -> RBatis {
-    info!("正在连接数据库 - 地址: {}", url);
-    let rb = RBatis::new();
-
-    let mut opts = PgConnectOptions::new();
-    opts.set_uri(url).expect("TODO: panic message");
-
-    let conn_manager =
-        ConnectionManager::new_arc(Arc::new(Box::new(PgDriver {})), Arc::new(Box::new(opts)));
-
-    //let manager:ConnManager = ConnManager::new_arc(Arc::new(Box::new(MysqlDriver{})), Arc::new(Box::new(opts)));
-    let pool = FastPool::new(conn_manager).expect("初始化连接池失败");
-    // 创建连接池并设置空闲连接时长
-    // pool.set_conn_max_lifetime(Some(Duration::from_secs(180))).await;
-
-    pool.set_timeout(Some(Duration::from_secs(2))).await;
-    rb.pool
-        .set(Box::new(pool))
-        .map_err(|_e| Error::from("pool set fail!"))
-        .expect("初始化连接池失败!");
-    {
-        let mut database = RBATIS_DATABASE.try_write().expect("获取数据库锁失败");
-        *database = Some(rb.clone());
-    }
-
-    // 验证数据库连接
-    match rb.query_decode("SELECT 1 as _dummy", vec![]).await {
-        Ok(results) => {
-            let count: Vec<rbs::Value> = results;
-            info!("数据库连接成功 (SELECT 1 返回 {} 行)", count.len());
-        }
-        Err(e) => {
-            error!("数据库连接失败: {}", e);
-        }
-    }
-
-    rb
-}
-
 /// 初始化S3客户端
 async fn init_s3_client() -> Option<Arc<s3_service::S3Client>> {
     // 尝试读取S3配置
@@ -253,7 +197,7 @@ pub async fn start_server(connections: ConnectionsMap) -> anyhow::Result<()> {
     
     let url = read_global_config!("database", "url");
 
-    let pool = init_sql_pool(&url).await;
+    let pool = init_sql_pool(&url).await?;
 
     let (cert_chain, key) = init_cert_file();
 
@@ -268,8 +212,16 @@ pub async fn start_server(connections: ConnectionsMap) -> anyhow::Result<()> {
         })?;
 
     let redis_url = read_global_config!("redis", "url");
-    let redis_pool = init_redis(&redis_url);
+    let redis_pool = init_redis(&redis_url)?;
     verify_redis(&redis_pool).await;
+
+    // 启动内网 QUIC 服务 (Redis 已就绪)
+    let internal_config = InternalQuicConfig::from_toml("./config/app_config.toml")?;
+    let (_internal_shutdown_tx, internal_shutdown_rx) = tokio::sync::watch::channel(false);
+    let internal_connections = connections.clone();
+    tokio::spawn(async move {
+        run_internal_server(internal_config, internal_connections, internal_shutdown_rx).await;
+    });
 
     // 初始化S3客户端
     let s3_client = init_s3_client().await;

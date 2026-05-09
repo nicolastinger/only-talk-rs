@@ -1,3 +1,4 @@
+pub mod internal_quic_client;
 pub mod jwt_util;
 pub mod message_types;
 pub mod redis_utils;

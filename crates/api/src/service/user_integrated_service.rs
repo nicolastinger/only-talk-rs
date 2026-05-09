@@ -1,5 +1,9 @@
+use std::net::SocketAddr;
+
 use anyhow::anyhow;
 use entity::utils::message_types::NOTIFY_TYPE_MSG;
+use entity::models::internal_quic_msg::InternalQuicRequest;
+use entity::read_global_config;
 use http_service::http_service::notify_service::service::system_notification::{
     send_process_friend_msg, send_request_friend_msg,
 };
@@ -8,14 +12,12 @@ use http_service::http_service::user_service::service::friend_service::{
     add_friend, process_friend,
 };
 use http_service::utils::http_response::CommonResponseNoDataRef;
-use quic_service::msg_service::send_msg::send_quic_system_msg;
-use quic_service::ConnectionsMap;
 use rbatis::RBatis;
+use entity::utils::internal_quic_client::send_internal_quic_msg;
 
 pub async fn add_user_with_notify(
     rb: &RBatis,
     friend: FriendRequestInfoDTO,
-    connections: &ConnectionsMap,
 ) -> Result<String, anyhow::Error> {
     // 1 添加好友
     let friend_request = add_friend(rb, friend).await?;
@@ -23,7 +25,7 @@ pub async fn add_user_with_notify(
     let target_uuid = friend_request.accept_user.ok_or(anyhow!("请选择一个用户"))?;
     let biz_id = friend_request.uuid.ok_or(anyhow!("添加好友失败，找不到请求id"))?.to_string();
 
-    // 2 发送通知
+    // 2 发送系统通知 (落库)
     let quic_msg = send_request_friend_msg(
         rb,
         target_uuid,
@@ -33,8 +35,17 @@ pub async fn add_user_with_notify(
     .await?;
     let json_str: String = serde_json::to_string(&quic_msg)?;
     let target_id = quic_msg.user_id.ok_or(anyhow!("请填写申请理由"))?.to_string();
-    // 3 发送quic通知
-    send_quic_system_msg(target_id, NOTIFY_TYPE_MSG, json_str, connections).await?;
+
+    // 3 通过内网QUIC服务转发通知
+    let addr_str = read_global_config!("internal_quic_server", "address");
+    let server_addr: SocketAddr = addr_str.parse()?;
+    let request = InternalQuicRequest {
+        msg_type: NOTIFY_TYPE_MSG,
+        payload: json_str,
+        target_user: target_id,
+    };
+    send_internal_quic_msg(server_addr, request).await?;
+
     Ok(CommonResponseNoDataRef::success_empty())
 }
 
@@ -42,7 +53,6 @@ pub async fn add_user_with_notify(
 pub async fn process_friend_with_notify(
     rb: &RBatis,
     friend_request_info_dto: FriendRequestInfoDTO,
-    connections: &ConnectionsMap,
 ) -> Result<String, anyhow::Error> {
     // 1、处理好友申请
     let friend_request = process_friend(rb, friend_request_info_dto).await?;
@@ -58,7 +68,16 @@ pub async fn process_friend_with_notify(
     .await?;
     let json_str: String = serde_json::to_string(&quic_msg)?;
     let target_id = quic_msg.user_id.ok_or(anyhow!("请填写申请理由"))?.to_string();
-    // 3、发送quic通知
-    send_quic_system_msg(target_id, NOTIFY_TYPE_MSG, json_str, connections).await?;
+
+    // 3、通过内网QUIC服务转发通知
+    let addr_str = read_global_config!("internal_quic_server", "address");
+    let server_addr: SocketAddr = addr_str.parse()?;
+    let request = InternalQuicRequest {
+        msg_type: NOTIFY_TYPE_MSG,
+        payload: json_str,
+        target_user: target_id,
+    };
+    send_internal_quic_msg(server_addr, request).await?;
+
     Ok(CommonResponseNoDataRef::success_empty())
 }

@@ -3,7 +3,6 @@ use http_service::common::dto::base_dto::AuthAccount;
 use http_service::http_service::user_service::dto::friend_request_info_dto::FriendRequestInfoDTO;
 use http_service::utils::http_response::CommonResponseNoDataRef;
 use http_service::{get_uuid_from_header, respond_json_any};
-use quic_service::ConnectionsMap;
 use rbatis::RBatis;
 
 use crate::service::user_integrated_service::{add_user_with_notify, process_friend_with_notify};
@@ -17,14 +16,13 @@ pub fn user_integrated_service(cfg: &mut web::ServiceConfig) {
 pub async fn add_user_with_notify_api(
     req: HttpRequest,
     state: web::Data<RBatis>,
-    connections: web::Data<ConnectionsMap>,
     friend: web::Json<FriendRequestInfoDTO>,
 ) -> impl Responder {
     let me = get_uuid_from_header!(req);
     let mut friend = friend.into_inner();
     friend.request_user = me;
 
-    respond_json_any!(add_user_with_notify(state.as_ref(), friend, connections.as_ref()).await)
+    respond_json_any!(add_user_with_notify(state.as_ref(), friend).await)
 }
 
 /// 处理好友请求并通知
@@ -32,12 +30,11 @@ pub async fn add_user_with_notify_api(
 pub async fn process_friend_with_notify_api(
     req: HttpRequest,
     state: web::Data<RBatis>,
-    connections: web::Data<ConnectionsMap>,
     friend: web::Json<FriendRequestInfoDTO>,
 ) -> impl Responder {
     let me = get_uuid_from_header!(req);
     let mut friend = friend.into_inner();
     friend.accept_user = me;
-    let res = process_friend_with_notify(state.as_ref(), friend, connections.as_ref()).await;
+    let res = process_friend_with_notify(state.as_ref(), friend).await;
     respond_json_any!(res)
 }
