@@ -248,8 +248,51 @@ async fn handle_conn(
     info!("connection key: {}", connection_key);
 
     let now = get_now_time_stamp_as_millis().unwrap_or(0);
-    set_conn_info(uuid, conn, &connection_key, address, now, &connections, &config.server_name).await?;
+    set_conn_info(uuid, conn.clone(), &connection_key, address, now, &connections, &config.server_name).await?;
 
+    // 启动 uni stream 接收循环（客户端通过 open_uni 发送消息）
+    {
+        let conn_for_uni = conn.clone();
+        let conn_key = connection_key.clone();
+        let platform_clone = platform.clone();
+        let conns = connections.clone();
+        let current_uid = current_uuid.clone();
+        tokio::spawn(async move {
+            let uni_buffer_msg: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
+            loop {
+                match conn_for_uni.accept_uni().await {
+                    Ok(mut recv) => {
+                        let mut buf = vec![0u8; 1024 * 10];
+                        match recv.read(&mut buf).await {
+                            Ok(Some(length)) => {
+                                let _ = process_rec_msg(
+                                    &mut buf,
+                                    current_uid.clone(),
+                                    length,
+                                    &conn_key,
+                                    &platform_clone,
+                                    uni_buffer_msg.clone(),
+                                    head_length,
+                                    conns.clone(),
+                                )
+                                .await;
+                            }
+                            Ok(None) => {}
+                            Err(e) => {
+                                error!("[服务端] uni流读取错误: {}", e);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        error!("[服务端] uni accept 错误: {}", e);
+                        break;
+                    }
+                }
+            }
+        });
+    }
+
+    // 维持原有 bidi 接收循环（处理初始化 + 保持兼容）
     let buffer_msg: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
 
     loop {

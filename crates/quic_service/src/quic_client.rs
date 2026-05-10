@@ -35,7 +35,7 @@ pub async fn run_client(server_addr: SocketAddr) {
     send_stream.set_priority(0).expect("Failed to set priority"); // 设置优先级
     let head_length = 9;
     let buffer_msg: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
-    // 异步处理流中的数据（recv loop）
+    // bidi recv loop（初始化流接收）
     tokio::spawn(async move {
         let mut buffer = vec![0u8; 1024 * 8];
         loop {
@@ -67,6 +67,42 @@ pub async fn run_client(server_addr: SocketAddr) {
             }
         }
     });
+
+    // uni stream 接收循环（服务端通过 open_uni 推送消息）
+    {
+        let conn_for_uni = connection.clone();
+        tokio::spawn(async move {
+            let uni_buffer_msg: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
+            loop {
+                match conn_for_uni.accept_uni().await {
+                    Ok(mut recv) => {
+                        let mut buf = vec![0u8; 1024 * 8];
+                        match recv.read(&mut buf).await {
+                            Ok(Some(length)) => {
+                                let _ = process_rec_msg(
+                                    &mut buf,
+                                    length,
+                                    &ConnectionType::Text,
+                                    uni_buffer_msg.clone(),
+                                    head_length,
+                                )
+                                .await;
+                            }
+                            Ok(None) => {}
+                            Err(e) => {
+                                error!("[client] uni流读取错误: {}", e);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        error!("[client] uni accept 错误: {}", e);
+                        break;
+                    }
+                }
+            }
+        });
+    }
+
     match init_send_msg(send_stream, connection).await {
         Ok(_) => {
             info!("客户端初始化连接成功")
