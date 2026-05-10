@@ -81,3 +81,37 @@ pub async fn process_friend_with_notify(
 
     Ok(CommonResponseNoDataRef::success_empty())
 }
+
+/// 获取可用的外网 QUIC 服务器列表（从 Redis 读取）
+pub async fn get_quic_server_list() -> Result<String, anyhow::Error> {
+    use deadpool_redis::redis::AsyncCommands;
+    use entity::config_str::REDIS_EXTERNAL_QUIC_SERVERS;
+    use http_service::utils::http_response::CommonResponseRef;
+    use serde::Serialize;
+
+    let redis = entity::REDIS_CLIENT.read().await;
+    let redis = redis.as_ref().ok_or(anyhow!("Redis 未初始化"))?;
+    let mut conn = redis.get().await?;
+
+    let pattern = format!("{}*", REDIS_EXTERNAL_QUIC_SERVERS);
+    let keys: Vec<String> = conn.keys(&pattern).await?;
+
+    #[derive(Serialize)]
+    struct QuicServerInfo {
+        name: String,
+        address: String,
+    }
+
+    let mut servers = Vec::new();
+    for key in &keys {
+        let addr: String = conn.get(key).await?;
+        let name = key.replace(REDIS_EXTERNAL_QUIC_SERVERS, "");
+        servers.push(QuicServerInfo {
+            name,
+            address: addr,
+        });
+    }
+
+    CommonResponseRef::success_json(&servers)
+        .map_err(|e| anyhow!("序列化失败: {}", e))
+}

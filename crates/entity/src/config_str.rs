@@ -1,6 +1,7 @@
 // redis分隔符
 pub static REDIS_SPLIT: &str = ":";
 pub static REDIS_QUIC_SERVERS: &str = "QUIC:SERVER:";
+pub static REDIS_EXTERNAL_QUIC_SERVERS: &str = "QUIC:SERVER:EXTERNAL:";
 pub static REDIS_INTERNAL_QUIC_SERVERS: &str = "INTERNAL:QUIC:SERVER:";
 // 服务
 pub static SYSTEM: &str = "system";

@@ -63,6 +63,23 @@ pub async fn start_server() -> anyhow::Result<Arc<ChatNode>> {
 
     let connections = node.connections();
 
+    // 将外网 QUIC 服务注册到 Redis，供客户端发现
+    {
+        use deadpool_redis::redis::AsyncCommands;
+        use entity::config_str::REDIS_EXTERNAL_QUIC_SERVERS;
+        let redis = entity::REDIS_CLIENT.read().await;
+        if let Some(redis) = redis.as_ref() {
+            if let Ok(mut conn) = redis.get().await {
+                let server_addr = node.config().bind_address.to_string();
+                let key = format!("{}{}", REDIS_EXTERNAL_QUIC_SERVERS, node.config().server_name);
+                let _: Result<(), _> = conn
+                    .set_ex::<&str, &str, ()>(&key, &server_addr, 7200)
+                    .await;
+                info!("外网 QUIC 服务已注册到 Redis: key={} value={}", key, server_addr);
+            }
+        }
+    }
+
     // 启动 NAT UDP 服务（P2P 打洞）
     run_udp_server(connections.clone()).await?;
 
