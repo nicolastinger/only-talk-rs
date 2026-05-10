@@ -6,9 +6,9 @@ use entity::config_str::{PC_PLATFORM, PING, SYSTEM};
 use entity::utils::jwt_util::get_jwt;
 use entity::utils::message_types;
 use tracing::{error, info};
-use quinn::{Endpoint, SendStream};
+use quinn::{Connection, Endpoint, SendStream};
 use tokio::io::AsyncWriteExt;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::Mutex;
 
 use crate::models::first_quic_msg::FirstQuicMsg;
 use crate::models::quic_connection::ConnectionType;
@@ -29,13 +29,13 @@ pub async fn run_client(server_addr: SocketAddr) {
         .expect("Failed to connect to server");
     info!("[client] connected: addr={}", connection.remote_address()); // 打印连接成功的服务器地址
 
-    // 开启一个双向流
+    // 开启一个双向流用于初始化和接收
     let (send_stream, mut _recv_stream) =
         connection.open_bi().await.expect("Failed to open stream");
     send_stream.set_priority(0).expect("Failed to set priority"); // 设置优先级
     let head_length = 9;
     let buffer_msg: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
-    // 异步处理流中的数据
+    // 异步处理流中的数据（recv loop）
     tokio::spawn(async move {
         let mut buffer = vec![0u8; 1024 * 8];
         loop {
@@ -67,7 +67,7 @@ pub async fn run_client(server_addr: SocketAddr) {
             }
         }
     });
-    match init_send_msg(send_stream).await {
+    match init_send_msg(send_stream, connection).await {
         Ok(_) => {
             info!("客户端初始化连接成功")
         }
@@ -77,7 +77,7 @@ pub async fn run_client(server_addr: SocketAddr) {
     }
 }
 
-async fn init_send_msg(mut send_stream: SendStream) -> Result<(), anyhow::Error> {
+async fn init_send_msg(mut send_stream: SendStream, conn: Connection) -> Result<(), anyhow::Error> {
     // 发送消息给服务器
     let uuid = "01965d95-0ffc-7d23-911e-1111485fb9be".to_string();
     let mut first_quic_msg = FirstQuicMsg::new();
@@ -98,8 +98,6 @@ async fn init_send_msg(mut send_stream: SendStream) -> Result<(), anyhow::Error>
 
     tokio::time::sleep(Duration::from_secs(1)).await; //初始化一秒，防止连发元数据
 
-    let send_stream = Arc::new(RwLock::new(send_stream));
-
     let test_msg = generate_text_msg(
         message_types::MSG_TYPE_TEXT,
         "上山打老虎".as_bytes().to_vec(),
@@ -114,16 +112,16 @@ async fn init_send_msg(mut send_stream: SendStream) -> Result<(), anyhow::Error>
         uuid.clone(),
     )?;
 
-    send_msg(test_msg, send_stream.clone()).await?;
-    send_msg(test_msg2.clone(), send_stream.clone()).await?;
-    send_msg(test_msg2.clone(), send_stream.clone()).await?;
-    send_msg(test_msg2.clone(), send_stream.clone()).await?;
-    send_msg(test_msg2, send_stream.clone()).await?;
+    // 按需开流发送测试消息
+    send_via_new_stream(&conn, &test_msg).await?;
+    send_via_new_stream(&conn, &test_msg2).await?;
+    send_via_new_stream(&conn, &test_msg2).await?;
+    send_via_new_stream(&conn, &test_msg2).await?;
+    send_via_new_stream(&conn, &test_msg2).await?;
 
-    let send_stream_ping = send_stream.clone();
+    // 心跳循环 - 按需开流
     tokio::spawn(async move {
         loop {
-            //一分钟发送心跳
             tokio::time::sleep(Duration::from_secs(60)).await;
             let ping_msg = generate_text_msg(
                 message_types::MSG_TYPE_PING,
@@ -132,7 +130,7 @@ async fn init_send_msg(mut send_stream: SendStream) -> Result<(), anyhow::Error>
                 uuid.clone(),
             )
             .expect("");
-            match send_stream_ping.write().await.write_all(&ping_msg).await {
+            match send_via_new_stream(&conn, &ping_msg).await {
                 Ok(_) => {
                     info!("发送成功");
                 }
@@ -145,13 +143,12 @@ async fn init_send_msg(mut send_stream: SendStream) -> Result<(), anyhow::Error>
     Ok(())
 }
 
-//发送文本信息
-async fn send_msg(
-    text_msg: Vec<u8>,
-    send_stream: Arc<RwLock<SendStream>>,
-) -> Result<String, anyhow::Error> {
-    send_stream.write().await.write_all(&text_msg).await?;
-    Ok("success".to_string())
+/// 按需开流发送数据
+async fn send_via_new_stream(conn: &Connection, data: &[u8]) -> Result<(), anyhow::Error> {
+    let mut send = conn.open_uni().await?;
+    send.write_all(data).await?;
+    send.finish().await?;
+    Ok(())
 }
 
 async fn process_rec_msg(

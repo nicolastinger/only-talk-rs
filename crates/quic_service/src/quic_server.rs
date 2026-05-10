@@ -14,7 +14,7 @@ use tracing::{error, info};
 use quinn::{Connection, Endpoint, RecvStream, SendStream};
 use rbatis::dark_std::err;
 use rbs::value;
-use tokio::sync::{Mutex, RwLock, watch};
+use tokio::sync::{Mutex, watch};
 use entity::utils::sql_utils::get_sql_client;
 use crate::config::ChatNodeConfig;
 use crate::models::first_quic_msg::FirstQuicMsg;
@@ -73,20 +73,21 @@ pub(crate) async fn run_server(
 }
 
 async fn handle_connection(
-    conn: Connection,
+    quic_conn: Connection,
     connections: Arc<DashMap<String, QuicConnection>>,
     config: ChatNodeConfig,
 ) -> Result<(), anyhow::Error> {
-    info!("新连接来源: {:?}", conn.remote_address());
+    info!("新连接来源: {:?}", quic_conn.remote_address());
 
     loop {
-        match conn.accept_bi().await {
+        match quic_conn.accept_bi().await {
             Ok((send_stream, recv_stream)) => {
-                let address = conn.remote_address().to_string().clone();
+                let address = quic_conn.remote_address().to_string().clone();
                 let conns = connections.clone();
                 let cfg = config.clone();
+                let conn_handle = quic_conn.clone();
                 tokio::spawn(async move {
-                    handle_conn(send_stream, recv_stream, address, conns, cfg)
+                    handle_conn(send_stream, recv_stream, conn_handle, address, conns, cfg)
                         .await
                         .unwrap_or_else(|x| error!("初始化连接失败 {}", x));
                 });
@@ -185,7 +186,7 @@ async fn verify_max_client(
 /// 记录连接信息
 async fn set_conn_info(
     uuid: String,
-    send_stream: Arc<RwLock<SendStream>>,
+    conn: Connection,
     connection_key: &str,
     address: String,
     now: i64,
@@ -196,7 +197,7 @@ async fn set_conn_info(
         is_online: true,
         uuid,
         connection_type: ConnectionType::Text,
-        send_stream: send_stream.clone(),
+        conn,
         create_time: now as u64,
         update_time: now as u64,
         ipv4addr: address,
@@ -222,6 +223,7 @@ async fn set_conn_info(
 async fn handle_conn(
     mut send_stream: SendStream,
     mut recv_stream: RecvStream,
+    conn: Connection,
     address: String,
     connections: Arc<DashMap<String, QuicConnection>>,
     config: ChatNodeConfig,
@@ -238,17 +240,15 @@ async fn handle_conn(
     user_online(&uuid, &platform).await?;
     let current_uuid = uuid.clone();
 
-    let msg_type = first_quic_msg.msg_type.clone();
+    let _msg_type = first_quic_msg.msg_type.clone();
 
     let connection_key =
         format!("{}{}{}{}{}", platform, ":QUIC:SERVER:", uuid, ":", first_quic_msg.msg_type);
     let connection_key = connection_key.to_uppercase();
     info!("connection key: {}", connection_key);
 
-    //通过原子计数和异步锁共享变量
-    let send_stream = Arc::new(RwLock::new(send_stream));
     let now = get_now_time_stamp_as_millis().unwrap_or(0);
-    set_conn_info(uuid, send_stream, &connection_key, address, now, &connections, &config.server_name).await?;
+    set_conn_info(uuid, conn, &connection_key, address, now, &connections, &config.server_name).await?;
 
     let buffer_msg: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
 
@@ -394,7 +394,7 @@ async fn user_offline(uuid: String) -> std::result::Result<(), anyhow::Error> {
 }
 
 /// 用户上线
-async fn user_online(uuid: &str, platform: &str) -> std::result::Result<(), anyhow::Error> {
+async fn user_online(uuid: &str, _platform: &str) -> std::result::Result<(), anyhow::Error> {
     info!("用户上线 {}", uuid);
     // TODO
     // 1.设置redis分布式锁，防止用户上线的同时立马下线

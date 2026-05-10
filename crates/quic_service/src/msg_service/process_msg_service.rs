@@ -9,9 +9,9 @@ use entity::utils::message_types;
 use entity::utils::time::get_now_time_stamp_as_millis;
 use tracing::{error, info, warn};
 use nanoid::nanoid;
-use quinn::SendStream;
+use quinn::Connection;
 use rbatis::rbdc::{Bytes, Uuid};
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::Mutex;
 
 use crate::models::quic_connection::{ConnectionType, QuicConnection};
 use crate::models::text_msg::TextQuicMsg;
@@ -29,23 +29,18 @@ pub async fn process_rec_msg(
     head_length: usize,
     connections: Arc<DashMap<String, QuicConnection>>,
 ) -> anyhow::Result<()> {
-    let my_send_stream = {
-        let send = connections.get(connection_key).ok_or(anyhow!("连接不可用"))?;
-        send.send_stream.clone()
-    };
-
     let text_vec = get_text_msg(buffer, length, buffer_msg, head_length).await?;
     info!("接收到客户端信息 {:?}", text_vec);
-    process_text_msg(my_send_stream, text_vec, uuid, platform, &connections).await?;
+    process_text_msg(text_vec, uuid, platform, connection_key, &connections).await?;
 
     Ok(())
 }
 
 async fn process_text_msg(
-    send_stream: Arc<RwLock<SendStream>>,
     text_quic_msg: Vec<TextQuicMsg>,
     uuid: String,
     platform: &str,
+    connection_key: &str,
     connections: &Arc<DashMap<String, QuicConnection>>,
 ) -> anyhow::Result<()> {
     for mut text_msg in text_quic_msg.into_iter() {
@@ -55,8 +50,7 @@ async fn process_text_msg(
         }
         // 心跳消息
         if text_msg.text_type == message_types::MSG_TYPE_PING {
-            // 发送ping
-            send_ping(send_stream.clone(), text_msg.send_user).await?;
+            send_ping(connection_key, text_msg.send_user, connections).await?;
             continue;
         }
 
@@ -69,12 +63,13 @@ async fn process_text_msg(
 
 
         let text_msg_clone = text_msg.clone();
-        let send_stream_clone = send_stream.clone();
+        let conn_key = connection_key.to_string();
+        let conns = connections.clone();
         tokio::spawn(async move {
             let current_user = text_msg_clone.send_user.clone();
             add_user_chat_record(text_msg_clone).await.expect("插入用户消息失败");
             // 发送ack消息
-            send_msg_record_success(ack_nano_id, send_stream_clone, current_user, ack_raw_id, now)
+            send_msg_record_success(ack_nano_id, &conn_key, current_user, ack_raw_id, now, &conns)
                 .await
                 .expect("发送ack消息失败");
         });
@@ -128,10 +123,10 @@ async fn send_msg_to_user_by_platform(
     );
     let user_key = user_key.to_uppercase();
 
-    // 目标用户的发送流
-    let target_send_stream: Option<Arc<RwLock<SendStream>>> = {
+    // 获取目标用户的 Connection，按需开流发送
+    let conn: Option<Connection> = {
         match connections.get(&user_key) {
-            Some(s) => Some(s.send_stream.clone()),
+            Some(s) => Some(s.conn.clone()),
             None => {
                 warn!("当前用户不在线: {}", user_key);
                 None
@@ -139,17 +134,19 @@ async fn send_msg_to_user_by_platform(
         }
     };
 
-    if let Some(target_send_stream) = target_send_stream {
-        // 发送消息
-        target_send_stream.write().await.write_all(res).await.expect("发送消息失败");
+    if let Some(conn) = conn {
+        let mut send = conn.open_uni().await?;
+        send.write_all(res).await?;
+        send.finish().await?;
     }
     Ok(())
 }
 
 /// 发送连接心跳
 async fn send_ping(
-    send_stream: Arc<RwLock<SendStream>>,
+    connection_key: &str,
     current_user: String,
+    connections: &Arc<DashMap<String, QuicConnection>>,
 ) -> anyhow::Result<()> {
     let ping_msg = generate_text_msg(
         message_types::MSG_TYPE_PING,
@@ -157,28 +154,23 @@ async fn send_ping(
         current_user,
         SYSTEM.to_string(),
     )?;
-    send_stream.write().await.write_all(ping_msg.as_ref()).await?;
+
+    if let Some(entry) = connections.get(connection_key) {
+        let mut send = entry.conn.open_uni().await?;
+        send.write_all(ping_msg.as_ref()).await?;
+        send.finish().await?;
+    }
     Ok(())
 }
-
-/// 传递用户消息
-async fn pass_text_msg(
-    recv_send_stream: Arc<RwLock<SendStream>>,
-    text_msg: TextQuicMsg,
-) -> anyhow::Result<()> {
-    
-    
-    Ok(())
-}
-
 
 /// 发送ack消息
 async fn send_msg_record_success(
     nano_id: String,
-    send_stream: Arc<RwLock<SendStream>>,
+    connection_key: &str,
     current_user: String,
     nanoid: String,
     timestamp: i64,
+    connections: &Arc<DashMap<String, QuicConnection>>,
 ) -> anyhow::Result<()> {
     let res = generate_text_msg_with_time(
         nano_id,
@@ -188,16 +180,22 @@ async fn send_msg_record_success(
         SYSTEM.to_string(),
         timestamp,
     )?;
-    send_stream.write().await.write_all(&res).await?;
+
+    if let Some(entry) = connections.get(connection_key) {
+        let mut send = entry.conn.open_uni().await?;
+        send.write_all(&res).await?;
+        send.finish().await?;
+    }
     Ok(())
 }
 
 /// 记录失败消息
 #[allow(dead_code)]
 async fn send_msg_record_failure(
-    send_stream: Arc<RwLock<SendStream>>,
+    connection_key: &str,
     current_user: String,
     nanoid: String,
+    connections: &Arc<DashMap<String, QuicConnection>>,
 ) -> anyhow::Result<()> {
     let res = generate_text_msg(
         message_types::MSG_TYPE_RECALL_FAILURE,
@@ -205,7 +203,12 @@ async fn send_msg_record_failure(
         current_user,
         SYSTEM.to_string(),
     )?;
-    send_stream.write().await.write_all(&res).await?;
+
+    if let Some(entry) = connections.get(connection_key) {
+        let mut send = entry.conn.open_uni().await?;
+        send.write_all(&res).await?;
+        send.finish().await?;
+    }
     Ok(())
 }
 

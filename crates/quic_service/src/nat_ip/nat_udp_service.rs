@@ -9,7 +9,7 @@ use entity::utils::message_types;
 use entity::utils::redis_utils::{acquire_lock, get_redis_conn, release_lock};
 use tracing::{error, info, warn};
 use crate::models::quic_connection::{ConnectionType, QuicConnection};
-use crate::msg_service::get_send_stream_by_uuid;
+use crate::msg_service::get_connection_by_uuid;
 use crate::msg_service::text_msg_service::generate_text_msg;
 use tokio::net::UdpSocket;
 use tokio::signal;
@@ -269,7 +269,7 @@ async fn process_p2p_user_info(
                             }
                         };
                         {
-                            let my_send_stream = get_send_stream_by_uuid(
+                            let conn = get_connection_by_uuid(
                                 &target_user_address_info.uuid,
                                 &ConnectionType::Text.to_string(),
                                 &connections,
@@ -283,11 +283,13 @@ async fn process_p2p_user_info(
                                 target_user_address_info.uuid.clone(),
                                 SYSTEM.to_string(),
                             )?;
-                            my_send_stream.write().await.write_all(&msg_raw).await?;
+                            let mut send = conn.open_uni().await?;
+                            send.write_all(&msg_raw).await?;
+                            send.finish().await?;
                         }
 
                         {
-                            let my_send_stream = get_send_stream_by_uuid(
+                            let conn = get_connection_by_uuid(
                                 &user_address_info.uuid,
                                 &ConnectionType::Text.to_string(),
                                 &connections,
@@ -305,7 +307,9 @@ async fn process_p2p_user_info(
                                 user_address_info.uuid.clone(),
                                 SYSTEM.to_string(),
                             )?;
-                            my_send_stream.write().await.write_all(&msg_raw).await?;
+                            let mut send = conn.open_uni().await?;
+                            send.write_all(&msg_raw).await?;
+                            send.finish().await?;
                         }
                     }
                     info!("转发建立p2p信息完成");

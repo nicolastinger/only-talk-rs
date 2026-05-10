@@ -14,7 +14,7 @@ pub async fn send_quic_system_msg(
     text: String,
     connections: &Arc<DashMap<String, QuicConnection>>,
 ) -> anyhow::Result<()> {
-    // 目标用户的发送流
+    // 目标用户的连接
     let user_key = format!(
         "{}{}{}{}",
         REDIS_QUIC_SERVERS,
@@ -23,9 +23,9 @@ pub async fn send_quic_system_msg(
         ConnectionType::Text
     );
     let user_key = user_key.to_uppercase();
-    let send_stream = {
+    let conn = {
         match connections.get(&user_key) {
-            Some(s) => Some(s.send_stream.clone()),
+            Some(s) => Some(s.conn.clone()),
             None => {
                 error!("当前用户不在线: {}", user_key);
                 return Ok(());
@@ -34,9 +34,10 @@ pub async fn send_quic_system_msg(
     };
     let res =
         generate_text_msg(msg_type, text.as_bytes().to_vec(), current_user, SYSTEM.to_string())?;
-    if let Some(target_send_stream) = send_stream {
-        // 处理在线消息
-        target_send_stream.write().await.write_all(&res).await?;
+    if let Some(conn) = conn {
+        let mut send = conn.open_uni().await?;
+        send.write_all(&res).await?;
+        send.finish().await?;
     }
     Ok(())
 }
