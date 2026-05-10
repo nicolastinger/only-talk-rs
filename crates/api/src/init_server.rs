@@ -20,9 +20,6 @@ use rustls::{Certificate, PrivateKey, ServerConfig};
 use rustls_pemfile::{certs, ec_private_keys, pkcs8_private_keys, rsa_private_keys};
 use toml::Value;
 
-use quic_service::internal_config::InternalQuicConfig;
-use quic_service::internal_quic_server::run_internal_server;
-
 use crate::controller::configure_api_routes;
 
 async fn verify_redis(pool: &Pool) {
@@ -172,10 +169,8 @@ fn substitute_env_vars(content: String) -> String {
     result
 }
 
-pub use quic_service::ConnectionsMap;
-
 ///初始化服务
-pub async fn start_server(connections: ConnectionsMap) -> anyhow::Result<()> {
+pub async fn start_server() -> anyhow::Result<()> {
     // 创建公开文件夹
     let pub_file_path = USER_FILE_PUBLIC_DIR;
     if !std::path::Path::new(pub_file_path).exists() {
@@ -215,14 +210,6 @@ pub async fn start_server(connections: ConnectionsMap) -> anyhow::Result<()> {
     let redis_pool = init_redis(&redis_url)?;
     verify_redis(&redis_pool).await;
 
-    // 启动内网 QUIC 服务 (Redis 已就绪)
-    let internal_config = InternalQuicConfig::from_toml("./config/app_config.toml")?;
-    let (_internal_shutdown_tx, internal_shutdown_rx) = tokio::sync::watch::channel(false);
-    let internal_connections = connections.clone();
-    tokio::spawn(async move {
-        run_internal_server(internal_config, internal_connections, internal_shutdown_rx).await;
-    });
-
     // 初始化S3客户端
     let s3_client = init_s3_client().await;
 
@@ -240,7 +227,6 @@ pub async fn start_server(connections: ConnectionsMap) -> anyhow::Result<()> {
         }
     };
 
-    let conns = connections.clone();
     HttpServer::new(move || {
         App::new()
             .wrap(TraceIdMiddleware)
@@ -248,7 +234,6 @@ pub async fn start_server(connections: ConnectionsMap) -> anyhow::Result<()> {
             .app_data(web::Data::new(redis_pool.clone()))
             .app_data(web::Data::new(pool.clone()))
             .app_data(s3_data.clone())
-            .app_data(web::Data::new(conns.clone()))
             .wrap(middleware::Logger::default())
             .configure(http_service::http_service::configure_routes)
             .configure(configure_api_routes)

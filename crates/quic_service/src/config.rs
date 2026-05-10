@@ -41,7 +41,12 @@ impl ChatNodeConfig {
     pub fn from_toml(path: &str) -> Result<Self, ServiceError> {
         let content = fs::read_to_string(path)
             .map_err(|e| ServiceError::Config(format!("读取配置文件失败: {}", e)))?;
-        let config_map: toml::Value = toml::from_str(&content)
+        Self::from_toml_str(&content)
+    }
+
+    /// 从 TOML 字符串解析配置（调用方需先完成环境变量替换）
+    pub fn from_toml_str(content: &str) -> Result<Self, ServiceError> {
+        let config_map: toml::Value = toml::from_str(content)
             .map_err(|e| ServiceError::Config(format!("解析TOML配置失败: {}", e)))?;
 
         let quic = config_map

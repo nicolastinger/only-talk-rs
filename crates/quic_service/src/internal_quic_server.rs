@@ -137,8 +137,7 @@ pub async fn run_internal_server(
     };
 
     if let Err(e) = register_to_redis(&config).await {
-        error!("[内网QUIC] 注册到 Redis 失败: {}", e);
-        return;
+        tracing::warn!("[内网QUIC] 注册到 Redis 失败 (非致命): {}", e);
     }
 
     info!(

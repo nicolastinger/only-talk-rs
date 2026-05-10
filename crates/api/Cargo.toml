@@ -30,6 +30,7 @@ uuid = { workspace = true }
 actix-multipart = { workspace = true }
 tokio = { workspace = true }
 futures-util = { workspace = true }
+dotenvy = "0.15"
 futures = "0.3.31"
 
 
