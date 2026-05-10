@@ -30,7 +30,7 @@ pub async fn run_client(server_addr: SocketAddr) {
     info!("[client] connected: addr={}", connection.remote_address()); // 打印连接成功的服务器地址
 
     // 开启一个双向流用于初始化和接收
-    let (send_stream, mut _recv_stream) =
+    let (mut send_stream, mut _recv_stream) =
         connection.open_bi().await.expect("Failed to open stream");
     send_stream.set_priority(0).expect("Failed to set priority"); // 设置优先级
     let head_length = 9;
@@ -103,7 +103,7 @@ pub async fn run_client(server_addr: SocketAddr) {
         });
     }
 
-    match init_send_msg(send_stream, connection).await {
+    match init_send_msg(&mut send_stream, connection).await {
         Ok(_) => {
             info!("客户端初始化连接成功")
         }
@@ -111,9 +111,15 @@ pub async fn run_client(server_addr: SocketAddr) {
             error!("客户端初始化连接失败")
         }
     }
+
+    // 保持 bidi send half 存活，防止服务端看到流关闭而下线
+    tokio::spawn(async move {
+        let _keep = send_stream;
+        std::future::pending::<()>().await;
+    });
 }
 
-async fn init_send_msg(mut send_stream: SendStream, conn: Connection) -> Result<(), anyhow::Error> {
+async fn init_send_msg(send_stream: &mut SendStream, conn: Connection) -> Result<(), anyhow::Error> {
     // 发送消息给服务器
     let uuid = "01965d95-0ffc-7d23-911e-1111485fb9be".to_string();
     let mut first_quic_msg = FirstQuicMsg::new();
