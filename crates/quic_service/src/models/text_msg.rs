@@ -18,8 +18,8 @@ pub enum MessageType {
     RecallSuccess = 201, //接受解析成功
     RecallFailure = 202, //接收解析失败
 
-    P2pUserServer = 203, //作为p2p服务端发起
-    P2pUserClient = 204, //作为p2p客户端
+    P2pUserServer = 203, // 通知作为 P2P 服务端（NAT 发现后服务端下发）
+    P2pUserClient = 204, // 通知作为 P2P 客户端（NAT 发现后服务端下发）
     System = 10001,      // 系统通知信息
 }
 

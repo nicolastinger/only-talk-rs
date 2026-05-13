@@ -9,16 +9,16 @@ pub const MSG_TYPE_IMAGE: u16 = 2;
 /// 文件消息
 pub const MSG_TYPE_FILE: u16 = 3;
 
-/// P2P消息
+/// P2P 消息（客户端直连通信，服务端仅转发）
 pub const MSG_TYPE_P2P: u16 = 4;
 
-/// P2P视频呼叫
+/// P2P 视频呼叫（客户端直连，服务端仅转发）
 pub const MSG_TYPE_P2P_VIDEO_CALL: u16 = 5;
 
-/// P2P视频数据
+/// P2P 视频数据（客户端直连，服务端仅转发）
 pub const MSG_TYPE_P2P_VIDEO_DATA: u16 = 6;
 
-/// P2P视频配置
+/// P2P 视频配置（客户端直连，服务端仅转发）
 pub const MSG_TYPE_P2P_VIDEO_CONFIG: u16 = 7;
 
 /// 心跳消息(Ping)
@@ -30,10 +30,10 @@ pub const MSG_TYPE_RECALL_SUCCESS: u16 = 201;
 /// 消息接收失败回执
 pub const MSG_TYPE_RECALL_FAILURE: u16 = 202;
 
-/// P2P服务端发起
+/// 通知客户端作为 P2P 连接的服务端（NAT 发现后由服务端下发）
 pub const MSG_TYPE_P2P_USER_SERVER: u16 = 203;
 
-/// P2P客户端
+/// 通知客户端作为 P2P 连接的客户端（NAT 发现后由服务端下发）
 pub const MSG_TYPE_P2P_USER_CLIENT: u16 = 204;
 
 /// 通知消息

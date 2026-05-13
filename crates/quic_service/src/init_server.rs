@@ -80,7 +80,7 @@ pub async fn start_server() -> anyhow::Result<Arc<ChatNode>> {
         }
     }
 
-    // 启动 NAT UDP 服务（P2P 打洞）
+    // 启动 NAT 发现 + 客户端 P2P 请求转发 UDP 服务
     run_udp_server(connections.clone()).await?;
 
     // 启动内网 QUIC 服务

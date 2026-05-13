@@ -82,7 +82,7 @@ pub async fn get_p2p_udp_socket_with_shutdown(
     connections: Arc<DashMap<String, QuicConnection>>,
 ) -> anyhow::Result<()> {
     let socket = UdpSocket::bind(address).await?;
-    info!("nat服务端已启动，监听地址 {}", address);
+    info!("NAT 发现 + 客户端 P2P 请求转发服务已启动，监听地址 {}", address);
 
     let mut buf = [0u8; 1024];
 
@@ -111,11 +111,11 @@ pub async fn get_p2p_udp_socket_with_shutdown(
                               let conns = connections.clone();
                               let ip = ip_type.clone();
                               process_p2p_user_info(udp_addr, ip, msg, conns).await.unwrap_or_else(|err| {
-                                error!("处理用户p2p连接失败 {}", err);
+                                error!("处理 NAT 发现 / P2P 请求转发失败 {}", err);
                             })
                            },
                            Err(e) => {
-                            error!("序列化p2p信息失败，来源{}:{},{}", client_ip, client_port, e);
+                            error!("序列化 NAT 地址信息失败，来源{}:{},{}", client_ip, client_port, e);
                             buf[..size].fill(0);
                             continue;
                            }
@@ -131,7 +131,7 @@ pub async fn get_p2p_udp_socket_with_shutdown(
 
 pub async fn get_p2p_udp_socket(address: &str, ip_type: String, connections: Arc<DashMap<String, QuicConnection>>) -> anyhow::Result<()> {
     let socket = UdpSocket::bind(address).await?;
-    info!("nat服务端已启动，监听地址 {}", address);
+    info!("NAT 发现 + 客户端 P2P 请求转发服务已启动，监听地址 {}", address);
 
     let mut buf = [0u8; 1024];
 
@@ -154,11 +154,11 @@ pub async fn get_p2p_udp_socket(address: &str, ip_type: String, connections: Arc
                               let conns = connections.clone();
                               let ip = ip_type.clone();
                               process_p2p_user_info(udp_addr, ip, msg, conns).await.unwrap_or_else(|err| {
-                                error!("处理用户p2p连接失败 {}", err);
+                                error!("处理 NAT 发现 / P2P 请求转发失败 {}", err);
                             })
                            },
                            Err(e) => {
-                            error!("序列化p2p信息失败，来源{}:{},{}", client_ip, client_port, e);
+                            error!("序列化 NAT 地址信息失败，来源{}:{},{}", client_ip, client_port, e);
                             buf[..size].fill(0);
                             continue;
                            }
@@ -312,7 +312,7 @@ async fn process_p2p_user_info(
                             send.finish().await?;
                         }
                     }
-                    info!("转发建立p2p信息完成");
+                    info!("转发建立 P2P 连接信息完成");
                     return Ok(());
                 }
                 Err(e) => {
