@@ -5,7 +5,7 @@ use actix_web::body::MessageBody;
 use actix_web::dev::{ServiceRequest, ServiceResponse};
 use actix_web::middleware::Next;
 use actix_web::{Error, HttpMessage};
-use entity::utils::jwt_util::decode_jwt;
+use common::utils::jwt_util::decode_jwt;
 use lazy_static::lazy_static;
 use tracing::info;
 

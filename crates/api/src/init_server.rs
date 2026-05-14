@@ -8,8 +8,8 @@ use actix_files::Files;
 use actix_web::middleware::from_fn;
 use actix_web::{App, HttpServer, middleware, web};
 use deadpool_redis::Pool;
-use entity::config_str::{USER_FILE_PUBLIC, USER_FILE_PUBLIC_DIR};
-use entity::{init_global_config, init_redis, init_sql_pool, read_global_config};
+use common::config_str::{USER_FILE_PUBLIC, USER_FILE_PUBLIC_DIR};
+use common::{init_global_config, init_redis, init_sql_pool, read_global_config};
 use http_service;
 use http_service::middleware::TraceIdMiddleware;
 use http_service::utils::record_bad_http::error_record_middleware;
@@ -118,7 +118,7 @@ fn init_cert_file() -> (Vec<Certificate>, PrivateKey) {
 /// 初始化S3客户端
 async fn init_s3_client() -> Option<Arc<s3_service::S3Client>> {
     // 尝试读取S3配置
-    let enabled = entity::config_manager::get_config("s3.enabled")
+    let enabled = common::config_manager::get_config("s3.enabled")
         .unwrap_or_else(|| "false".to_string())
         .parse::<bool>()
         .unwrap_or(false);

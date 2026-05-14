@@ -1,9 +1,12 @@
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::net::SocketAddr;
 
 use anyhow::anyhow;
-use entity::utils::message_types::NOTIFY_TYPE_MSG;
-use entity::models::internal_quic_msg::InternalQuicRequest;
-use entity::read_global_config;
+use common::utils::message_types::NOTIFY_TYPE_MSG;
+use common::utils::internal_quic_msg::{InternalQuicRequest, RequestSource};
+use common::utils::server_count_sync::get_server_count;
+use common::read_global_config;
 use http_service::http_service::notify_service::service::system_notification::{
     send_process_friend_msg, send_request_friend_msg,
 };
@@ -13,7 +16,18 @@ use http_service::http_service::user_service::service::friend_service::{
 };
 use http_service::utils::http_response::CommonResponseNoDataRef;
 use rbatis::RBatis;
-use entity::utils::internal_quic_client::send_internal_quic_msg;
+use common::utils::internal_quic_client::send_internal_quic_msg;
+
+/// hash 取模计算首选节点序号
+fn compute_preferred_index(uuid: &str) -> u32 {
+    let sc = get_server_count();
+    if sc <= 1 {
+        return 0;
+    }
+    let mut hasher = DefaultHasher::new();
+    uuid.hash(&mut hasher);
+    (hasher.finish() as u32) % sc
+}
 
 pub async fn add_user_with_notify(
     rb: &RBatis,
@@ -34,15 +48,20 @@ pub async fn add_user_with_notify(
     )
     .await?;
     let json_str: String = serde_json::to_string(&quic_msg)?;
-    let target_id = quic_msg.user_id.ok_or(anyhow!("请填写申请理由"))?.to_string();
+    let target_id_str = quic_msg.user_id.ok_or(anyhow!("请填写申请理由"))?.to_string();
 
     // 3 通过内网QUIC服务转发通知
     let addr_str = read_global_config!("internal_quic_server", "address");
     let server_addr: SocketAddr = addr_str.parse()?;
+    let preferred_index = compute_preferred_index(&target_id_str);
     let request = InternalQuicRequest {
         msg_type: NOTIFY_TYPE_MSG,
         payload: json_str,
-        target_user: target_id,
+        target_user: target_id_str,
+        preferred_index,
+        platform: common::config_str::PC_PLATFORM.to_string(),
+        source: RequestSource::HttpApi,
+        ttl: 3,
     };
     send_internal_quic_msg(server_addr, request).await?;
 
@@ -67,51 +86,52 @@ pub async fn process_friend_with_notify(
     )
     .await?;
     let json_str: String = serde_json::to_string(&quic_msg)?;
-    let target_id = quic_msg.user_id.ok_or(anyhow!("请填写申请理由"))?.to_string();
+    let target_id_str = quic_msg.user_id.ok_or(anyhow!("请填写申请理由"))?.to_string();
 
     // 3、通过内网QUIC服务转发通知
     let addr_str = read_global_config!("internal_quic_server", "address");
     let server_addr: SocketAddr = addr_str.parse()?;
+    let preferred_index = compute_preferred_index(&target_id_str);
     let request = InternalQuicRequest {
         msg_type: NOTIFY_TYPE_MSG,
         payload: json_str,
-        target_user: target_id,
+        target_user: target_id_str,
+        preferred_index,
+        platform: common::config_str::PC_PLATFORM.to_string(),
+        source: RequestSource::HttpApi,
+        ttl: 3,
     };
     send_internal_quic_msg(server_addr, request).await?;
 
     Ok(CommonResponseNoDataRef::success_empty())
 }
 
-/// 获取可用的外网 QUIC 服务器列表（从 Redis 读取）
-pub async fn get_quic_server_list() -> Result<String, anyhow::Error> {
+/// 获取分配给当前用户的外网 QUIC 节点地址（hash 取模）
+pub async fn get_quic_server_for_user(uuid: &str) -> Result<String, anyhow::Error> {
     use deadpool_redis::redis::AsyncCommands;
-    use entity::config_str::REDIS_EXTERNAL_QUIC_SERVERS;
+    use common::config_str::REDIS_EXTERNAL_QUIC_SERVERS;
+    use common::utils::server_count_sync::get_server_count;
     use http_service::utils::http_response::CommonResponseRef;
     use serde::Serialize;
-
-    let redis = entity::REDIS_CLIENT.read().await;
-    let redis = redis.as_ref().ok_or(anyhow!("Redis 未初始化"))?;
-    let mut conn = redis.get().await?;
-
-    let pattern = format!("{}*", REDIS_EXTERNAL_QUIC_SERVERS);
-    let keys: Vec<String> = conn.keys(&pattern).await?;
+    use tracing::info;
 
     #[derive(Serialize)]
     struct QuicServerInfo {
-        name: String,
+        index: u32,
         address: String,
     }
 
-    let mut servers = Vec::new();
-    for key in &keys {
-        let addr: String = conn.get(key).await?;
-        let name = key.replace(REDIS_EXTERNAL_QUIC_SERVERS, "");
-        servers.push(QuicServerInfo {
-            name,
-            address: addr,
-        });
-    }
+    let sc = get_server_count();
+    let index = compute_preferred_index(uuid);
+    info!("quic节点分配: server_count={} uuid={} index={}", sc, uuid, index);
 
-    CommonResponseRef::success_json(&servers)
-        .map_err(|e| anyhow!("序列化失败: {}", e))
+    let redis = common::REDIS_CLIENT.read().await;
+    let redis = redis.as_ref().ok_or(anyhow!("Redis 未初始化"))?;
+    let mut conn = redis.get().await?;
+
+    let key = format!("{}{}", REDIS_EXTERNAL_QUIC_SERVERS, index);
+    let address: String = conn.get(&key).await?;
+
+    let info = QuicServerInfo { index, address };
+    CommonResponseRef::success_json(&info).map_err(|e| anyhow!("序列化失败: {}", e))
 }

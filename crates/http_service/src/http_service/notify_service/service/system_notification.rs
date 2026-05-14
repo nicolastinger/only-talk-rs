@@ -1,8 +1,8 @@
 use std::str::FromStr;
 
 use anyhow::anyhow;
-use entity::models::notify_entity::system_notification::SystemNotification;
-use entity::utils::time::get_now_time_stamp_as_millis;
+use common::models::notify_entity::system_notification::SystemNotification;
+use common::utils::time::get_now_time_stamp_as_millis;
 use rbatis::RBatis;
 use uuid::Uuid;
 

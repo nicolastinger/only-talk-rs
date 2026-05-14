@@ -1,10 +1,10 @@
 use std::str::FromStr;
 
 use anyhow::anyhow;
-use entity::models::user_entity::basic_user::is_exist_user_by_uuid;
-use entity::models::user_entity::friend_link::FriendLink;
-use entity::models::user_entity::friend_request_info::FriendRequestInfo;
-use entity::utils::time::get_now_time_stamp_as_millis;
+use common::models::user_entity::basic_user::is_exist_user_by_uuid;
+use common::models::user_entity::friend_link::FriendLink;
+use common::models::user_entity::friend_request_info::FriendRequestInfo;
+use common::utils::time::get_now_time_stamp_as_millis;
 use rbatis::RBatis;
 use rbs::value;
 use uuid::Uuid;

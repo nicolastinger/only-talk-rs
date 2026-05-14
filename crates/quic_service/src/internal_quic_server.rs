@@ -5,9 +5,9 @@ use std::time::Duration;
 use anyhow::Result;
 use dashmap::DashMap;
 use deadpool_redis::redis::AsyncCommands;
-use entity::config_str::REDIS_INTERNAL_QUIC_SERVERS;
-use entity::models::internal_quic_msg::{InternalQuicRequest, InternalQuicResponse};
-use entity::REDIS_CLIENT;
+use common::config_str::REDIS_INTERNAL_QUIC_SERVERS;
+use common::utils::internal_quic_msg::{InternalQuicRequest, InternalQuicResponse};
+use common::REDIS_CLIENT;
 use quinn::{Endpoint, RecvStream, SendStream, ServerConfig};
 use rcgen::KeyPair;
 use rustls::{Certificate, PrivateKey};
@@ -15,8 +15,8 @@ use tokio::sync::watch;
 use tracing::{error, info};
 
 use crate::internal_config::InternalQuicConfig;
+use crate::internal_router::route_request;
 use crate::models::quic_connection::QuicConnection;
-use crate::msg_service::send_msg::send_quic_system_msg;
 
 /// 生成自签名证书 (无需配置文件证书)
 fn generate_self_signed_cert() -> Result<(Vec<Certificate>, PrivateKey), Box<dyn std::error::Error>> {
@@ -39,13 +39,14 @@ fn make_internal_endpoint(bind_addr: SocketAddr) -> Result<Endpoint, Box<dyn std
     Ok(endpoint)
 }
 
-/// 处理单条内网 QUIC 请求：读取消息 → 处理 → 返回 ack
+/// 处理单条内网 QUIC 请求：读取消息 → 两阶段路由 → 返回 ack
 async fn handle_internal_request(
     mut send_stream: SendStream,
     mut recv_stream: RecvStream,
     connections: Arc<DashMap<String, QuicConnection>>,
+    server_index: u32,
 ) -> Result<()> {
-    let mut buf = vec![0u8; 1024 * 64]; // 64KB 缓冲区足够单条文本消息
+    let mut buf = vec![0u8; 1024 * 64];
     match recv_stream.read(&mut buf).await? {
         Some(len) => {
             let body = String::from_utf8_lossy(&buf[..len]);
@@ -62,26 +63,18 @@ async fn handle_internal_request(
             };
 
             info!(
-                "[内网QUIC] 收到请求 msg_type={} target_user={}",
-                request.msg_type, request.target_user
+                "[内网QUIC] 收到请求 msg_type={} target_user={} preferred_index={} ttl={}",
+                request.msg_type, request.target_user, request.preferred_index, request.ttl
             );
 
-            // 转发通知到目标用户的外网 QUIC 连接
-            send_quic_system_msg(
-                request.target_user,
-                request.msg_type,
-                request.payload,
-                &connections,
-            )
-            .await?;
+            // 调用两阶段路由（hash 优先 + Redis 兜底）
+            let resp = route_request(&request, &connections, server_index).await?;
 
-            // 返回 ack
-            let resp = InternalQuicResponse::ok();
             send_stream
                 .write_all(serde_json::to_string(&resp)?.as_bytes())
                 .await?;
             send_stream.finish().await?;
-            info!("[内网QUIC] 处理完成，已返回 ack");
+            info!("[内网QUIC] 处理完成，返回 {:?}", resp);
         }
         None => {
             error!("[内网QUIC] 客户端关闭了流，未发送数据");
@@ -91,15 +84,15 @@ async fn handle_internal_request(
     Ok(())
 }
 
-/// 注册内网 QUIC 服务到 Redis
+/// 注册内网 QUIC 服务到 Redis（按序号）
 async fn register_to_redis(config: &InternalQuicConfig) -> Result<()> {
     let redis = REDIS_CLIENT.read().await;
     let redis = redis
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("获取Redis连接池失败"))?;
     let mut conn = redis.get().await?;
-    let key = format!("{}{}", REDIS_INTERNAL_QUIC_SERVERS, config.server_name);
-    let value = config.bind_address.to_string();
+    let key = format!("{}{}", REDIS_INTERNAL_QUIC_SERVERS, config.server_index);
+    let value = config.node_address.clone();
     conn.set_ex::<&str, &str, ()>(&key, &value, 7200).await?;
     info!(
         "[内网QUIC] 已注册到 Redis key={} value={}",
@@ -108,13 +101,12 @@ async fn register_to_redis(config: &InternalQuicConfig) -> Result<()> {
     Ok(())
 }
 
-/// 从 Redis 注销内网 QUIC 服务
+/// 从 Redis 注销内网 QUIC 服务（按序号）
 async fn unregister_from_redis(config: &InternalQuicConfig) {
     if let Ok(redis) = REDIS_CLIENT.try_read() {
         if let Some(redis) = redis.as_ref() {
             if let Ok(mut conn) = redis.get().await {
-                let key =
-                    format!("{}{}", REDIS_INTERNAL_QUIC_SERVERS, config.server_name);
+                let key = format!("{}{}", REDIS_INTERNAL_QUIC_SERVERS, config.server_index);
                 let _: Result<(), _> = conn.del(&key).await;
                 info!("[内网QUIC] 已从 Redis 注销 key={}", key);
             }
@@ -140,9 +132,10 @@ pub async fn run_internal_server(
         tracing::warn!("[内网QUIC] 注册到 Redis 失败 (非致命): {}", e);
     }
 
+    let server_index = config.server_index;
     info!(
-        "[内网QUIC] 服务启动，监听地址: {}",
-        config.bind_address
+        "[内网QUIC] 服务启动，监听地址: {}，序号: {}",
+        config.bind_address, server_index
     );
 
     loop {
@@ -177,7 +170,8 @@ pub async fn run_internal_server(
             match conn.accept_bi().await {
                 Ok((send_stream, recv_stream)) => {
                     if let Err(e) =
-                        handle_internal_request(send_stream, recv_stream, conns).await
+                        handle_internal_request(send_stream, recv_stream, conns, server_index)
+                            .await
                     {
                         error!("[内网QUIC] 处理请求失败: {}", e);
                     }

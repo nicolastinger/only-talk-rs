@@ -8,7 +8,7 @@ use rustls::client::{ServerCertVerified, ServerCertVerifier};
 use rustls::{Certificate, ServerName};
 use tracing::{error, info};
 
-use crate::models::internal_quic_msg::{InternalQuicRequest, InternalQuicResponse};
+use crate::utils::internal_quic_msg::{InternalQuicRequest, InternalQuicResponse};
 
 /// 跳过服务端证书校验 (内网服务使用自签名证书)
 #[derive(Debug)]

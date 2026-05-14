@@ -2,7 +2,7 @@ use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criteri
 use quic_service::models::text_msg::HeadMsg;
 use quic_service::msg_service::text_msg_service::{generate_text_msg, get_text_msg};
 use quic_service::X25;
-use entity::utils::message_types::MSG_TYPE_TEXT;
+use common::utils::message_types::MSG_TYPE_TEXT;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 

@@ -7,6 +7,8 @@ use crate::state::ServiceError;
 pub struct InternalQuicConfig {
     pub bind_address: SocketAddr,
     pub server_name: String,
+    pub server_index: u32,
+    pub node_address: String,
 }
 
 impl InternalQuicConfig {
@@ -41,9 +43,23 @@ impl InternalQuicConfig {
             .unwrap_or("INTERNAL_SERVER_1")
             .to_string();
 
+        let node_address = internal
+            .get("node_address")
+            .and_then(|v| v.as_str())
+            .unwrap_or("127.0.0.1:4434")
+            .to_string();
+
+        let server_index = config_map
+            .get("cluster")
+            .and_then(|c| c.get("server_index"))
+            .and_then(|v| v.as_integer())
+            .unwrap_or(0) as u32;
+
         Ok(Self {
             bind_address,
             server_name,
+            server_index,
+            node_address,
         })
     }
 }

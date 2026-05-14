@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::anyhow;
 use dashmap::DashMap;
 use quinn::Connection;
-use entity::config_str::PC_PLATFORM;
+use common::config_str::PC_PLATFORM;
 
 use crate::models::quic_connection::QuicConnection;
 

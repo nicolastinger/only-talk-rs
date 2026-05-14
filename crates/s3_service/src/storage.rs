@@ -414,7 +414,7 @@ pub trait StorageBackend: Send + Sync {
 
 // ==================== LocalStorage 本地存储实现 ====================
 
-use entity::config_str::USER_FILE_PUBLIC_DIR;
+use common::config_str::USER_FILE_PUBLIC_DIR;
 
 /// 本地文件存储实现
 ///

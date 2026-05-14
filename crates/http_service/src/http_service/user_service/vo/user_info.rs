@@ -1,5 +1,5 @@
-use entity::models::user_entity::basic_user::BasicUser;
-use entity::models::user_entity::user_info::UserInfo;
+use common::models::user_entity::basic_user::BasicUser;
+use common::models::user_entity::user_info::UserInfo;
 use rbatis::rbdc::Uuid;
 use serde::{Deserialize, Serialize};
 

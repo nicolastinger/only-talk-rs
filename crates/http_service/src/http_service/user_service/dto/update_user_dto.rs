@@ -1,6 +1,6 @@
-use entity::models::user_entity::basic_user::BasicUser;
-use entity::models::user_entity::user_info::UserInfo;
-use entity::utils::time::get_now_time_stamp_as_millis;
+use common::models::user_entity::basic_user::BasicUser;
+use common::models::user_entity::user_info::UserInfo;
+use common::utils::time::get_now_time_stamp_as_millis;
 use serde::{Deserialize, Serialize};
 use validator::Validate;
 

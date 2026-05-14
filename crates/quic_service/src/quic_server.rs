@@ -3,19 +3,19 @@ use std::sync::Arc;
 use anyhow::{Result, anyhow};
 use dashmap::DashMap;
 use deadpool_redis::redis::AsyncCommands;
-use entity::config_str::{USER_READ_MSG};
-use entity::models::chat_entity::chat_message_read::ChatMessageRecordRead;
-use entity::models::chat_entity::chat_message_record::ChatMessageRecord;
-use entity::utils::jwt_util::{decode_jwt, Claims};
-use entity::utils::redis_utils::get_redis_conn;
-use entity::utils::time::get_now_time_stamp_as_millis;
-use entity::{REDIS_CLIENT};
+use common::config_str::{USER_READ_MSG};
+use common::models::chat_entity::chat_message_read::ChatMessageRecordRead;
+use common::models::chat_entity::chat_message_record::ChatMessageRecord;
+use common::utils::jwt_util::{decode_jwt, Claims};
+use common::utils::redis_utils::get_redis_conn;
+use common::utils::time::get_now_time_stamp_as_millis;
+use common::{REDIS_CLIENT};
 use tracing::{error, info};
 use quinn::{Connection, Endpoint, RecvStream, SendStream};
 use rbatis::dark_std::err;
 use rbs::value;
 use tokio::sync::{Mutex, watch};
-use entity::utils::sql_utils::get_sql_client;
+use common::utils::sql_utils::get_sql_client;
 use crate::config::ChatNodeConfig;
 use crate::models::first_quic_msg::FirstQuicMsg;
 use crate::models::quic_connection::{ConnectionType, QuicConnection};
@@ -191,7 +191,7 @@ async fn set_conn_info(
     address: String,
     now: i64,
     connections: &Arc<DashMap<String, QuicConnection>>,
-    server_name: &str,
+    server_index: u32,
 ) -> Result<(), anyhow::Error> {
     let new_connection = QuicConnection {
         is_online: true,
@@ -212,7 +212,8 @@ async fn set_conn_info(
         let redis = redis.as_ref().ok_or(anyhow!("获取连接失败"))?;
 
         let mut conn = redis.get().await?;
-        conn.set_ex::<&str, &str, ()>(connection_key, server_name, 7200).await?;
+        let index_str = server_index.to_string();
+        conn.set_ex::<&str, &str, ()>(connection_key, &index_str, 7200).await?;
     }
 
     info!("当前的在线客户端 {}", connections.len());
@@ -248,7 +249,7 @@ async fn handle_conn(
     info!("connection key: {}", connection_key);
 
     let now = get_now_time_stamp_as_millis().unwrap_or(0);
-    set_conn_info(uuid, conn.clone(), &connection_key, address, now, &connections, &config.server_name).await?;
+    set_conn_info(uuid, conn.clone(), &connection_key, address, now, &connections, config.server_index).await?;
 
     // 启动 uni stream 接收循环（客户端通过 open_uni 发送消息）
     {

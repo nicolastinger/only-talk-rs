@@ -12,7 +12,7 @@ use crate::config_manager::{get_config, set_config};
 pub fn generate_rsa_keys() -> Result<(RsaPrivateKey, RsaPublicKey), anyhow::Error> {
     let private_key_config = get_config("jwt_private_key");
     let public_key_config = get_config("jwt_public_key");
-    
+
     let (private_key_str, public_key_str) = if private_key_config.is_some() && public_key_config.is_some() {
         let private_key_str = private_key_config.ok_or(anyhow!("jwt_private_key 配置不存在"))?;
         let public_key_str = public_key_config.ok_or(anyhow!("jwt_public_key 配置不存在"))?;
@@ -30,7 +30,7 @@ pub fn generate_rsa_keys() -> Result<(RsaPrivateKey, RsaPublicKey), anyhow::Erro
         set_config("jwt_public_key".string(), public_key_str.clone());
         (private_key_str, public_key_str)
     };
-    
+
     if private_key_str.len() > 100 && public_key_str.len() > 50 {
         let private_key = RsaPrivateKey::from_pkcs8_pem(private_key_str.as_str())?;
         let public_key = RsaPublicKey::from(&private_key);

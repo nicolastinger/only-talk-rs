@@ -31,7 +31,7 @@
 ### 项目结构
 
 ```
-rust_my_app/
+only_talk_rs/
 ├── src/main.rs                    # 单机模式二进制入口
 ├── config/                        # 配置文件 & TLS 证书
 ├── docs/                          # 方案文档
@@ -137,7 +137,7 @@ enabled = true
 ```bash
 # 克隆项目
 git clone <repository-url>
-cd rust_my_app
+cd only_talk_rs
 
 # 构建项目
 cargo build --release

@@ -8,8 +8,6 @@ pub static SYSTEM: &str = "system";
 // ping/pong
 pub static PING: &str = "ping";
 pub static PONG: &str = "pong";
-// 服务名
-pub static SERVER_NAME: &str = "SERVER_1";
 // 最大quic连接
 pub static MAX_QUIC_SERVERS: usize = 1000;
 //最大缓存长度

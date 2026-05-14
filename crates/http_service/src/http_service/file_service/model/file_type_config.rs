@@ -1,4 +1,4 @@
-use entity::read_global_array_config;
+use common::read_global_array_config;
 
 /// 文件类型配置
 #[derive(Clone)]

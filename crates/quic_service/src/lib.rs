@@ -10,6 +10,7 @@ pub mod config;
 pub mod init_server;
 pub mod internal_config;
 pub mod internal_quic_server;
+pub mod internal_router;
 pub mod lifecycle;
 pub mod models;
 pub mod msg_service;

@@ -6,7 +6,7 @@ use actix_web::{HttpResponse, Responder, post, web, get, HttpRequest};
 use tracing::error;
 use rbatis::RBatis;
 use s3_service::S3Client;
-use entity::config_str::USER_FILE_PUBLIC_DIR;
+use common::config_str::USER_FILE_PUBLIC_DIR;
 use crate::{get_uuid_from_header, respond_json_any};
 use crate::http_service::file_service::service::biz_service::upload_original_file_by_biz_id;
 use crate::http_service::file_service::service::file_service::{download_chat_file_by_id, download_link_chat_biz, download_link_pub_biz, download_pub_file_by_id};

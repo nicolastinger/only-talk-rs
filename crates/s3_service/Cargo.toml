@@ -8,7 +8,7 @@ default = []
 integration-test = []
 
 [dependencies]
-entity = { path = "../entity" }
+common = { path = "../common" }
 aws-sdk-s3 = "1"
 aws-config = "1"
 aws-credential-types = "1"

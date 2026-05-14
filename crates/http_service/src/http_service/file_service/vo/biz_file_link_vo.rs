@@ -1,6 +1,6 @@
 use rbatis::rbdc::Uuid;
 use serde::{Deserialize, Serialize};
-use entity::models::file_entity::biz_file_link::BizFileLink;
+use common::models::file_entity::biz_file_link::BizFileLink;
 
 /// 公开文件业务表关联
 #[derive(Clone, Debug, Serialize, Deserialize)]

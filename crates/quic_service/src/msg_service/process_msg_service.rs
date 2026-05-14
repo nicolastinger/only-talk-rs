@@ -2,17 +2,18 @@ use std::sync::Arc;
 
 use anyhow::anyhow;
 use dashmap::DashMap;
-use entity::RBATIS_DATABASE;
-use entity::config_str::{MOBILE_PLATFORM, PC_PLATFORM, PONG, REDIS_QUIC_SERVERS, REDIS_SPLIT, SYSTEM};
-use entity::models::chat_entity::chat_message_record::ChatMessageRecord;
-use entity::utils::message_types;
-use entity::utils::time::get_now_time_stamp_as_millis;
+use common::RBATIS_DATABASE;
+use common::config_str::{MOBILE_PLATFORM, PC_PLATFORM, PONG, REDIS_QUIC_SERVERS, REDIS_SPLIT, SYSTEM};
+use common::models::chat_entity::chat_message_record::ChatMessageRecord;
+use common::utils::message_types;
+use common::utils::time::get_now_time_stamp_as_millis;
 use tracing::{error, info, warn};
 use nanoid::nanoid;
 use quinn::Connection;
 use rbatis::rbdc::{Bytes, Uuid};
 use tokio::sync::Mutex;
 
+use crate::internal_router::compute_preferred_index;
 use crate::models::quic_connection::{ConnectionType, QuicConnection};
 use crate::models::text_msg::TextQuicMsg;
 use crate::msg_service::text_msg_service::{
@@ -61,7 +62,6 @@ async fn process_text_msg(
         let now = get_now_time_stamp_as_millis()?;
         text_msg.timestamp = now;
 
-
         let text_msg_clone = text_msg.clone();
         let conn_key = connection_key.to_string();
         let conns = connections.clone();
@@ -74,7 +74,6 @@ async fn process_text_msg(
                 .expect("发送ack消息失败");
         });
         send_msg_to_user(text_msg, platform, connections).await?;
-
     }
 
     info!("处理完成");
@@ -97,12 +96,41 @@ async fn send_msg_to_user(
         text_msg.send_user,
         text_msg.timestamp,
     )?;
-    send_msg_to_user_by_platform(&res, PC_PLATFORM, &recv_user, connections).await?;
-    send_msg_to_user_by_platform(&res, MOBILE_PLATFORM, &recv_user, connections).await?;
+
+    // 计算首选节点序号
+    let preferred_index = compute_preferred_index(&recv_user);
+
+    for target_platform in [PC_PLATFORM, MOBILE_PLATFORM] {
+        send_msg_to_user_by_platform(
+            &res,
+            target_platform,
+            &recv_user,
+            connections,
+            preferred_index,
+        )
+        .await?;
+    }
+
+    // 给自己另一设备同步
+    let own_preferred = compute_preferred_index(&send_user);
     if platform == PC_PLATFORM {
-        send_msg_to_user_by_platform(&res, MOBILE_PLATFORM, &send_user, connections).await?;
+        send_msg_to_user_by_platform(
+            &res,
+            MOBILE_PLATFORM,
+            &send_user,
+            connections,
+            own_preferred,
+        )
+        .await?;
     } else {
-        send_msg_to_user_by_platform(&res, PC_PLATFORM, &send_user, connections).await?;
+        send_msg_to_user_by_platform(
+            &res,
+            PC_PLATFORM,
+            &send_user,
+            connections,
+            own_preferred,
+        )
+        .await?;
     }
     Ok(())
 }
@@ -112,6 +140,7 @@ async fn send_msg_to_user_by_platform(
     platform: &str,
     target_user: &str,
     connections: &Arc<DashMap<String, QuicConnection>>,
+    preferred_index: u32,
 ) -> anyhow::Result<()> {
     let user_key = format!(
         "{}:{}{}{}{}",
@@ -123,14 +152,11 @@ async fn send_msg_to_user_by_platform(
     );
     let user_key = user_key.to_uppercase();
 
-    // 获取目标用户的 Connection，按需开流发送
+    // 尝试本机投递
     let conn: Option<Connection> = {
         match connections.get(&user_key) {
             Some(s) => Some(s.conn.clone()),
-            None => {
-                warn!("当前用户不在线: {}", user_key);
-                None
-            }
+            None => None,
         }
     };
 
@@ -138,6 +164,28 @@ async fn send_msg_to_user_by_platform(
         let mut send = conn.open_uni().await?;
         send.write_all(res).await?;
         send.finish().await?;
+    } else {
+        // 本机未找到 → 转发给内网 QUIC 走两阶段路由
+        use common::utils::internal_quic_msg::{InternalQuicRequest, RequestSource};
+        use common::utils::internal_quic_client::send_internal_quic_msg;
+        use std::net::SocketAddr;
+
+        warn!("当前用户不在本机: {}，转发到内网 QUIC", user_key);
+
+        let payload = String::from_utf8_lossy(res).to_string();
+        let request = InternalQuicRequest {
+            msg_type: message_types::MSG_TYPE_TEXT,
+            payload,
+            target_user: target_user.to_string(),
+            preferred_index,
+            platform: platform.to_string(),
+            source: RequestSource::QuicExternal,
+            ttl: 3,
+        };
+
+        // 发给本机内网 QUIC
+        let internal_addr: SocketAddr = "127.0.0.1:4434".parse()?;
+        send_internal_quic_msg(internal_addr, request).await?;
     }
     Ok(())
 }

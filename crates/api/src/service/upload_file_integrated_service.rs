@@ -15,8 +15,8 @@ use http_service::http_service::user_service::service::user_service::update_user
 use http_service::utils::http_response::CommonResponseRef;
 use rbatis::{rbdc, RBatis};
 use s3_service::S3Client;
-use entity::models::file_entity::biz_file_link::BizFileLink;
-use entity::models::user_entity::friend_link::FriendLink;
+use common::models::file_entity::biz_file_link::BizFileLink;
+use common::models::user_entity::friend_link::FriendLink;
 use http_service::http_service::file_service::service::chat_biz_service::create_user_chat_biz;
 use http_service::http_service::file_service::vo::biz_file_link_vo::BizFileLinkVO;
 use http_service::http_service::file_service::vo::biz_record_vo::BizRecordVO;

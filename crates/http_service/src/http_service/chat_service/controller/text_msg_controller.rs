@@ -1,5 +1,5 @@
 use actix_web::{HttpRequest, Responder, post, web};
-use entity::models::chat_entity::chat_message_read::ChatMessageRecordRead;
+use common::models::chat_entity::chat_message_read::ChatMessageRecordRead;
 use rbatis::RBatis;
 
 use crate::common::dto::base_dto::AuthAccount;

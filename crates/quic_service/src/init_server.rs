@@ -42,7 +42,7 @@ pub async fn start_server() -> anyhow::Result<Arc<ChatNode>> {
             .and_then(|r| r.get("url"))
             .and_then(|v| v.as_str())
         {
-            match entity::init_redis(redis_url) {
+            match common::init_redis(redis_url) {
                 Ok(_) => info!("Redis 连接池已就绪"),
                 Err(e) => tracing::warn!("Redis 初始化失败: {}", e),
             }
@@ -54,7 +54,7 @@ pub async fn start_server() -> anyhow::Result<Arc<ChatNode>> {
             .and_then(|d| d.get("url"))
             .and_then(|v| v.as_str())
         {
-            match entity::init_sql_pool(db_url).await {
+            match common::init_sql_pool(db_url).await {
                 Ok(_) => info!("数据库连接池已就绪"),
                 Err(e) => tracing::warn!("数据库初始化失败: {}", e),
             }
@@ -62,21 +62,24 @@ pub async fn start_server() -> anyhow::Result<Arc<ChatNode>> {
     }
 
     let connections = node.connections();
+    let server_index = node.config().server_index;
 
-    // 将外网 QUIC 服务注册到 Redis，供客户端发现
+    // 集群：注册外网节点 + 启动 server_count 后台同步 + 节点 key 续期
     {
-        use deadpool_redis::redis::AsyncCommands;
-        use entity::config_str::REDIS_EXTERNAL_QUIC_SERVERS;
-        let redis = entity::REDIS_CLIENT.read().await;
+        let redis = common::REDIS_CLIENT.read().await;
         if let Some(redis) = redis.as_ref() {
-            if let Ok(mut conn) = redis.get().await {
-                let server_addr = node.config().bind_address.to_string();
-                let key = format!("{}{}", REDIS_EXTERNAL_QUIC_SERVERS, node.config().server_name);
-                let _: Result<(), _> = conn
-                    .set_ex::<&str, &str, ()>(&key, &server_addr, 7200)
-                    .await;
-                info!("外网 QUIC 服务已注册到 Redis: key={} value={}", key, server_addr);
+            let node_address = node.config().node_address.clone();
+            if let Err(e) =
+                common::utils::server_count_sync::register_external_node(redis, server_index, &node_address).await
+            {
+                tracing::warn!("外网 QUIC 节点注册失败: {}", e);
             }
+            common::utils::server_count_sync::start_server_count_sync(
+                redis.clone(),
+                server_index,
+                node_address,
+            );
+            info!("server_count 后台同步已启动 (server_index={})", server_index);
         }
     }
 
@@ -87,7 +90,6 @@ pub async fn start_server() -> anyhow::Result<Arc<ChatNode>> {
     let internal_config = InternalQuicConfig::from_toml_str(&resolved_content)?;
     let (internal_shutdown_tx, internal_shutdown_rx) = tokio::sync::watch::channel(false);
     tokio::spawn(async move {
-        // sender 移入 task 保持存活，避免 receiver 立即读到 close
         let _tx = internal_shutdown_tx;
         run_internal_server(internal_config, connections, internal_shutdown_rx).await;
     });

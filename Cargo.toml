@@ -1,11 +1,12 @@
 [package]
-name = "rust_my_app"
+name = "only_talk_rs"
 version = "0.1.0"
 edition = "2024"
 
 [workspace]
 members = [
     "crates/entity",
+    "crates/common",
     "crates/http_service",
     "crates/quic_service",
     "crates/api",
@@ -61,7 +62,7 @@ x509-parser = "0.16"
 rcgen = "0.13"
 
 [dependencies]
-entity = { path = "crates/entity" }
+common = { path = "crates/common" }
 tracing = { workspace = true }
 actix-web = { workspace = true }
 tokio = { workspace = true }

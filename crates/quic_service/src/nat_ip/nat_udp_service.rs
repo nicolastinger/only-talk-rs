@@ -3,10 +3,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use dashmap::DashMap;
 use deadpool_redis::redis::{AsyncCommands, cmd};
-use entity::config_str::SYSTEM;
-use entity::utils::jwt_util::decode_jwt;
-use entity::utils::message_types;
-use entity::utils::redis_utils::{acquire_lock, get_redis_conn, release_lock};
+use common::config_str::SYSTEM;
+use common::utils::jwt_util::decode_jwt;
+use common::utils::message_types;
+use common::utils::redis_utils::{acquire_lock, get_redis_conn, release_lock};
 use tracing::{error, info, warn};
 use crate::models::quic_connection::{ConnectionType, QuicConnection};
 use crate::msg_service::get_connection_by_uuid;

@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use anyhow::anyhow;
-use entity::utils::message_types::MSG_TYPE_TEXT;
-use entity::utils::time::get_now_time_stamp_as_millis;
+use common::utils::message_types::MSG_TYPE_TEXT;
+use common::utils::time::get_now_time_stamp_as_millis;
 use tracing::error;
 use nanoid::nanoid;
 use tokio::sync::{Mutex, MutexGuard};
@@ -151,7 +151,7 @@ mod tests {
     use super::*;
     use std::sync::Arc;
     use tokio::sync::Mutex;
-    use entity::utils::message_types::MSG_TYPE_TEXT;
+    use common::utils::message_types::MSG_TYPE_TEXT;
     use crate::models::text_msg::HeadMsg;
     use crate::X25;
 
@@ -671,7 +671,7 @@ mod tests {
     #[tokio::test]
     async fn test_sticky_different_message_types() {
         let msg_text = make_msg(MSG_TYPE_TEXT, b"text", "user_b", "user_a");
-        let msg_ping = make_msg(entity::utils::message_types::MSG_TYPE_PING, b"ping", "system", "user_a");
+        let msg_ping = make_msg(common::utils::message_types::MSG_TYPE_PING, b"ping", "system", "user_a");
         let head_len = head_size();
         let buf_msg = new_buffer_msg();
 
@@ -682,7 +682,7 @@ mod tests {
         let result = get_text_msg(&mut combined, total, buf_msg, head_len).await.unwrap();
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].text_type, MSG_TYPE_TEXT);
-        assert_eq!(result[1].text_type, entity::utils::message_types::MSG_TYPE_PING);
+        assert_eq!(result[1].text_type, common::utils::message_types::MSG_TYPE_PING);
     }
 
     // ========== 多次分片到达，buffer_msg 逐次累加 ==========

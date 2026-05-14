@@ -12,9 +12,9 @@ use s3_service::storage::{S3Storage, StorageBackend};
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
-use entity::config_str::{OSS_TYPE_ALIYUN, OSS_TYPE_AWS, OSS_TYPE_MINIO, DEFAULT_MAX_FILE_SIZE};
-use entity::models::file_entity::file_upload_record::FileUploadRecord;
-use entity::utils::time::get_now_time_stamp_as_millis;
+use common::config_str::{OSS_TYPE_ALIYUN, OSS_TYPE_AWS, OSS_TYPE_MINIO, DEFAULT_MAX_FILE_SIZE};
+use common::models::file_entity::file_upload_record::FileUploadRecord;
+use common::utils::time::get_now_time_stamp_as_millis;
 
 use crate::http_service::file_service::service::file_service::validate_file_type;
 

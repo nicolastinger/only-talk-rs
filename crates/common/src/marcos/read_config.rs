@@ -21,7 +21,7 @@ macro_rules! read_global_config {
                 full_key.push('.');
             )+
             let key_str = full_key.trim_end_matches('.');
-            entity::config_manager::get_config(key_str).expect(&format!("配置文件中不存在该字段: {}", key_str))
+            common::config_manager::get_config(key_str).expect(&format!("配置文件中不存在该字段: {}", key_str))
         }
     };
 }
@@ -37,7 +37,7 @@ macro_rules! read_global_array_config {
                 full_key.push('.');
             )+
             let key_str = full_key.trim_end_matches('.');
-            entity::config_manager::get_array_config(key_str).expect(&format!("配置文件中不存在该字段: {}", key_str))
+            common::config_manager::get_array_config(key_str).expect(&format!("配置文件中不存在该字段: {}", key_str))
         }
     };
 }
@@ -47,7 +47,7 @@ macro_rules! read_global_array_config {
 macro_rules! init_global_config {
     ($config_map:expr) => {
         {
-            use entity::config_manager;
+            use common::config_manager;
             fn insert_config(map: &std::collections::HashMap<String, toml::Value>, prefix: &str) {
                 for (key, value) in map {
                     let full_key = if prefix.is_empty() {

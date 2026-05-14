@@ -1,7 +1,7 @@
 use rbatis::rbdc::Uuid;
 use serde::{Deserialize, Serialize};
-use entity::models::file_entity::biz_record::BizRecord;
-use entity::models::file_entity::chat_biz_record::ChatBizRecord;
+use common::models::file_entity::biz_record::BizRecord;
+use common::models::file_entity::chat_biz_record::ChatBizRecord;
 use crate::http_service::file_service::vo::biz_file_link_vo::BizFileLinkVO;
 
 /// 文件上传业务表

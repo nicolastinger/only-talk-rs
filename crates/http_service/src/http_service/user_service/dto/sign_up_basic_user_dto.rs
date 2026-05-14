@@ -1,4 +1,4 @@
-use entity::models::user_entity::basic_user::BasicUser;
+use common::models::user_entity::basic_user::BasicUser;
 use serde::{Deserialize, Serialize};
 use validator::Validate;
 
@@ -13,7 +13,7 @@ pub struct SignUpBasicUserDTO {
     #[validate(
         required(message = "需要输入密码"),
         regex(
-            path = "entity::utils::validators::PASSWORD_REGEX",
+            path = "common::utils::validators::PASSWORD_REGEX",
             message = "密码必须包含大小写字母和数字,并且长度在14以上"
         )
     )]

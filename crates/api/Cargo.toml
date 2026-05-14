@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 http_service = { path = "../http_service" }
 quic_service = { path = "../quic_service" }
-entity = { path = "../entity" }
+common = { path = "../common" }
 s3_service = { path = "../s3_service" }
 serde = { workspace = true }
 rbatis = { workspace = true }

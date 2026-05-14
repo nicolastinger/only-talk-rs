@@ -2,9 +2,9 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use entity::config_str::{PC_PLATFORM, PING, SYSTEM};
-use entity::utils::jwt_util::get_jwt;
-use entity::utils::message_types;
+use common::config_str::{PC_PLATFORM, PING, SYSTEM};
+use common::utils::jwt_util::get_jwt;
+use common::utils::message_types;
 use tracing::{error, info};
 use quinn::{Connection, Endpoint, SendStream};
 use tokio::io::AsyncWriteExt;

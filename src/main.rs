@@ -1,6 +1,6 @@
 #![deny(clippy::unwrap_used)]
 use api::init_server;
-use entity::tracing::init_tracing;
+use common::tracing::init_tracing;
 use quic_service::init_server::start_server;
 use tracing::{debug, error, info};
 

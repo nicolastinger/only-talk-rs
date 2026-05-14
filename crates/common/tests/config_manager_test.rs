@@ -1,4 +1,4 @@
-use entity::config_manager::{get_config, remove_config, set_config};
+use common::config_manager::{get_config, remove_config, set_config};
 
 #[test]
 fn test_set_and_get_config() {

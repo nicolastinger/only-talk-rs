@@ -3,7 +3,7 @@
 //! 仅启动 actix-web HTTPS 服务，不启动 QUIC 相关服务。
 
 use api::init_server::start_server;
-use entity::tracing::init_tracing;
+use common::tracing::init_tracing;
 use tracing::{error, info};
 
 #[actix_web::main]

@@ -2,7 +2,7 @@
 //!
 //! 仅启动 QUIC ChatNode + NAT UDP + 内网 QUIC 服务，不启动 HTTP。
 
-use entity::tracing::init_tracing;
+use common::tracing::init_tracing;
 use quic_service::init_server::start_server;
 use quic_service::{ChatNode, ServiceLifecycle};
 use std::sync::Arc;

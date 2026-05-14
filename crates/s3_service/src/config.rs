@@ -222,7 +222,7 @@ impl S3Config {
     pub fn from_global_config() -> Result<Self, S3Error> {
         // 辅助函数: 获取配置项或返回错误
         let get_config = |key: &str| -> Result<String, S3Error> {
-            entity::config_manager::get_config(key).ok_or_else(|| {
+            common::config_manager::get_config(key).ok_or_else(|| {
                 S3Error::ConfigError(format!("配置文件中不存在该字段: {}", key))
             })
         };

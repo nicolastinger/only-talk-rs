@@ -17,6 +17,8 @@ pub struct ChatNodeConfig {
     pub cert_watch_interval_secs: u64,
     pub cert_expiry_warning_days: i64,
     pub cert_expiry_check_interval_secs: u64,
+    pub server_index: u32,
+    pub node_address: String,
 }
 
 impl ChatNodeConfig {
@@ -30,10 +32,12 @@ impl ChatNodeConfig {
             max_buffer_length: 10 * 1024 * 1024,
             idle_timeout_secs: 190,
             max_concurrent_uni_streams: 0,
-            server_name: "SERVER_1".to_string(),
+            server_name: "127.0.0.1:4433".to_string(),
             cert_watch_interval_secs: 60,
             cert_expiry_warning_days: 3,
             cert_expiry_check_interval_secs: 3600,
+            server_index: 0,
+            node_address: "127.0.0.1:4433".to_string(),
         }
     }
 
@@ -77,13 +81,27 @@ impl ChatNodeConfig {
         let server_name = quic
             .get("server_name")
             .and_then(|v| v.as_str())
-            .unwrap_or("SERVER_1")
+            .unwrap_or("127.0.0.1:4433")
             .to_string();
+
+        let node_address = quic
+            .get("node_address")
+            .and_then(|v| v.as_str())
+            .unwrap_or("127.0.0.1:4433")
+            .to_string();
+
+        let server_index = config_map
+            .get("cluster")
+            .and_then(|c| c.get("server_index"))
+            .and_then(|v| v.as_integer())
+            .unwrap_or(0) as u32;
 
         Ok(Self {
             cert_path,
             key_path,
             server_name,
+            node_address,
+            server_index,
             ..Self::new(bind_address)
         })
     }

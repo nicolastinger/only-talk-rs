@@ -1,12 +1,12 @@
 use std::str::FromStr;
 
 use anyhow::anyhow;
-use entity::models::file_entity::file_upload_record::FileUploadRecord;
-use entity::utils::time::get_now_time_stamp_as_millis;
+use common::models::file_entity::file_upload_record::FileUploadRecord;
+use common::utils::time::get_now_time_stamp_as_millis;
 use rbatis::{RBatis, rbdc};
 use uuid::Uuid;
-use entity::models::file_entity::chat_biz_record::ChatBizRecord;
-use entity::models::user_entity::friend_link::FriendLink;
+use common::models::file_entity::chat_biz_record::ChatBizRecord;
+use common::models::user_entity::friend_link::FriendLink;
 
 /// 创建上传用户聊天文件业务id
 pub async fn create_user_chat_biz(
