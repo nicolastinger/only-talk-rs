@@ -1,0 +1,14 @@
+[package]
+name = "entity"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+serde = { workspace = true }
+rbatis = { workspace = true }
+rbdc-pg = { workspace = true }
+rbdc-pool-fast = { workspace = true }
+validator = { workspace = true }
+anyhow = { workspace = true }
+rbs = { workspace = true }
+uuid = { workspace = true }

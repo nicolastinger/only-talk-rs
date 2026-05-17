@@ -1,38 +1,28 @@
 [package]
-name = "rust_my_app"
+name = "only_talk_rs"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [workspace]
 members = [
-    "entity", 
-    "http_service", 
-    "quic_service", 
-    "api", 
-    "email_service",
+    "crates/entity",
+    "crates/common",
+    "crates/http_service",
+    "crates/quic_service",
+    "crates/api",
+    "crates/email_service",
+    "crates/s3_service"
 ]
 
 [dependencies.quic_service]
-path = "quic_service"
-
-[dependencies.http_service]
-path = "http_service"
-
-[dependencies.entity]
-path = "entity"
+path = "crates/quic_service"
 
 [dependencies.api]
-path = "api"
-
-[dependencies.email_service]
-path = "email_service"
-
-[dependencies.s3_service]
-path = "s3_service"
+path = "crates/api"
 
 [workspace.dependencies]
 quinn = {version = "0.10.2"}
-rustls = { version = "0.21" }
+rustls = { version = "0.21", features = ["dangerous_configuration"] }
 jsonwebtoken = "8.0"  # 请根据最新版本调整
 tokio ={ version = "1.0.0",features = ["full"]}
 serde_json = "1.0.128"
@@ -68,39 +58,13 @@ async-trait = "0.1.89"
 actix-multipart = "0.6"
 futures-util = "0.3"
 webpki-roots = "1.0.2"
+x509-parser = "0.16"
+rcgen = "0.13"
 
 [dependencies]
-quinn = {workspace = true}
-rustls = { workspace = true }
-jsonwebtoken = { workspace = true }
-tokio = { workspace = true }
-serde_json = { workspace = true }
+common = { path = "crates/common" }
 tracing = { workspace = true }
-tracing-subscriber = { workspace = true, version = "1.0.0", features = ["local-time"] }
-tracing-appender = { workspace = true }
-tracing-actix-web = { workspace = true }
-serde = { workspace = true }
-lazy_static = { workspace = true }
-redis = { workspace = true }
 actix-web = { workspace = true }
-deadpool-redis = { workspace = true }
-rustls-pemfile = { workspace = true }
-uuid = { workspace = true }
-anyhow = { workspace = true }
-validator = { workspace = true }
-rbs = { workspace = true }
-rbatis = { workspace = true }
-toml = { workspace = true }
-rbdc-pg = { workspace = true }
-rbdc-pool-fast = { workspace = true }
-once_cell = { workspace = true }
-regex = { workspace = true }
-rsa = { workspace = true }
-rand = { workspace = true }
-sha2 = { workspace = true }
-bincode = { workspace = true }
-crc = { workspace = true }
-crc-catalog = { workspace = true }
-nanoid = { workspace = true }
-async-trait = { workspace = true }
-webpki-roots = { workspace = true }
+tokio = { workspace = true }
+dotenvy = "0.15"
+

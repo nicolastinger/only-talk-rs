@@ -1,0 +1,42 @@
+[package]
+name = "quic_service"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+common = { path = "../common" }
+serde = { workspace = true }
+rbatis = { workspace = true }
+validator = { workspace = true }
+anyhow = { workspace = true }
+rbs = { workspace = true }
+tracing = { workspace = true }
+quinn = { workspace = true }
+rustls = { workspace = true }
+rustls-pemfile = { workspace = true }
+lazy_static = { workspace = true }
+async-trait = { workspace = true }
+tokio = { workspace = true }
+serde_json = { workspace = true }
+nanoid = { workspace = true }
+crc = { workspace = true }
+crc-catalog = { workspace = true }
+bincode = { workspace = true }
+toml = { workspace = true }
+deadpool-redis = { workspace = true }
+redis = { workspace = true }
+webpki-roots = { workspace = true }
+futures-util = "0.3"
+dashmap = "6.1"
+x509-parser = { workspace = true }
+sha2 = { workspace = true }
+rcgen = { workspace = true }
+dotenvy = "0.15"
+thiserror = "2.0"
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "text_msg_bench"
+harness = false

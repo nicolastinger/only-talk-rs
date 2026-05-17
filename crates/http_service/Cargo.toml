@@ -1,0 +1,33 @@
+[package]
+name = "http_service"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+common = { path = "../common" }
+s3_service = { path = "../s3_service" }
+serde = { workspace = true }
+rbatis = { workspace = true }
+validator = { workspace = true }
+anyhow = { workspace = true }
+rbs = { workspace = true }
+tracing = { workspace = true }
+tracing-actix-web = { workspace = true }
+toml = { workspace = true }
+actix-files = { workspace = true }
+actix-web = { workspace = true }
+deadpool-redis = { workspace = true }
+rustls-pemfile = { workspace = true }
+rbdc-pg = { workspace = true }
+rbdc-pool-fast = { workspace = true }
+redis = { workspace = true }
+rustls = { workspace = true }
+serde_json = { workspace = true }
+lazy_static = { workspace = true }
+uuid = { workspace = true }
+sha2 = { workspace = true }
+actix-multipart = "0.6"
+futures-util = "0.3"
+image = "0.25"
+webp = "0.3"
+tokio = { workspace = true }
