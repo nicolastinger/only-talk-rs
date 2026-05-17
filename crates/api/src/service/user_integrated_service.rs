@@ -48,7 +48,7 @@ pub async fn add_user_with_notify(
     )
     .await?;
     let json_str: String = serde_json::to_string(&quic_msg)?;
-    let target_id_str = quic_msg.user_id.ok_or(anyhow!("请填写申请理由"))?.to_string();
+    let target_id_str = quic_msg.user_id.ok_or(anyhow!("通知缺少目标用户ID"))?.to_string();
 
     // 3 通过内网QUIC服务转发通知
     let addr_str = read_global_config!("internal_quic_server", "address");
@@ -76,17 +76,21 @@ pub async fn process_friend_with_notify(
     // 1、处理好友申请
     let friend_request = process_friend(rb, friend_request_info_dto).await?;
     let target_uuid = friend_request.request_user.ok_or(anyhow!("请选择一个用户"))?;
-    // 2、插入系统通知
     let biz_id = friend_request.uuid.ok_or(anyhow!("添加好友失败，找不到请求id"))?.to_string();
+    // 2 发送系统通知 (落库)
+    let accept_msg = friend_request
+        .accept_message
+        .filter(|m| !m.is_empty())
+        .unwrap_or_else(|| "对方已处理您的好友申请".to_string());
     let quic_msg = send_process_friend_msg(
         rb,
         target_uuid,
-        friend_request.accept_message.ok_or(anyhow!("请填写申请理由"))?,
+        accept_msg,
         Some(biz_id),
     )
     .await?;
     let json_str: String = serde_json::to_string(&quic_msg)?;
-    let target_id_str = quic_msg.user_id.ok_or(anyhow!("请填写申请理由"))?.to_string();
+    let target_id_str = quic_msg.user_id.ok_or(anyhow!("通知缺少目标用户ID"))?.to_string();
 
     // 3、通过内网QUIC服务转发通知
     let addr_str = read_global_config!("internal_quic_server", "address");
