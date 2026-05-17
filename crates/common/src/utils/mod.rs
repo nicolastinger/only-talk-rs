@@ -1,3 +1,4 @@
+pub mod group_msg;
 pub mod internal_quic_client;
 pub mod internal_quic_msg;
 pub mod jwt_util;

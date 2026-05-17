@@ -6,7 +6,7 @@ use anyhow::Result;
 use dashmap::DashMap;
 use deadpool_redis::redis::AsyncCommands;
 use common::config_str::REDIS_INTERNAL_QUIC_SERVERS;
-use common::utils::internal_quic_msg::{InternalQuicRequest, InternalQuicResponse};
+use common::utils::internal_quic_msg::InternalQuicResponse;
 use common::REDIS_CLIENT;
 use quinn::{Endpoint, RecvStream, SendStream, ServerConfig};
 use rcgen::KeyPair;
@@ -15,10 +15,9 @@ use tokio::sync::watch;
 use tracing::{error, info};
 
 use crate::internal_config::InternalQuicConfig;
-use crate::internal_router::route_request;
+use crate::internal_router::route_internal_request;
 use crate::models::quic_connection::QuicConnection;
 
-/// 生成自签名证书 (无需配置文件证书)
 fn generate_self_signed_cert() -> Result<(Vec<Certificate>, PrivateKey), Box<dyn std::error::Error>> {
     let key_pair = KeyPair::generate()?;
     let params = rcgen::CertificateParams::new(vec!["localhost".to_string()])?;
@@ -28,7 +27,6 @@ fn generate_self_signed_cert() -> Result<(Vec<Certificate>, PrivateKey), Box<dyn
     Ok((vec![Certificate(cert_der)], PrivateKey(key_der)))
 }
 
-/// 创建内网 QUIC 端点 (使用自签名证书)
 fn make_internal_endpoint(bind_addr: SocketAddr) -> Result<Endpoint, Box<dyn std::error::Error>> {
     let (cert_chain, key) = generate_self_signed_cert()?;
     let mut server_config = ServerConfig::with_single_cert(cert_chain, key)?;
@@ -39,7 +37,6 @@ fn make_internal_endpoint(bind_addr: SocketAddr) -> Result<Endpoint, Box<dyn std
     Ok(endpoint)
 }
 
-/// 处理单条内网 QUIC 请求：读取消息 → 两阶段路由 → 返回 ack
 async fn handle_internal_request(
     mut send_stream: SendStream,
     mut recv_stream: RecvStream,
@@ -49,32 +46,17 @@ async fn handle_internal_request(
     let mut buf = vec![0u8; 1024 * 64];
     match recv_stream.read(&mut buf).await? {
         Some(len) => {
-            let body = String::from_utf8_lossy(&buf[..len]);
-            let request: InternalQuicRequest = match serde_json::from_str(&body) {
-                Ok(req) => req,
+            let response = match route_internal_request(&buf[..len], &connections, server_index).await {
+                Ok(resp) => resp,
                 Err(e) => {
-                    let resp = InternalQuicResponse::error(format!("请求解析失败: {}", e));
-                    let _ = send_stream
-                        .write_all(serde_json::to_string(&resp)?.as_bytes())
-                        .await;
-                    send_stream.finish().await?;
-                    return Ok(());
+                    error!("[内网QUIC] 路由处理失败: {}", e);
+                    serde_json::to_vec(&InternalQuicResponse::error(format!("路由处理失败: {}", e)))?
                 }
             };
 
-            info!(
-                "[内网QUIC] 收到请求 msg_type={} target_user={} preferred_index={} ttl={}",
-                request.msg_type, request.target_user, request.preferred_index, request.ttl
-            );
-
-            // 调用两阶段路由（hash 优先 + Redis 兜底）
-            let resp = route_request(&request, &connections, server_index).await?;
-
-            send_stream
-                .write_all(serde_json::to_string(&resp)?.as_bytes())
-                .await?;
+            send_stream.write_all(&response).await?;
             send_stream.finish().await?;
-            info!("[内网QUIC] 处理完成，返回 {:?}", resp);
+            info!("[内网QUIC] 处理完成");
         }
         None => {
             error!("[内网QUIC] 客户端关闭了流，未发送数据");
@@ -84,7 +66,6 @@ async fn handle_internal_request(
     Ok(())
 }
 
-/// 注册内网 QUIC 服务到 Redis（按序号）
 async fn register_to_redis(config: &InternalQuicConfig) -> Result<()> {
     let redis = REDIS_CLIENT.read().await;
     let redis = redis
@@ -101,7 +82,6 @@ async fn register_to_redis(config: &InternalQuicConfig) -> Result<()> {
     Ok(())
 }
 
-/// 从 Redis 注销内网 QUIC 服务（按序号）
 async fn unregister_from_redis(config: &InternalQuicConfig) {
     if let Ok(redis) = REDIS_CLIENT.try_read() {
         if let Some(redis) = redis.as_ref() {
@@ -114,7 +94,6 @@ async fn unregister_from_redis(config: &InternalQuicConfig) {
     }
 }
 
-/// 启动内网 QUIC 服务
 pub async fn run_internal_server(
     config: InternalQuicConfig,
     connections: Arc<DashMap<String, QuicConnection>>,

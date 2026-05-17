@@ -7,6 +7,7 @@ use common::config_str::PC_PLATFORM;
 
 use crate::models::quic_connection::QuicConnection;
 
+pub mod group_msg_service;
 pub mod process_msg_service;
 pub mod send_msg;
 pub mod text_msg_service;
