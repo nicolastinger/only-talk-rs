@@ -6,15 +6,18 @@ use std::sync::Arc;
 use anyhow::Result;
 use dashmap::DashMap;
 use deadpool_redis::redis::AsyncCommands;
+use nanoid::nanoid;
 use tracing::{error, info, warn};
 
 use common::config_str::{REDIS_INTERNAL_QUIC_SERVERS, REDIS_QUIC_SERVERS, REDIS_SPLIT};
 use common::utils::internal_quic_client::send_internal_quic_msg;
 use common::utils::internal_quic_msg::{InternalQuicRequest, InternalQuicResponse};
+use common::utils::message_types::NOTIFY_TYPE_MSG;
 use common::utils::server_count_sync::get_server_count;
 use common::REDIS_CLIENT;
 
 use crate::models::quic_connection::{ConnectionType, QuicConnection};
+use crate::msg_service::text_msg_service::generate_text_msg_with_id;
 
 /// 根据目标用户 UUID 计算首选节点序号
 pub fn compute_preferred_index(uuid: &str) -> u32 {
@@ -60,7 +63,6 @@ async fn try_deliver_local(
     request: &InternalQuicRequest,
     connections: &Arc<DashMap<String, QuicConnection>>,
 ) -> Result<Option<InternalQuicResponse>> {
-    // 构建与 set_conn_info 一致的 connection key
     let connection_key = format!(
         "{}:{}{}{}{}",
         request.platform,
@@ -76,11 +78,29 @@ async fn try_deliver_local(
     match conn {
         Some(conn) => {
             info!(
-                "[路由] 本机投递成功 target={} platform={}",
-                request.target_user, request.platform
+                "[路由] 本机投递成功 target={} platform={} msg_type={}",
+                request.target_user, request.platform, request.msg_type
             );
             let mut send = conn.open_uni().await?;
-            send.write_all(request.payload.as_bytes()).await?;
+            
+            if request.msg_type == NOTIFY_TYPE_MSG {
+                let nano_id = nanoid!();
+                let raw = request.payload.as_bytes().to_vec();
+                let msg_bytes = generate_text_msg_with_id(
+                    nano_id,
+                    NOTIFY_TYPE_MSG,
+                    raw,
+                    request.target_user.clone(),
+                    "system".to_string(),
+                )?;
+                info!(
+                    "[路由] 通知消息已包装为TextQuicMsg格式 target={} payload_len={}",
+                    request.target_user, request.payload.len()
+                );
+                send.write_all(&msg_bytes).await?;
+            } else {
+                send.write_all(request.payload.as_bytes()).await?;
+            }
             send.finish().await?;
             Ok(Some(InternalQuicResponse::ok()))
         }

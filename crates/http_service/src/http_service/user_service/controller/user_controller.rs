@@ -1,4 +1,4 @@
-use actix_web::{HttpRequest, HttpResponse, Responder, post, web};
+use actix_web::{HttpRequest, HttpResponse, Responder, get, post, web};
 use tracing::info;
 use rbatis::RBatis;
 
@@ -19,6 +19,7 @@ pub fn user_service(cfg: &mut web::ServiceConfig) {
         .service(sign_up)
         .service(me_api)
         .service(query_user_api)
+        .service(get_user_by_uuid_api)
         .service(get_user_uuid_by_account_api)
         .service(update_user_info_api);
 }
@@ -64,6 +65,17 @@ pub async fn query_user_api(
 ) -> impl Responder {
     let account = account.into_inner();
     let res = get_user_info_by_account(state.get_ref(), Some(account)).await;
+    respond_json_any!(res)
+}
+
+#[get("/get_user_by_uuid/{uuid}")]
+pub async fn get_user_by_uuid_api(
+    state: web::Data<RBatis>,
+    uuid: web::Path<String>,
+) -> impl Responder {
+    let uuid = uuid.into_inner();
+    info!("获取用户信息 by uuid: {}", uuid);
+    let res = get_user_info_by_uuid(state.get_ref(), Some(uuid)).await;
     respond_json_any!(res)
 }
 
