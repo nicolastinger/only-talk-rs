@@ -95,8 +95,8 @@ pub async fn run_client(server_addr: SocketAddr) {
                         }
                     }
                     Err(e) => {
-                        error!("[client] uni accept 错误: {}", e);
-                        break;
+                        error!("[client] uni accept 错误: {}，继续等待", e);
+                        tokio::time::sleep(Duration::from_secs(1)).await;
                     }
                 }
             }
@@ -164,7 +164,7 @@ async fn init_send_msg(send_stream: &mut SendStream, conn: Connection) -> Result
     // 心跳循环 - 按需开流
     tokio::spawn(async move {
         loop {
-            tokio::time::sleep(Duration::from_secs(60)).await;
+            tokio::time::sleep(Duration::from_secs(30)).await;
             let ping_msg = generate_text_msg(
                 message_types::MSG_TYPE_PING,
                 PING.as_bytes().to_vec(),

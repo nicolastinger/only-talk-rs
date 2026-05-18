@@ -285,8 +285,8 @@ async fn handle_conn(
                         }
                     }
                     Err(e) => {
-                        error!("[服务端] uni accept 错误: {}", e);
-                        break;
+                        error!("[服务端] uni accept 错误: {}，继续等待", e);
+                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                     }
                 }
             }
