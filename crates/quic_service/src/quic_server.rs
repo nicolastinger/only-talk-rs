@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::{Result, anyhow};
 use dashmap::DashMap;
@@ -10,7 +11,7 @@ use common::utils::jwt_util::{decode_jwt, Claims};
 use common::utils::redis_utils::get_redis_conn;
 use common::utils::time::get_now_time_stamp_as_millis;
 use common::{REDIS_CLIENT};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use quinn::{Connection, Endpoint, RecvStream, SendStream};
 use rbatis::dark_std::err;
 use rbs::value;
@@ -252,6 +253,8 @@ async fn handle_conn(
     set_conn_info(uuid, conn.clone(), &connection_key, address, now, &connections, config.server_index).await?;
 
     // 启动 uni stream 接收循环（客户端通过 open_uni 发送消息）
+    let uni_shutdown = Arc::new(AtomicBool::new(false));
+    let uni_shutdown_clone = uni_shutdown.clone();
     {
         let conn_for_uni = conn.clone();
         let conn_key = connection_key.clone();
@@ -261,6 +264,10 @@ async fn handle_conn(
         tokio::spawn(async move {
             let uni_buffer_msg: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
             loop {
+                if uni_shutdown_clone.load(Ordering::Relaxed) {
+                    info!("[服务端] uni流收到关闭信号，退出循环");
+                    break;
+                }
                 match conn_for_uni.accept_uni().await {
                     Ok(mut recv) => {
                         let mut buf = vec![0u8; 1024 * 10];
@@ -280,12 +287,12 @@ async fn handle_conn(
                             }
                             Ok(None) => {}
                             Err(e) => {
-                                error!("[服务端] uni流读取错误: {}", e);
+                                warn!("[服务端] uni流读取错误: {}", e);
                             }
                         }
                     }
                     Err(e) => {
-                        error!("[服务端] uni accept 错误: {}，继续等待", e);
+                        warn!("[服务端] uni accept 错误: {}，继续等待", e);
                         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                     }
                 }
@@ -334,11 +341,13 @@ async fn handle_conn(
                 break;
             }
             Err(e) => {
-                error!("[服务端] 读取错误: {},退出流{}", e, recv_stream.id());
+                warn!("[服务端] 读取错误: {},退出流{}", e, recv_stream.id());
                 break;
             }
         }
     }
+
+    uni_shutdown.store(true, Ordering::Relaxed);
 
     end_server(&connection_key, &connection_key, now, &connections).await?;
     Ok(())
