@@ -1,0 +1,15 @@
+use serde::{Deserialize, Serialize};
+use validator::Validate;
+
+#[derive(Debug, Deserialize, Serialize, Validate)]
+pub struct InviteMemberDTO {
+    pub group_uuid: String,
+
+    #[validate(length(min = 1, message = "成员列表不能为空"))]
+    pub user_uuids: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Validate)]
+pub struct HandleInvitationDTO {
+    pub group_uuid: String,
+}

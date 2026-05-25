@@ -72,6 +72,64 @@ pub async fn send_process_friend_msg(
     Ok(system_notification)
 }
 
+/// 新增群邀请通知
+pub async fn send_group_invite_msg(
+    rb: &RBatis,
+    user_id: rbatis::rbdc::Uuid,
+    msg: String,
+    biz_id: Option<String>,
+) -> Result<SystemNotification, anyhow::Error> {
+    let now = get_now_time_stamp_as_millis()?;
+    let uuid = Uuid::now_v7().to_string();
+    let system_notification = SystemNotification {
+        id: Some(rbatis::rbdc::Uuid::from_str(uuid.as_str())?),
+        title: Some("群邀请通知".to_string()),
+        content: Some(msg),
+        created_at: Some(now),
+        content_type: Some(0),
+        user_id: Some(user_id),
+        biz_id,
+        is_read: Some(false),
+        level1: Some(1),
+        level2: Some(3),   // 群聊通知
+        level3: Some(1),   // 群邀请
+        level4: Some(0),
+        unread_count: Some(1),
+        priority: Some(1),
+    };
+    SystemNotification::insert(rb, &system_notification).await?;
+    Ok(system_notification)
+}
+
+/// 群邀请处理结果通知（通知群主/管理员邀请已被处理）
+pub async fn send_group_invite_result_msg(
+    rb: &RBatis,
+    user_id: rbatis::rbdc::Uuid,
+    msg: String,
+    biz_id: Option<String>,
+) -> Result<SystemNotification, anyhow::Error> {
+    let now = get_now_time_stamp_as_millis()?;
+    let uuid = Uuid::now_v7().to_string();
+    let system_notification = SystemNotification {
+        id: Some(rbatis::rbdc::Uuid::from_str(uuid.as_str())?),
+        title: Some("群邀请结果".to_string()),
+        content: Some(msg),
+        created_at: Some(now),
+        content_type: Some(0),
+        user_id: Some(user_id),
+        biz_id,
+        is_read: Some(false),
+        level1: Some(1),
+        level2: Some(3),   // 群聊通知
+        level3: Some(4),   // 群邀请结果
+        level4: Some(0),
+        unread_count: Some(1),
+        priority: Some(1),
+    };
+    SystemNotification::insert(rb, &system_notification).await?;
+    Ok(system_notification)
+}
+
 /// 获取用户未读的通知
 pub async fn get_user_unread_notification(
     rb: &RBatis,

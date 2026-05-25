@@ -4,16 +4,18 @@ use tracing::info;
 
 use crate::common::dto::base_dto::AuthAccount;
 use crate::http_service::group_service::group_dto::{
-    add_member_dto::AddMemberDTO,
     create_group_dto::CreateGroupDTO,
     group_message_history_dto::GroupMessageHistoryDTO,
+    invite_member_dto::{HandleInvitationDTO, InviteMemberDTO},
     set_role_dto::SetRoleDTO,
     update_group_dto::UpdateGroupDTO,
 };
 use crate::http_service::group_service::group_service::{
-    add_group_members_service, create_group_service, dissolve_group_service,
-    get_group_info_service, get_group_members_service, get_group_message_history_service,
-    get_my_groups_service, get_unread_group_messages_service, quit_group_service,
+    accept_group_invitation_service, create_group_service,
+    decline_group_invitation_service, dissolve_group_service, get_group_info_service,
+    get_group_members_service, get_group_message_history_service, get_my_groups_service,
+    get_pending_invitations_service, get_sent_invitations_service,
+    get_unread_group_messages_service, invite_group_members_service, quit_group_service,
     remove_group_member_service, set_member_role_service, update_group_service,
 };
 use crate::utils::http_response::CommonResponse;
@@ -26,7 +28,11 @@ pub fn group_service(cfg: &mut web::ServiceConfig) {
         .service(dissolve_group)
         .service(get_my_groups)
         .service(get_group_members)
-        .service(add_group_members)
+        .service(invite_group_members)
+        .service(accept_group_invitation)
+        .service(decline_group_invitation)
+        .service(get_pending_invitations)
+        .service(get_sent_invitations)
         .service(remove_group_member)
         .service(quit_group)
         .service(set_member_role)
@@ -123,16 +129,60 @@ pub async fn get_group_members(
     respond_json(res)
 }
 
-#[post("/member/add")]
-pub async fn add_group_members(
+#[post("/member/invite")]
+pub async fn invite_group_members(
     state: web::Data<RBatis>,
     req: HttpRequest,
-    dto: web::Json<AddMemberDTO>,
+    dto: web::Json<InviteMemberDTO>,
 ) -> impl Responder {
     let dto = validate_and_respond!(dto);
     let uuid = get_uuid(&req);
-    let res = add_group_members_service(state.get_ref(), &uuid, dto).await;
+    let res = invite_group_members_service(state.get_ref(), &uuid, dto).await;
+    respond_json(res)
+}
+
+#[post("/member/invite/accept")]
+pub async fn accept_group_invitation(
+    state: web::Data<RBatis>,
+    req: HttpRequest,
+    dto: web::Json<HandleInvitationDTO>,
+) -> impl Responder {
+    let dto = validate_and_respond!(dto);
+    let uuid = get_uuid(&req);
+    let res = accept_group_invitation_service(state.get_ref(), &uuid, dto).await;
     respond_bool(res)
+}
+
+#[post("/member/invite/decline")]
+pub async fn decline_group_invitation(
+    state: web::Data<RBatis>,
+    req: HttpRequest,
+    dto: web::Json<HandleInvitationDTO>,
+) -> impl Responder {
+    let dto = validate_and_respond!(dto);
+    let uuid = get_uuid(&req);
+    let res = decline_group_invitation_service(state.get_ref(), &uuid, dto).await;
+    respond_bool(res)
+}
+
+#[get("/member/invite/pending")]
+pub async fn get_pending_invitations(
+    state: web::Data<RBatis>,
+    req: HttpRequest,
+) -> impl Responder {
+    let uuid = get_uuid(&req);
+    let res = get_pending_invitations_service(state.get_ref(), &uuid).await;
+    respond_json(res)
+}
+
+#[get("/member/invite/sent")]
+pub async fn get_sent_invitations(
+    state: web::Data<RBatis>,
+    req: HttpRequest,
+) -> impl Responder {
+    let uuid = get_uuid(&req);
+    let res = get_sent_invitations_service(state.get_ref(), &uuid).await;
+    respond_json(res)
 }
 
 #[delete("/member/remove/{group_uuid}/{user_uuid}")]

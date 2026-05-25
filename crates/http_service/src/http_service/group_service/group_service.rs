@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use rbatis::rbdc::Uuid;
 use rbatis::RBatis;
 use tracing::info;
@@ -6,21 +6,26 @@ use tracing::info;
 use common::utils::time::get_now_time_stamp_as_millis;
 use entity::models::group_entity::{
     group_info::GroupInfo,
-    group_member::{GroupMember, ROLE_OWNER, STATUS_NORMAL},
+    group_invitation::{GroupInvitation, INVITATION_ACCEPTED, INVITATION_DECLINED, INVITATION_PENDING},
+    group_member::{GroupMember, ROLE_ADMIN, ROLE_MEMBER, ROLE_OWNER, STATUS_NORMAL},
     group_message_record::GroupMessageRecord,
 };
 
 use crate::http_service::group_service::group_dto::{
-    add_member_dto::AddMemberDTO,
     create_group_dto::CreateGroupDTO,
     group_message_history_dto::GroupMessageHistoryDTO,
+    invite_member_dto::{HandleInvitationDTO, InviteMemberDTO},
     set_role_dto::SetRoleDTO,
     update_group_dto::UpdateGroupDTO,
 };
 use crate::http_service::group_service::group_vo::{
     group_info_vo::{GroupInfoVO, GroupListItemVO},
+    group_invitation_vo::GroupInvitationVO,
     group_member_vo::GroupMemberVO,
     group_message_vo::{GroupMessageVO, UnreadCountVO},
+};
+use crate::http_service::notify_service::service::system_notification::{
+    send_group_invite_msg, send_group_invite_result_msg,
 };
 
 pub async fn create_group_service(
@@ -200,50 +205,243 @@ pub async fn get_group_members_service(rb: &RBatis, group_uuid: &str) -> Result<
         .collect())
 }
 
-pub async fn add_group_members_service(
+pub async fn invite_group_members_service(
     rb: &RBatis,
     operator_uuid: &str,
-    dto: AddMemberDTO,
-) -> Result<bool> {
+    dto: InviteMemberDTO,
+) -> Result<Vec<String>> {
     let group_uuid = dto.group_uuid.parse::<Uuid>()?;
     let op_uuid = operator_uuid.parse::<Uuid>()?;
-    
-    let operator: Option<GroupMember> = GroupMember::select_by_group_and_user(rb, &group_uuid, &op_uuid).await?;
+
+    let operator: Option<GroupMember> =
+        GroupMember::select_by_group_and_user(rb, &group_uuid, &op_uuid).await?;
 
     match operator {
         Some(op) => {
             let role = op.role.unwrap_or(0);
-            if role < 1 {
-                return Ok(false);
+            if role < ROLE_ADMIN {
+                return Err(anyhow!("无权限邀请成员"));
             }
+
+            let group = GroupInfo::select_by_group_uuid(rb, &group_uuid)
+                .await?
+                .ok_or(anyhow!("群组不存在"))?;
+            let group_name = group.group_name.unwrap_or_default();
 
             let now = get_now_time_stamp_as_millis()?;
-            for user_uuid_str in dto.user_uuids {
+            let mut invited = Vec::new();
+
+            for user_uuid_str in &dto.user_uuids {
                 let user_uuid = user_uuid_str.parse::<Uuid>()?;
-                let existing: Option<GroupMember> = GroupMember::select_by_group_and_user(rb, &group_uuid, &user_uuid).await?;
-                
-                if existing.is_none() {
-                    let member = GroupMember {
+
+                // 检查是否已是成员
+                let existing: Option<GroupMember> =
+                    GroupMember::select_by_group_and_user(rb, &group_uuid, &user_uuid).await?;
+                if existing.is_some() {
+                    continue;
+                }
+
+                // 检查是否已有待处理的邀请
+                let pending: Option<GroupInvitation> =
+                    GroupInvitation::select_by_group_and_invitee(rb, &group_uuid, &user_uuid)
+                        .await?;
+                if let Some(ref p) = pending {
+                    if p.status == Some(INVITATION_PENDING) {
+                        continue;
+                    }
+                    // 更新旧邀请记录为待处理
+                    let mut updated = p.clone();
+                    updated.status = Some(INVITATION_PENDING);
+                    updated.updated_at = Some(now);
+                    GroupInvitation::update_by_id(rb, &updated, &p.id.unwrap()).await?;
+                } else {
+                    let invitation = GroupInvitation {
                         id: None,
                         group_uuid: Some(group_uuid.clone()),
-                        user_uuid: Some(user_uuid),
-                        role: Some(0),
-                        nickname: None,
-                        join_time: Some(now),
-                        last_read_msg_id: Some(0),
-                        muted: Some(false),
-                        status: Some(STATUS_NORMAL),
+                        inviter_uuid: Some(op_uuid.clone()),
+                        invitee_uuid: Some(user_uuid.clone()),
+                        status: Some(INVITATION_PENDING),
+                        created_at: Some(now),
+                        updated_at: Some(now),
                     };
-                    GroupMember::insert(rb, &member).await?;
+                    GroupInvitation::insert(rb, &invitation).await?;
                 }
+
+                // 发送通知
+                let notify_msg = format!("邀请你加入群聊「{}」", group_name);
+                let _ = send_group_invite_msg(
+                    rb,
+                    user_uuid.clone(),
+                    notify_msg,
+                    Some(dto.group_uuid.clone()),
+                )
+                .await;
+
+                invited.push(user_uuid_str.clone());
             }
 
+            info!(
+                "[群组] 邀请成员成功 group_uuid={} count={}",
+                group_uuid,
+                invited.len()
+            );
+            Ok(invited)
+        }
+        None => Err(anyhow!("操作者不是群成员")),
+    }
+}
+
+pub async fn accept_group_invitation_service(
+    rb: &RBatis,
+    user_uuid: &str,
+    dto: HandleInvitationDTO,
+) -> Result<bool> {
+    let group_uuid = dto.group_uuid.parse::<Uuid>()?;
+    let u_uuid = user_uuid.parse::<Uuid>()?;
+
+    let invitation: Option<GroupInvitation> =
+        GroupInvitation::select_by_group_and_invitee(rb, &group_uuid, &u_uuid).await?;
+
+    match invitation {
+        Some(mut inv) if inv.status == Some(INVITATION_PENDING) => {
+            let now = get_now_time_stamp_as_millis()?;
+
+            // 更新邀请状态
+            inv.status = Some(INVITATION_ACCEPTED);
+            inv.updated_at = Some(now);
+            GroupInvitation::update_by_id(rb, &inv, &inv.id.unwrap()).await?;
+
+            // 添加为群成员
+            let member = GroupMember {
+                id: None,
+                group_uuid: Some(group_uuid.clone()),
+                user_uuid: Some(u_uuid.clone()),
+                role: Some(ROLE_MEMBER),
+                nickname: None,
+                join_time: Some(now),
+                last_read_msg_id: Some(0),
+                muted: Some(false),
+                status: Some(STATUS_NORMAL),
+            };
+            GroupMember::insert(rb, &member).await?;
+
             invalidate_group_member_cache(&dto.group_uuid).await?;
-            info!("[群组] 添加成员成功 group_uuid={}", group_uuid);
+
+            // 通知邀请人
+            let group = GroupInfo::select_by_group_uuid(rb, &group_uuid).await?;
+            let group_name = group.and_then(|g| g.group_name).unwrap_or_default();
+            let notify_msg = format!("用户已接受加入群聊「{}」的邀请", group_name);
+            if let Some(inviter) = inv.inviter_uuid {
+                let _ = send_group_invite_result_msg(
+                    rb,
+                    inviter,
+                    notify_msg,
+                    Some(dto.group_uuid.clone()),
+                )
+                .await;
+            }
+
+            info!(
+                "[群组] 接受邀请 group_uuid={} user={}",
+                dto.group_uuid, user_uuid
+            );
             Ok(true)
         }
-        None => Ok(false),
+        _ => Ok(false),
     }
+}
+
+pub async fn decline_group_invitation_service(
+    rb: &RBatis,
+    user_uuid: &str,
+    dto: HandleInvitationDTO,
+) -> Result<bool> {
+    let group_uuid = dto.group_uuid.parse::<Uuid>()?;
+    let u_uuid = user_uuid.parse::<Uuid>()?;
+
+    let invitation: Option<GroupInvitation> =
+        GroupInvitation::select_by_group_and_invitee(rb, &group_uuid, &u_uuid).await?;
+
+    match invitation {
+        Some(mut inv) if inv.status == Some(INVITATION_PENDING) => {
+            let now = get_now_time_stamp_as_millis()?;
+
+            inv.status = Some(INVITATION_DECLINED);
+            inv.updated_at = Some(now);
+            GroupInvitation::update_by_id(rb, &inv, &inv.id.unwrap()).await?;
+
+            info!(
+                "[群组] 拒绝邀请 group_uuid={} user={}",
+                dto.group_uuid, user_uuid
+            );
+            Ok(true)
+        }
+        _ => Ok(false),
+    }
+}
+
+pub async fn get_pending_invitations_service(
+    rb: &RBatis,
+    user_uuid: &str,
+) -> Result<Vec<GroupInvitationVO>> {
+    let uuid = user_uuid.parse::<Uuid>()?;
+    let invitations: Vec<GroupInvitation> =
+        GroupInvitation::select_pending_by_invitee(rb, &uuid).await?;
+
+    let mut result = Vec::new();
+    for inv in invitations {
+        if let (Some(g_uuid), Some(inviter_uuid)) = (inv.group_uuid, inv.inviter_uuid) {
+            let group = GroupInfo::select_by_group_uuid(rb, &g_uuid).await?;
+            let (group_name, group_avatar) = match group {
+                Some(g) => (g.group_name.unwrap_or_default(), g.avatar),
+                None => continue,
+            };
+            result.push(GroupInvitationVO {
+                id: inv.id.unwrap_or(0),
+                group_uuid: g_uuid.to_string(),
+                group_name,
+                group_avatar,
+                inviter_uuid: inviter_uuid.to_string(),
+                invitee_uuid: inv.invitee_uuid.map(|u| u.to_string()).unwrap_or_default(),
+                status: inv.status.unwrap_or(INVITATION_PENDING),
+                created_at: inv.created_at.unwrap_or(0),
+            });
+        }
+    }
+
+    Ok(result)
+}
+
+pub async fn get_sent_invitations_service(
+    rb: &RBatis,
+    user_uuid: &str,
+) -> Result<Vec<GroupInvitationVO>> {
+    let uuid = user_uuid.parse::<Uuid>()?;
+    let invitations: Vec<GroupInvitation> =
+        GroupInvitation::select_by_inviter(rb, &uuid).await?;
+
+    let mut result = Vec::new();
+    for inv in invitations {
+        if let (Some(g_uuid), Some(inviter_uuid)) = (inv.group_uuid, inv.inviter_uuid) {
+            let group = GroupInfo::select_by_group_uuid(rb, &g_uuid).await?;
+            let (group_name, group_avatar) = match group {
+                Some(g) => (g.group_name.unwrap_or_default(), g.avatar),
+                None => continue,
+            };
+            result.push(GroupInvitationVO {
+                id: inv.id.unwrap_or(0),
+                group_uuid: g_uuid.to_string(),
+                group_name,
+                group_avatar,
+                inviter_uuid: inviter_uuid.to_string(),
+                invitee_uuid: inv.invitee_uuid.map(|u| u.to_string()).unwrap_or_default(),
+                status: inv.status.unwrap_or(INVITATION_PENDING),
+                created_at: inv.created_at.unwrap_or(0),
+            });
+        }
+    }
+
+    Ok(result)
 }
 
 pub async fn remove_group_member_service(
