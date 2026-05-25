@@ -55,7 +55,7 @@ endpoint = "${S3_ENDPOINT}"
 access_key = "${S3_ACCESS_KEY}"
 secret_key = "${S3_SECRET_KEY}"
 # 默认存储桶
-default_bucket = "rust-my-app"
+default_bucket = "only-talk-rs"
 # 聊天文件预览桶（压缩文件）
 chat_file_preview_bucket = "chat-file-preview"
 # 聊天文件原文件桶

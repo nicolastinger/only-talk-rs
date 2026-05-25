@@ -2,11 +2,11 @@ use std::sync::Arc;
 
 use tracing::info;
 
-use crate::chat_node::ChatNode;
-use crate::config::ChatNodeConfig;
-use crate::internal_config::InternalQuicConfig;
-use crate::internal_quic_server::run_internal_server;
-use crate::lifecycle::ServiceLifecycle;
+use crate::external::chat_node::ChatNode;
+use crate::external::config::ChatNodeConfig;
+use crate::internal::internal_config::InternalQuicConfig;
+use crate::internal::internal_quic_server::run_internal_server;
+use crate::external::lifecycle::ServiceLifecycle;
 use crate::nat_ip::nat_udp_service::run_udp_server;
 
 /// 替换 TOML 内容中的 `${VAR_NAME}` 环境变量占位符

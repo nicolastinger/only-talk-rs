@@ -1,11 +1,9 @@
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
 use std::net::SocketAddr;
 
 use anyhow::anyhow;
 use common::utils::message_types::NOTIFY_TYPE_MSG;
 use common::utils::internal_quic_msg::{InternalQuicRequest, RequestSource};
-use common::utils::server_count_sync::get_server_count;
+use common::utils::server_count_sync::{compute_preferred_index, get_server_count};
 use common::read_global_config;
 use http_service::http_service::notify_service::service::system_notification::{
     send_process_friend_msg, send_request_friend_msg,
@@ -17,17 +15,6 @@ use http_service::http_service::user_service::service::friend_service::{
 use http_service::utils::http_response::CommonResponseNoDataRef;
 use rbatis::RBatis;
 use common::utils::internal_quic_client::send_internal_quic_msg;
-
-/// hash 取模计算首选节点序号
-fn compute_preferred_index(uuid: &str) -> u32 {
-    let sc = get_server_count();
-    if sc <= 1 {
-        return 0;
-    }
-    let mut hasher = DefaultHasher::new();
-    uuid.hash(&mut hasher);
-    (hasher.finish() as u32) % sc
-}
 
 pub async fn add_user_with_notify(
     rb: &RBatis,

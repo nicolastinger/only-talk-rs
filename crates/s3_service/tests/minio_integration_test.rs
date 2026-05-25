@@ -21,7 +21,7 @@ async fn test_client_initialization() {
     let client = create_test_client().await;
     
     // 验证客户端配置
-    assert_eq!(client.config.default_bucket, "rust-my-app");
+    assert_eq!(client.config.default_bucket, "only-talk-rs");
     assert!(client.config.enabled);
     assert!(client.config.force_path_style);
 }

@@ -209,7 +209,7 @@ impl S3Config {
     /// ## 可选配置(有默认值)
     /// - `s3.enabled`: 是否启用,默认false
     /// - `s3.region`: 区域,默认"us-east-1"
-    /// - `s3.default_bucket`: 默认桶,默认"rust-my-app"
+    /// - `s3.default_bucket`: 默认桶,默认"only-talk-rs"
     /// - `s3.force_path_style`: 路径风格,默认true
     /// - `s3.presign_expire_seconds`: 预签名过期时间,默认3600秒
     /// - `s3.multipart_threshold`: 分片阈值,默认10MB
@@ -245,7 +245,7 @@ impl S3Config {
             secret_access_key: get_config("s3.secret_key")?,
             region: get_config("s3.region").unwrap_or_else(|_| "us-east-1".to_string()),
             default_bucket: get_config("s3.default_bucket")
-                .unwrap_or_else(|_| "rust-my-app".to_string()),
+                .unwrap_or_else(|_| "only-talk-rs".to_string()),
             chat_file_preview_bucket: get_config("s3.chat_file_preview_bucket")
                 .unwrap_or_else(|_| "chat-file-preview".to_string()),
             chat_file_origin_bucket: get_config("s3.chat_file_origin_bucket")
@@ -286,7 +286,7 @@ impl S3Config {
     /// - 端点: http://101.33.75.40:19000
     /// - 访问密钥: minioadmin
     /// - 区域: us-east-1
-    /// - 默认桶: rust-my-app
+    /// - 默认桶: only-talk-rs
     /// - 路径风格: true (MinIO必需)
     /// - 启用状态: true
     /// - 预签名过期: 3600秒(1小时)
@@ -314,7 +314,7 @@ impl S3Config {
             access_key_id: "REDACTED_S3_ACCESS_KEY".to_string(),
             secret_access_key: "REDACTED_S3_SECRET_KEY_V2".to_string(),
             region: "us-east-1".to_string(),
-            default_bucket: "rust-my-app".to_string(),
+            default_bucket: "only-talk-rs".to_string(),
             chat_file_preview_bucket: "chat-file-preview".to_string(),
             chat_file_origin_bucket: "chat-file-origin".to_string(),
             user_avatar_bucket: "user-avatar".to_string(),

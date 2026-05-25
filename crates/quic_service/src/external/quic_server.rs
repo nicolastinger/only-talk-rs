@@ -17,7 +17,7 @@ use rbatis::dark_std::err;
 use rbs::value;
 use tokio::sync::{Mutex, watch};
 use common::utils::sql_utils::get_sql_client;
-use crate::config::ChatNodeConfig;
+use super::config::ChatNodeConfig;
 use crate::models::first_quic_msg::FirstQuicMsg;
 use crate::models::quic_connection::{ConnectionType, QuicConnection};
 use crate::msg_service::process_msg_service::process_rec_msg;

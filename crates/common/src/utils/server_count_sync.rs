@@ -1,3 +1,5 @@
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -67,6 +69,17 @@ async fn get_cluster_server_count(pool: &Pool) -> Result<u32, anyhow::Error> {
 /// 读取当前 server_count
 pub fn get_server_count() -> u32 {
     SERVER_COUNT.load(Ordering::Relaxed)
+}
+
+/// hash 取模计算首选节点序号
+pub fn compute_preferred_index(uuid: &str) -> u32 {
+    let sc = get_server_count();
+    if sc <= 1 {
+        return 0;
+    }
+    let mut hasher = DefaultHasher::new();
+    uuid.hash(&mut hasher);
+    (hasher.finish() as u32) % sc
 }
 
 /// 节点启动时注册外网 QUIC 节点到 Redis（短 TTL，由后台任务续期）

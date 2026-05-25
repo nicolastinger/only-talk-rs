@@ -1,6 +1,6 @@
 use std::net::SocketAddr;
 
-use crate::state::ServiceError;
+use crate::external::state::ServiceError;
 
 /// 内网 QUIC 服务配置 (无需配置TLS证书)
 #[derive(Debug, Clone)]

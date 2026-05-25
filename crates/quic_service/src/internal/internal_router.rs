@@ -23,16 +23,6 @@ use crate::models::quic_connection::{ConnectionType, QuicConnection};
 use crate::msg_service::group_msg_service::process_group_broadcast;
 use crate::msg_service::text_msg_service::generate_text_msg_with_id;
 
-pub fn compute_preferred_index(uuid: &str) -> u32 {
-    let sc = get_server_count();
-    if sc <= 1 {
-        return 0;
-    }
-    let mut hasher = DefaultHasher::new();
-    uuid.hash(&mut hasher);
-    (hasher.finish() as u32) % sc
-}
-
 async fn get_internal_addr_by_index(index: u32) -> Result<SocketAddr> {
     let redis = REDIS_CLIENT.read().await;
     let redis = redis.as_ref().ok_or_else(|| anyhow::anyhow!("Redis 未初始化"))?;

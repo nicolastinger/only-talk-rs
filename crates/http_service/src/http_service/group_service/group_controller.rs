@@ -1,4 +1,4 @@
-use actix_web::{delete, get, post, put, web, HttpRequest, HttpResponse, Responder};
+use actix_web::{get, post, web, HttpRequest, HttpResponse, Responder};
 use rbatis::RBatis;
 use tracing::info;
 
@@ -85,7 +85,7 @@ pub async fn get_group_info(
     respond_json(res)
 }
 
-#[put("/update")]
+#[post("/update")]
 pub async fn update_group(
     state: web::Data<RBatis>,
     req: HttpRequest,
@@ -97,7 +97,7 @@ pub async fn update_group(
     respond_bool(res)
 }
 
-#[delete("/dissolve/{group_uuid}")]
+#[post("/dissolve/{group_uuid}")]
 pub async fn dissolve_group(
     state: web::Data<RBatis>,
     req: HttpRequest,
@@ -185,7 +185,7 @@ pub async fn get_sent_invitations(
     respond_json(res)
 }
 
-#[delete("/member/remove/{group_uuid}/{user_uuid}")]
+#[post("/member/remove/{group_uuid}/{user_uuid}")]
 pub async fn remove_group_member(
     state: web::Data<RBatis>,
     req: HttpRequest,
@@ -209,7 +209,7 @@ pub async fn quit_group(
     respond_bool(res)
 }
 
-#[put("/member/set_role")]
+#[post("/member/set_role")]
 pub async fn set_member_role(
     state: web::Data<RBatis>,
     req: HttpRequest,
@@ -221,14 +221,14 @@ pub async fn set_member_role(
     respond_bool(res)
 }
 
-#[get("/message/history")]
+#[post("/message/history")]
 pub async fn get_group_message_history(
     state: web::Data<RBatis>,
     req: HttpRequest,
-    query: web::Query<GroupMessageHistoryDTO>,
+    body: web::Json<GroupMessageHistoryDTO>,
 ) -> impl Responder {
+    let dto = validate_and_respond!(body);
     let uuid = get_uuid(&req);
-    let dto = query.into_inner();
     let res = get_group_message_history_service(state.get_ref(), &uuid, dto).await;
     respond_json(res)
 }

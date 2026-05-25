@@ -13,7 +13,7 @@ use tokio::sync::Mutex;
 use crate::models::first_quic_msg::FirstQuicMsg;
 use crate::models::quic_connection::ConnectionType;
 use crate::msg_service::text_msg_service::{generate_text_msg, get_text_msg};
-use crate::set_server::configure_client;
+use super::set_server::configure_client;
 
 #[allow(dead_code)]
 pub async fn run_client(server_addr: SocketAddr) {

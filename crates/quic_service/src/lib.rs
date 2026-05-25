@@ -5,32 +5,19 @@ use dashmap::DashMap;
 
 use crate::models::quic_connection::QuicConnection;
 
-pub mod chat_node;
-pub mod config;
+pub mod external;
 pub mod init_server;
-pub mod internal_config;
-pub mod internal_quic_server;
-pub mod internal_router;
-pub mod lifecycle;
+pub mod internal;
 pub mod models;
 pub mod msg_service;
 pub mod nat_ip;
-pub(crate) mod quic_client;
-pub(crate) mod quic_server;
-pub(crate) mod set_server;
-pub mod state;
-pub mod tls_monitor;
 
 /// 连接映射类型别名，便于跨 crate 使用
 pub type ConnectionsMap = Arc<DashMap<String, QuicConnection>>;
 
 // Re-exports
-pub use chat_node::ChatNode;
-pub use config::ChatNodeConfig;
-pub use internal_config::InternalQuicConfig;
-pub use internal_quic_server::run_internal_server;
-pub use lifecycle::ServiceLifecycle;
-pub use state::{ServiceError, ServiceState};
+pub use external::{ChatNode, ChatNodeConfig, ServiceError, ServiceLifecycle, ServiceState};
+pub use internal::{InternalQuicConfig, run_internal_server};
 
 // 创建CRC-16/X25计算器
 pub const X25: Crc<u16> = Crc::<u16>::new(&crc::CRC_16_IBM_SDLC);

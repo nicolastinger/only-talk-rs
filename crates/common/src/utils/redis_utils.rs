@@ -43,6 +43,12 @@ pub async fn get_redis_conn() -> Result<Connection, anyhow::Error> {
     Ok(conn)
 }
 
+/// Redis 连接兜底：不可用时返回 None，不报错
+pub async fn try_get_redis_conn() -> Option<Connection> {
+    let redis = REDIS_CLIENT.read().await;
+    redis.as_ref()?.get().await.ok()
+}
+
 /// redis分布式锁加锁
 pub async fn acquire_lock(
     conn: &mut Connection,

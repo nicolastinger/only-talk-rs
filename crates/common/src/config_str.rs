@@ -38,7 +38,7 @@ pub static OSS_TYPE_ALIYUN: i32 = 1;
 pub static OSS_TYPE_AWS: i32 = 2;
 pub static OSS_TYPE_OTHER: i32 = 3;
 // S3存储桶默认名称
-pub static S3_DEFAULT_BUCKET: &str = "rust-my-app";
+pub static S3_DEFAULT_BUCKET: &str = "only-talk-rs";
 // S3聊天文件预览桶名称（压缩文件）
 pub static S3_CHAT_FILE_PREVIEW_BUCKET: &str = "chat-file-preview";
 // S3聊天文件原文件桶名称

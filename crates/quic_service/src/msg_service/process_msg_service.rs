@@ -12,8 +12,7 @@ use nanoid::nanoid;
 use quinn::Connection;
 use rbatis::rbdc::{Bytes, Uuid};
 use tokio::sync::Mutex;
-
-use crate::internal_router::compute_preferred_index;
+use common::utils::server_count_sync::compute_preferred_index;
 use crate::models::quic_connection::{ConnectionType, QuicConnection};
 use crate::models::text_msg::TextQuicMsg;
 use crate::msg_service::text_msg_service::{

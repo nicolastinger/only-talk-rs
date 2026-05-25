@@ -14,8 +14,8 @@ use rustls::{Certificate, PrivateKey};
 use tokio::sync::watch;
 use tracing::{error, info};
 
-use crate::internal_config::InternalQuicConfig;
-use crate::internal_router::route_internal_request;
+use super::internal_config::InternalQuicConfig;
+use super::internal_router::route_internal_request;
 use crate::models::quic_connection::QuicConnection;
 
 fn generate_self_signed_cert() -> Result<(Vec<Certificate>, PrivateKey), Box<dyn std::error::Error>> {
