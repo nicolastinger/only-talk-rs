@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::fs;
 use std::fs::File;
 use std::io::{BufReader, Seek, SeekFrom};
@@ -7,9 +6,8 @@ use std::sync::Arc;
 use actix_files::Files;
 use actix_web::middleware::from_fn;
 use actix_web::{App, HttpServer, middleware, web};
-use deadpool_redis::Pool;
 use common::config_str::{USER_FILE_PUBLIC, USER_FILE_PUBLIC_DIR};
-use common::{init_global_config, init_redis, init_sql_pool, read_global_config};
+use common::{init_app_config, init_redis, init_sql_pool, read_global_config, verify_redis};
 use http_service;
 use http_service::middleware::TraceIdMiddleware;
 use http_service::utils::record_bad_http::error_record_middleware;
@@ -18,33 +16,7 @@ use s3_service::config::S3Config;
 use tracing::{error, info, warn};
 use rustls::{Certificate, PrivateKey, ServerConfig};
 use rustls_pemfile::{certs, ec_private_keys, pkcs8_private_keys, rsa_private_keys};
-use toml::Value;
-
 use crate::controller::configure_api_routes;
-
-async fn verify_redis(pool: &Pool) {
-    match pool.get().await {
-        Ok(mut conn) => {
-            let result: Result<String, _> = deadpool_redis::redis::cmd("PING")
-                .query_async(&mut conn)
-                .await;
-            match result {
-                Ok(ref s) if s == "PONG" => {
-                    info!("Redis 连接成功 (PING: {})", s);
-                }
-                Ok(s) => {
-                    warn!("Redis PING 返回异常: {}", s);
-                }
-                Err(e) => {
-                    error!("Redis 连接失败: {}", e);
-                }
-            }
-        }
-        Err(e) => {
-            error!("Redis 获取连接失败: {}", e);
-        }
-    }
-}
 
 fn init_cert_file() -> (Vec<Certificate>, PrivateKey) {
     // 加载证书
@@ -149,26 +121,6 @@ async fn init_s3_client() -> Option<Arc<s3_service::S3Client>> {
     }
 }
 
-/// 替换字符串中的环境变量占位符 ${VAR_NAME} 为实际环境变量值
-fn substitute_env_vars(content: String) -> String {
-    let mut result = content;
-    // 简单替换 ${VAR_NAME} 格式的环境变量
-    loop {
-        if let Some(start) = result.find("${") {
-            if let Some(end) = result[start..].find('}') {
-                let var_name = &result[start + 2..start + end];
-                let var_value = std::env::var(var_name).unwrap_or_default();
-                result = result.replace(&format!("${{{}}}", var_name), &var_value);
-            } else {
-                break;
-            }
-        } else {
-            break;
-        }
-    }
-    result
-}
-
 ///初始化服务
 pub async fn start_server() -> anyhow::Result<()> {
     // 创建公开文件夹
@@ -177,19 +129,8 @@ pub async fn start_server() -> anyhow::Result<()> {
         fs::create_dir_all(pub_file_path).expect("创建公开文件夹失败");
     }
 
-    // 读取配置文件内容
-    let config_content = fs::read_to_string("./config/app_config.toml").expect("无法读取配置文件");
-    // 替换环境变量占位符
-    let config_content = substitute_env_vars(config_content);
-    // 解析配置文件内容
-    let config_value: Value = config_content.parse()?;
+    init_app_config()?;
 
-    // 将解析后的配置转换为 HashMap
-    let config_map: HashMap<String, Value> = config_value.try_into()?;
-    
-    // 初始化全局配置到 DashMap
-    init_global_config!(&config_map);
-    
     let url = read_global_config!("database", "url");
 
     let pool = init_sql_pool(&url).await?;

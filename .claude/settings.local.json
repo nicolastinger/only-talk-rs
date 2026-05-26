@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(cargo check *)",
-      "Bash(cargo doc *)"
+      "Bash(cargo doc *)",
+      "Bash(git diff *)",
+      "Bash(git status *)"
     ]
   }
 }

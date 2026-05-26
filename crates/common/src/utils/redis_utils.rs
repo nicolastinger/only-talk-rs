@@ -2,7 +2,7 @@ use anyhow::anyhow;
 use deadpool_redis::Connection;
 use deadpool_redis::redis::cmd;
 use deadpool_redis::{Config as RedisConfig, Pool, Runtime};
-use tracing::info;
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::{REDIS_CLIENT, REDIS_INIT_ONCE};
@@ -34,6 +34,30 @@ pub fn init_redis(url: &str) -> Result<Pool, anyhow::Error> {
 
     info!("Redis 连接池初始化成功");
     Ok(pool)
+}
+
+pub async fn verify_redis(pool: &Pool) {
+    match pool.get().await {
+        Ok(mut conn) => {
+            let result: Result<String, _> = deadpool_redis::redis::cmd("PING")
+                .query_async(&mut conn)
+                .await;
+            match result {
+                Ok(ref s) if s == "PONG" => {
+                    info!("Redis 连接成功 (PING: {})", s);
+                }
+                Ok(s) => {
+                    warn!("Redis PING 返回异常: {}", s);
+                }
+                Err(e) => {
+                    error!("Redis 连接失败: {}", e);
+                }
+            }
+        }
+        Err(e) => {
+            error!("Redis 获取连接失败: {}", e);
+        }
+    }
 }
 
 pub async fn get_redis_conn() -> Result<Connection, anyhow::Error> {
