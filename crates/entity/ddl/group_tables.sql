@@ -52,7 +52,7 @@ COMMENT ON COLUMN group_member.status IS '成员状态: 1-正常, 2-已退出, 3
 -- 群消息表（读扩散，只存 1 份）
 CREATE TABLE IF NOT EXISTS group_message_record (
     id BIGSERIAL PRIMARY KEY,
-    nano_id VARCHAR(20) NOT NULL UNIQUE,
+    nano_id VARCHAR(64) NOT NULL UNIQUE,
     group_uuid UUID NOT NULL REFERENCES group_info(group_uuid),
     send_user UUID NOT NULL,
     timestamp BIGINT NOT NULL,

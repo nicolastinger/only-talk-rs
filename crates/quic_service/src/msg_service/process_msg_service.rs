@@ -5,9 +5,10 @@ use dashmap::DashMap;
 use common::RBATIS_DATABASE;
 use common::config_str::{MOBILE_PLATFORM, PC_PLATFORM, PONG, REDIS_QUIC_SERVERS, REDIS_SPLIT, SYSTEM};
 use common::models::chat_entity::chat_message_record::ChatMessageRecord;
+use common::utils::group_msg::GroupQuicMsg;
 use common::utils::message_types;
 use common::utils::time::get_now_time_stamp_as_millis;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 use nanoid::nanoid;
 use quinn::Connection;
 use rbatis::rbdc::{Bytes, Uuid};
@@ -15,6 +16,7 @@ use tokio::sync::Mutex;
 use common::utils::server_count_sync::compute_preferred_index;
 use crate::models::quic_connection::{ConnectionType, QuicConnection};
 use crate::models::text_msg::TextQuicMsg;
+use crate::msg_service::group_msg_service::handle_group_msg_from_client;
 use crate::msg_service::text_msg_service::{
     generate_text_msg, generate_text_msg_with_time, get_text_msg,
 };
@@ -28,10 +30,11 @@ pub async fn process_rec_msg(
     buffer_msg: Arc<Mutex<Vec<u8>>>,
     head_length: usize,
     connections: Arc<DashMap<String, QuicConnection>>,
+    server_index: u32,
 ) -> anyhow::Result<()> {
     let text_vec = get_text_msg(buffer, length, buffer_msg, head_length).await?;
     info!("接收到客户端信息 {:?}", text_vec);
-    process_text_msg(text_vec, uuid, platform, connection_key, &connections).await?;
+    process_text_msg(text_vec, uuid, platform, connection_key, &connections, server_index).await?;
 
     Ok(())
 }
@@ -42,6 +45,7 @@ async fn process_text_msg(
     platform: &str,
     connection_key: &str,
     connections: &Arc<DashMap<String, QuicConnection>>,
+    server_index: u32,
 ) -> anyhow::Result<()> {
     for mut text_msg in text_quic_msg.into_iter() {
         if uuid != text_msg.send_user {
@@ -51,6 +55,65 @@ async fn process_text_msg(
         // 心跳消息
         if text_msg.text_type == message_types::MSG_TYPE_PING {
             send_ping(connection_key, text_msg.send_user, connections).await?;
+            continue;
+        }
+
+        // 群聊消息：路由到群聊处理管线（存库 → Redis 查成员 → 本机投递 + 内网广播）
+        if matches!(
+            text_msg.text_type,
+            message_types::MSG_TYPE_GROUP_TEXT
+                | message_types::MSG_TYPE_GROUP_IMAGE
+                | message_types::MSG_TYPE_GROUP_FILE
+                | message_types::MSG_TYPE_GROUP_NOTIFICATION
+        ) {
+            debug!(
+                "[群聊路由] 收到群聊消息 type={} group={} sender={} raw_len={}",
+                text_msg.text_type,
+                text_msg.recv_user,
+                text_msg.send_user,
+                text_msg.raw.len()
+            );
+            let nano_id = nanoid!();
+            let ack_raw_id = text_msg.nano_id.clone();
+            let ack_nano_id = nano_id.clone();
+            let now = get_now_time_stamp_as_millis()?;
+            let group_msg = GroupQuicMsg {
+                nano_id: nano_id.clone(),
+                msg_type: text_msg.text_type,
+                group_uuid: text_msg.recv_user.clone(),
+                send_user: text_msg.send_user.clone(),
+                raw: text_msg.raw.clone(),
+                timestamp: now,
+            };
+
+            let conns = connections.clone();
+            let conn_key = connection_key.to_string();
+            let current_user = text_msg.send_user.clone();
+            tokio::spawn(async move {
+                debug!(
+                    "[群聊路由] 开始处理群聊消息 nano_id={} group={} sender={}",
+                    nano_id, group_msg.group_uuid, group_msg.send_user
+                );
+                if let Err(e) =
+                    handle_group_msg_from_client(group_msg, server_index, &conns).await
+                {
+                    error!("[群聊路由] 处理群聊消息失败: {}", e);
+                    return;
+                }
+                let now = get_now_time_stamp_as_millis().unwrap_or(0);
+                if let Err(e) = send_msg_record_success(
+                    ack_nano_id,
+                    &conn_key,
+                    current_user,
+                    ack_raw_id,
+                    now,
+                    &conns,
+                )
+                .await
+                {
+                    error!("[群聊路由] 发送群聊ACK失败: {}", e);
+                }
+            });
             continue;
         }
 

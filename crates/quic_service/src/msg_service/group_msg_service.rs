@@ -1,5 +1,6 @@
 use std::sync::Arc;
-use std::time::Duration;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use dashmap::DashSet;
@@ -8,7 +9,7 @@ use nanoid::nanoid;
 use once_cell::sync::Lazy;
 use quinn::Connection;
 use rbatis::rbdc::{Bytes, Uuid};
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use common::config_str::{MOBILE_PLATFORM, PC_PLATFORM, REDIS_INTERNAL_QUIC_SERVERS, REDIS_QUIC_SERVERS, REDIS_SPLIT};
 use common::utils::group_msg::{
@@ -19,12 +20,16 @@ use common::REDIS_CLIENT;
 use entity::models::group_entity::group_message_record::GroupMessageRecord;
 
 use crate::models::quic_connection::ConnectionType;
-use crate::models::text_msg::TextMsg;
+use crate::models::text_msg::{HeadMsg, TextQuicMsg};
 use crate::msg_service::text_msg_service::build_text_msg;
 use crate::{ConnectionsMap, X25};
-use crate::models::text_msg::HeadMsg;
 
 static DEDUP: Lazy<BroadcastDedup> = Lazy::new(BroadcastDedup::new);
+
+type NodeAddressCache = Option<(Instant, Vec<(u32, std::net::SocketAddr)>)>;
+
+/// 内网节点地址缓存（5s 过期，避免每条群消息都扫 Redis）
+static NODE_CACHE: Lazy<Mutex<NodeAddressCache>> = Lazy::new(|| Mutex::new(None));
 
 pub struct BroadcastDedup {
     set: Arc<DashSet<String>>,
@@ -57,22 +62,25 @@ impl Default for BroadcastDedup {
 }
 
 pub fn serialize_group_msg(group_msg: &GroupQuicMsg) -> Result<Vec<u8>> {
-    let meta_data = bincode::serialize(group_msg)?;
+    // 转换为 TextQuicMsg 格式，客户端才能正确反序列化
+    let text_msg = TextQuicMsg {
+        nano_id: group_msg.nano_id.clone(),
+        text_type: group_msg.msg_type,
+        raw: group_msg.raw.clone(),
+        recv_user: group_msg.group_uuid.clone(),
+        send_user: group_msg.send_user.clone(),
+        timestamp: group_msg.timestamp,
+    };
+    let meta_data = bincode::serialize(&text_msg)?;
     let crc = X25.checksum(&meta_data);
     let head_msg = HeadMsg {
         version: 1,
         crc,
         body_len: meta_data.len() as u32,
-        message_type: 1,
+        message_type: group_msg.msg_type,
     };
 
-    build_text_msg(&head_msg, group_msg)
-}
-
-impl TextMsg for GroupQuicMsg {
-    fn get_bytes(&self) -> anyhow::Result<Vec<u8>> {
-        Ok(bincode::serialize(self)?)
-    }
+    build_text_msg(&head_msg, &text_msg)
 }
 
 pub async fn get_group_members_cached(group_uuid: &str) -> Result<Vec<String>> {
@@ -81,9 +89,11 @@ pub async fn get_group_members_cached(group_uuid: &str) -> Result<Vec<String>> {
     let redis = REDIS_CLIENT.read().await;
     if let Some(redis) = redis.as_ref() {
         let mut conn = redis.get().await?;
-        let members: Option<Vec<String>> = conn.get(&cache_key).await?;
-        if let Some(members) = members {
-            return Ok(members);
+        let json: Option<String> = conn.get(&cache_key).await?;
+        if let Some(json) = json {
+            if let Ok(members) = serde_json::from_str(&json) {
+                return Ok(members);
+            }
         }
     }
 
@@ -91,7 +101,8 @@ pub async fn get_group_members_cached(group_uuid: &str) -> Result<Vec<String>> {
 
     if let Some(redis) = REDIS_CLIENT.read().await.as_ref() {
         if let Ok(mut conn) = redis.get().await {
-            let _: Result<(), _> = conn.set(&cache_key, &members).await;
+            let json = serde_json::to_string(&members)?;
+            let _: Result<(), _> = conn.set(&cache_key, &json).await;
         }
     }
 
@@ -136,10 +147,25 @@ pub async fn handle_group_msg_from_client(
     let msg_bytes = serialize_group_msg(&group_msg)?;
 
     let all_members = get_group_members_cached(&group_msg.group_uuid).await?;
+    debug!("group members cache: {:?}", all_members);
 
-    if !all_members.contains(&group_msg.send_user) {
-        return Err(anyhow::anyhow!("发送者不在群成员列表中"));
+    let sender_uuid: Uuid = group_msg
+        .send_user
+        .parse()
+        .map_err(|_| anyhow::anyhow!("无效的发送者UUID"))?;
+    let sender_in_group = all_members
+        .iter()
+        .any(|m| m.parse::<Uuid>().ok().as_ref() == Some(&sender_uuid));
+    if !sender_in_group {
+        return Err(anyhow::anyhow!(
+            "发送者不在群成员列表中 sender={} group={} members={:?}",
+            group_msg.send_user,
+            group_msg.group_uuid,
+            all_members
+        ));
     }
+
+    save_group_message_to_db(&group_msg).await?;
 
     let broadcast = InternalGroupBroadcast {
         broadcast_type: BroadcastType::from_msg_type(group_msg.msg_type),
@@ -162,30 +188,41 @@ pub async fn handle_group_msg_from_client(
 
     process_group_broadcast_local(&broadcast, connections).await?;
 
-    save_group_message_to_db(&group_msg).await?;
-
     Ok(())
 }
 
 async fn get_all_internal_node_addresses() -> Result<Vec<(u32, std::net::SocketAddr)>> {
+    // 命中缓存直接返回
+    if let Some((ts, nodes)) = NODE_CACHE.lock().unwrap().as_ref() {
+        if ts.elapsed() < Duration::from_secs(5) {
+            return Ok(nodes.clone());
+        }
+    }
+
     let redis = REDIS_CLIENT.read().await;
     let redis = redis
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("Redis 未初始化"))?;
     let mut conn = redis.get().await?;
 
+    let pattern = format!("{}*", REDIS_INTERNAL_QUIC_SERVERS);
+    let keys: Vec<String> = conn.keys(&pattern).await?;
+
     let mut nodes = Vec::new();
-    
-    for i in 0..100u32 {
-        let key = format!("{}{}", REDIS_INTERNAL_QUIC_SERVERS, i);
+    for key in keys {
         let addr_str: Option<String> = conn.get(&key).await?;
         if let Some(addr_str) = addr_str {
             if let Ok(addr) = addr_str.parse::<std::net::SocketAddr>() {
-                nodes.push((i, addr));
+                if let Some(index_str) = key.strip_prefix(REDIS_INTERNAL_QUIC_SERVERS) {
+                    if let Ok(index) = index_str.parse::<u32>() {
+                        nodes.push((index, addr));
+                    }
+                }
             }
         }
     }
 
+    *NODE_CACHE.lock().unwrap() = Some((Instant::now(), nodes.clone()));
     Ok(nodes)
 }
 

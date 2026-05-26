@@ -282,6 +282,7 @@ async fn handle_conn(
                                     uni_buffer_msg.clone(),
                                     head_length,
                                     conns.clone(),
+                                    config.server_index,
                                 )
                                 .await;
                             }
@@ -325,6 +326,7 @@ async fn handle_conn(
                     buffer_msg.clone(),
                     head_length,
                     connections.clone(),
+                    config.server_index,
                 )
                 .await
                 {
