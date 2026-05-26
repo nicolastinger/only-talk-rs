@@ -25,7 +25,14 @@ pub fn file_service(cfg: &mut web::ServiceConfig) {
 #[post("/download_file")]
 pub async fn download_file_api() -> impl Responder {
     let test_icon_path = format!("{}{}", USER_FILE_PUBLIC_DIR, "kun.webp");
-    let file_content = fs::read(test_icon_path).expect("Failed to read file");
+    let file_content = match fs::read(&test_icon_path) {
+        Ok(content) => content,
+        Err(e) => {
+            error!("读取文件失败: {}", e);
+            return HttpResponse::NotFound()
+                .body(CommonResponseNoDataRef::error_json(&format!("文件不存在: {}", e)));
+        }
+    };
     // 返回文件内容作为二进制响应
     HttpResponse::Ok()
         .content_type("image/webp")

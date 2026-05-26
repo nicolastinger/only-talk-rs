@@ -36,18 +36,18 @@ macro_rules! respond_to_json {
     ($model:expr) => {{
         match $model {
             Ok(t) => actix_web::HttpResponse::Ok()
-                .body(serde_json::to_string(&CommonResponse::success(t)).unwrap()),
+                .body(serde_json::to_string(&CommonResponse::success(t)).unwrap_or_else(|e| format!("{{\"error\":\"{}\"}}", e))),
             Err(t) => HttpResponse::BadRequest().body(
-                serde_json::to_string(&CommonResponse::error(t, "error".to_string())).unwrap(),
+                serde_json::to_string(&CommonResponse::error(t, "error".to_string())).unwrap_or_else(|e| format!("{{\"error\":\"{}\"}}", e)),
             ),
         }
     }};
     ($model:expr, $error_str:expr) => {{
         match $model {
             Ok(t) => actix_web::HttpResponse::Ok()
-                .body(serde_json::to_string(&CommonResponse::success(t)).unwrap()),
+                .body(serde_json::to_string(&CommonResponse::success(t)).unwrap_or_else(|e| format!("{{\"error\":\"{}\"}}", e))),
             Err(t) => HttpResponse::BadRequest()
-                .body(serde_json::to_string(&CommonResponse::error(t, $error_str)).unwrap()),
+                .body(serde_json::to_string(&CommonResponse::error(t, $error_str)).unwrap_or_else(|e| format!("{{\"error\":\"{}\"}}", e))),
         }
     }};
 }

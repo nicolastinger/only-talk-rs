@@ -47,18 +47,18 @@ fn get_uuid(req: &HttpRequest) -> String {
 fn respond_json<T: serde::Serialize>(res: anyhow::Result<T>) -> HttpResponse {
     match res {
         Ok(t) => HttpResponse::Ok()
-            .body(serde_json::to_string(&CommonResponse::success(t)).unwrap()),
+            .body(serde_json::to_string(&CommonResponse::success(t)).unwrap_or_else(|e| format!("{{\"error\":\"{}\"}}", e))),
         Err(e) => HttpResponse::BadRequest()
-            .body(serde_json::to_string(&CommonResponse::error(e.to_string(), "error".to_string())).unwrap()),
+            .body(serde_json::to_string(&CommonResponse::error(e.to_string(), "error".to_string())).unwrap_or_else(|e| format!("{{\"error\":\"{}\"}}", e))),
     }
 }
 
 fn respond_bool(res: anyhow::Result<bool>) -> HttpResponse {
     match res {
         Ok(t) => HttpResponse::Ok()
-            .body(serde_json::to_string(&CommonResponse::success(t)).unwrap()),
+            .body(serde_json::to_string(&CommonResponse::success(t)).unwrap_or_else(|e| format!("{{\"error\":\"{}\"}}", e))),
         Err(e) => HttpResponse::BadRequest()
-            .body(serde_json::to_string(&CommonResponse::error(e.to_string(), "error".to_string())).unwrap()),
+            .body(serde_json::to_string(&CommonResponse::error(e.to_string(), "error".to_string())).unwrap_or_else(|e| format!("{{\"error\":\"{}\"}}", e))),
     }
 }
 

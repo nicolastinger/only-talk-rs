@@ -66,7 +66,8 @@ pub async fn get_unread_chat_record(
         return Ok(CommonResponseRef::<Vec<ChatMessageRecord>>::success_json(&unread_msg)?);
     }
     // 4、查找已读消息有没有最新消息
-    let res = read_msg.iter().find(|x| x.nano_id == last_msg.as_ref().expect("获取最新消息id失败").nano_id);
+    let last_msg_ref = last_msg.as_ref().ok_or(anyhow!("获取最新消息失败"))?;
+    let res = read_msg.iter().find(|x| x.nano_id == last_msg_ref.nano_id);
     if res.is_some() {
         info!("结束请求");
         return Ok(empty_vec);
