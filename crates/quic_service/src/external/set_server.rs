@@ -86,8 +86,9 @@ pub fn configure_server(cert_path: &str, key_path: &str) -> Result<(ServerConfig
 pub fn create_server_config(cert_chain: Vec<Certificate>, key: PrivateKey) -> Result<ServerConfig, Box<dyn Error>> {
     let mut server_config = ServerConfig::with_single_cert(cert_chain, key)?;
     let transport_config = Arc::get_mut(&mut server_config.transport).expect("获取传输配置失败");
-    transport_config.max_concurrent_uni_streams(32_u8.into()); // 设置最大并发单向流数量
-    transport_config.max_idle_timeout(Some(Duration::from_secs(190).try_into().expect("设置超时时间失败"))); //最大容忍三次连接超时
+    transport_config.max_concurrent_uni_streams(32_u8.into());
+    transport_config.max_idle_timeout(Some(Duration::from_secs(190).try_into().expect("设置超时时间失败")));
+    transport_config.keep_alive_interval(Some(Duration::from_secs(5)));
     Ok(server_config)
 }
 

@@ -164,30 +164,40 @@ pub async fn handle_group_msg_from_client(
             all_members
         ));
     }
-
-    save_group_message_to_db(&group_msg).await?;
+    let group_msg_clone = group_msg.clone();
+    tokio::spawn(async move {
+        save_group_message_to_db(&group_msg).await.expect("保存群消息到数据库失败");
+    });
 
     let broadcast = InternalGroupBroadcast {
-        broadcast_type: BroadcastType::from_msg_type(group_msg.msg_type),
-        group_uuid: group_msg.group_uuid.clone(),
+        broadcast_type: BroadcastType::from_msg_type(group_msg_clone.msg_type),
+        group_uuid: group_msg_clone.group_uuid,
         msg_bytes,
-        sender: group_msg.send_user.clone(),
+        sender: group_msg_clone.send_user,
         all_members,
         source_node: server_index,
-        timestamp: group_msg.timestamp,
-        broadcast_id: group_msg.nano_id.clone(),
+        timestamp: group_msg_clone.timestamp,
+        broadcast_id: group_msg_clone.nano_id,
     };
+    
+    let broadcast_clone = broadcast.clone();
+    let connections_clone = connections.clone();
+    
+    tokio::spawn(async move {
+        process_group_broadcast_local(&broadcast_clone, &connections_clone).await.expect("处理群消息失败");
+    });
 
-    let nodes = get_all_internal_node_addresses().await?;
-    for (node_index, addr) in &nodes {
-        if *node_index == server_index {
-            continue;
+    
+    tokio::spawn(async move {
+        let nodes = get_all_internal_node_addresses().await.expect("获取节点地址失败");
+        for (node_index, addr) in &nodes {
+            if *node_index == server_index {
+                continue;
+            }
+            let _ = send_internal_group_broadcast(*addr, &broadcast).await;
         }
-        let _ = send_internal_group_broadcast(*addr, &broadcast).await;
-    }
-
-    process_group_broadcast_local(&broadcast, connections).await?;
-
+    });
+    
     Ok(())
 }
 
