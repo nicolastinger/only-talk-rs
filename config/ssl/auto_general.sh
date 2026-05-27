@@ -57,17 +57,19 @@ chmod 640 privkey.pem
 # 🌟 自动续期配置（关键优化！）
 # ======================
 echo -e "\n✨ 正在配置自动续期..."
-# 生成续期脚本
-cat > renew.sh << 'EOF'
+# 获取脚本所在目录的绝对路径
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# 生成续期脚本（嵌入具体域名）
+cat > "${SCRIPT_DIR}/renew.sh" << EOF
 #!/bin/bash
-DOMAIN="$DOMAIN"  # 从主脚本继承的域名
-certbot renew --quiet --post-hook "cp /etc/letsencrypt/live/\$DOMAIN/fullchain.pem . && cp /etc/letsencrypt/live/\$DOMAIN/privkey.pem ."
+# certbot renew 自动检查所有证书，仅到期才续
+certbot renew --quiet --post-hook "cp /etc/letsencrypt/live/${DOMAIN}/fullchain.pem '${SCRIPT_DIR}/' && cp /etc/letsencrypt/live/${DOMAIN}/privkey.pem '${SCRIPT_DIR}/'"
 EOF
-chmod +x renew.sh
+chmod +x "${SCRIPT_DIR}/renew.sh"
 
-# 生成cron任务（自动每月1号0点执行）
-echo "0 0 1 * * /path/to/$(basename $0) renew" > /etc/cron.d/letsencrypt-renew
-echo "✅ 自动续期已配置：每月1号自动续期，证书复制到当前目录！"
+# 生成cron任务（每3天0点执行一次，certbot内部判断是否真需要续期）
+echo "0 0 */3 * * root ${SCRIPT_DIR}/renew.sh" > /etc/cron.d/letsencrypt-renew
+echo "✅ 自动续期已配置：每3天自动检查续期，证书复制到：${SCRIPT_DIR}"
 
 # 提示用户
 echo -e "\n🎉 证书申请 & 自动续期已完成！"
