@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 common = { path = "../common" }
+entity = { path = "../entity" }
 s3_service = { path = "../s3_service" }
 serde = { workspace = true }
 rbatis = { workspace = true }

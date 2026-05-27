@@ -1,7 +1,7 @@
 use std::fs;
 use std::net::SocketAddr;
 
-use crate::state::ServiceError;
+use super::state::ServiceError;
 
 /// QUIC ChatNode 配置
 #[derive(Debug, Clone)]

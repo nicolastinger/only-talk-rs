@@ -32,7 +32,7 @@ pub async fn error_record_middleware(
 
     info!("{} 路径 {}", method, path);
     // 检查路径是否在忽略列表中
-    if IGNORED_PATHS.read().expect("读取忽略路径出错").contains(&path) {
+    if IGNORED_PATHS.read().map(|p| p.contains(&path)).unwrap_or(false) {
         return next.call(req).await;
     }
 
@@ -46,7 +46,10 @@ pub async fn error_record_middleware(
 
     let token = match authorization {
         None => return Err(actix_web::error::ErrorUnauthorized("Unauthorized")),
-        Some(token) => token.to_str().expect("token转换出错").to_string(),
+        Some(token) => match token.to_str() {
+            Ok(s) => s.to_string(),
+            Err(_) => return Err(actix_web::error::ErrorUnauthorized("Invalid token")),
+        },
     };
     //校验token
     let account = match decode_jwt(&token) {

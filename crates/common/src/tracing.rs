@@ -7,7 +7,7 @@ pub fn init_tracing() -> WorkerGuard {
     let file_appender = tracing_appender::rolling::never("log", "rust_im.log");
     let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
 
-    let env_filter = EnvFilter::new("info");
+    let env_filter = EnvFilter::new("debug");
 
     let timer = LocalTime::rfc_3339();
 

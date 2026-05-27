@@ -6,13 +6,13 @@ use quinn::Endpoint;
 use tokio::sync::{Mutex, RwLock, watch};
 use tracing::info;
 
-use crate::config::ChatNodeConfig;
-use crate::lifecycle::ServiceLifecycle;
+use super::config::ChatNodeConfig;
+use super::lifecycle::ServiceLifecycle;
 use crate::models::quic_connection::QuicConnection;
-use crate::quic_server::run_server;
-use crate::set_server::make_server_endpoint;
-use crate::state::{ServiceError, ServiceState};
-use crate::tls_monitor::start_tls_monitor;
+use super::quic_server::run_server;
+use super::set_server::make_server_endpoint;
+use super::state::{ServiceError, ServiceState};
+use super::tls_monitor::start_tls_monitor;
 
 pub struct ChatNode {
     config: ChatNodeConfig,

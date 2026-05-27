@@ -13,7 +13,7 @@ use tokio::sync::Mutex;
 use crate::models::first_quic_msg::FirstQuicMsg;
 use crate::models::quic_connection::ConnectionType;
 use crate::msg_service::text_msg_service::{generate_text_msg, get_text_msg};
-use crate::set_server::configure_client;
+use super::set_server::configure_client;
 
 #[allow(dead_code)]
 pub async fn run_client(server_addr: SocketAddr) {
@@ -95,8 +95,8 @@ pub async fn run_client(server_addr: SocketAddr) {
                         }
                     }
                     Err(e) => {
-                        error!("[client] uni accept 错误: {}", e);
-                        break;
+                        error!("[client] uni accept 错误: {}，继续等待", e);
+                        tokio::time::sleep(Duration::from_secs(1)).await;
                     }
                 }
             }
@@ -164,7 +164,7 @@ async fn init_send_msg(send_stream: &mut SendStream, conn: Connection) -> Result
     // 心跳循环 - 按需开流
     tokio::spawn(async move {
         loop {
-            tokio::time::sleep(Duration::from_secs(60)).await;
+            tokio::time::sleep(Duration::from_secs(30)).await;
             let ping_msg = generate_text_msg(
                 message_types::MSG_TYPE_PING,
                 PING.as_bytes().to_vec(),

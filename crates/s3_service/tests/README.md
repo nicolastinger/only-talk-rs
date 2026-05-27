@@ -34,7 +34,7 @@ cargo test -p s3_service --lib
   - 端点：http://101.33.75.40:19000
   - 访问密钥：minioadmin
   - 密钥：REDACTED_S3_SECRET_KEY_V2
-  - 默认桶：rust-my-app
+  - 默认桶：only-talk-rs
 
 **运行集成测试：**
 ```bash

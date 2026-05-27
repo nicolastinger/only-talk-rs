@@ -61,15 +61,15 @@ pub async fn send_internal_quic_msg(
     let (mut send_stream, mut recv_stream) = connection.open_bi().await?;
 
     // 发送请求
-    let body = serde_json::to_string(&request)?;
-    send_stream.write_all(body.as_bytes()).await?;
+    let body = bincode::serialize(&request)?;
+    send_stream.write_all(&body).await?;
     send_stream.finish().await?;
 
     // 读取响应
     let mut buf = vec![0u8; 1024 * 16];
     match recv_stream.read(&mut buf).await? {
         Some(len) => {
-            let resp: InternalQuicResponse = serde_json::from_slice(&buf[..len])?;
+            let resp: InternalQuicResponse = bincode::deserialize(&buf[..len])?;
             info!("[内网QUIC客户端] 收到响应 status={}", resp.status);
             Ok(resp)
         }

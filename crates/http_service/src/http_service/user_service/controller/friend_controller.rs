@@ -29,7 +29,10 @@ pub async fn qry_friend_list(
     let friend = validate_and_respond!(friend, "2");
     info!("{:?}", friend);
     let map = req.extensions();
-    let account = map.get::<AuthAccount>().expect("no auth account");
+    let account = match map.get::<AuthAccount>() {
+        Some(acc) => acc,
+        None => return HttpResponse::Unauthorized().body("Unauthorized"),
+    };
     info!("friend {:?}", friend);
     info!("账号 {:?}", account);
     HttpResponse::Ok().body("not implemented")

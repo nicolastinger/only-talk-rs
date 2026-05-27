@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 
-use crate::state::{ServiceError, ServiceState};
+use super::state::{ServiceError, ServiceState};
 
 /// 服务生命周期 trait。
 /// 定义了服务从创建到销毁的完整生命周期方法。

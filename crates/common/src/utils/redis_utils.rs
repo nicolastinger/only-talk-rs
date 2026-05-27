@@ -2,7 +2,7 @@ use anyhow::anyhow;
 use deadpool_redis::Connection;
 use deadpool_redis::redis::cmd;
 use deadpool_redis::{Config as RedisConfig, Pool, Runtime};
-use tracing::info;
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::{REDIS_CLIENT, REDIS_INIT_ONCE};
@@ -36,11 +36,41 @@ pub fn init_redis(url: &str) -> Result<Pool, anyhow::Error> {
     Ok(pool)
 }
 
+pub async fn verify_redis(pool: &Pool) {
+    match pool.get().await {
+        Ok(mut conn) => {
+            let result: Result<String, _> = deadpool_redis::redis::cmd("PING")
+                .query_async(&mut conn)
+                .await;
+            match result {
+                Ok(ref s) if s == "PONG" => {
+                    info!("Redis 连接成功 (PING: {})", s);
+                }
+                Ok(s) => {
+                    warn!("Redis PING 返回异常: {}", s);
+                }
+                Err(e) => {
+                    error!("Redis 连接失败: {}", e);
+                }
+            }
+        }
+        Err(e) => {
+            error!("Redis 获取连接失败: {}", e);
+        }
+    }
+}
+
 pub async fn get_redis_conn() -> Result<Connection, anyhow::Error> {
     let redis_client = REDIS_CLIENT.read().await;
     let redis_conn = redis_client.as_ref().ok_or(anyhow!("redis客户端错误"))?;
     let conn = redis_conn.get().await?;
     Ok(conn)
+}
+
+/// Redis 连接兜底：不可用时返回 None，不报错
+pub async fn try_get_redis_conn() -> Option<Connection> {
+    let redis = REDIS_CLIENT.read().await;
+    redis.as_ref()?.get().await.ok()
 }
 
 /// redis分布式锁加锁

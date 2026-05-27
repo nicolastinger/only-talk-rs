@@ -1,11 +1,9 @@
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
 use std::net::SocketAddr;
 
 use anyhow::anyhow;
 use common::utils::message_types::NOTIFY_TYPE_MSG;
 use common::utils::internal_quic_msg::{InternalQuicRequest, RequestSource};
-use common::utils::server_count_sync::get_server_count;
+use common::utils::server_count_sync::{compute_preferred_index, get_server_count};
 use common::read_global_config;
 use http_service::http_service::notify_service::service::system_notification::{
     send_process_friend_msg, send_request_friend_msg,
@@ -18,52 +16,58 @@ use http_service::utils::http_response::CommonResponseNoDataRef;
 use rbatis::RBatis;
 use common::utils::internal_quic_client::send_internal_quic_msg;
 
-/// hash 取模计算首选节点序号
-fn compute_preferred_index(uuid: &str) -> u32 {
-    let sc = get_server_count();
-    if sc <= 1 {
-        return 0;
-    }
-    let mut hasher = DefaultHasher::new();
-    uuid.hash(&mut hasher);
-    (hasher.finish() as u32) % sc
-}
-
 pub async fn add_user_with_notify(
     rb: &RBatis,
     friend: FriendRequestInfoDTO,
 ) -> Result<String, anyhow::Error> {
+    tracing::debug!("开始添加好友流程: request_user={:?}, accept_user={:?}", 
+        friend.request_user, friend.accept_user);
+    
     // 1 添加好友
     let friend_request = add_friend(rb, friend).await?;
+    tracing::debug!("好友请求已创建: uuid={:?}, request_user={:?}, accept_user={:?}", 
+        friend_request.uuid, friend_request.request_user, friend_request.accept_user);
 
     let target_uuid = friend_request.accept_user.ok_or(anyhow!("请选择一个用户"))?;
     let biz_id = friend_request.uuid.ok_or(anyhow!("添加好友失败，找不到请求id"))?.to_string();
+    tracing::debug!("目标用户: target_uuid={}, biz_id={}", target_uuid, biz_id);
 
     // 2 发送系统通知 (落库)
     let quic_msg = send_request_friend_msg(
         rb,
         target_uuid,
-        friend_request.request_message.ok_or(anyhow!("请填写申请理由"))?,
-        Some(biz_id),
+        friend_request.request_message.clone().ok_or(anyhow!("请填写申请理由"))?,
+        Some(biz_id.clone()),
     )
     .await?;
+    tracing::debug!("系统通知已落库: quic_msg.user_id={:?}, request_message={:?}", 
+        quic_msg.user_id, friend_request.request_message);
+    
     let json_str: String = serde_json::to_string(&quic_msg)?;
     let target_id_str = quic_msg.user_id.ok_or(anyhow!("通知缺少目标用户ID"))?.to_string();
+    tracing::debug!("通知JSON序列化完成: target_id={}, payload_length={}", target_id_str, json_str.len());
 
     // 3 通过内网QUIC服务转发通知
     let addr_str = read_global_config!("internal_quic_server", "address");
     let server_addr: SocketAddr = addr_str.parse()?;
     let preferred_index = compute_preferred_index(&target_id_str);
+    tracing::debug!("QUIC服务配置: address={}, server_addr={}, preferred_index={}", 
+        addr_str, server_addr, preferred_index);
+    
     let request = InternalQuicRequest {
         msg_type: NOTIFY_TYPE_MSG,
-        payload: json_str,
-        target_user: target_id_str,
+        payload: json_str.clone(),
+        target_user: target_id_str.clone(),
         preferred_index,
         platform: common::config_str::PC_PLATFORM.to_string(),
         source: RequestSource::HttpApi,
         ttl: 3,
     };
+    tracing::debug!("准备发送QUIC消息: msg_type={}, target_user={}, platform={}, source={:?}, ttl={}", 
+        request.msg_type, request.target_user, request.platform, request.source, request.ttl);
+    
     send_internal_quic_msg(server_addr, request).await?;
+    tracing::debug!("QUIC消息发送成功: target_user={}", target_id_str);
 
     Ok(CommonResponseNoDataRef::success_empty())
 }

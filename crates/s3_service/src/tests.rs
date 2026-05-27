@@ -53,7 +53,7 @@ fn test_default_minio_config() {
     assert_eq!(config.access_key_id, "minioadmin");
     assert_eq!(config.secret_access_key, "REDACTED_S3_SECRET_KEY_V2");
     assert_eq!(config.region, "us-east-1");
-    assert_eq!(config.default_bucket, "rust-my-app");
+    assert_eq!(config.default_bucket, "only-talk-rs");
     assert!(config.force_path_style);
     assert!(config.enabled);
     assert_eq!(config.presign_expire_seconds, 3600);
