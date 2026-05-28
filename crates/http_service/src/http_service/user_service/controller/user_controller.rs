@@ -4,11 +4,12 @@ use rbatis::RBatis;
 
 use crate::common::dto::base_dto::AuthAccount;
 use crate::http_service::user_service::dto::basic_user_dto::SignInBasicUserDTO;
+use crate::http_service::user_service::dto::refresh_token_dto::RefreshTokenDTO;
 use crate::http_service::user_service::dto::sign_up_basic_user_dto::SignUpBasicUserDTO;
 use crate::http_service::user_service::dto::update_user_dto::UpdateUserDTO;
 use crate::http_service::user_service::service::user_service::{
     add_new_basic_user_service, get_exit_user, get_user_info_by_account, get_user_info_by_uuid,
-    get_user_uuid_by_account_service, update_user_info_service, user_sign_in,
+    get_user_uuid_by_account_service, refresh_access_token, update_user_info_service, user_sign_in,
 };
 use crate::utils::http_response::{CommonResponse, CommonResponseNoDataRef};
 use crate::{get_uuid_from_header, respond_json_any, validate_and_respond};
@@ -17,6 +18,7 @@ pub fn user_service(cfg: &mut web::ServiceConfig) {
     cfg.service(get_exit_user_flag)
         .service(sign_in)
         .service(sign_up)
+        .service(refresh_token)
         .service(me_api)
         .service(query_user_api)
         .service(get_user_by_uuid_api)
@@ -48,6 +50,15 @@ pub async fn sign_in(
 ) -> impl Responder {
     let basic_user_dto: SignInBasicUserDTO = validate_and_respond!(basic_user_dto);
     let res = user_sign_in(state.get_ref(), basic_user_dto).await;
+    respond_json_any!(res)
+}
+
+#[post("/refresh_token")]
+pub async fn refresh_token(
+    dto: web::Json<RefreshTokenDTO>,
+) -> impl Responder {
+    let dto: RefreshTokenDTO = validate_and_respond!(dto);
+    let res = refresh_access_token(dto.into_inner()).await;
     respond_json_any!(res)
 }
 

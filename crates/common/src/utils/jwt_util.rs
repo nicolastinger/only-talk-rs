@@ -32,7 +32,14 @@ pub fn get_jwt(uuid: String, platform: String) -> Result<String, anyhow::Error> 
     let (encoding_key, _) = generate_keys()?;
     let claims =
         Claims { sub: platform, uuid, exp: get_now_time_stamp_as_secs()? + (3600 * 24) };
-    // 使用 RSA 算法生成 JWT
+    let header = Header::new(jsonwebtoken::Algorithm::RS256);
+    let token = encode(&header, &claims, &encoding_key)?;
+    Ok(token)
+}
+
+pub fn get_jwt_with_expiry(uuid: String, platform: String, expiry_secs: i64) -> Result<String, anyhow::Error> {
+    let (encoding_key, _) = generate_keys()?;
+    let claims = Claims { sub: platform, uuid, exp: get_now_time_stamp_as_secs()? + expiry_secs };
     let header = Header::new(jsonwebtoken::Algorithm::RS256);
     let token = encode(&header, &claims, &encoding_key)?;
     Ok(token)

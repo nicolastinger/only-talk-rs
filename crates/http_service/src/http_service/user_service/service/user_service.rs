@@ -6,7 +6,7 @@ use common::config_str::{APP_DOMAIN, MOBILE_PLATFORM, PC_PLATFORM, USER_DEFAULT_
 use common::models::user_entity::basic_user::BasicUser;
 use common::models::user_entity::basic_user_salt::{BasicUserSalt, get_user_salt};
 use common::models::user_entity::user_info::UserInfo;
-use common::utils::jwt_util::get_jwt;
+use common::utils::jwt_util::{get_jwt, get_jwt_with_expiry};
 use common::utils::redis_utils::get_redis_conn;
 use common::utils::rsa_util::{generate_random_string, hash_with_salt};
 use common::utils::time::get_now_time_stamp_as_millis;
@@ -17,8 +17,10 @@ use rbs::value;
 use uuid::Uuid;
 
 use crate::http_service::user_service::dto::basic_user_dto::SignInBasicUserDTO;
+use crate::http_service::user_service::dto::refresh_token_dto::RefreshTokenDTO;
 use crate::http_service::user_service::dto::sign_up_basic_user_dto::SignUpBasicUserDTO;
 use crate::http_service::user_service::dto::update_user_dto::UpdateUserDTO;
+use crate::http_service::user_service::vo::sign_in_vo::SignInResponseVO;
 use crate::http_service::user_service::vo::user_info::UserInfoVO;
 use crate::utils::http_response::{CommonResponseNoDataRef, CommonResponseRef};
 
@@ -110,24 +112,18 @@ pub async fn user_sign_in(
     if platform != PC_PLATFORM && platform != MOBILE_PLATFORM {
         return Err(anyhow!("暂不支持该平台登录".to_string()))
     }
-    // 解构 basic_user 以获取 account 和 password 的引用
     let basic_user = SignInBasicUserDTO::to_basic_user(basic_user_dto);
-    
-    
-
     let BasicUser { account, password, .. } = basic_user;
 
-    // 验证 account 和 password 是否存在
     let account_str = account.as_ref().ok_or(anyhow!("账号为空".to_string()))?;
     let password_str = password.as_ref().ok_or(anyhow!("密码为空".to_string()))?;
 
-    // 查询用户
     let basic_user =
         BasicUser::select_by_account(rb, account_str).await?.ok_or(anyhow!("用户不存在"))?;
 
+    let mut conn = get_redis_conn().await?;
     let salt = get_user_salt(rb, &basic_user.uuid).await?;
 
-    // 哈希输入密码
     let hashed_password = hash_with_salt(
         password_str,
         salt.sign_up_salt.as_ref().ok_or(anyhow!("加密盐查询失败".to_string()))?,
@@ -135,16 +131,46 @@ pub async fn user_sign_in(
 
     let exit_password = basic_user.password.as_ref().ok_or(anyhow!("账号为空"))?;
 
-    // 比较哈希后的密码
     if exit_password == &hashed_password {
-        // 生成 JWT
-        Ok(CommonResponseRef::<String>::success_json(&get_jwt(
-            basic_user.uuid.ok_or(anyhow!("账号为空"))?.to_string(),
-            platform
-        )?)?)
+        let uuid = basic_user.uuid.ok_or(anyhow!("账号为空"))?.to_string();
+        // 短效 token (24h)
+        let access_token = get_jwt(uuid.clone(), platform.clone())?;
+        // 长效 refresh token (30 days)
+        let refresh_token = get_jwt_with_expiry(uuid.clone(), platform.clone(), 3600 * 24 * 30)?;
+
+        // 存储 refresh_token 到 Redis (30 天过期)
+        let rt_key = format!("REFRESH_TOKEN:{}", refresh_token);
+        let _: () = cmd("SET").arg(&rt_key).arg(&uuid).arg("EX").arg(3600 * 24 * 30).query_async(&mut conn).await?;
+        let rt_platform_key = format!("REFRESH_TOKEN:PLATFORM:{}", refresh_token);
+        let _: () = cmd("SET").arg(&rt_platform_key).arg(&platform).arg("EX").arg(3600 * 24 * 30).query_async(&mut conn).await?;
+
+        let sign_in_vo = SignInResponseVO { access_token, refresh_token };
+        Ok(CommonResponseRef::<SignInResponseVO>::success_json(&sign_in_vo)?)
     } else {
         Err(anyhow!("用户或密码不正确!"))
     }
+}
+
+/// 通过 refresh_token 换取短效 access_token
+pub async fn refresh_access_token(
+    refresh_token_dto: RefreshTokenDTO,
+) -> Result<String, anyhow::Error> {
+    let redis_client = REDIS_CLIENT.read().await;
+    let redis_conn = redis_client.as_ref().ok_or(anyhow!("redis客户端错误"))?;
+    let mut conn = redis_conn.get().await?;
+
+    let key = format!("REFRESH_TOKEN:{}", refresh_token_dto.refresh_token);
+    let result: RedisResult<String> = cmd("GET").arg(&key).query_async(&mut conn).await;
+    let uuid = result.map_err(|_| anyhow!("refresh_token 无效或已过期"))?;
+
+    let platform_key = format!("REFRESH_TOKEN:PLATFORM:{}", refresh_token_dto.refresh_token);
+    let platform: RedisResult<String> = cmd("GET").arg(&platform_key).query_async(&mut conn).await;
+    let platform = platform.map_err(|_| anyhow!("无法获取平台信息"))?;
+
+    // 生成新的短效 access_token (24h)
+    let access_token = get_jwt(uuid.clone(), platform.clone())?;
+    let sign_in_vo = SignInResponseVO { access_token, refresh_token: refresh_token_dto.refresh_token.clone() };
+    Ok(CommonResponseRef::<SignInResponseVO>::success_json(&sign_in_vo)?)
 }
 
 pub async fn get_user_info_by_account(
