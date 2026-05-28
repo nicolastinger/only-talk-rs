@@ -108,6 +108,7 @@ async fn process_text_msg(
                     ack_raw_id,
                     now,
                     &conns,
+                    message_types::MSG_TYPE_GROUP_ACK,
                 )
                 .await
                 {
@@ -131,7 +132,15 @@ async fn process_text_msg(
             let current_user = text_msg_clone.send_user.clone();
             add_user_chat_record(text_msg_clone).await.expect("插入用户消息失败");
             // 发送ack消息
-            send_msg_record_success(ack_nano_id, &conn_key, current_user, ack_raw_id, now, &conns)
+            send_msg_record_success(
+                ack_nano_id,
+                &conn_key,
+                current_user,
+                ack_raw_id,
+                now,
+                &conns,
+                message_types::MSG_TYPE_RECALL_SUCCESS,
+            )
                 .await
                 .expect("发送ack消息失败");
         });
@@ -281,10 +290,11 @@ async fn send_msg_record_success(
     nanoid: String,
     timestamp: i64,
     connections: &Arc<DashMap<String, QuicConnection>>,
+    ack_type: u16,
 ) -> anyhow::Result<()> {
     let res = generate_text_msg_with_time(
         nano_id,
-        message_types::MSG_TYPE_RECALL_SUCCESS,
+        ack_type,
         nanoid.as_bytes().to_vec(),
         current_user,
         SYSTEM.to_string(),

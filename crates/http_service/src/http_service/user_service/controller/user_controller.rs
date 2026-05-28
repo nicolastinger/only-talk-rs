@@ -58,7 +58,7 @@ pub async fn refresh_token(
     dto: web::Json<RefreshTokenDTO>,
 ) -> impl Responder {
     let dto: RefreshTokenDTO = validate_and_respond!(dto);
-    let res = refresh_access_token(dto.into_inner()).await;
+    let res = refresh_access_token(dto).await;
     respond_json_any!(res)
 }
 

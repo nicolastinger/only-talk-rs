@@ -59,3 +59,6 @@ pub const MSG_TYPE_GROUP_FILE: u16 = 2003;
 
 /// 群通知消息（成员变更等）
 pub const MSG_TYPE_GROUP_NOTIFICATION: u16 = 2004;
+
+/// 群消息接收成功回执
+pub const MSG_TYPE_GROUP_ACK: u16 = 2201;
