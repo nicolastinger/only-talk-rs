@@ -150,7 +150,7 @@ async fn process_first_msg(
 }
 
 /// 校验token有效性
-async fn verify_token(
+async fn authenticate_connection(
     first_quic_msg: &FirstQuicMsg,
     send_stream: &mut SendStream,
 ) -> Result<Claims, anyhow::Error> {
@@ -238,7 +238,7 @@ async fn handle_conn(
     let first_quic_msg =
         process_first_msg(&mut send_stream, &mut recv_stream, &address.clone()).await?;
     let head_length = first_quic_msg.dyn_header_size;
-    let claims = verify_token(&first_quic_msg, &mut send_stream).await?;
+    let claims = authenticate_connection(&first_quic_msg, &mut send_stream).await?;
     let platform = claims.sub;
     let uuid = claims.uuid;
     verify_max_client(&mut send_stream, &connections, config.max_connections).await?;

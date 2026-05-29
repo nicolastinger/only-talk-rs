@@ -22,9 +22,9 @@ fn read_key_file(path: &str, label: &str) -> anyhow::Result<File> {
     File::open(path).map_err(|e| anyhow::anyhow!("找不到{}: {}", label, e))
 }
 
-fn reset_file(file: &File) -> anyhow::Result<()> {
-    file.seek(SeekFrom::Start(0))
-        .map_err(|e| anyhow::anyhow!("无法重置文件读取位置: {}", e))
+fn reset_file(file: &mut impl Seek) -> anyhow::Result<()> {
+    file.seek(SeekFrom::Start(0)).map(|_| ())?;
+    Ok(())
 }
 
 fn init_cert_file() -> anyhow::Result<(Vec<Certificate>, PrivateKey)> {

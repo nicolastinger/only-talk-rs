@@ -1,5 +1,4 @@
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
+use std::hash::Hasher;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -16,7 +15,6 @@ use common::utils::group_msg::{
 use common::utils::internal_quic_client::send_internal_quic_msg;
 use common::utils::internal_quic_msg::{InternalQuicRequest, InternalQuicResponse};
 use common::utils::message_types::NOTIFY_TYPE_MSG;
-use common::utils::server_count_sync::get_server_count;
 use common::REDIS_CLIENT;
 
 use crate::models::quic_connection::{ConnectionType, QuicConnection};

@@ -127,7 +127,7 @@ pub async fn user_sign_in(
         // 短效 token (24h)
         let access_token = generate_access_token(uuid.clone(), platform.clone())?;
         // 长效 refresh token (30 days)
-        let refresh_token = generate_access_token_with_expiry(uuid.clone(), platform.clone(), 3600 * 24 * 30)?;
+        let refresh_token = generate_token_with_expiry(uuid.clone(), platform.clone(), 3600 * 24 * 30)?;
 
         // 存储 refresh_token 到 Redis (30 天过期)
         let rt_key = format!("REFRESH_TOKEN:{}", refresh_token);

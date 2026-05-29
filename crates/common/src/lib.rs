@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::sync::Arc;
 use std::sync::OnceLock;
-
+use ::tracing::log;
 use deadpool_redis::Pool;
 use lazy_static::lazy_static;
 use rbatis::RBatis;
@@ -41,7 +41,7 @@ pub fn substitute_env_vars(content: String) -> String {
     let mut iterations = 0;
     loop {
         if iterations > 100 {
-            tracing::warn!("环境变量替换超过 100 次迭代，可能存在循环引用，提前终止");
+            log::warn!("环境变量替换超过 100 次迭代，可能存在循环引用，提前终止");
             break;
         }
         iterations += 1;

@@ -1,3 +1,4 @@
+use anyhow::Result;
 use common::read_global_array_config;
 
 /// 文件类型配置
@@ -25,8 +26,8 @@ pub struct FileTypeGroup {
 }
 
 /// 获取文件类型配置
-pub fn get_file_type_config() -> FileTypeConfig {
-    FileTypeConfig {
+pub fn get_file_type_config() -> Result<FileTypeConfig> {
+    Ok(FileTypeConfig {
         image: FileTypeGroup {
             extensions: read_global_array_config!("file_types", "image", "extensions"),
             mime_types: read_global_array_config!("file_types", "image", "mime_types"),
@@ -47,5 +48,5 @@ pub fn get_file_type_config() -> FileTypeConfig {
             extensions: read_global_array_config!("file_types", "video", "extensions"),
             mime_types: read_global_array_config!("file_types", "video", "mime_types"),
         },
-    }
+    })
 }

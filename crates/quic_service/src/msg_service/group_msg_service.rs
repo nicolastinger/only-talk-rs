@@ -211,16 +211,17 @@ pub async fn handle_group_msg_from_client(
 
 async fn get_all_internal_node_addresses() -> Result<Vec<(u32, std::net::SocketAddr)>> {
     // 命中缓存直接返回
-    let cache_read = NODE_CACHE.lock().unwrap_or_else(|e| {
-        error!("NODE_CACHE 锁中毒: {}", e);
-        std::process::exit(1);
-    });
-    if let Some((ts, nodes)) = cache_read.as_ref() {
-        if ts.elapsed() < Duration::from_secs(5) {
-            return Ok(nodes.clone());
+    {
+        let cache_read = NODE_CACHE.lock().unwrap_or_else(|e| {
+            error!("NODE_CACHE 锁中毒: {}", e);
+            std::process::exit(1);
+        });
+        if let Some((ts, nodes)) = cache_read.as_ref() {
+            if ts.elapsed() < Duration::from_secs(5) {
+                return Ok(nodes.clone());
+            }
         }
     }
-    drop(cache_read);
 
     let redis = REDIS_CLIENT.read().await;
     let redis = redis

@@ -315,7 +315,7 @@ pub async fn upload_file_local(
         return Err(anyhow!("无法创建目录"));
     }
 
-    let config = get_file_type_config();
+    let config = get_file_type_config()?;
     let mut file_upload_records = Vec::<FileUploadRecord>::new();
 
     // 遍历 multipart/form-data 中的每个字段
@@ -386,7 +386,7 @@ pub async fn upload_file_local(
  * @param mime_type: 文件的MIME类型
  */
 pub fn validate_file_type(file_name: &str, mime_type: Option<&str>) -> Result<(), String> {
-    let config = get_file_type_config();
+    let config = get_file_type_config().map_err(|e| e.to_string())?;
 
     // 收集所有支持的扩展名
     let all_extensions: Vec<&String> = vec![

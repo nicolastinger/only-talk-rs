@@ -76,7 +76,8 @@ pub fn generate_random_string(length: usize) -> String {
 pub fn hash_password(password: &str) -> Result<String, anyhow::Error> {
     let salt = argon2::password_hash::SaltString::generate(&mut OsRng);
     let argon2 = Argon2::default();
-    let hash = argon2.hash_password(password.as_bytes(), &salt)?;
+    let hash = argon2.hash_password(password.as_bytes(), &salt)
+        .map_err(|e| anyhow!("{}", e))?;
     Ok(hash.to_string())
 }
 
