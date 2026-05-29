@@ -9,7 +9,7 @@ use nanoid::nanoid;
 use once_cell::sync::Lazy;
 use quinn::Connection;
 use rbatis::rbdc::{Bytes, Uuid};
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 
 use common::config_str::{MOBILE_PLATFORM, PC_PLATFORM, REDIS_INTERNAL_QUIC_SERVERS, REDIS_QUIC_SERVERS, REDIS_SPLIT};
 use common::utils::group_msg::{
@@ -166,7 +166,9 @@ pub async fn handle_group_msg_from_client(
     }
     let group_msg_clone = group_msg.clone();
     tokio::spawn(async move {
-        save_group_message_to_db(&group_msg).await.expect("保存群消息到数据库失败");
+        if let Err(e) = save_group_message_to_db(&group_msg).await {
+            error!("保存群消息到数据库失败: {}", e);
+        }
     });
 
     let broadcast = InternalGroupBroadcast {
@@ -184,17 +186,23 @@ pub async fn handle_group_msg_from_client(
     let connections_clone = connections.clone();
     
     tokio::spawn(async move {
-        process_group_broadcast_local(&broadcast_clone, &connections_clone).await.expect("处理群消息失败");
+        if let Err(e) = process_group_broadcast_local(&broadcast_clone, &connections_clone).await {
+            error!("处理群消息失败: {}", e);
+        }
     });
 
-    
+
     tokio::spawn(async move {
-        let nodes = get_all_internal_node_addresses().await.expect("获取节点地址失败");
-        for (node_index, addr) in &nodes {
-            if *node_index == server_index {
-                continue;
+        match get_all_internal_node_addresses().await {
+            Ok(nodes) => {
+                for (node_index, addr) in &nodes {
+                    if *node_index == server_index {
+                        continue;
+                    }
+                    let _ = send_internal_group_broadcast(*addr, &broadcast).await;
+                }
             }
-            let _ = send_internal_group_broadcast(*addr, &broadcast).await;
+            Err(e) => error!("获取节点地址失败: {}", e),
         }
     });
     

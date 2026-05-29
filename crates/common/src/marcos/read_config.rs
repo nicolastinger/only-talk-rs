@@ -1,13 +1,16 @@
 #[warn(semicolon_in_expressions_from_macros)]
 #[macro_export]
 macro_rules! read_config {
-    ($config_map:expr,($($middle_str:expr),*),$final_str:expr) => {
-        $config_map.
+    ($config_map:expr,($($middle_str:expr),*),$final_str:expr) => {{
+        let mut value: Option<&toml::Value> = Some($config_map);
         $(
-          get($middle_str).expect("配置文件中不存在该字段").
+            value = value.and_then(|v| v.get($middle_str));
         )*
-        get($final_str).expect("配置文件中不存在该字段").as_str().expect("配置文件中不存在该字段")
-    };
+        match value.and_then(|v| v.get($final_str)).and_then(|v| v.as_str()) {
+            Some(s) => Ok(s.to_string()),
+            None => Err(anyhow::anyhow!("配置文件中不存在该字段: {}", $final_str)),
+        }
+    }};
 }
 
 #[warn(semicolon_in_expressions_from_macros)]
@@ -21,7 +24,10 @@ macro_rules! read_global_config {
                 full_key.push('.');
             )+
             let key_str = full_key.trim_end_matches('.');
-            common::config_manager::get_config(key_str).expect(&format!("配置文件中不存在该字段: {}", key_str))
+            match common::config_manager::get_config(key_str) {
+                Some(v) => Ok(v),
+                None => Err(anyhow::anyhow!("配置文件中不存在该字段: {}", key_str)),
+            }?
         }
     };
 }
@@ -37,7 +43,10 @@ macro_rules! read_global_array_config {
                 full_key.push('.');
             )+
             let key_str = full_key.trim_end_matches('.');
-            common::config_manager::get_array_config(key_str).expect(&format!("配置文件中不存在该字段: {}", key_str))
+            match common::config_manager::get_array_config(key_str) {
+                Some(v) => Ok(v),
+                None => Err(anyhow::anyhow!("配置文件中不存在该数组字段: {}", key_str)),
+            }?
         }
     };
 }

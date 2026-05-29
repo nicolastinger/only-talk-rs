@@ -8,7 +8,7 @@ macro_rules! validate_and_respond {
         if let Err(errors) = value.validate() {
             return HttpResponse::NotAcceptable().body(
                 serde_json::to_string(&CommonResponse::error(errors, "errorValidate".to_string()))
-                    .expect("validate_and_respond json序列化失败"),
+                    .unwrap_or_else(|e| format!("{{\"error\":\"JSON序列化失败: {}\"}}", e)),
             );
         }
         value

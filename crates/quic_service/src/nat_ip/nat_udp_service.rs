@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use dashmap::DashMap;
 use deadpool_redis::redis::{AsyncCommands, cmd};
 use common::config_str::SYSTEM;
-use common::utils::jwt_util::decode_jwt;
+use common::utils::jwt_util::verify_token;
 use common::utils::message_types;
 use common::utils::redis_utils::{acquire_lock, get_redis_conn, release_lock};
 use tracing::{error, info, warn};
@@ -29,9 +29,9 @@ pub async fn run_udp_server(connections: Arc<DashMap<String, QuicConnection>>) -
             let shutdown = shutdown_flag.clone();
             let conns = connections.clone();
             tokio::spawn(async move {
-                get_p2p_udp_socket_with_shutdown(addr_1, "V4".to_string(), shutdown, conns)
-                    .await
-                    .expect("9562 Failed to get UDP socket");
+                if let Err(e) = get_p2p_udp_socket_with_shutdown(addr_1, "V4".to_string(), shutdown, conns).await {
+                    error!("9562 UDP socket 异常: {}", e);
+                }
             })
         };
 
@@ -39,9 +39,9 @@ pub async fn run_udp_server(connections: Arc<DashMap<String, QuicConnection>>) -
             let shutdown = shutdown_flag.clone();
             let conns = connections.clone();
             tokio::spawn(async move {
-                get_p2p_udp_socket_with_shutdown(addr_2, "V6".to_string(), shutdown, conns)
-                    .await
-                    .expect("9563 Failed to get UDP socket");
+                if let Err(e) = get_p2p_udp_socket_with_shutdown(addr_2, "V6".to_string(), shutdown, conns).await {
+                    error!("9563 UDP socket 异常: {}", e);
+                }
             })
         };
 
@@ -49,9 +49,9 @@ pub async fn run_udp_server(connections: Arc<DashMap<String, QuicConnection>>) -
             let shutdown = shutdown_flag.clone();
             let conns = connections.clone();
             tokio::spawn(async move {
-                get_p2p_udp_socket_with_shutdown(addr_3, "V4".to_string(), shutdown, conns)
-                    .await
-                    .expect("9564 to get UDP socket");
+                if let Err(e) = get_p2p_udp_socket_with_shutdown(addr_3, "V4".to_string(), shutdown, conns).await {
+                    error!("9564 UDP socket 异常: {}", e);
+                }
             })
         };
 
@@ -59,13 +59,15 @@ pub async fn run_udp_server(connections: Arc<DashMap<String, QuicConnection>>) -
             let shutdown = shutdown_flag.clone();
             let conns = connections.clone();
             tokio::spawn(async move {
-                get_p2p_udp_socket_with_shutdown(addr_4, "V6".to_string(), shutdown, conns)
-                    .await
-                    .expect("9565 to get UDP socket");
+                if let Err(e) = get_p2p_udp_socket_with_shutdown(addr_4, "V6".to_string(), shutdown, conns).await {
+                    error!("9565 UDP socket 异常: {}", e);
+                }
             })
         };
 
-        signal::ctrl_c().await.expect("无法注册 Ctrl+C 处理器");
+        if let Err(e) = signal::ctrl_c().await {
+            error!("无法注册 Ctrl+C 处理器: {}", e);
+        }
         info!("收到 Ctrl+C 信号，正在关闭服务...");
 
         shutdown_flag.store(true, Ordering::Relaxed);
@@ -178,7 +180,7 @@ async fn process_p2p_user_info(
     mut user_address_info: UserAddressInfo,
     connections: Arc<DashMap<String, QuicConnection>>,
 ) -> Result<(), anyhow::Error> {
-    match decode_jwt(user_address_info.token.as_ref()) {
+    match verify_token(user_address_info.token.as_ref()) {
         Ok(claims) => {
             let uuid = claims.uuid;
             info!("收到来自 {} 的消息, 用户uuid: {}", udp_addr, uuid);

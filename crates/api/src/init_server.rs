@@ -18,73 +18,72 @@ use rustls::{Certificate, PrivateKey, ServerConfig};
 use rustls_pemfile::{certs, ec_private_keys, pkcs8_private_keys, rsa_private_keys};
 use crate::controller::configure_api_routes;
 
-fn init_cert_file() -> (Vec<Certificate>, PrivateKey) {
-    // 加载证书
-    let cert_file =
-        &mut BufReader::new(File::open("./config/ssl/fullchain.pem").expect("找不到TLS证书"));
-    let key_file =
-        &mut BufReader::new(File::open("./config/ssl/privkey.pem").expect("找不到TLS证书密钥"));
+fn read_key_file(path: &str, label: &str) -> anyhow::Result<File> {
+    File::open(path).map_err(|e| anyhow::anyhow!("找不到{}: {}", label, e))
+}
 
-    // 读取证书链
-    let cert_chain = match certs(cert_file) {
-        Ok(certs) => {
-            info!("读取到 {} 个证书", certs.len());
-            certs.into_iter().map(Certificate).collect()
-        }
-        Err(e) => {
-            panic!("noTls: {}", e);
-        }
-    };
+fn reset_file(file: &File) -> anyhow::Result<()> {
+    file.seek(SeekFrom::Start(0))
+        .map_err(|e| anyhow::anyhow!("无法重置文件读取位置: {}", e))
+}
+
+fn init_cert_file() -> anyhow::Result<(Vec<Certificate>, PrivateKey)> {
+    let cert_file = &mut BufReader::new(read_key_file("./config/ssl/fullchain.pem", "TLS证书")?);
+    let key_file = &mut BufReader::new(read_key_file("./config/ssl/privkey.pem", "TLS证书密钥")?);
+
+    let cert_chain = certs(cert_file)
+        .map_err(|e| anyhow::anyhow!("读取证书链失败: {}", e))?
+        .into_iter()
+        .map(Certificate)
+        .collect::<Vec<_>>();
+    info!("读取到 {} 个证书", cert_chain.len());
 
     // 尝试读取不同类型的私钥
     let mut keys = {
-        // 读取RSA私钥
-        key_file.seek(SeekFrom::Start(0)).expect("无法重置文件读取位置");
+        reset_file(key_file)?;
         if let Ok(keys) = rsa_private_keys(key_file) {
             if !keys.is_empty() {
                 keys
             } else {
-                // 读取EC私钥
-                key_file.seek(SeekFrom::Start(0)).expect("无法重置文件读取位置");
+                reset_file(key_file)?;
                 if let Ok(keys) = ec_private_keys(key_file) {
                     if !keys.is_empty() {
                         keys
                     } else {
-                        // 读取PKCS8私钥
-                        key_file.seek(SeekFrom::Start(0)).expect("无法重置文件读取位置");
-                        pkcs8_private_keys(key_file).expect("无法读取私钥")
+                        reset_file(key_file)?;
+                        pkcs8_private_keys(key_file)
+                            .map_err(|e| anyhow::anyhow!("无法读取PKCS8私钥: {}", e))?
                     }
                 } else {
-                    // 读取PKCS8私钥
-                    key_file.seek(SeekFrom::Start(0)).expect("无法重置文件读取位置");
-                    pkcs8_private_keys(key_file).expect("无法读取私钥")
+                    reset_file(key_file)?;
+                    pkcs8_private_keys(key_file)
+                        .map_err(|e| anyhow::anyhow!("无法读取PKCS8私钥: {}", e))?
                 }
             }
         } else {
-            // 读取EC私钥
-            key_file.seek(SeekFrom::Start(0)).expect("无法重置文件读取位置");
+            reset_file(key_file)?;
             if let Ok(keys) = ec_private_keys(key_file) {
                 if !keys.is_empty() {
                     keys
                 } else {
-                    // 读取PKCS8私钥
-                    key_file.seek(SeekFrom::Start(0)).expect("无法重置文件读取位置");
-                    pkcs8_private_keys(key_file).expect("无法读取私钥")
+                    reset_file(key_file)?;
+                    pkcs8_private_keys(key_file)
+                        .map_err(|e| anyhow::anyhow!("无法读取PKCS8私钥: {}", e))?
                 }
             } else {
-                // 读取PKCS8私钥
-                key_file.seek(SeekFrom::Start(0)).expect("无法重置文件读取位置");
-                pkcs8_private_keys(key_file).expect("无法读取私钥")
+                reset_file(key_file)?;
+                pkcs8_private_keys(key_file)
+                    .map_err(|e| anyhow::anyhow!("无法读取PKCS8私钥: {}", e))?
             }
         }
     };
 
     if keys.is_empty() {
-        panic!("私钥文件中没有找到有效的私钥");
+        return Err(anyhow::anyhow!("私钥文件中没有找到有效的私钥"));
     }
 
     let key = PrivateKey(keys.remove(0));
-    (cert_chain, key)
+    Ok((cert_chain, key))
 }
 
 /// 初始化S3客户端
@@ -126,7 +125,8 @@ pub async fn start_server() -> anyhow::Result<()> {
     // 创建公开文件夹
     let pub_file_path = USER_FILE_PUBLIC_DIR;
     if !std::path::Path::new(pub_file_path).exists() {
-        fs::create_dir_all(pub_file_path).expect("创建公开文件夹失败");
+        fs::create_dir_all(pub_file_path)
+            .map_err(|e| anyhow::anyhow!("创建公开文件夹失败: {}", e))?;
     }
 
     init_app_config()?;
@@ -135,7 +135,7 @@ pub async fn start_server() -> anyhow::Result<()> {
 
     let pool = init_sql_pool(&url).await?;
 
-    let (cert_chain, key) = init_cert_file();
+    let (cert_chain, key) = init_cert_file()?;
 
     // 配置 TLS
     let config = ServerConfig::builder()
@@ -162,9 +162,7 @@ pub async fn start_server() -> anyhow::Result<()> {
             warn!("S3客户端未初始化，S3相关功能不可用");
             // 创建一个placeholder，不会实际使用
             let config = S3Config::default_minio();
-            web::Data::new(Arc::new(s3_service::S3Client::new(config).await.unwrap_or_else(|_| {
-                panic!("S3客户端创建失败")
-            })))
+            web::Data::new(Arc::new(s3_service::S3Client::new(config).await?))
         }
     };
 

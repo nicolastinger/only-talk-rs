@@ -5,7 +5,7 @@ use deadpool_redis::redis::{RedisResult, cmd};
 use common::config_str::{APP_DOMAIN, MOBILE_PLATFORM, PC_PLATFORM, USER_DEFAULT_ICON, USER_FILE_PUBLIC};
 use common::models::user_entity::basic_user::BasicUser;
 use common::models::user_entity::user_info::UserInfo;
-use common::utils::jwt_util::{get_jwt, get_jwt_with_expiry};
+use common::utils::jwt_util::{generate_access_token, generate_token_with_expiry};
 use common::utils::redis_utils::get_redis_conn;
 use common::utils::rsa_util::{generate_random_string, hash_password, verify_password};
 use common::utils::time::get_now_time_stamp_as_millis;
@@ -24,9 +24,18 @@ use crate::http_service::user_service::vo::user_info::UserInfoVO;
 use crate::utils::http_response::{CommonResponseNoDataRef, CommonResponseRef};
 
 pub async fn test_sql(rb: &RBatis) -> Vec<BasicUser> {
-    let basic_user_all = BasicUser::select_all(rb).await.expect("查询出错");
-    let basic_user_icon = BasicUser::select_by_map(rb, value! { "icon": "33333" }).await.expect("查询出错");
-    let basic_user_all_id = BasicUser::select_all_by_id(rb, "33333", "4444444").await.expect("查询出错");
+    let basic_user_all = match BasicUser::select_all(rb).await {
+        Ok(v) => v,
+        Err(e) => { error!("select_all 查询出错: {}", e); vec![] }
+    };
+    let basic_user_icon = match BasicUser::select_by_map(rb, value! { "icon": "33333" }).await {
+        Ok(v) => v,
+        Err(e) => { error!("select_by_map 查询出错: {}", e); vec![] }
+    };
+    let basic_user_all_id = match BasicUser::select_all_by_id(rb, "33333", "4444444").await {
+        Ok(v) => v,
+        Err(e) => { error!("select_all_by_id 查询出错: {}", e); vec![] }
+    };
     info!("1 {:?}", basic_user_all);
     info!("2 {:?}", basic_user_icon);
     info!("3 {:?}", basic_user_all_id);
@@ -121,9 +130,9 @@ pub async fn user_sign_in(
     if verify_password(password_str, exit_password) {
         let uuid = basic_user.uuid.ok_or(anyhow!("账号为空"))?.to_string();
         // 短效 token (24h)
-        let access_token = get_jwt(uuid.clone(), platform.clone())?;
+        let access_token = generate_access_token(uuid.clone(), platform.clone())?;
         // 长效 refresh token (30 days)
-        let refresh_token = get_jwt_with_expiry(uuid.clone(), platform.clone(), 3600 * 24 * 30)?;
+        let refresh_token = generate_access_token_with_expiry(uuid.clone(), platform.clone(), 3600 * 24 * 30)?;
 
         // 存储 refresh_token 到 Redis (30 天过期)
         let rt_key = format!("REFRESH_TOKEN:{}", refresh_token);
@@ -155,7 +164,7 @@ pub async fn refresh_access_token(
     let platform = platform.map_err(|_| anyhow!("无法获取平台信息"))?;
 
     // 生成新的短效 access_token (24h)
-    let access_token = get_jwt(uuid.clone(), platform.clone())?;
+    let access_token = generate_access_token(uuid.clone(), platform.clone())?;
     let sign_in_vo = SignInResponseVO { access_token, refresh_token: refresh_token_dto.refresh_token.clone() };
     Ok(CommonResponseRef::<SignInResponseVO>::success_json(&sign_in_vo)?)
 }

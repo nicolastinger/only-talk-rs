@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use common::config_str::{PC_PLATFORM, PING, SYSTEM};
-use common::utils::jwt_util::get_jwt;
+use common::utils::jwt_util::generate_access_token;
 use common::utils::message_types;
 use tracing::{error, info};
 use quinn::{Connection, Endpoint, SendStream};
@@ -18,21 +18,38 @@ use super::set_server::configure_client;
 #[allow(dead_code)]
 pub async fn run_client(server_addr: SocketAddr) {
     // 创建客户端端点
-    let mut endpoint = Endpoint::client("0.0.0.0:0".parse().expect("infallible")).expect("infallible");
+    let mut endpoint = Endpoint::client("0.0.0.0:0".parse().unwrap()).unwrap();
     endpoint.set_default_client_config(configure_client()); // 设置默认客户端配置
 
     // 尝试连接到服务器
-    let connection = endpoint
+    let connection = match endpoint
         .connect(server_addr, "onlytalk.cn")
-        .expect("Failed to create endpoint")
-        .await
-        .expect("Failed to connect to server");
+    {
+        Ok(conn) => match conn.await {
+            Ok(c) => c,
+            Err(e) => {
+                error!("连接到服务器失败: {}", e);
+                return;
+            }
+        },
+        Err(e) => {
+            error!("创建连接失败: {}", e);
+            return;
+        }
+    };
     info!("[client] connected: addr={}", connection.remote_address()); // 打印连接成功的服务器地址
 
     // 开启一个双向流用于初始化和接收
-    let (mut send_stream, mut _recv_stream) =
-        connection.open_bi().await.expect("Failed to open stream");
-    send_stream.set_priority(0).expect("Failed to set priority"); // 设置优先级
+    let (mut send_stream, mut _recv_stream) = match connection.open_bi().await {
+        Ok(stream) => stream,
+        Err(e) => {
+            error!("打开双向流失败: {}", e);
+            return;
+        }
+    };
+    if let Err(e) = send_stream.set_priority(0) {
+        error!("设置优先级失败: {}", e);
+    }
     let head_length = 9;
     let buffer_msg: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
     // bidi recv loop（初始化流接收）
@@ -127,7 +144,8 @@ async fn init_send_msg(send_stream: &mut SendStream, conn: Connection) -> Result
     first_quic_msg.uuid = uuid.clone();
     first_quic_msg.text_serde_struct = "user_chat_json".to_string();
     first_quic_msg.msg_type = ConnectionType::Text;
-    let token = get_jwt(uuid.clone(), PC_PLATFORM.to_string()).expect("获取token失败");
+    let token = generate_access_token(uuid.clone(), PC_PLATFORM.to_string())
+        .map_err(|e| anyhow::anyhow!("获取token失败: {}", e))?;
     first_quic_msg.token = token;
 
     let first_msg_json = serde_json::to_string(&first_quic_msg)?;
@@ -165,13 +183,18 @@ async fn init_send_msg(send_stream: &mut SendStream, conn: Connection) -> Result
     tokio::spawn(async move {
         loop {
             tokio::time::sleep(Duration::from_secs(30)).await;
-            let ping_msg = generate_text_msg(
+            let ping_msg = match generate_text_msg(
                 message_types::MSG_TYPE_PING,
                 PING.as_bytes().to_vec(),
                 SYSTEM.to_string(),
                 uuid.clone(),
-            )
-            .expect("");
+            ) {
+                Ok(m) => m,
+                Err(e) => {
+                    error!("生成心跳消息失败: {}", e);
+                    continue;
+                }
+            };
             match send_via_new_stream(&conn, &ping_msg).await {
                 Ok(_) => {
                     info!("发送成功");

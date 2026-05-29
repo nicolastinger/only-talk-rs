@@ -46,7 +46,7 @@ fn new_rsa_key() -> Result<(RsaPrivateKey, RsaPublicKey), anyhow::Error> {
     // 如果没有现有的密钥文件，则生成新的 RSA 密钥对
     let mut rng = rand::thread_rng();
     let bits = 2048;
-    let private_key = RsaPrivateKey::new(&mut rng, bits).expect("failed to generate a key");
+    let private_key = RsaPrivateKey::new(&mut rng, bits)?;
 
     // 从私钥派生出公钥
     let public_key = RsaPublicKey::from(&private_key);

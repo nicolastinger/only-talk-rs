@@ -16,6 +16,7 @@ pub mod tracing;
 pub mod utils;
 
 // Re-export
+pub use utils::fatal_error::{fatal_panic, fatal_panic_async};
 pub use utils::internal_quic_client::send_internal_quic_msg;
 pub use utils::redis_utils::{init_redis, verify_redis};
 pub use utils::server_count_sync::{get_server_count, start_server_count_sync, SERVER_COUNT};

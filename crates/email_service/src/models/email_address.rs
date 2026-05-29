@@ -13,7 +13,7 @@ use once_cell::sync::Lazy;
 static EMAIL_REGEX: Lazy<Regex> = Lazy::new(|| {
     Regex::new(
         r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
-    ).expect("Invalid email regex")
+    ).unwrap_or_else(|e| panic!("邮箱正则表达式编译失败: {}", e))
 });
 
 /// 邮箱地址

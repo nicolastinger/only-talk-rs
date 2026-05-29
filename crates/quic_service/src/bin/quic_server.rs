@@ -3,6 +3,7 @@
 //! 仅启动 QUIC ChatNode + NAT UDP + 内网 QUIC 服务，不启动 HTTP。
 
 use common::tracing::init_tracing;
+use common::fatal_panic_async;
 use quic_service::init_server::start_server;
 use quic_service::{ChatNode, ServiceLifecycle};
 use std::sync::Arc;
@@ -17,12 +18,17 @@ async fn main() {
     let _guard = init_tracing();
     info!("启动 QUIC 服务（独立模式）");
 
-    let chat_node: Arc<ChatNode> = start_server().await.expect("启动quic服务失败");
+    let chat_node: Arc<ChatNode> = match start_server().await {
+        Ok(node) => node,
+        Err(e) => fatal_panic_async(&format!("启动quic服务失败: {:?}", e)).await,
+    };
 
     info!("QUIC 服务已就绪，按 Ctrl+C 停止");
 
     // 等待退出信号
-    tokio::signal::ctrl_c().await.expect("无法注册 Ctrl+C 处理器");
+    tokio::signal::ctrl_c().await.unwrap_or_else(|e| {
+        error!("无法注册 Ctrl+C 处理器: {}", e);
+    });
 
     info!("收到退出信号，正在优雅关闭...");
     if let Err(e) = chat_node.stop().await {

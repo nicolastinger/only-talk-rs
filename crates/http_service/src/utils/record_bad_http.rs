@@ -5,7 +5,7 @@ use actix_web::body::MessageBody;
 use actix_web::dev::{ServiceRequest, ServiceResponse};
 use actix_web::middleware::Next;
 use actix_web::{Error, HttpMessage};
-use common::utils::jwt_util::decode_jwt;
+use common::utils::jwt_util::verify_token;
 use lazy_static::lazy_static;
 use tracing::info;
 
@@ -53,7 +53,7 @@ pub async fn error_record_middleware(
         },
     };
     //校验token
-    let account = match decode_jwt(&token) {
+    let account = match verify_token(&token) {
         Ok(t) => t.uuid,
         Err(_) => {
             return Err(actix_web::error::ErrorUnauthorized("Unauthorized"));

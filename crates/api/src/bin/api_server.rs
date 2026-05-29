@@ -4,6 +4,7 @@
 
 use api::init_server::start_server;
 use common::tracing::init_tracing;
+use common::fatal_panic_async;
 use tracing::{error, info};
 
 #[actix_web::main]
@@ -15,7 +16,8 @@ async fn main() {
     let _guard = init_tracing();
     info!("启动 HTTP API 服务（独立模式）");
 
-    start_server()
-        .await
-        .unwrap_or_else(|err| error!("启动http服务失败 {}, 堆栈信息 {:?}", err, err.backtrace()));
+    if let Err(e) = start_server().await {
+        error!("启动http服务失败 {}, 堆栈信息 {:?}", e, e.backtrace());
+        fatal_panic_async(&format!("启动http服务失败: {:?}", e)).await;
+    }
 }

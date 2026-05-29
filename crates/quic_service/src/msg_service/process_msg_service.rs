@@ -130,9 +130,11 @@ async fn process_text_msg(
         let conns = connections.clone();
         tokio::spawn(async move {
             let current_user = text_msg_clone.send_user.clone();
-            add_user_chat_record(text_msg_clone).await.expect("插入用户消息失败");
+            if let Err(e) = add_user_chat_record(text_msg_clone).await {
+                error!("插入用户消息失败: {}", e);
+            }
             // 发送ack消息
-            send_msg_record_success(
+            if let Err(e) = send_msg_record_success(
                 ack_nano_id,
                 &conn_key,
                 current_user,
@@ -142,7 +144,9 @@ async fn process_text_msg(
                 message_types::MSG_TYPE_RECALL_SUCCESS,
             )
                 .await
-                .expect("发送ack消息失败");
+            {
+                error!("发送ack消息失败: {}", e);
+            }
         });
         send_msg_to_user(text_msg, platform, connections).await?;
     }

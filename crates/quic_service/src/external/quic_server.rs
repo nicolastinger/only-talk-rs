@@ -7,7 +7,7 @@ use deadpool_redis::redis::AsyncCommands;
 use common::config_str::{USER_READ_MSG};
 use common::models::chat_entity::chat_message_read::ChatMessageRecordRead;
 use common::models::chat_entity::chat_message_record::ChatMessageRecord;
-use common::utils::jwt_util::{decode_jwt, Claims};
+use common::utils::jwt_util::{verify_token, Claims};
 use common::utils::redis_utils::get_redis_conn;
 use common::utils::time::get_now_time_stamp_as_millis;
 use common::{REDIS_CLIENT};
@@ -68,7 +68,9 @@ pub(crate) async fn run_server(
         let conns = connections.clone();
         let cfg = config.clone();
         tokio::spawn(async move {
-            handle_connection(conn, conns, cfg).await.expect("打开双向流失败");
+            if let Err(e) = handle_connection(conn, conns, cfg).await {
+                error!("打开双向流失败: {}", e);
+            }
         });
     }
 }
@@ -152,7 +154,7 @@ async fn verify_token(
     first_quic_msg: &FirstQuicMsg,
     send_stream: &mut SendStream,
 ) -> Result<Claims, anyhow::Error> {
-    let claims = match decode_jwt(first_quic_msg.token.as_ref()).map_err(|_| "解析token失败") {
+    let claims = match verify_token(first_quic_msg.token.as_ref()).map_err(|_| "解析token失败") {
         Ok(t) => {
             if t.uuid != first_quic_msg.uuid {
                 error!("令牌跟账号不匹配！");
@@ -180,6 +182,7 @@ async fn verify_max_client(
     if server_book_len > max_connections {
         error!("达到最大连接数 {}", server_book_len);
         send_stream.finish().await?;
+        return Err(anyhow!("达到最大连接数 {}", server_book_len));
     }
     Ok(())
 }
@@ -372,10 +375,26 @@ async fn end_server(
                 drop(book);
                 connections.remove(close_key);
                 let redis = REDIS_CLIENT.read().await;
-                let redis = redis.as_ref().expect("获取redis连接失败");
+                let redis = match redis.as_ref() {
+                    Some(r) => r,
+                    None => {
+                        error!("FATAL: 获取redis连接失败");
+                        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                        panic!("获取redis连接失败");
+                    }
+                };
 
-                let mut conn = redis.get().await.expect("打开redis连接失败");
-                conn.del::<&str, ()>(connection_key).await.expect("删除连接信息失败");
+                let mut conn = match redis.get().await {
+                    Ok(c) => c,
+                    Err(e) => {
+                        error!("FATAL: 打开redis连接失败: {}", e);
+                        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                        panic!("打开redis连接失败: {}", e);
+                    }
+                };
+                if let Err(e) = conn.del::<&str, ()>(connection_key).await {
+                    error!("删除连接信息失败: {}", e);
+                }
             }
         }
     }
@@ -412,7 +431,13 @@ async fn user_offline(uuid: String) -> std::result::Result<(), anyhow::Error> {
         if is_exist.is_empty() || is_exist.len() > 1 {
             continue;
         }
-        let exit_item = is_exist.first().expect("获取已读消息失败");
+        let exit_item = match is_exist.first() {
+            Some(item) => item,
+            None => {
+                error!("已读消息列表异常: is_exist 为空");
+                continue;
+            }
+        };
         if exit_item.recv_user.to_string() != item.recv_user.to_string()
             && exit_item.send_user.to_string() != item.recv_user.to_string()
         {

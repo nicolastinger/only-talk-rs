@@ -13,7 +13,7 @@ pub struct Claims {
     pub exp: i64,     // 过期时间 (Unix 时间戳)
 }
 
-fn generate_keys() -> Result<(EncodingKey, DecodingKey), anyhow::Error> {
+fn load_jwt_keys() -> Result<(EncodingKey, DecodingKey), anyhow::Error> {
     let (private_key, public_key) = generate_rsa_keys()?;
     let private_key_pem = private_key.to_pkcs8_pem(Default::default())?;
     let private_key_str = private_key_pem.to_string();
@@ -28,8 +28,8 @@ fn generate_keys() -> Result<(EncodingKey, DecodingKey), anyhow::Error> {
     Ok((encoding_key, decoding_key))
 }
 
-pub fn get_jwt(uuid: String, platform: String) -> Result<String, anyhow::Error> {
-    let (encoding_key, _) = generate_keys()?;
+pub fn generate_access_token(uuid: String, platform: String) -> Result<String, anyhow::Error> {
+    let (encoding_key, _) = load_jwt_keys()?;
     let claims =
         Claims { sub: platform, uuid, exp: get_now_time_stamp_as_secs()? + (3600 * 24) };
     let header = Header::new(jsonwebtoken::Algorithm::RS256);
@@ -37,16 +37,16 @@ pub fn get_jwt(uuid: String, platform: String) -> Result<String, anyhow::Error> 
     Ok(token)
 }
 
-pub fn get_jwt_with_expiry(uuid: String, platform: String, expiry_secs: i64) -> Result<String, anyhow::Error> {
-    let (encoding_key, _) = generate_keys()?;
+pub fn generate_token_with_expiry(uuid: String, platform: String, expiry_secs: i64) -> Result<String, anyhow::Error> {
+    let (encoding_key, _) = load_jwt_keys()?;
     let claims = Claims { sub: platform, uuid, exp: get_now_time_stamp_as_secs()? + expiry_secs };
     let header = Header::new(jsonwebtoken::Algorithm::RS256);
     let token = encode(&header, &claims, &encoding_key)?;
     Ok(token)
 }
 
-pub fn decode_jwt(token: &str) -> Result<Claims, anyhow::Error> {
-    let (_, decoding_key) = generate_keys()?;
+pub fn verify_token(token: &str) -> Result<Claims, anyhow::Error> {
+    let (_, decoding_key) = load_jwt_keys()?;
     let validation = Validation::new(jsonwebtoken::Algorithm::RS256);
     let decoded = decode::<Claims>(token, &decoding_key, &validation)?;
     Ok(decoded.claims)
