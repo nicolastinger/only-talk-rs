@@ -6,7 +6,9 @@ use rbatis::rbatis_codegen::ops::AsProxy;
 use rsa::pkcs8::{DecodePrivateKey, EncodePrivateKey};
 use rsa::{RsaPrivateKey, RsaPublicKey};
 use rsa::pkcs1::EncodeRsaPublicKey;
-use sha2::{Digest, Sha256};
+use argon2::{Argon2, PasswordHasher, PasswordVerifier};
+use argon2::password_hash::rand_core::OsRng;
+use argon2::password_hash::PasswordHash;
 use crate::config_manager::{get_config, set_config};
 
 pub fn generate_rsa_keys() -> Result<(RsaPrivateKey, RsaPublicKey), anyhow::Error> {
@@ -71,15 +73,17 @@ pub fn generate_random_string(length: usize) -> String {
         .collect::<String>()
 }
 
-pub fn hash_with_salt(data: &str, salt: &str) -> String {
-    // 创建一个新的 SHA-256 哈希器
-    let mut hasher = Sha256::new();
+pub fn hash_password(password: &str) -> Result<String, anyhow::Error> {
+    let salt = argon2::password_hash::SaltString::generate(&mut OsRng);
+    let argon2 = Argon2::default();
+    let hash = argon2.hash_password(password.as_bytes(), &salt)?;
+    Ok(hash.to_string())
+}
 
-    // 将数据和盐一起传递给哈希器
-    hasher.update(data);
-    hasher.update(salt);
-
-    // 获取最终的哈希值并转换为十六进制字符串
-    let result = hasher.finalize();
-    format!("{:x}", result)
+pub fn verify_password(password: &str, hash: &str) -> bool {
+    let parsed_hash = match PasswordHash::new(hash) {
+        Ok(h) => h,
+        Err(_) => return false,
+    };
+    Argon2::default().verify_password(password.as_bytes(), &parsed_hash).is_ok()
 }

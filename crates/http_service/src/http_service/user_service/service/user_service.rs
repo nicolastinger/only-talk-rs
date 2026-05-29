@@ -4,11 +4,10 @@ use anyhow::anyhow;
 use deadpool_redis::redis::{RedisResult, cmd};
 use common::config_str::{APP_DOMAIN, MOBILE_PLATFORM, PC_PLATFORM, USER_DEFAULT_ICON, USER_FILE_PUBLIC};
 use common::models::user_entity::basic_user::BasicUser;
-use common::models::user_entity::basic_user_salt::{BasicUserSalt, get_user_salt};
 use common::models::user_entity::user_info::UserInfo;
 use common::utils::jwt_util::{get_jwt, get_jwt_with_expiry};
 use common::utils::redis_utils::get_redis_conn;
-use common::utils::rsa_util::{generate_random_string, hash_with_salt};
+use common::utils::rsa_util::{generate_random_string, hash_password, verify_password};
 use common::utils::time::get_now_time_stamp_as_millis;
 use common::{RBATIS_DATABASE, REDIS_CLIENT};
 use tracing::{error, info};
@@ -50,9 +49,9 @@ pub async fn add_new_basic_user_service(
 ) -> Result<String, anyhow::Error> {
     let mut basic_user = SignUpBasicUserDTO::to_basic_user(basic_user);
     basic_user.uuid = Some(Uuid::now_v7().to_string().parse()?);
-    let random_str = generate_random_string(16);
-    let password = hash_with_salt(basic_user.password.as_ref().ok_or(anyhow!("密码为空"))?, &random_str);
-    basic_user.password = Option::from(password);
+    let password = basic_user.password.as_ref().ok_or(anyhow!("密码为空"))?;
+    let hashed_password = hash_password(password)?;
+    basic_user.password = Some(hashed_password);
     let icon_url = format!("{}{}/{}", APP_DOMAIN, USER_FILE_PUBLIC, USER_DEFAULT_ICON);
     basic_user.icon = Some(icon_url);
     basic_user.info = Some("".to_string());
@@ -65,11 +64,6 @@ pub async fn add_new_basic_user_service(
             // 使用事务块包裹逻辑
             let result: Result<(), anyhow::Error> = async {
                 let now = get_now_time_stamp_as_millis()?;
-                let basic_user_salt = BasicUserSalt {
-                    uuid: basic_user.uuid.clone(),
-                    sign_up_salt: Option::from(random_str),
-                };
-
                 let user_info = UserInfo {
                     uuid: basic_user.uuid.clone(),
                     gender: None,
@@ -84,7 +78,6 @@ pub async fn add_new_basic_user_service(
                     status: None,
                 };
 
-                BasicUserSalt::insert(&tx, &basic_user_salt).await?;
                 BasicUser::insert(&tx, &basic_user).await?;
                 UserInfo::insert(&tx, &user_info).await?;
 
@@ -122,16 +115,10 @@ pub async fn user_sign_in(
         BasicUser::select_by_account(rb, account_str).await?.ok_or(anyhow!("用户不存在"))?;
 
     let mut conn = get_redis_conn().await?;
-    let salt = get_user_salt(rb, &basic_user.uuid).await?;
 
-    let hashed_password = hash_with_salt(
-        password_str,
-        salt.sign_up_salt.as_ref().ok_or(anyhow!("加密盐查询失败".to_string()))?,
-    );
+    let exit_password = basic_user.password.as_ref().ok_or(anyhow!("密码为空"))?;
 
-    let exit_password = basic_user.password.as_ref().ok_or(anyhow!("账号为空"))?;
-
-    if exit_password == &hashed_password {
+    if verify_password(password_str, exit_password) {
         let uuid = basic_user.uuid.ok_or(anyhow!("账号为空"))?.to_string();
         // 短效 token (24h)
         let access_token = get_jwt(uuid.clone(), platform.clone())?;
