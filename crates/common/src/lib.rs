@@ -35,9 +35,16 @@ lazy_static! {
 }
 
 /// 替换字符串中的环境变量占位符 ${VAR_NAME}
+/// 最多迭代 100 次，防止恶意配置导致死循环
 pub fn substitute_env_vars(content: String) -> String {
     let mut result = content;
+    let mut iterations = 0;
     loop {
+        if iterations > 100 {
+            tracing::warn!("环境变量替换超过 100 次迭代，可能存在循环引用，提前终止");
+            break;
+        }
+        iterations += 1;
         let Some(start) = result.find("${") else { break };
         let Some(end) = result[start..].find('}') else { break };
         let var_name = &result[start + 2..start + end];

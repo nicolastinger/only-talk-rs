@@ -211,11 +211,16 @@ pub async fn handle_group_msg_from_client(
 
 async fn get_all_internal_node_addresses() -> Result<Vec<(u32, std::net::SocketAddr)>> {
     // 命中缓存直接返回
-    if let Some((ts, nodes)) = NODE_CACHE.lock().unwrap().as_ref() {
+    let cache_read = NODE_CACHE.lock().unwrap_or_else(|e| {
+        error!("NODE_CACHE 锁中毒: {}", e);
+        std::process::exit(1);
+    });
+    if let Some((ts, nodes)) = cache_read.as_ref() {
         if ts.elapsed() < Duration::from_secs(5) {
             return Ok(nodes.clone());
         }
     }
+    drop(cache_read);
 
     let redis = REDIS_CLIENT.read().await;
     let redis = redis
@@ -240,7 +245,12 @@ async fn get_all_internal_node_addresses() -> Result<Vec<(u32, std::net::SocketA
         }
     }
 
-    *NODE_CACHE.lock().unwrap() = Some((Instant::now(), nodes.clone()));
+    let mut cache_write = NODE_CACHE.lock().unwrap_or_else(|e| {
+        error!("NODE_CACHE 写入锁中毒: {}", e);
+        std::process::exit(1);
+    });
+    *cache_write = Some((Instant::now(), nodes.clone()));
+    drop(cache_write);
     Ok(nodes)
 }
 

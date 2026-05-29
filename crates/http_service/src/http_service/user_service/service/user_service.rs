@@ -32,13 +32,8 @@ pub async fn test_sql(rb: &RBatis) -> Vec<BasicUser> {
         Ok(v) => v,
         Err(e) => { error!("select_by_map 查询出错: {}", e); vec![] }
     };
-    let basic_user_all_id = match BasicUser::select_all_by_id(rb, "33333", "4444444").await {
-        Ok(v) => v,
-        Err(e) => { error!("select_all_by_id 查询出错: {}", e); vec![] }
-    };
     info!("1 {:?}", basic_user_all);
     info!("2 {:?}", basic_user_icon);
-    info!("3 {:?}", basic_user_all_id);
     basic_user_all
 }
 
