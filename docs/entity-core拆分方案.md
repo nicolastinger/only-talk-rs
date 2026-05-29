@@ -61,7 +61,6 @@ entity/src/
 │   └── user_entity/
 │       ├── mod.rs
 │       ├── basic_user.rs
-│       ├── basic_user_salt.rs
 │       ├── friend_link.rs
 │       ├── friend_request_info.rs
 │       ├── user_info.rs

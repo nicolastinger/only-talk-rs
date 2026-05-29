@@ -41,12 +41,7 @@
 
 这些表都依赖 `basic_user` 表的 `uuid` 字段。
 
-#### 1. 用户密码盐表
-**文件：** `basic_user_salt.sql`
-- `uuid` - 主键（外键，关联 basic_user.uuid）
-- `sign_up_salt` - 密码盐
-
-#### 2. 用户详细信息表
+#### 1. 用户详细信息表
 **文件：** `user_info.sql`
 - `uuid` - 主键（外键，关联 basic_user.uuid）
 - `gender` - 性别
@@ -58,12 +53,12 @@
 - `status` - 状态
 - `note` - 用户简介
 
-#### 3. 用户缓存表
+#### 2. 用户缓存表
 **文件：** `user_cache.sql`
 - `uuid` - 主键（外键，关联 basic_user.uuid）
 - `text` - 缓存 json 文本
 
-#### 4. 用户登录记录表
+#### 3. 用户登录记录表
 **文件：** `user_login_log.sql`
 - `id` - 主键
 - `last_login_at` - 最后登录时间
@@ -205,7 +200,6 @@ psql -U username -d database_name -f sequences.sql
 psql -U username -d database_name -f basic_user.sql
 
 # 3. 创建用户相关表
-psql -U username -d database_name -f basic_user_salt.sql
 psql -U username -d database_name -f user_info.sql
 psql -U username -d database_name -f user_cache.sql
 psql -U username -d database_name -f user_login_log.sql
@@ -243,7 +237,6 @@ DDL_DIR="entity/ddl"
 # 按顺序执行 SQL 文件
 psql -U $DB_USER -d $DB_NAME -f $DDL_DIR/sequences.sql
 psql -U $DB_USER -d $DB_NAME -f $DDL_DIR/basic_user.sql
-psql -U $DB_USER -d $DB_NAME -f $DDL_DIR/basic_user_salt.sql
 psql -U $DB_USER -d $DB_NAME -f $DDL_DIR/user_info.sql
 psql -U $DB_USER -d $DB_NAME -f $DDL_DIR/user_cache.sql
 psql -U $DB_USER -d $DB_NAME -f $DDL_DIR/user_login_log.sql
@@ -275,7 +268,6 @@ $ddlDir = "entity\ddl"
 $sqlFiles = @(
     "sequences.sql",
     "basic_user.sql",
-    "basic_user_salt.sql",
     "user_info.sql",
     "user_cache.sql",
     "user_login_log.sql",
@@ -359,7 +351,6 @@ sequences.sql (序列)
     ↓
 basic_user.sql (基础用户表)
     ↓
-    ├─→ basic_user_salt.sql (用户密码盐表)
     ├─→ user_info.sql (用户详细信息表)
     ├─→ user_cache.sql (用户缓存表)
     ├─→ user_login_log.sql (用户登录记录表)
