@@ -18,6 +18,7 @@
 - `chat_message_record_id_seq`
 - `chat_message_record_read_status_id_seq`
 - `friend_request_info_id_seq`
+- `group_message_record_read_id_seq`
 
 ---
 
@@ -178,6 +179,26 @@
 
 ---
 
+### 第八阶段：群聊相关表
+
+**文件：** `group_tables.sql`（包含 `group_info`、`group_member`、`group_message_record`）
+
+**说明：** 群聊相关表，包含群组信息、成员列表和消息记录。
+
+**文件：** `group_invitation.sql`（群邀请表）
+
+**文件：** `group_message_record_read.sql`（群消息已读状态表）
+
+**主要字段：**
+- `id` - 自增id
+- `nano_id` - 消息主键
+- `send_user` - 发送人id
+- `group_uuid` - 群组id
+- `read_user` - 已读用户id
+- `timestamp` - 消息创建时间
+
+---
+
 ## 执行方式
 
 ### 方式一：使用 psql 命令行
@@ -223,6 +244,11 @@ psql -U username -d database_name -f chat_message_record_read.sql
 
 # 7. 创建系统通知表
 psql -U username -d database_name -f system_notification.sql
+
+# 8. 创建群聊相关表
+psql -U username -d database_name -f group_tables.sql
+psql -U username -d database_name -f group_invitation.sql
+psql -U username -d database_name -f group_message_record_read.sql
 ```
 
 ### 方式三：使用 shell 脚本（Linux/Mac）
@@ -253,6 +279,11 @@ psql -U $DB_USER -d $DB_NAME -f $DDL_DIR/chat_message_record_fail.sql
 psql -U $DB_USER -d $DB_NAME -f $DDL_DIR/chat_message_record_read.sql
 psql -U $DB_USER -d $DB_NAME -f $DDL_DIR/system_notification.sql
 
+# 8. 创建群聊相关表
+psql -U $DB_USER -d $DB_NAME -f $DDL_DIR/group_tables.sql
+psql -U $DB_USER -d $DB_NAME -f $DDL_DIR/group_invitation.sql
+psql -U $DB_USER -d $DB_NAME -f $DDL_DIR/group_message_record_read.sql
+
 echo "所有表创建完成！"
 ```
 
@@ -282,7 +313,10 @@ $sqlFiles = @(
     "chat_message_record.sql",
     "chat_message_record_fail.sql",
     "chat_message_record_read.sql",
-    "system_notification.sql"
+    "system_notification.sql",
+    "group_tables.sql",
+    "group_invitation.sql",
+    "group_message_record_read.sql"
 )
 
 # 逐个执行 SQL 文件
@@ -365,7 +399,10 @@ basic_user.sql (基础用户表)
     ├─→ chat_message_record.sql (聊天消息记录表)
     ├─→ chat_message_record_fail.sql (聊天消息失败记录表)
     ├─→ chat_message_record_read.sql (聊天消息已读状态表)
-    └─→ system_notification.sql (系统通知表)
+    ├─→ system_notification.sql (系统通知表)
+    ├─→ group_tables.sql (群组信息/成员/消息表)
+    ├─→ group_invitation.sql (群邀请表)
+    └─→ group_message_record_read.sql (群消息已读状态表)
 ```
 
 ---
