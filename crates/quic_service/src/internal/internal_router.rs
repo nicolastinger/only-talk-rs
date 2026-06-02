@@ -1,4 +1,3 @@
-use std::hash::Hasher;
 use std::net::SocketAddr;
 use std::sync::Arc;
 

@@ -2,14 +2,12 @@ use std::str::FromStr;
 use std::sync::Arc;
 use actix_multipart::Multipart;
 use anyhow::anyhow;
-use tracing::{info, warn};
+use tracing::info;
 use http_service::http_service::file_service::service::biz_service::{
     create_avatar_biz,
     create_group_avatar_biz,
 };
-use http_service::http_service::file_service::service::file_service::{
-    upload_file_local,
-};
+
 use http_service::http_service::file_service::service::chat_s3_service::upload_chat_preview_file_s3;
 use http_service::http_service::file_service::service::avatar_s3_service::upload_user_avatar_s3;
 use http_service::http_service::file_service::service::avatar_s3_service::upload_group_avatar_s3;
@@ -34,34 +32,16 @@ pub async fn upload_user_avatar(
     let uuid = uuid.ok_or(anyhow!("用户ID不能为空"))?;
     let user_id = rbdc::Uuid::from_str(&uuid)?;
     
-    // 1. 优先使用S3上传头像（如果启用）
-    let original_record = if let Some(ref client) = s3_client {
-        if client.config.enabled {
-            info!("尝试上传头像到S3...");
-            match upload_user_avatar_s3(rb, uuid.clone(), payload, client.clone()).await {
-                Ok(record) => {
-                    info!("头像上传到S3成功");
-                    record
-                }
-                Err(e) => {
-                    warn!("S3上传失败: {}，回退到本地存储", e);
-                    // S3上传失败，回退到本地存储
-                    // 注意：payload已经被消费，需要新的Multipart，这里暂时直接报错
-                    return Err(anyhow!("S3上传失败且payload已消费: {}", e));
-                }
-            }
-        } else {
-            // S3未启用，使用本地存储
-            info!("S3未启用，使用本地存储");
-            let res = upload_file_local(rb, uuid, payload).await?;
-            res.into_iter().next().ok_or(anyhow!("未找到上传文件"))?
-        }
-    } else {
-        // 没有S3客户端，使用本地存储
-        info!("无S3客户端，使用本地存储");
-        let res = upload_file_local(rb, uuid, payload).await?;
-        res.into_iter().next().ok_or(anyhow!("未找到上传文件"))?
-    };
+    // 1. 使用S3上传头像
+    let s3_client = s3_client.ok_or(anyhow!("S3客户端未初始化"))?;
+    if !s3_client.config.enabled {
+        return Err(anyhow!("S3服务未启用"));
+    }
+    
+    info!("上传头像到S3...");
+    let original_record = upload_user_avatar_s3(rb, uuid.clone(), payload, s3_client.clone()).await
+        .map_err(|e| anyhow!("S3上传失败: {}", e))?;
+    info!("头像上传到S3成功");
     
     // 2. 保存业务信息
     let biz_record = create_avatar_biz(rb, user_id).await?;
@@ -104,34 +84,16 @@ pub async fn upload_user_chat_file(
         return Err(anyhow!("双方不是好友关系，无法发送消息"));
     }
     
-    // 2. 优先使用S3上传（如果启用）
-    let record = if let Some(ref client) = s3_client {
-        if client.config.enabled {
-            info!("尝试上传聊天文件到S3...");
-            match upload_chat_preview_file_s3(rb, uuid.clone(), payload, client.clone()).await {
-                Ok(record) => {
-                    info!("聊天文件上传到S3成功");
-                    record
-                }
-                Err(e) => {
-                    warn!("S3上传失败: {}，回退到本地存储", e);
-                    // S3上传失败，回退到本地存储
-                    // 注意：payload已经被消费，需要新的Multipart，这里暂时直接报错
-                    return Err(anyhow!("S3上传失败且payload已消费: {}", e));
-                }
-            }
-        } else {
-            // S3未启用，使用本地存储
-            info!("S3未启用，使用本地存储");
-            let res = upload_file_local(rb, uuid, payload).await?;
-            res.into_iter().next().ok_or(anyhow!("未找到上传文件"))?
-        }
-    } else {
-        // 没有S3客户端，使用本地存储
-        info!("无S3客户端，使用本地存储");
-        let res = upload_file_local(rb, uuid, payload).await?;
-        res.into_iter().next().ok_or(anyhow!("未找到上传文件"))?
-    };
+    // 2. 使用S3上传
+    let s3_client = s3_client.ok_or(anyhow!("S3客户端未初始化"))?;
+    if !s3_client.config.enabled {
+        return Err(anyhow!("S3服务未启用"));
+    }
+    
+    info!("上传聊天文件到S3...");
+    let record = upload_chat_preview_file_s3(rb, uuid.clone(), payload, s3_client.clone()).await
+        .map_err(|e| anyhow!("S3上传失败: {}", e))?;
+    info!("聊天文件上传到S3成功");
     
     // 3. 保存业务信息
     let chat_biz_record = create_user_chat_biz(rb, user_id, friend_uuid).await?;
@@ -164,29 +126,15 @@ pub async fn upload_group_avatar(
     let user_id = rbdc::Uuid::from_str(&uuid)?;
     let group_id = rbdc::Uuid::from_str(&group_uuid)?;
 
-    let original_record = if let Some(ref client) = s3_client {
-        if client.config.enabled {
-            info!("尝试上传群组头像到S3...");
-            match upload_group_avatar_s3(rb, uuid.clone(), payload, client.clone()).await {
-                Ok(record) => {
-                    info!("群组头像上传到S3成功");
-                    record
-                }
-                Err(e) => {
-                    warn!("S3上传失败: {}，回退到本地存储", e);
-                    return Err(anyhow!("S3上传失败且payload已消费: {}", e));
-                }
-            }
-        } else {
-            info!("S3未启用，使用本地存储");
-            let res = upload_file_local(rb, uuid, payload).await?;
-            res.into_iter().next().ok_or(anyhow!("未找到上传文件"))?
-        }
-    } else {
-        info!("无S3客户端，使用本地存储");
-        let res = upload_file_local(rb, uuid, payload).await?;
-        res.into_iter().next().ok_or(anyhow!("未找到上传文件"))?
-    };
+    let s3_client = s3_client.ok_or(anyhow!("S3客户端未初始化"))?;
+    if !s3_client.config.enabled {
+        return Err(anyhow!("S3服务未启用"));
+    }
+    
+    info!("上传群组头像到S3...");
+    let original_record = upload_group_avatar_s3(rb, uuid.clone(), payload, s3_client.clone()).await
+        .map_err(|e| anyhow!("S3上传失败: {}", e))?;
+    info!("群组头像上传到S3成功");
 
     let biz_record = create_group_avatar_biz(rb, user_id, group_id).await?;
     let biz_file_link = BizFileLink {

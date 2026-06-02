@@ -1,7 +1,6 @@
 use std::str::FromStr;
 
 use anyhow::anyhow;
-use common::models::file_entity::file_upload_record::FileUploadRecord;
 use common::utils::time::get_now_time_stamp_as_millis;
 use rbatis::{RBatis, rbdc};
 use uuid::Uuid;

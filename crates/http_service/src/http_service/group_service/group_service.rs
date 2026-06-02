@@ -19,7 +19,6 @@ use entity::models::group_entity::{
     group_member::{GroupMember, ROLE_ADMIN, ROLE_MEMBER, ROLE_OWNER, STATUS_NORMAL},
     group_message_record::GroupMessageRecord,
 };
-use rbs::value;
 
 use crate::http_service::group_service::group_dto::{
     create_group_dto::CreateGroupDTO,

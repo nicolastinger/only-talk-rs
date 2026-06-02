@@ -7,7 +7,7 @@ use common::models::user_entity::basic_user::BasicUser;
 use common::models::user_entity::user_info::UserInfo;
 use common::utils::jwt_util::{generate_access_token, generate_token_with_expiry};
 use common::utils::redis_utils::get_redis_conn;
-use common::utils::rsa_util::{generate_random_string, hash_password, verify_password};
+use common::utils::rsa_util::{hash_password, verify_password};
 use common::utils::time::get_now_time_stamp_as_millis;
 use common::{RBATIS_DATABASE, REDIS_CLIENT};
 use tracing::{error, info};

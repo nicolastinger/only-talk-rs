@@ -90,15 +90,10 @@ async fn download_chat_biz_api(
 ) -> impl Responder {
     let (biz_id,is_preview) = biz_id.into_inner();
     let uuid = get_uuid_from_header!(req);
-    #[warn(unused_assignments)]
-    let mut is_preview_bool = true;
-    match is_preview.as_str() {
-        "1" => is_preview_bool = true,
-        "0" => is_preview_bool = false,
-        _ => {
-            is_preview_bool = false;
-        }
-    }
+    let is_preview_bool = match is_preview.as_str() {
+        "1" => true,
+        _ => false,
+    };
     let s3_client = (*s3_client.into_inner()).clone();
     let res = download_link_chat_biz(state.as_ref(), Some(s3_client), uuid, biz_id, is_preview_bool).await;
     respond_json_any!(res)
@@ -146,6 +141,7 @@ pub async fn download_private_file_api(_params: web::Path<(String, String)>) -> 
 #[post("/upload/origin_file")]
 async fn upload_origin_file_by_biz_api(
     state: web::Data<RBatis>,
+    s3_client: web::Data<Arc<S3Client>>,
     biz_id: web::Query<String>,
     biz_record_type: web::Query<String>,
     preview_id: web::Query<String>,
@@ -156,6 +152,7 @@ async fn upload_origin_file_by_biz_api(
     let biz_record_type = biz_record_type.into_inner();
     let preview_id = preview_id.into_inner();
     let uuid = get_uuid_from_header!(req);
-    let res = upload_original_file_by_biz_id(state.as_ref(), uuid, biz_id, biz_record_type, preview_id, payload).await;
+    let s3_client = (*s3_client.into_inner()).clone();
+    let res = upload_original_file_by_biz_id(state.as_ref(), Some(s3_client), uuid, biz_id, biz_record_type, preview_id, payload).await;
     respond_json_any!(res)
 }

@@ -5,13 +5,13 @@ use std::sync::Arc;
 use actix_multipart::Multipart;
 use actix_web::HttpResponse;
 use anyhow::anyhow;
-use common::config_str::{APP_DOMAIN, DEFAULT_MAX_FILE_SIZE, USER_FILE_PUBLIC_DIR};
+use common::config_str::{DEFAULT_MAX_FILE_SIZE, USER_FILE_PUBLIC_DIR};
 use common::models::file_entity::file_upload_record::FileUploadRecord;
 use common::utils::time::get_now_time_stamp_as_millis;
 use futures_util::{StreamExt, TryStreamExt};
 use tracing::{error, info, warn};
 use rbatis::rbdc::rt::fs::File;
-use rbatis::rbdc::rt::{AsyncWriteExt, tokio, AsyncReadExt};
+use rbatis::rbdc::rt::{AsyncWriteExt, tokio};
 use rbatis::{RBatis, rbdc};
 use rbs::value;
 use s3_service::S3Client;
@@ -542,31 +542,22 @@ pub async fn download_pub_file_by_id(
     // 2. 获取文件信息
     let file_record = get_file_record_by_id(rb, &file_id).await?;
     
-    // 3. 判断是否为OSS存储
-    let file_vec = if file_record.is_oss.unwrap_or(0) == 1 {
-        // 从S3下载 - 使用文件记录中的bucket信息
-        let s3_client = s3_client.ok_or(anyhow!("S3客户端未初始化"))?;
-        if let Some(ref bucket) = file_record.bucket {
-            // 有bucket信息，使用对应的bucket
-            let storage = s3_service::storage::S3Storage::with_bucket(s3_client.clone(), bucket.clone());
-            storage.download(&file_record.file_path.ok_or(anyhow!("文件路径为空"))?)
-                .await
-                .map_err(|e| anyhow!("S3下载失败: {}", e))?
-        } else {
-            // 旧数据没有bucket信息，使用默认桶
-            let storage = s3_service::storage::S3Storage::with_bucket(s3_client.clone(), s3_client.config.default_bucket.clone());
-            storage.download(&file_record.file_path.ok_or(anyhow!("文件路径为空"))?)
-                .await
-                .map_err(|e| anyhow!("S3下载失败: {}", e))?
-        }
+    // 3. 从S3下载
+    let s3_client = s3_client.ok_or(anyhow!("S3客户端未初始化"))?;
+    if file_record.is_oss.unwrap_or(0) != 1 {
+        return Err(anyhow!("文件不是S3存储，无法下载"));
+    }
+    
+    let file_vec = if let Some(ref bucket) = file_record.bucket {
+        let storage = s3_service::storage::S3Storage::with_bucket(s3_client.clone(), bucket.clone());
+        storage.download(&file_record.file_path.ok_or(anyhow!("文件路径为空"))?)
+            .await
+            .map_err(|e| anyhow!("S3下载失败: {}", e))?
     } else {
-        // 从本地文件系统读取
-        let mut file: File = get_file_by_path(&file_record.file_path.ok_or(anyhow!("文件路径为空"))?)
-            .await?
-            .ok_or(anyhow!("文件不存在"))?;
-        let mut buf = Vec::new();
-        file.read_to_end(&mut buf).await?;
-        buf
+        let storage = s3_service::storage::S3Storage::with_bucket(s3_client.clone(), s3_client.config.default_bucket.clone());
+        storage.download(&file_record.file_path.ok_or(anyhow!("文件路径为空"))?)
+            .await
+            .map_err(|e| anyhow!("S3下载失败: {}", e))?
     };
     
     // 4. 返回文件
@@ -605,45 +596,36 @@ pub async fn download_link_pub_biz(
         return Err(anyhow!("文件ID为空"));
     }
     
-    // 2. 组建下载链接 - S3 文件返回预签名 URL，本地文件返回服务器链接
+    // 2. 组建下载链接 - S3 文件返回预签名 URL
+    let s3_client = s3_client.ok_or(anyhow!("S3客户端未初始化"))?;
     let mut download_link_vec: Vec<String> = vec![];
     
     for file_id in file_ids.iter() {
         // 获取文件记录
         let file_record = get_file_record_by_id(rb, file_id).await?;
         
-        // 判断是否为 OSS 文件
-        if file_record.is_oss.unwrap_or(0) == 1 {
-            // S3 文件：返回预签名 URL - 使用文件记录中的bucket信息
-            if let Some(ref client) = s3_client {
-                let presigned_url = if let Some(ref bucket) = file_record.bucket {
-                    // 有bucket信息，使用对应的bucket
-                    let storage = s3_service::storage::S3Storage::with_bucket(client.clone(), bucket.clone());
-                    storage.presigned_url(
-                        &file_record.file_path.ok_or(anyhow!("文件路径为空"))?,
-                        std::time::Duration::from_secs(client.config.presign_expire_seconds),
-                        s3_service::storage::PresignedMethod::Get,
-                    ).await.map_err(|e| anyhow!("生成预签名URL失败: {}", e))?
-                } else {
-                    // 旧数据没有bucket信息，使用默认桶
-                    let storage = s3_service::storage::S3Storage::with_bucket(client.clone(), client.config.default_bucket.clone());
-                    storage.presigned_url(
-                        &file_record.file_path.ok_or(anyhow!("文件路径为空"))?,
-                        std::time::Duration::from_secs(client.config.presign_expire_seconds),
-                        s3_service::storage::PresignedMethod::Get,
-                    ).await.map_err(|e| anyhow!("生成预签名URL失败: {}", e))?
-                };
-                download_link_vec.push(presigned_url);
-            } else {
-                // S3 客户端未初始化，回退到服务器下载
-                let str = format!("{}/file/download_pub_file/{}/{}", APP_DOMAIN, biz_id, file_id);
-                download_link_vec.push(str);
-            }
-        } else {
-            // 本地文件：返回服务器链接
-            let str = format!("{}/file/download_pub_file/{}/{}", APP_DOMAIN, biz_id, file_id);
-            download_link_vec.push(str);
+        // 检查是否为S3存储
+        if file_record.is_oss.unwrap_or(0) != 1 {
+            return Err(anyhow!("文件不是S3存储，无法生成下载链接"));
         }
+        
+        // 生成预签名 URL
+        let presigned_url = if let Some(ref bucket) = file_record.bucket {
+            let storage = s3_service::storage::S3Storage::with_bucket(s3_client.clone(), bucket.clone());
+            storage.presigned_url(
+                &file_record.file_path.ok_or(anyhow!("文件路径为空"))?,
+                std::time::Duration::from_secs(s3_client.config.presign_expire_seconds),
+                s3_service::storage::PresignedMethod::Get,
+            ).await.map_err(|e| anyhow!("生成预签名URL失败: {}", e))?
+        } else {
+            let storage = s3_service::storage::S3Storage::with_bucket(s3_client.clone(), s3_client.config.default_bucket.clone());
+            storage.presigned_url(
+                &file_record.file_path.ok_or(anyhow!("文件路径为空"))?,
+                std::time::Duration::from_secs(s3_client.config.presign_expire_seconds),
+                s3_service::storage::PresignedMethod::Get,
+            ).await.map_err(|e| anyhow!("生成预签名URL失败: {}", e))?
+        };
+        download_link_vec.push(presigned_url);
     }
     
     let res = CommonResponseRef::<Vec<String>>::success_json(&download_link_vec)?;
@@ -683,45 +665,36 @@ pub async fn download_link_chat_biz(
         return Err(anyhow!("文件ID为空"));
     }
     
-    // 3. 组建下载链接 - S3 文件返回预签名 URL，本地文件返回服务器链接
+    // 3. 组建下载链接 - S3 文件返回预签名 URL
+    let s3_client = s3_client.ok_or(anyhow!("S3客户端未初始化"))?;
     let mut download_link_vec: Vec<String> = vec![];
     
     for file_id in file_ids.iter() {
         // 获取文件记录
         let file_record = get_file_record_by_id(rb, file_id).await?;
         
-        // 判断是否为 OSS 文件
-        if file_record.is_oss.unwrap_or(0) == 1 {
-            // S3 文件：返回预签名 URL - 使用文件记录中的bucket信息
-            if let Some(ref client) = s3_client {
-                let presigned_url = if let Some(ref bucket) = file_record.bucket {
-                    // 有bucket信息，使用对应的bucket
-                    let storage = s3_service::storage::S3Storage::with_bucket(client.clone(), bucket.clone());
-                    storage.presigned_url(
-                        &file_record.file_path.ok_or(anyhow!("文件路径为空"))?,
-                        std::time::Duration::from_secs(client.config.presign_expire_seconds),
-                        s3_service::storage::PresignedMethod::Get,
-                    ).await.map_err(|e| anyhow!("生成预签名URL失败: {}", e))?
-                } else {
-                    // 旧数据没有bucket信息，使用聊天文件origin桶
-                    let storage = s3_service::storage::S3Storage::with_bucket(client.clone(), client.config.chat_file_origin_bucket.clone());
-                    storage.presigned_url(
-                        &file_record.file_path.ok_or(anyhow!("文件路径为空"))?,
-                        std::time::Duration::from_secs(client.config.presign_expire_seconds),
-                        s3_service::storage::PresignedMethod::Get,
-                    ).await.map_err(|e| anyhow!("生成预签名URL失败: {}", e))?
-                };
-                download_link_vec.push(presigned_url);
-            } else {
-                // S3 客户端未初始化，回退到服务器下载
-                let str = format!("{}/file/download_chat_file/{}/{}", APP_DOMAIN, biz_id, file_id);
-                download_link_vec.push(str);
-            }
-        } else {
-            // 本地文件：返回服务器链接
-            let str = format!("{}/file/download_chat_file/{}/{}", APP_DOMAIN ,biz_id, file_id);
-            download_link_vec.push(str);
+        // 检查是否为S3存储
+        if file_record.is_oss.unwrap_or(0) != 1 {
+            return Err(anyhow!("文件不是S3存储，无法生成下载链接"));
         }
+        
+        // 生成预签名 URL
+        let presigned_url = if let Some(ref bucket) = file_record.bucket {
+            let storage = s3_service::storage::S3Storage::with_bucket(s3_client.clone(), bucket.clone());
+            storage.presigned_url(
+                &file_record.file_path.ok_or(anyhow!("文件路径为空"))?,
+                std::time::Duration::from_secs(s3_client.config.presign_expire_seconds),
+                s3_service::storage::PresignedMethod::Get,
+            ).await.map_err(|e| anyhow!("生成预签名URL失败: {}", e))?
+        } else {
+            let storage = s3_service::storage::S3Storage::with_bucket(s3_client.clone(), s3_client.config.chat_file_origin_bucket.clone());
+            storage.presigned_url(
+                &file_record.file_path.ok_or(anyhow!("文件路径为空"))?,
+                std::time::Duration::from_secs(s3_client.config.presign_expire_seconds),
+                s3_service::storage::PresignedMethod::Get,
+            ).await.map_err(|e| anyhow!("生成预签名URL失败: {}", e))?
+        };
+        download_link_vec.push(presigned_url);
     }
     
     let res = CommonResponseRef::<Vec<String>>::success_json(&download_link_vec)?;
@@ -774,20 +747,13 @@ pub async fn download_chat_file_by_id(
     // 4. 获取文件信息
     let file_record = get_file_record_by_id(rb, &file_id).await?;
     
-    // 5. 判断是否为OSS存储
-    let file_vec = if file_record.is_oss.unwrap_or(0) == 1 {
-        // 从S3下载
-        let s3_client = s3_client.ok_or(anyhow!("S3客户端未初始化"))?;
-        download_chat_file_s3(s3_client, &file_record).await?
-    } else {
-        // 从本地文件系统读取
-        let mut file: File = get_file_by_path(&file_record.file_path.ok_or(anyhow!("文件路径为空"))?)
-            .await?
-            .ok_or(anyhow!("文件不存在"))?;
-        let mut buf = Vec::new();
-        file.read_to_end(&mut buf).await?;
-        buf
-    };
+    // 5. 从S3下载
+    let s3_client = s3_client.ok_or(anyhow!("S3客户端未初始化"))?;
+    if file_record.is_oss.unwrap_or(0) != 1 {
+        return Err(anyhow!("文件不是S3存储，无法下载"));
+    }
+    
+    let file_vec = download_chat_file_s3(s3_client, &file_record).await?;
     
     // 6. 返回文件
     Ok(HttpResponse::Ok()

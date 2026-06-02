@@ -3,7 +3,7 @@ use std::net::SocketAddr;
 use anyhow::anyhow;
 use common::utils::message_types::NOTIFY_TYPE_MSG;
 use common::utils::internal_quic_msg::{InternalQuicRequest, RequestSource};
-use common::utils::server_count_sync::{compute_preferred_index, get_server_count};
+use common::utils::server_count_sync::compute_preferred_index;
 use common::read_global_config;
 use http_service::http_service::notify_service::service::system_notification::{
     send_process_friend_msg, send_request_friend_msg,
