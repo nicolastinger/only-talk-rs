@@ -4,7 +4,8 @@
       "Bash(cargo check *)",
       "Bash(cargo doc *)",
       "Bash(git diff *)",
-      "Bash(git status *)"
+      "Bash(git status *)",
+      "Bash(cargo build *)"
     ]
   }
 }

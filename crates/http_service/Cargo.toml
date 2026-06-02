@@ -25,6 +25,7 @@ redis = { workspace = true }
 rustls = { workspace = true }
 serde_json = { workspace = true }
 lazy_static = { workspace = true }
+regex = { workspace = true }
 uuid = { workspace = true }
 sha2 = { workspace = true }
 actix-multipart = "0.6"

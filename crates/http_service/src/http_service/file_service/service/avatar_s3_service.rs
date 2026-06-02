@@ -258,6 +258,145 @@ pub async fn upload_user_avatar_s3(
     }
 }
 
+/// 上传群组头像到S3
+pub async fn upload_group_avatar_s3(
+    rb: &RBatis,
+    user_id: String,
+    mut payload: Multipart,
+    s3_client: Arc<S3Client>,
+) -> Result<FileUploadRecord, anyhow::Error> {
+    let bucket = s3_client.config.user_avatar_bucket.clone();
+    let storage = S3Storage::with_bucket(s3_client.clone(), bucket.clone());
+
+    let mut field = payload
+        .try_next()
+        .await
+        .map_err(|e| anyhow!("无法获取字段: {}", e))?
+        .ok_or(anyhow!("未找到文件字段"))?;
+
+    let content_disposition = field.content_disposition().clone();
+
+    if let Some(filename) = content_disposition.get_filename() {
+        let extension = std::path::Path::new(filename)
+            .extension()
+            .and_then(std::ffi::OsStr::to_str)
+            .unwrap_or("");
+
+        let mime_type = field.content_type().map(|ct| ct.essence_str().to_string());
+        info!("上传的群组头像文件mime_type: {:?}", mime_type);
+
+        let mime_type = mime_type.or_else(|| {
+            infer_mime_from_extension(filename)
+        });
+
+        info!("上传的群组头像文件mime_type2: {:?}", mime_type);
+        validate_file_type(filename, mime_type.as_deref()).map_err(|e| anyhow!(e))?;
+
+        let mut file_data = Vec::new();
+        let mut file_size: i64 = 0;
+        let mut hasher = Sha256::new();
+
+        while let Some(chunk) = field.next().await {
+            let data = match chunk {
+                Ok(d) => d,
+                Err(e) => {
+                    error!("读取数据块时出错: {}", e);
+                    return Err(anyhow!("未知错误"));
+                }
+            };
+
+            let new_size = file_size + data.len() as i64;
+            if new_size > DEFAULT_MAX_FILE_SIZE {
+                error!("文件大小超出限制: {} > {}", new_size, DEFAULT_MAX_FILE_SIZE);
+                return Err(anyhow!(
+                    "文件大小超出限制，最大允许 {} 字节",
+                    DEFAULT_MAX_FILE_SIZE
+                ));
+            }
+
+            file_size = new_size;
+            hasher.update(&data);
+            file_data.extend_from_slice(&data);
+        }
+
+        let hash_result = hasher.finalize();
+        let file_hash = format!("{:x}", hash_result);
+
+        let file_upload_record_exist = FileUploadRecord::select_by_map(
+            rb,
+            rbs::value! {"file_size": file_size, "file_hash": &file_hash, "bucket": &bucket},
+        )
+        .await?;
+
+        let uuid_v4 = Uuid::new_v4();
+        let uuid_v4_str = uuid_v4.to_string();
+
+        let s3_key = format!(
+            "{}/{}/{}.{}",
+            &user_id[..8.min(user_id.len())],
+            chrono_like_date_path(),
+            uuid_v4,
+            extension
+        );
+
+        let now = get_now_time_stamp_as_millis()?;
+        let oss_type = get_oss_type(&s3_client.config.provider);
+
+        if !file_upload_record_exist.is_empty() {
+            warn!("群组头像文件已存在(S3): {}", filename);
+            let exist_record = file_upload_record_exist[0].clone();
+            let exist_file_path = exist_record.file_path.clone().ok_or(anyhow!("文件路径为空"))?;
+
+            if exist_record.is_oss.unwrap_or(0) == 0 {
+                let local_data = tokio::fs::read(&exist_file_path).await?;
+                let _ = storage.upload(&s3_key, local_data, mime_type.as_deref()).await?;
+
+                let mut file_record = exist_record.clone();
+                file_record.is_oss = Some(1);
+                file_record.oss_type = Some(oss_type);
+                file_record.stored_name = Some(s3_key.clone());
+                file_record.file_path = Some(s3_key.clone());
+                FileUploadRecord::update_by_map(rb, &file_record, rbs::value! {"uuid": &file_record.uuid}).await?;
+                return Ok(file_record);
+            }
+
+            Ok(exist_record)
+        } else {
+            let storage_info = storage
+                .upload_stream(&s3_key, file_data, file_size, mime_type.as_deref())
+                .await
+                .map_err(|e| anyhow!("S3上传失败: {}", e))?;
+
+            info!("S3群组头像文件上传成功: key={}, size={}", storage_info.key, storage_info.size);
+
+            let file_record = FileUploadRecord {
+                id: None,
+                uuid: Some(rbdc::types::uuid::Uuid::from_str(&uuid_v4_str)?),
+                original_name: Some(filename.to_string()),
+                stored_name: Some(s3_key.clone()),
+                file_path: Some(s3_key),
+                bucket: Some(bucket.clone()),
+                file_size: Some(file_size),
+                mime_type,
+                file_hash: Some(file_hash),
+                upload_user_uuid: Some(rbdc::types::uuid::Uuid::from_str(&user_id)?),
+                upload_time: Some(now),
+                status: Some(0),
+                description: None,
+                download_count: None,
+                last_download_time: None,
+                is_oss: Some(1),
+                oss_type: Some(oss_type),
+            };
+
+            FileUploadRecord::insert(rb, &file_record).await?;
+            Ok(file_record)
+        }
+    } else {
+        Err(anyhow!("文件名为空"))
+    }
+}
+
 /// 从S3下载用户头像
 pub async fn download_avatar_s3(
     s3_client: Arc<S3Client>,

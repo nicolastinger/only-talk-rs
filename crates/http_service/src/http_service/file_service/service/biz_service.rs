@@ -28,20 +28,49 @@ pub async fn create_avatar_biz(
 
 
     let biz_record = BizRecord {
-        id: None, // ID由数据库自动生成
+        id: None,
         uuid: Some(biz_id),
         biz_name: Some("用户头像上传".to_string()),
         description: Some("用户上传头像文件的业务记录".to_string()),
         created_by: Some(user_id),
         created_at: Some(now),
         updated_at: Some(now),
-        status: Some(0),                      // 0-正常
-        approve_status: Some(1),              // 1-已通过
-        biz_type: Some("avatar".to_string()), // 业务类型为头像
+        status: Some(0),
+        approve_status: Some(1),
+        biz_type: Some("avatar".to_string()),
         remark: Some(remark),
     };
 
-    // 将业务记录插入数据库
+    BizRecord::insert(rb, &biz_record).await?;
+    Ok(biz_record)
+}
+
+/// 创建上传群组头像业务id
+pub async fn create_group_avatar_biz(
+    rb: &RBatis,
+    user_id: rbdc::Uuid,
+    group_id: rbdc::Uuid,
+) -> Result<BizRecord, anyhow::Error> {
+    let now = get_now_time_stamp_as_millis()?;
+    let uuid_v4 = Uuid::new_v4();
+    let uuid_v4_str = uuid_v4.to_string();
+    let biz_id = rbatis::rbdc::Uuid::from_str(&uuid_v4_str)?;
+    let remark = format!("群组头像上传，用户ID: {}, 群组ID: {}", user_id, group_id);
+
+    let biz_record = BizRecord {
+        id: None,
+        uuid: Some(biz_id),
+        biz_name: Some("群组头像上传".to_string()),
+        description: Some("群组上传头像文件的业务记录".to_string()),
+        created_by: Some(user_id),
+        created_at: Some(now),
+        updated_at: Some(now),
+        status: Some(0),
+        approve_status: Some(1),
+        biz_type: Some("group_avatar".to_string()),
+        remark: Some(remark),
+    };
+
     BizRecord::insert(rb, &biz_record).await?;
     Ok(biz_record)
 }

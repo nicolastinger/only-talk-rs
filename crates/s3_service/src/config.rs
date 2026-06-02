@@ -115,6 +115,7 @@ impl S3Provider {
 ///     chat_file_preview_bucket: "chat-file-preview".to_string(),
 ///     chat_file_origin_bucket: "chat-file-origin".to_string(),
 ///     user_avatar_bucket: "user-avatar".to_string(),
+///     group_avatar_bucket: "group-avatar".to_string(),
 ///     force_path_style: true,
 ///     enabled: true,
 ///     presign_expire_seconds: 3600,
@@ -160,6 +161,10 @@ pub struct S3Config {
     /// 用户头像桶名称
     /// 用于存储用户头像文件
     pub user_avatar_bucket: String,
+
+    /// 群组头像桶名称
+    /// 用于存储群组头像文件
+    pub group_avatar_bucket: String,
     
     /// 是否启用路径风格访问
     /// MinIO必须为true,AWS S3推荐false
@@ -252,6 +257,8 @@ impl S3Config {
                 .unwrap_or_else(|_| "chat-file-origin".to_string()),
             user_avatar_bucket: get_config("s3.user_avatar_bucket")
                 .unwrap_or_else(|_| "user-avatar".to_string()),
+            group_avatar_bucket: get_config("s3.group_avatar_bucket")
+                .unwrap_or_else(|_| "group-avatar".to_string()),
             force_path_style: get_config("s3.force_path_style")
                 .unwrap_or_else(|_| "true".to_string())
                 .parse::<bool>()
@@ -318,6 +325,7 @@ impl S3Config {
             chat_file_preview_bucket: "chat-file-preview".to_string(),
             chat_file_origin_bucket: "chat-file-origin".to_string(),
             user_avatar_bucket: "user-avatar".to_string(),
+            group_avatar_bucket: "group-avatar".to_string(),
             force_path_style: true,      // MinIO必须使用路径风格
             enabled: true,
             presign_expire_seconds: 3600, // 1小时

@@ -19,6 +19,7 @@ use entity::models::group_entity::{
     group_member::{GroupMember, ROLE_ADMIN, ROLE_MEMBER, ROLE_OWNER, STATUS_NORMAL},
     group_message_record::GroupMessageRecord,
 };
+use rbs::value;
 
 use crate::http_service::group_service::group_dto::{
     create_group_dto::CreateGroupDTO,
@@ -671,5 +672,19 @@ async fn sync_group_members_to_redis(rb: &RBatis, group_uuid: &str) -> Result<()
         let _: Result<(), _> = conn.set_ex(&cache_key, &json, 1800_u64).await;
     }
 
+    Ok(())
+}
+
+pub async fn update_group_avatar_service(
+    rb: &RBatis,
+    biz_id: String,
+    group_uuid: &str,
+) -> Result<(), anyhow::Error> {
+    let g_uuid = group_uuid.parse::<Uuid>()?;
+    let mut group = GroupInfo::select_by_group_uuid(rb, &g_uuid)
+        .await?
+        .ok_or(anyhow!("群组不存在"))?;
+    group.avatar = Some(biz_id);
+    GroupInfo::update_by_group_uuid(rb, &group, &g_uuid).await?;
     Ok(())
 }

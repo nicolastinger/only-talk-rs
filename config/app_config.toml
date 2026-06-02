@@ -63,6 +63,8 @@ chat_file_preview_bucket = "chat-file-preview"
 chat_file_origin_bucket = "chat-file-origin"
 # 用户头像桶
 user_avatar_bucket = "user-avatar"
+# 群组头像桶
+group_avatar_bucket = "group-avatar"
 # 区域
 region = "us-east-1"
 # 是否启用路径风格访问（MinIO必须为true）

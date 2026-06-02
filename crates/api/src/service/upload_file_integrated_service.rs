@@ -5,13 +5,16 @@ use anyhow::anyhow;
 use tracing::{info, warn};
 use http_service::http_service::file_service::service::biz_service::{
     create_avatar_biz,
+    create_group_avatar_biz,
 };
 use http_service::http_service::file_service::service::file_service::{
     upload_file_local,
 };
 use http_service::http_service::file_service::service::chat_s3_service::upload_chat_preview_file_s3;
 use http_service::http_service::file_service::service::avatar_s3_service::upload_user_avatar_s3;
+use http_service::http_service::file_service::service::avatar_s3_service::upload_group_avatar_s3;
 use http_service::http_service::user_service::service::user_service::update_user_avatar;
+use http_service::http_service::group_service::group_service::update_group_avatar_service;
 use http_service::utils::http_response::CommonResponseRef;
 use rbatis::{rbdc, RBatis};
 use s3_service::S3Client;
@@ -147,4 +150,56 @@ pub async fn upload_user_chat_file(
     let biz_record = BizRecordVO::from_chat_biz_record(chat_biz_record, biz_link_vo_vec);
     
     Ok(CommonResponseRef::<BizRecordVO>::success_json(&biz_record)?)
+}
+
+/// 群组头像上传
+pub async fn upload_group_avatar(
+    rb: &RBatis,
+    uuid: Option<String>,
+    group_uuid: String,
+    payload: Multipart,
+    s3_client: Option<Arc<S3Client>>,
+) -> Result<String, anyhow::Error> {
+    let uuid = uuid.ok_or(anyhow!("用户ID不能为空"))?;
+    let user_id = rbdc::Uuid::from_str(&uuid)?;
+    let group_id = rbdc::Uuid::from_str(&group_uuid)?;
+
+    let original_record = if let Some(ref client) = s3_client {
+        if client.config.enabled {
+            info!("尝试上传群组头像到S3...");
+            match upload_group_avatar_s3(rb, uuid.clone(), payload, client.clone()).await {
+                Ok(record) => {
+                    info!("群组头像上传到S3成功");
+                    record
+                }
+                Err(e) => {
+                    warn!("S3上传失败: {}，回退到本地存储", e);
+                    return Err(anyhow!("S3上传失败且payload已消费: {}", e));
+                }
+            }
+        } else {
+            info!("S3未启用，使用本地存储");
+            let res = upload_file_local(rb, uuid, payload).await?;
+            res.into_iter().next().ok_or(anyhow!("未找到上传文件"))?
+        }
+    } else {
+        info!("无S3客户端，使用本地存储");
+        let res = upload_file_local(rb, uuid, payload).await?;
+        res.into_iter().next().ok_or(anyhow!("未找到上传文件"))?
+    };
+
+    let biz_record = create_group_avatar_biz(rb, user_id, group_id).await?;
+    let biz_file_link = BizFileLink {
+        id: None,
+        biz_id: biz_record.uuid,
+        origin_file_id: None,
+        file_id: original_record.uuid,
+        is_del: Some(false),
+    };
+    BizFileLink::insert(rb, &biz_file_link).await?;
+
+    let biz_id = biz_file_link.biz_id.ok_or(anyhow!("biz_id为空"))?.to_string();
+    update_group_avatar_service(rb, biz_id.clone(), &group_uuid).await?;
+
+    Ok(CommonResponseRef::<String>::success_json(&biz_id)?)
 }

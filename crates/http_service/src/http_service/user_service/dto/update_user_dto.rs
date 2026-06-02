@@ -13,12 +13,16 @@ pub struct UpdateUserDTO {
     pub gender: Option<u8>,
     pub age: Option<u8>,
     pub birthday: Option<i64>,
-    #[validate(phone(message = "手机号格式不正确"))]
+    #[validate(regex(path = "crate::http_service::user_service::dto::update_user_dto::CHINA_PHONE_REGEX", message = "手机号格式不正确"))]
     pub phone: Option<String>,
     #[validate(email(message = "邮箱格式不正确"))]
     pub email: Option<String>,
     #[validate(length(max = 200, message = "地址长度不能超过200"))]
     pub address: Option<String>,
+}
+
+lazy_static::lazy_static! {
+    static ref CHINA_PHONE_REGEX: regex::Regex = regex::Regex::new(r"^1[3-9]\d{9}$").unwrap();
 }
 
 impl UpdateUserDTO {

@@ -2405,6 +2405,7 @@ dependencies = [
  "rbdc-pool-fast",
  "rbs",
  "redis 0.22.3",
+ "regex",
  "rustls 0.21.12",
  "rustls-pemfile 1.0.4",
  "s3_service",
