@@ -596,36 +596,50 @@ pub async fn download_link_pub_biz(
         return Err(anyhow!("文件ID为空"));
     }
     
-    // 2. 组建下载链接 - S3 文件返回预签名 URL
+    // 2. 组建下载链接 - 公开桶返回直接URL，其他桶返回预签名URL
     let s3_client = s3_client.ok_or(anyhow!("S3客户端未初始化"))?;
     let mut download_link_vec: Vec<String> = vec![];
-    
+
     for file_id in file_ids.iter() {
         // 获取文件记录
         let file_record = get_file_record_by_id(rb, file_id).await?;
-        
+
         // 检查是否为S3存储
         if file_record.is_oss.unwrap_or(0) != 1 {
             return Err(anyhow!("文件不是S3存储，无法生成下载链接"));
         }
-        
-        // 生成预签名 URL
-        let presigned_url = if let Some(ref bucket) = file_record.bucket {
+
+        let file_path = file_record.file_path.as_ref().ok_or(anyhow!("文件路径为空"))?;
+
+        // 判断是否为公开桶
+        let is_pub_bucket = match &file_record.bucket {
+            Some(bucket) => {
+                bucket == &s3_client.config.user_avatar_bucket
+                    || bucket == &s3_client.config.group_avatar_bucket
+            }
+            None => false,
+        };
+
+        let url = if let Some(ref bucket) = file_record.bucket {
             let storage = s3_service::storage::S3Storage::with_bucket(s3_client.clone(), bucket.clone());
-            storage.presigned_url(
-                &file_record.file_path.ok_or(anyhow!("文件路径为空"))?,
-                std::time::Duration::from_secs(s3_client.config.presign_expire_seconds),
-                s3_service::storage::PresignedMethod::Get,
-            ).await.map_err(|e| anyhow!("生成预签名URL失败: {}", e))?
+            if is_pub_bucket {
+                storage.public_url(file_path)
+            } else {
+                storage.presigned_url(
+                    file_path,
+                    std::time::Duration::from_secs(s3_client.config.presign_expire_seconds),
+                    s3_service::storage::PresignedMethod::Get,
+                ).await.map_err(|e| anyhow!("生成预签名URL失败: {}", e))?
+            }
         } else {
             let storage = s3_service::storage::S3Storage::with_bucket(s3_client.clone(), s3_client.config.default_bucket.clone());
             storage.presigned_url(
-                &file_record.file_path.ok_or(anyhow!("文件路径为空"))?,
+                file_path,
                 std::time::Duration::from_secs(s3_client.config.presign_expire_seconds),
                 s3_service::storage::PresignedMethod::Get,
             ).await.map_err(|e| anyhow!("生成预签名URL失败: {}", e))?
         };
-        download_link_vec.push(presigned_url);
+        download_link_vec.push(url);
     }
     
     let res = CommonResponseRef::<Vec<String>>::success_json(&download_link_vec)?;

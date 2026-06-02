@@ -404,6 +404,11 @@ pub trait StorageBackend: Send + Sync {
         method: PresignedMethod,
     ) -> Result<String, StorageError>;
 
+    /// 构建公开访问URL
+    ///
+    /// 适用于公开桶，直接返回可访问的S3 URL，无需签名。
+    fn public_url(&self, key: &str) -> String;
+
     /// 获取存储类型
     ///
     /// # 返回值
@@ -732,6 +737,10 @@ impl StorageBackend for LocalStorage {
     /// 返回存储类型为Local
     fn storage_type(&self) -> StorageType {
         StorageType::Local
+    }
+
+    fn public_url(&self, key: &str) -> String {
+        format!("/resources/pub_file/{}", key)
     }
 }
 
@@ -1075,5 +1084,17 @@ impl StorageBackend for S3Storage {
     /// 返回存储类型为S3
     fn storage_type(&self) -> StorageType {
         StorageType::S3
+    }
+
+    fn public_url(&self, key: &str) -> String {
+        let endpoint = &self.client.config.endpoint_url;
+        let bucket = &self.bucket;
+        if self.client.config.force_path_style {
+            format!("{}/{}/{}", endpoint.trim_end_matches('/'), bucket, key)
+        } else {
+            // virtual-hosted style: https://{bucket}.{endpoint_host}/{key}
+            let host = endpoint.trim_start_matches("http://").trim_start_matches("https://").trim_end_matches('/');
+            format!("https://{}/{}/{}", bucket, host, key)
+        }
     }
 }
