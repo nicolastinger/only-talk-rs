@@ -32,9 +32,8 @@ fn make_internal_endpoint(bind_addr: SocketAddr) -> Result<Endpoint, Box<dyn std
     let mut server_config = ServerConfig::with_single_cert(cert_chain, key)?;
     let transport = Arc::get_mut(&mut server_config.transport)
         .ok_or_else(|| "获取传输配置失败")?;
-    transport.max_concurrent_uni_streams(200_u32.into());
-    transport.max_concurrent_bidi_streams(200_u32.into());
-    transport.max_idle_timeout(Some(Duration::from_secs(300).try_into()?));
+    transport.max_concurrent_uni_streams(32_u8.into());
+    transport.max_idle_timeout(Some(Duration::from_secs(30).try_into()?));
     let endpoint = Endpoint::server(server_config, bind_addr)?;
     Ok(endpoint)
 }
