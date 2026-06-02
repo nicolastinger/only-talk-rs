@@ -230,7 +230,21 @@ async fn get_all_internal_node_addresses() -> Result<Vec<(u32, std::net::SocketA
     let mut conn = redis.get().await?;
 
     let pattern = format!("{}*", REDIS_INTERNAL_QUIC_SERVERS);
-    let keys: Vec<String> = conn.keys(&pattern).await?;
+    let mut cursor: u64 = 0;
+    let mut keys: Vec<String> = Vec::new();
+    loop {
+        let result: (u64, Vec<String>) = deadpool_redis::redis::cmd("SCAN")
+            .arg(cursor)
+            .arg("MATCH")
+            .arg(&pattern)
+            .query_async(&mut conn)
+            .await?;
+        cursor = result.0;
+        keys.extend(result.1);
+        if cursor == 0 {
+            break;
+        }
+    }
 
     let mut nodes = Vec::new();
     for key in keys {
