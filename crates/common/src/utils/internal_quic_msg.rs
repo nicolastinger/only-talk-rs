@@ -14,8 +14,8 @@ pub enum RequestSource {
 pub struct InternalQuicRequest {
     /// 消息类型 (对应 message_types 中的常量)
     pub msg_type: u16,
-    /// JSON 序列化的消息体
-    pub payload: String,
+    /// 已序列化的消息体 (bincode TextQuicMsg 二进制)
+    pub payload: Vec<u8>,
     /// 目标用户UUID
     pub target_user: String,
     /// hash 取模得到的首选节点序号

@@ -51,7 +51,7 @@ async fn push_notification_via_quic(notification: SystemNotification) -> Result<
 
     let request = InternalQuicRequest {
         msg_type: NOTIFY_TYPE_MSG,
-        payload: json_str,
+        payload: json_str.into_bytes(),
         target_user: target_id,
         preferred_index,
         platform: common::config_str::PC_PLATFORM.to_string(),

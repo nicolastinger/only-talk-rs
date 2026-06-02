@@ -56,7 +56,7 @@ pub async fn add_user_with_notify(
     
     let request = InternalQuicRequest {
         msg_type: NOTIFY_TYPE_MSG,
-        payload: json_str.clone(),
+        payload: json_str.clone().into_bytes(),
         target_user: target_id_str.clone(),
         preferred_index,
         platform: common::config_str::PC_PLATFORM.to_string(),
@@ -102,7 +102,7 @@ pub async fn process_friend_with_notify(
     let preferred_index = compute_preferred_index(&target_id_str);
     let request = InternalQuicRequest {
         msg_type: NOTIFY_TYPE_MSG,
-        payload: json_str,
+        payload: json_str.into_bytes(),
         target_user: target_id_str,
         preferred_index,
         platform: common::config_str::PC_PLATFORM.to_string(),

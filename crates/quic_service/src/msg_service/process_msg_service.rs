@@ -2,12 +2,16 @@ use std::sync::Arc;
 
 use anyhow::anyhow;
 use dashmap::DashMap;
+use deadpool_redis::redis::AsyncCommands;
 use common::RBATIS_DATABASE;
-use common::config_str::{MOBILE_PLATFORM, PC_PLATFORM, PONG, REDIS_QUIC_SERVERS, REDIS_SPLIT, SYSTEM};
+use common::config_str::{MOBILE_PLATFORM, PC_PLATFORM, PONG, REDIS_INTERNAL_QUIC_SERVERS, REDIS_QUIC_SERVERS, REDIS_SPLIT, SYSTEM};
 use common::models::chat_entity::chat_message_record::ChatMessageRecord;
 use common::utils::group_msg::GroupQuicMsg;
+use common::utils::internal_quic_client::send_internal_quic_msg;
+use common::utils::internal_quic_msg::{InternalQuicRequest, RequestSource};
 use common::utils::message_types;
 use common::utils::time::get_now_time_stamp_as_millis;
+use common::REDIS_CLIENT;
 use tracing::{debug, error, info, warn};
 use nanoid::nanoid;
 use quinn::Connection;
@@ -240,17 +244,14 @@ async fn send_msg_to_user_by_platform(
         send.write_all(res).await?;
         send.finish().await?;
     } else {
+        warn!("当前用户不在本机: {}，首选节点序号: {}", user_key, preferred_index);
         // 本机未找到 → 转发给内网 QUIC 走两阶段路由
-        use common::utils::internal_quic_msg::{InternalQuicRequest, RequestSource};
-        use common::utils::internal_quic_client::send_internal_quic_msg;
-        use std::net::SocketAddr;
-
         warn!("当前用户不在本机: {}，转发到内网 QUIC", user_key);
 
-        let payload = String::from_utf8_lossy(res).to_string();
+        // res 已经是 bincode 序列化的 TextQuicMsg 二进制，直接透传
         let request = InternalQuicRequest {
             msg_type: message_types::MSG_TYPE_TEXT,
-            payload,
+            payload: res.to_vec(),
             target_user: target_user.to_string(),
             preferred_index,
             platform: platform.to_string(),
@@ -258,9 +259,20 @@ async fn send_msg_to_user_by_platform(
             ttl: 3,
         };
 
-        // 发给本机内网 QUIC
-        let internal_addr: SocketAddr = "127.0.0.1:4434".parse()?;
-        send_internal_quic_msg(internal_addr, request).await?;
+        // 根据 preferred_index 从 Redis 获取目标节点的内网 QUIC 地址
+        let redis = REDIS_CLIENT.read().await;
+        if let Some(redis) = redis.as_ref() {
+            let mut conn = redis.get().await?;
+            let key = format!("{}{}", REDIS_INTERNAL_QUIC_SERVERS, preferred_index);
+            let addr_str: Option<String> = conn.get(&key).await?;
+            if let Some(addr_str) = addr_str {
+                let internal_addr: std::net::SocketAddr = addr_str.parse()?;
+                info!("发送内网QUIC消息到: {}", internal_addr);
+                send_internal_quic_msg(internal_addr, request).await?;
+            } else {
+                warn!("未找到节点 {} 的内网 QUIC 地址", preferred_index);
+            }
+        }
     }
     Ok(())
 }
