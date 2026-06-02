@@ -66,5 +66,41 @@ pub async fn start_server() -> anyhow::Result<Arc<ChatNode>> {
         run_internal_server(internal_config, connections, internal_shutdown_rx).await;
     });
 
+    // 预热到其他节点的内网 QUIC 连接
+    {
+        let own_index = server_index;
+        tokio::spawn(async move {
+            if let Ok(redis_guard) = common::REDIS_CLIENT.read().await {
+                if let Some(redis) = redis_guard.as_ref() {
+                    if let Ok(mut conn) = redis.get().await {
+                        let prefix = common::config_str::REDIS_INTERNAL_QUIC_SERVERS;
+                        let pattern = format!("{}*", prefix);
+                        let keys: Result<Vec<String>, _> =
+                            deadpool_redis::redis::cmd("KEYS").arg(&pattern).query_async(&mut conn).await;
+                        if let Ok(keys) = keys {
+                            let mut addrs = Vec::new();
+                            for key in keys {
+                                let index_str = key.strip_prefix(prefix).unwrap_or_default();
+                                if let Ok(idx) = index_str.parse::<u32>() {
+                                    if idx == own_index {
+                                        continue;
+                                    }
+                                    if let Ok(addr_str) = conn.get::<_, String>(&key).await {
+                                        if let Ok(addr) = addr_str.parse::<std::net::SocketAddr>() {
+                                            addrs.push(addr);
+                                        }
+                                    }
+                                }
+                            }
+                            if !addrs.is_empty() {
+                                common::utils::internal_quic_client::get_pool().warmup(addrs).await;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
     Ok(node)
 }
