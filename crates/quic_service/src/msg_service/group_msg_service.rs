@@ -28,7 +28,7 @@ static DEDUP: Lazy<BroadcastDedup> = Lazy::new(BroadcastDedup::new);
 
 type NodeAddressCache = Option<(Instant, Vec<(u32, std::net::SocketAddr)>)>;
 
-/// 内网节点地址缓存（5s 过期，避免每条群消息都扫 Redis）
+/// Internal node address cache (expires after 5s, avoids scanning Redis for every group message)
 static NODE_CACHE: Lazy<Mutex<NodeAddressCache>> = Lazy::new(|| Mutex::new(None));
 
 pub struct BroadcastDedup {
@@ -62,7 +62,7 @@ impl Default for BroadcastDedup {
 }
 
 pub fn serialize_group_msg(group_msg: &GroupQuicMsg) -> Result<Vec<u8>> {
-    // 转换为 TextQuicMsg 格式，客户端才能正确反序列化
+    // Convert to TextQuicMsg format for client to deserialize correctly
     let text_msg = TextQuicMsg {
         nano_id: group_msg.nano_id.clone(),
         text_type: group_msg.msg_type,
@@ -116,7 +116,7 @@ async fn fetch_group_members_from_db(group_uuid: &str) -> Result<Vec<String>> {
     let rb = RBATIS_DATABASE.read().await;
     let rb = rb
         .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("数据库连接失败"))?;
+        .ok_or_else(|| anyhow::anyhow!("Database connection failed"))?;
 
     let uuid = group_uuid.parse::<Uuid>()?;
     let members: Vec<GroupMember> = GroupMember::select_members_by_group(rb, &uuid).await?;
@@ -152,13 +152,13 @@ pub async fn handle_group_msg_from_client(
     let sender_uuid: Uuid = group_msg
         .send_user
         .parse()
-        .map_err(|_| anyhow::anyhow!("无效的发送者UUID"))?;
+        .map_err(|_| anyhow::anyhow!("Invalid sender UUID"))?;
     let sender_in_group = all_members
         .iter()
         .any(|m| m.parse::<Uuid>().ok().as_ref() == Some(&sender_uuid));
     if !sender_in_group {
         return Err(anyhow::anyhow!(
-            "发送者不在群成员列表中 sender={} group={} members={:?}",
+            "Sender not in group members list sender={} group={} members={:?}",
             group_msg.send_user,
             group_msg.group_uuid,
             all_members
@@ -210,7 +210,7 @@ pub async fn handle_group_msg_from_client(
 }
 
 async fn get_all_internal_node_addresses() -> Result<Vec<(u32, std::net::SocketAddr)>> {
-    // 命中缓存直接返回
+    // Return from cache if available
     {
         let cache_read = NODE_CACHE.lock().unwrap_or_else(|e| {
             error!("NODE_CACHE lock poisoned: {}", e);
@@ -226,7 +226,7 @@ async fn get_all_internal_node_addresses() -> Result<Vec<(u32, std::net::SocketA
     let redis = REDIS_CLIENT.read().await;
     let redis = redis
         .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("Redis 未初始化"))?;
+        .ok_or_else(|| anyhow::anyhow!("Redis not initialized"))?;
     let mut conn = redis.get().await?;
 
     let pattern = format!("{}*", REDIS_INTERNAL_QUIC_SERVERS);
@@ -375,7 +375,7 @@ async fn save_group_message_to_db(group_msg: &GroupQuicMsg) -> Result<()> {
     let rb = RBATIS_DATABASE.read().await;
     let rb = rb
         .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("数据库连接失败"))?;
+        .ok_or_else(|| anyhow::anyhow!("Database connection failed"))?;
 
     let record = GroupMessageRecord {
         id: None,
@@ -404,7 +404,7 @@ pub async fn sync_offline_group_messages(
     let rb = RBATIS_DATABASE.read().await;
     let rb = rb
         .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("数据库连接失败"))?;
+        .ok_or_else(|| anyhow::anyhow!("Database connection failed"))?;
 
     let uuid = user_uuid.parse::<Uuid>()?;
     let groups: Vec<GroupMember> = GroupMember::select_groups_by_user(rb, &uuid).await?;

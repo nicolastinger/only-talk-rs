@@ -1,6 +1,6 @@
 use std::fmt;
 
-/// 服务生命周期状态
+/// Service lifecycle state
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ServiceState {
     Uninitialized,
@@ -11,7 +11,7 @@ pub enum ServiceState {
 }
 
 impl ServiceState {
-    /// 检查是否可以转换到目标状态
+    /// Check if transition to target state is allowed
     pub fn can_transition_to(&self, target: ServiceState) -> bool {
         matches!(
             (self, target),
@@ -23,7 +23,7 @@ impl ServiceState {
         )
     }
 
-    /// 执行状态转换，非法转换返回错误
+    /// Perform state transition, returns error for invalid transitions
     pub fn transition_to(&mut self, target: ServiceState) -> Result<(), ServiceError> {
         if self.can_transition_to(target) {
             *self = target;
@@ -37,7 +37,7 @@ impl ServiceState {
     }
 }
 
-/// 服务错误类型
+/// Service error types
 #[derive(Debug)]
 pub enum ServiceError {
     InvalidStateTransition { from: ServiceState, to: ServiceState },
@@ -49,10 +49,10 @@ impl fmt::Display for ServiceError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InvalidStateTransition { from, to } => {
-                write!(f, "无效的状态转换: 不能从 {:?} 转换到 {:?}", from, to)
+                write!(f, "Invalid state transition: cannot transition from {:?} to {:?}", from, to)
             }
-            Self::Config(msg) => write!(f, "配置错误: {}", msg),
-            Self::Runtime(err) => write!(f, "服务运行时错误: {}", err),
+            Self::Config(msg) => write!(f, "Configuration error: {}", msg),
+            Self::Runtime(err) => write!(f, "Service runtime error: {}", err),
         }
     }
 }

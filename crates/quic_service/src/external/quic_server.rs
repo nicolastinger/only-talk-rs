@@ -22,7 +22,7 @@ use crate::models::first_quic_msg::FirstQuicMsg;
 use crate::models::quic_connection::{ConnectionType, QuicConnection};
 use crate::msg_service::process_msg_service::process_rec_msg;
 
-/// 启动并运行QUIC服务器，持续监听新连接
+/// Start and run the QUIC server, continuously listening for new connections
 pub(crate) async fn run_server(
     endpoint: Arc<Endpoint>,
     connections: Arc<DashMap<String, QuicConnection>>,
@@ -30,7 +30,7 @@ pub(crate) async fn run_server(
     mut shutdown_rx: watch::Receiver<bool>,
 ) {
     info!(
-        "quic服务器启动成功,使用地址为: {}",
+        "QUIC server started successfully, address: {}",
         config.bind_address
     );
 
@@ -62,7 +62,7 @@ pub(crate) async fn run_server(
         };
 
         info!(
-            "[服务端] 连接已接受: 地址={}",
+            "[server] Connection accepted: address={}",
             conn.remote_address()
         );
         let conns = connections.clone();
@@ -104,13 +104,13 @@ async fn handle_connection(
     Ok(())
 }
 
-/// 处理元数据
+/// Process metadata
 async fn process_first_msg(
     send_stream: &mut SendStream,
     recv_stream: &mut RecvStream,
     address: &String,
 ) -> Result<FirstQuicMsg, anyhow::Error> {
-    //接收流元数据，确认消息类型以及头部长度
+    // Receive stream metadata, confirm message type and header length
     let mut _first_quic_msg = FirstQuicMsg::new();
     let mut first_buffer = vec![0u8; 1024 * 100]; //100k缓冲区
     match recv_stream.read(&mut first_buffer).await {
@@ -121,40 +121,40 @@ async fn process_first_msg(
                 Ok(t) => {
                     _first_quic_msg = t;
                     info!(
-                        "[服务端] 成功解析客户端初始化消息: uuid={}, msg_type={:?}",
+                        "[server] Successfully parsed client init message: uuid={}, msg_type={:?}",
                         _first_quic_msg.uuid, _first_quic_msg.msg_type
                     );
                 }
                 Err(e) => {
                     error!("failed to serialize stream metadata: {}, raw data: {}", e, origin_str);
                     send_stream.finish().await?;
-                    return Err(anyhow!("[服务端] 客户端初始化消息格式错误"));
+                    return Err(anyhow!("[server] Client init message format error"));
                 }
             };
         }
         Ok(None) => {
             error!(
-                "[服务端] 接收客户端初始化消息失败: 客户端在发送初始化消息前关闭了连接，客户端地址: {}",
+                "[server] Failed to receive client init message: client closed connection before sending init, client address: {}",
                 address
             );
             send_stream.finish().await?;
-            return Err(anyhow!("[服务端] 客户端未发送初始化消息就关闭了连接"));
+            return Err(anyhow!("[server] Client closed connection without sending init message"));
         }
         Err(e) => {
             error!("[server] failed to read init metadata: {}, client address: {}", e, address.as_str());
             send_stream.finish().await?;
-            return Err(anyhow!("[服务端] 读取客户端初始化消息时发生错误"));
+            return Err(anyhow!("[server] Error reading client init message"));
         }
     };
     Ok(_first_quic_msg)
 }
 
-/// 校验token有效性
+/// Validate token effectiveness
 async fn authenticate_connection(
     first_quic_msg: &FirstQuicMsg,
     send_stream: &mut SendStream,
 ) -> Result<Claims, anyhow::Error> {
-    let claims = match verify_token(first_quic_msg.token.as_ref()).map_err(|_| "解析token失败") {
+    let claims = match verify_token(first_quic_msg.token.as_ref()).map_err(|_| "Failed to parse token") {
         Ok(t) => {
             if t.uuid != first_quic_msg.uuid {
                 error!("token does not match account!");
@@ -166,13 +166,13 @@ async fn authenticate_connection(
         Err(e) => {
             error!("failed to parse token: {}", e);
             send_stream.finish().await?;
-            return Err(anyhow!("解析令牌失败！"));
+            return Err(anyhow!("Failed to parse token!"));
         }
     };
     Ok(claims)
 }
 
-/// 检测是否达到最大连接数
+/// Check if maximum connections reached
 async fn verify_max_client(
     send_stream: &mut SendStream,
     connections: &Arc<DashMap<String, QuicConnection>>,
@@ -182,12 +182,12 @@ async fn verify_max_client(
     if server_book_len > max_connections {
         error!("max connections reached: {}", server_book_len);
         send_stream.finish().await?;
-        return Err(anyhow!("达到最大连接数 {}", server_book_len));
+        return Err(anyhow!("Maximum connections reached: {}", server_book_len));
     }
     Ok(())
 }
 
-/// 记录连接信息
+/// Record connection info
 async fn set_conn_info(
     uuid: String,
     conn: Connection,
@@ -213,7 +213,7 @@ async fn set_conn_info(
     }
     {
         let redis = REDIS_CLIENT.read().await;
-        let redis = redis.as_ref().ok_or(anyhow!("获取连接失败"))?;
+        let redis = redis.as_ref().ok_or(anyhow!("Failed to acquire connection"))?;
 
         let mut conn = redis.get().await?;
         let index_str = server_index.to_string();
@@ -224,7 +224,7 @@ async fn set_conn_info(
     Ok(())
 }
 
-/// 处理连接
+/// Handle connection
 async fn handle_conn(
     mut send_stream: SendStream,
     mut recv_stream: RecvStream,
@@ -308,12 +308,12 @@ async fn handle_conn(
     let buffer_msg: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
 
     loop {
-        // 循环处理流中的数据
-        let mut buffer = vec![0u8; 1024 * 10]; //设置缓冲区为10KB
+        // Loop to process data in the stream
+        let mut buffer = vec![0u8; 1024 * 10]; // Set buffer to 10KB
         let buffer_len = buffer_msg.lock().await.len();
         if buffer_len > config.max_buffer_length {
             error!("partial packet length exceeds limit: {}", buffer.len());
-            // TODO发送限制消息给客户端纠错
+            // TODO: Send rate limit message to client for correction
             break;
         }
         let change_buffer = &mut buffer;
@@ -358,7 +358,7 @@ async fn handle_conn(
     Ok(())
 }
 
-/// 用户下线
+/// User offline
 async fn end_server(
     close_key: &str,
     connection_key: &str,
@@ -400,7 +400,7 @@ async fn end_server(
     }
 
     info!(
-        "[服务器] 处理完成连接 {} 完成, 在线连接数为 {}",
+        "[server] Connection handled for {} complete, online connections: {}",
         close_key,
         connections.len()
     );
@@ -410,20 +410,20 @@ async fn end_server(
     Ok(())
 }
 
-/// 用户下线
+/// User offline
 async fn user_offline(uuid: String) -> std::result::Result<(), anyhow::Error> {
     // TODO
     let mut redis = get_redis_conn().await?;
     let rb = get_sql_client().await?;
-    // 1.设置redis分布式锁，防止用户下线的同时立马上线
-    // 2.同步所有redis缓存到数据库，记录用户操作
-    // 已读消息从redis中持久化到数据库
+    // 1. Set Redis distributed lock to prevent rapid offline/online transitions
+    // 2. Sync all Redis cache to database, record user operations
+    // Persist read messages from Redis to database
     let read_key = format!("{}{}", USER_READ_MSG, uuid);
     let read_record: String = redis.get(&read_key).await?;
     info!("read messages, source: {}", read_record);
     let last_chat_message_read: Vec<ChatMessageRecordRead> = serde_json::from_str(&read_record)?;
     info!("read messages, converted: {:?}", last_chat_message_read);
-    // TODO已读消息有效校验
+    // TODO: Validate read message effectiveness
 
     for item in last_chat_message_read.into_iter() {
         let is_exist =
@@ -469,16 +469,16 @@ async fn user_offline(uuid: String) -> std::result::Result<(), anyhow::Error> {
         };
     }
 
-    // 3.清理redis缓存，清理redis锁
+    // 3. Clean up Redis cache and lock
     Ok(())
 }
 
-/// 用户上线
+/// User online
 async fn user_online(uuid: &str, _platform: &str) -> std::result::Result<(), anyhow::Error> {
     info!("user online: {}", uuid);
     // TODO
-    // 1.设置redis分布式锁，防止用户上线的同时立马下线
-    // 2.同步所有数据库到redis缓存
-    // 3.清理redis锁
+    // 1. Set Redis distributed lock to prevent rapid online/offline transitions
+    // 2. Sync all database to Redis cache
+    // 3. Clean up Redis lock
     Ok(())
 }

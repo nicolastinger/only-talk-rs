@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-/// 广播类型
+/// Broadcast type
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum BroadcastType {
     GroupText,
@@ -29,28 +29,28 @@ impl BroadcastType {
     }
 }
 
-/// 内网 QUIC 群消息广播请求
+/// Internal QUIC group message broadcast request
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InternalGroupBroadcast {
-    /// 消息类型标识
+    /// Message type identifier
     pub broadcast_type: BroadcastType,
-    /// 群 UUID
+    /// Group UUID
     pub group_uuid: String,
-    /// 序列化后的群消息体（QUIC 粘包协议格式）
+    /// Serialized group message body (QUIC sticky packet protocol format)
     pub msg_bytes: Vec<u8>,
-    /// 发送者 UUID
+    /// Sender UUID
     pub sender: String,
-    /// 全量群成员列表（各节点直接据此查本机 DashMap，无需再查 Redis）
+    /// Full group member list (each node queries local DashMap directly, no Redis needed)
     pub all_members: Vec<String>,
-    /// 发送节点序号（用于跳过自身的广播）
+    /// Sending node index (used to skip self in broadcast)
     pub source_node: u32,
-    /// 时间戳
+    /// Timestamp
     pub timestamp: i64,
-    /// 全局唯一广播 ID（去重用）
+    /// Globally unique broadcast ID (for deduplication)
     pub broadcast_id: String,
 }
 
-/// 群聊消息体（通过 QUIC 协议传输）
+/// Group chat message body (transmitted via QUIC protocol)
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct GroupQuicMsg {
     pub nano_id: String,
@@ -61,7 +61,7 @@ pub struct GroupQuicMsg {
     pub timestamp: i64,
 }
 
-/// 群聊广播响应
+/// Group chat broadcast response
 #[derive(Debug, Serialize, Deserialize)]
 pub struct InternalGroupBroadcastResponse {
     pub status: String,

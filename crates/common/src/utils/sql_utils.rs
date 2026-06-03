@@ -12,37 +12,37 @@ use tracing::info;
 
 use crate::{RBATIS_DATABASE, SQL_INIT_ONCE};
 
-/// 初始化 SQL 连接池（仅首次调用生效）
+/// Initialize SQL connection pool (only effective on first call)
 pub async fn init_sql_pool(url: &str) -> Result<RBatis, anyhow::Error> {
     if SQL_INIT_ONCE.get().is_some() {
         return RBATIS_DATABASE
             .read()
             .await
             .clone()
-            .ok_or_else(|| anyhow!("数据库未初始化"));
+            .ok_or_else(|| anyhow!("Database not initialized"));
     }
 
     info!("connecting to database - address: {}", url);
     let rb = RBatis::new();
 
     let mut opts = PgConnectOptions::new();
-    opts.set_uri(url).map_err(|e| anyhow!("设置数据库URI失败: {}", e))?;
+    opts.set_uri(url).map_err(|e| anyhow!("Failed to set database URI: {}", e))?;
 
     let conn_manager =
         ConnectionManager::new_arc(Arc::new(Box::new(PgDriver {})), Arc::new(Box::new(opts)));
 
-    let pool = FastPool::new(conn_manager).map_err(|e| anyhow!("创建连接池失败: {}", e))?;
+    let pool = FastPool::new(conn_manager).map_err(|e| anyhow!("Failed to create connection pool: {}", e))?;
     pool.set_timeout(Some(Duration::from_secs(2))).await;
 
     rb.pool
         .set(Box::new(pool))
         .map_err(|_e| Error::from("pool set fail!"))
-        .map_err(|e| anyhow!("设置连接池失败: {}", e))?;
+        .map_err(|e| anyhow!("Failed to set connection pool: {}", e))?;
 
     {
         let mut database = RBATIS_DATABASE
             .try_write()
-            .map_err(|_| anyhow!("获取数据库写锁失败"))?;
+            .map_err(|_| anyhow!("Failed to acquire database write lock"))?;
         if SQL_INIT_ONCE.set(()).is_ok() {
             *database = Some(rb.clone());
         }
@@ -54,5 +54,5 @@ pub async fn init_sql_pool(url: &str) -> Result<RBatis, anyhow::Error> {
 
 pub async fn get_sql_client() -> Result<RBatis, anyhow::Error> {
     let rb = RBATIS_DATABASE.read().await;
-    rb.as_ref().ok_or(anyhow!("获取连接失败")).cloned()
+    rb.as_ref().ok_or(anyhow!("Failed to acquire connection")).cloned()
 }

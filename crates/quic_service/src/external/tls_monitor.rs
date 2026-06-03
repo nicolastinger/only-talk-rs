@@ -14,7 +14,7 @@ use x509_parser::prelude::*;
 
 use super::set_server::create_server_config;
 
-/// TLS证书状态信息
+/// TLS certificate status info
 #[derive(Debug, Clone)]
 pub struct CertStatus {
     pub not_before: SystemTime,
@@ -26,25 +26,25 @@ pub struct CertStatus {
 }
 
 pub fn load_tls_certificates(cert_path: &str, key_path: &str, expiry_warning_days: i64) -> Result<(Vec<Certificate>, PrivateKey, CertStatus), Box<dyn std::error::Error>> {
-    // 加载证书
+    // Load certificate
     let mut cert_file = BufReader::new(File::open(cert_path)?);
     let cert_chain: Vec<Certificate> = certs(&mut cert_file)
         .map(|certs| certs.into_iter().map(Certificate).collect())
-        .map_err(|_| "无法解析证书文件")?;
+        .map_err(|_| "Unable to parse certificate file")?;
 
     if cert_chain.is_empty() {
-        return Err("证书链为空".into());
+        return Err("Certificate chain is empty".into());
     }
 
-    // 解析证书以获取有效期信息
+    // Parse certificate to get expiry info
     let cert_status = parse_cert_expiry(&cert_chain[0].0, expiry_warning_days)?;
 
-    // 加载私钥
+    // Load private key
     let mut key_file = BufReader::new(File::open(key_path)?);
     let mut keys = load_private_keys(&mut key_file)?;
 
     if keys.is_empty() {
-        return Err("私钥文件为空".into());
+        return Err("Private key file is empty".into());
     }
 
     let key = PrivateKey(keys.remove(0));
@@ -52,7 +52,7 @@ pub fn load_tls_certificates(cert_path: &str, key_path: &str, expiry_warning_day
     Ok((cert_chain, key, cert_status))
 }
 
-/// 加载私钥，尝试不同类型的私钥格式
+/// Load private key, trying different key formats
 fn load_private_keys(key_file: &mut BufReader<File>) -> Result<Vec<Vec<u8>>, Box<dyn std::error::Error>> {
     key_file.seek(SeekFrom::Start(0))?;
     if let Ok(keys) = rsa_private_keys(key_file) {
@@ -73,7 +73,7 @@ fn load_private_keys(key_file: &mut BufReader<File>) -> Result<Vec<Vec<u8>>, Box
     Ok(keys)
 }
 
-/// 解析证书的有效期信息
+/// Parse certificate expiry info
 fn parse_cert_expiry(cert_der: &[u8], expiry_warning_days: i64) -> Result<CertStatus, Box<dyn std::error::Error>> {
     let (_, cert) = X509Certificate::from_der(cert_der)?;
 
@@ -109,7 +109,7 @@ fn parse_cert_expiry(cert_der: &[u8], expiry_warning_days: i64) -> Result<CertSt
     })
 }
 
-/// 计算文件的SHA256哈希值
+/// Compute SHA256 hash of file
 fn compute_file_hash(path: &str) -> Result<[u8; 32], Box<dyn std::error::Error>> {
     let mut file = BufReader::new(File::open(path)?);
     let mut hasher = sha2::Sha256::new();
@@ -126,10 +126,10 @@ fn compute_file_hash(path: &str) -> Result<[u8; 32], Box<dyn std::error::Error>>
     Ok(hasher.finalize().into())
 }
 
-/// 打印证书有效期信息
+/// Print certificate expiry info
 fn log_cert_status(status: &CertStatus) {
     info!(
-        "TLS证书信息: 主题={}, 生效时间={:?}, 过期时间={:?}, 剩余天数={}",
+        "TLS certificate info: subject={}, valid from={:?}, expires={:?}, days remaining={}",
         status.subject,
         status.not_before,
         status.not_after,
@@ -140,16 +140,16 @@ fn log_cert_status(status: &CertStatus) {
         error!("TLS certificate has expired!");
     } else if status.is_near_expiry {
         warn!(
-            "TLS证书将在 {} 天后过期，请尽快更新证书！",
+            "TLS certificate expires in {} days, please update the certificate!",
             status.days_remaining
         );
     }
 }
 
-/// 启动TLS证书监控任务
-/// - 检测证书文件是否更新
-/// - 当证书剩余有效期<=阈值时，定时打印警告
-/// - 使用Quinn 0.10+的set_server_config()实现热重载
+/// Start TLS certificate monitoring task
+/// - Detect certificate file updates
+/// - Print warning when remaining validity <= threshold
+/// - Use Quinn 0.10+ set_server_config() for hot reload
 pub fn start_tls_monitor(
     endpoint: Arc<Endpoint>,
     mut shutdown_rx: watch::Receiver<bool>,
@@ -228,8 +228,8 @@ pub fn start_tls_monitor(
     });
 }
 
-/// 热重载TLS配置
-/// 使用Quinn 0.10+的set_server_config() API
+/// Hot reload TLS config
+/// Use Quinn 0.10+ set_server_config() API
 fn reload_tls_config(
     endpoint: &Arc<Endpoint>,
     cert_path: &str,

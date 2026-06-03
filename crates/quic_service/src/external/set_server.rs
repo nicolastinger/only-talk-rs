@@ -9,7 +9,7 @@ use quinn::{ClientConfig, Endpoint, ServerConfig, TransportConfig};
 use rustls::{Certificate, PrivateKey, RootCertStore};
 use rustls_pemfile::{certs, ec_private_keys, pkcs8_private_keys, rsa_private_keys};
 
-/// 配置客户端使用的QUIC设置。
+/// Configure QUIC settings for client use.
 #[allow(dead_code)]
 pub fn configure_client() -> ClientConfig {
     let mut root_store = RootCertStore::empty();
@@ -43,21 +43,21 @@ pub fn make_server_endpoint(bind_addr: SocketAddr, cert_path: &str, key_path: &s
 }
 
 pub fn configure_server(cert_path: &str, key_path: &str) -> Result<(ServerConfig, Vec<u8>), Box<dyn Error>> {
-    let mut cert_file = BufReader::new(File::open(cert_path).map_err(|e| format!("打开pem文件 {}: {}", cert_path, e))?);
+    let mut cert_file = BufReader::new(File::open(cert_path).map_err(|e| format!("Failed to open PEM file {}: {}", cert_path, e))?);
     let cert_chain: Vec<Certificate> = certs(&mut cert_file)
         .map(|certs| certs.into_iter().map(Certificate).collect())
-        .map_err(|_| "无法解析证书文件")?;
+        .map_err(|_| "Unable to parse certificate file")?;
 
     let key_file =
-        &mut BufReader::new(File::open(key_path).map_err(|e| format!("找不到TLS证书密钥 {}: {}", key_path, e))?);
+        &mut BufReader::new(File::open(key_path).map_err(|e| format!("Failed to open TLS certificate key {}: {}", key_path, e))?);
 
     let mut keys = load_private_keys(key_file)?;
     if keys.is_empty() {
-        return Err("私钥文件为空".into());
+        return Err("Private key file is empty".into());
     }
     let key = PrivateKey(keys.remove(0));
 
-    let cert_der = cert_chain.first().cloned().ok_or("证书链为空")?.0;
+    let cert_der = cert_chain.first().cloned().ok_or("Certificate chain is empty")?.0;
 
     let server_config = create_server_config(cert_chain, key)?;
 
@@ -67,10 +67,10 @@ pub fn configure_server(cert_path: &str, key_path: &str) -> Result<(ServerConfig
 pub fn create_server_config(cert_chain: Vec<Certificate>, key: PrivateKey) -> Result<ServerConfig, Box<dyn Error>> {
     let mut server_config = ServerConfig::with_single_cert(cert_chain, key)?;
     let transport_config = Arc::get_mut(&mut server_config.transport)
-        .ok_or("获取传输配置失败")?;
+        .ok_or("Failed to get transport config")?;
     transport_config.max_concurrent_uni_streams(32_u8.into());
     let idle_timeout = Duration::from_secs(190).try_into()
-        .map_err(|_| "设置超时时间失败")?;
+        .map_err(|_| "Failed to set timeout")?;
     transport_config.max_idle_timeout(Some(idle_timeout));
     transport_config.keep_alive_interval(Some(Duration::from_secs(5)));
     Ok(server_config)
@@ -78,7 +78,7 @@ pub fn create_server_config(cert_chain: Vec<Certificate>, key: PrivateKey) -> Re
 
 fn load_private_keys(key_file: &mut BufReader<File>) -> Result<Vec<Vec<u8>>, Box<dyn Error>> {
     key_file.seek(SeekFrom::Start(0))
-        .map_err(|e| format!("无法重置文件读取位置: {}", e))?;
+        .map_err(|e| format!("Unable to reset file read position: {}", e))?;
     if let Ok(keys) = rsa_private_keys(key_file) {
         if !keys.is_empty() {
             return Ok(keys);
@@ -86,7 +86,7 @@ fn load_private_keys(key_file: &mut BufReader<File>) -> Result<Vec<Vec<u8>>, Box
     }
 
     key_file.seek(SeekFrom::Start(0))
-        .map_err(|e| format!("无法重置文件读取位置: {}", e))?;
+        .map_err(|e| format!("Unable to reset file read position: {}", e))?;
     if let Ok(keys) = ec_private_keys(key_file) {
         if !keys.is_empty() {
             return Ok(keys);
@@ -94,8 +94,8 @@ fn load_private_keys(key_file: &mut BufReader<File>) -> Result<Vec<Vec<u8>>, Box
     }
 
     key_file.seek(SeekFrom::Start(0))
-        .map_err(|e| format!("无法重置文件读取位置: {}", e))?;
+        .map_err(|e| format!("Unable to reset file read position: {}", e))?;
     let keys = pkcs8_private_keys(key_file)
-        .map_err(|e| format!("无法读取私钥: {}", e))?;
+        .map_err(|e| format!("Unable to read private key: {}", e))?;
     Ok(keys)
 }

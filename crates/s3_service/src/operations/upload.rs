@@ -1,28 +1,28 @@
-//! 对象上传操作模块
+//! Object upload operations module
 //!
-//! 提供对象上传和元数据设置功能。
+//! Provides object upload and metadata setting functionality.
 
 use crate::client::S3Client;
 use crate::error::S3Error;
 use crate::storage::StorageInfo;
 
-/// 上传对象到S3
+/// Upload object to S3
 ///
-/// 将数据上传到S3存储桶。
+/// Upload data to an S3 storage bucket.
 ///
-/// # 参数
+/// # Parameters
 ///
-/// - `client`: S3客户端实例
-/// - `bucket`: 存储桶名称
-/// - `key`: 对象键名
-/// - `data`: 上传的数据
-/// - `content_type`: 可选的MIME类型
+/// - `client`: S3 client instance
+/// - `bucket`: Storage bucket name
+/// - `key`: Object key name
+/// - `data`: Data to upload
+/// - `content_type`: Optional MIME type
 ///
-/// # 返回值
+/// # Returns
 ///
-/// 上传成功后返回存储信息
+/// Returns storage information after successful upload
 ///
-/// # 示例
+/// # Example
 ///
 /// ```rust,no_run
 /// async fn upload_example(client: &s3_service::S3Client) -> Result<(), s3_service::S3Error> {
@@ -48,24 +48,24 @@ pub async fn upload_object(
 ) -> Result<StorageInfo, S3Error> {
     let size = data.len() as i64;
 
-    // 构建上传请求
+    // Build upload request
     let mut builder = client
         .inner
         .put_object()
         .bucket(bucket)
         .key(key);
 
-    // 设置内容类型
+    // Set content type
     if let Some(ct) = content_type {
         builder = builder.content_type(ct);
     }
 
-    // 执行上传
+    // Execute upload
     let result = builder
         .body(data.into())
         .send()
         .await
-        .map_err(|e| S3Error::AwsError(format!("上传对象失败: {}", e)))?;
+        .map_err(|e| S3Error::AwsError(format!("Failed to upload object: {}", e)))?;
 
     Ok(StorageInfo {
         bucket: Some(bucket.to_string()),
@@ -77,26 +77,26 @@ pub async fn upload_object(
     })
 }
 
-/// 上传对象并设置自定义元数据
+/// Upload object with custom metadata
 ///
-/// 除了上传数据外,还设置自定义元数据。
+/// In addition to uploading data, also sets custom metadata.
 ///
-/// # 参数
+/// # Parameters
 ///
-/// - `client`: S3客户端实例
-/// - `bucket`: 存储桶名称
-/// - `key`: 对象键名
-/// - `data`: 上传的数据
-/// - `content_type`: MIME类型
-/// - `metadata`: 自定义元数据键值对
+/// - `client`: S3 client instance
+/// - `bucket`: Storage bucket name
+/// - `key`: Object key name
+/// - `data`: Data to upload
+/// - `content_type`: MIME type
+/// - `metadata`: Custom metadata key-value pairs
 ///
-/// # 元数据使用场景
+/// # Metadata Use Cases
 ///
-/// - 存储文件描述信息
-/// - 记录上传用户
-/// - 保存自定义属性
+/// - Store file description
+/// - Record uploading user
+/// - Save custom attributes
 ///
-/// # 示例
+/// # Example
 ///
 /// ```rust,no_run
 /// use std::collections::HashMap;
@@ -127,29 +127,29 @@ pub async fn upload_object_with_metadata(
 ) -> Result<StorageInfo, S3Error> {
     let size = data.len() as i64;
 
-    // 构建上传请求
+    // Build upload request
     let mut builder = client
         .inner
         .put_object()
         .bucket(bucket)
         .key(key);
 
-    // 设置内容类型
+    // Set content type
     if let Some(ct) = content_type {
         builder = builder.content_type(ct);
     }
 
-    // 设置自定义元数据
+    // Set custom metadata
     for (k, v) in &metadata {
         builder = builder.metadata(k, v);
     }
 
-    // 执行上传
+    // Execute upload
     let result = builder
         .body(data.into())
         .send()
         .await
-        .map_err(|e| S3Error::AwsError(format!("上传对象(带元数据)失败: {}", e)))?;
+        .map_err(|e| S3Error::AwsError(format!("Failed to upload object with metadata: {}", e)))?;
 
     Ok(StorageInfo {
         bucket: Some(bucket.to_string()),

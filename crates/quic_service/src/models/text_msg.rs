@@ -6,40 +6,40 @@ pub trait TextMsg {
 
 #[repr(u16)]
 pub enum MessageType {
-    Text = 1,  //文本信息
-    Image = 2, //图片信息
-    File = 3,  //文件信息
+    Text = 1,  // Text message
+    Image = 2, // Image message
+    File = 3,  // File message
     P2P = 4,
     P2PVideoCall = 5,
     P2pVideoData = 6,
     P2pVideoConfig = 7,
 
-    Ping = 99,           //ping信息
-    RecallSuccess = 201, //接受解析成功
-    RecallFailure = 202, //接收解析失败
+    Ping = 99,           // Ping info
+    RecallSuccess = 201, // Received and parsed successfully
+    RecallFailure = 202, // Received parse failed
 
-    P2pUserServer = 203, // 通知作为 P2P 服务端（NAT 发现后服务端下发）
-    P2pUserClient = 204, // 通知作为 P2P 客户端（NAT 发现后服务端下发）
-    System = 10001,      // 系统通知信息
+    P2pUserServer = 203, // Notify as P2P server (issued by server after NAT discovery)
+    P2pUserClient = 204, // Notify as P2P client (issued by server after NAT discovery)
+    System = 10001,      // System notification
 }
 
-//头部消息
+// Header message
 #[derive(Debug, Serialize, Deserialize)]
 pub struct HeadMsg {
     pub version: u8,
     pub crc: u16,
-    pub body_len: u32,     // 消息体长度
-    pub message_type: u16, // 消息类型, 1-好友单聊
+    pub body_len: u32,     // Message body length
+    pub message_type: u16, // Message type, 1 = friend DM
 }
 
-//文本信息消息体
+// Text message body
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TextQuicMsg {
     pub nano_id: String,
-    pub text_type: u16, //消息类型
+    pub text_type: u16, // Message type
     pub raw: Vec<u8>,
-    pub recv_user: String, //接收用户
-    pub send_user: String, //发送用户
+    pub recv_user: String, // Receiving user
+    pub send_user: String, // Sending user
     pub timestamp: i64,
 }
 

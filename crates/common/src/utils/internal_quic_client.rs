@@ -10,7 +10,7 @@ use tracing::{debug, error, info, warn};
 
 use crate::utils::internal_quic_msg::{InternalQuicRequest, InternalQuicResponse};
 
-/// 跳过服务端证书校验 (内网服务使用自签名证书)
+/// Skip server certificate verification (internal services use self-signed certs)
 #[derive(Debug)]
 struct SkipServerVerification;
 
@@ -28,7 +28,7 @@ impl ServerCertVerifier for SkipServerVerification {
     }
 }
 
-/// 创建不校验服务端证书的 QUIC 客户端配置
+/// Create QUIC client config that skips server cert verification
 fn make_internal_client_config() -> Result<ClientConfig> {
     debug!("[internal QUIC client] creating client config (skipping cert verification)");
     let crypto = rustls::ClientConfig::builder()
@@ -45,9 +45,9 @@ fn make_internal_client_config() -> Result<ClientConfig> {
     Ok(config)
 }
 
-/// 向内部 QUIC 服务发送请求并获取响应
+/// Send a request to the internal QUIC service and receive a response
 ///
-/// 连接 → 发送请求 → 读取响应 → 关闭连接
+/// Connect -> Send request -> Read response -> Close connection
 pub async fn send_internal_quic_msg(
     server_addr: SocketAddr,
     request: InternalQuicRequest,
@@ -57,20 +57,20 @@ pub async fn send_internal_quic_msg(
         request.target_user, request.msg_type, request.preferred_index
     );
 
-    // 创建客户端配置
+    // Create client config
     let client_config = make_internal_client_config()?;
     let mut endpoint = Endpoint::client("0.0.0.0:0".parse()?)?;
     endpoint.set_default_client_config(client_config);
     debug!("[internal QUIC client] endpoint created");
 
-    // 建立连接
+    // Establish connection
     info!("[internal QUIC client] connecting to {}", server_addr);
     let connection = endpoint
         .connect(server_addr, "localhost")?
         .await
         .map_err(|e| {
             error!("[internal QUIC client] connection to {} failed: {}", server_addr, e);
-            anyhow::anyhow!("内网QUIC连接 {} 失败: {}", server_addr, e)
+            anyhow::anyhow!("Internal QUIC connection to {} failed: {}", server_addr, e)
         })?;
     info!("[internal QUIC client] connected to {}", server_addr);
 

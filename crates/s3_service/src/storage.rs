@@ -2,24 +2,24 @@ use std::fmt;
 
 use async_trait::async_trait;
 
-/// 存储类型枚举
+/// Storage type enum
 ///
-/// 定义支持的存储后端类型。
-/// 用于区分本地存储和S3云存储。
+/// Defines supported storage backend types.
+/// Used to distinguish between local storage and S3 cloud storage.
 ///
-/// # 存储类型
+/// # Storage Types
 ///
-/// - `Local`: 本地文件系统存储
-/// - `S3`: S3兼容对象存储
+/// - `Local`: Local filesystem storage
+/// - `S3`: S3-compatible object storage
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub enum StorageType {
-    /// 本地文件系统存储
+    /// Local filesystem storage
     Local,
-    /// S3兼容对象存储
+    /// S3-compatible object storage
     S3,
 }
 
-/// Display trait实现,提供可读的存储类型名称
+/// Display trait implementation, provides readable storage type name
 impl fmt::Display for StorageType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -29,228 +29,228 @@ impl fmt::Display for StorageType {
     }
 }
 
-/// 存储信息结构体
+/// Storage information struct
 ///
-/// 文件上传成功后返回的信息,包含文件的基本元数据。
-/// 用于向上层返回上传结果。
+/// Information returned after successful file upload, containing basic file metadata.
+/// Used to return upload results to upper layers.
 ///
-/// # 字段说明
+/// # Field Description
 ///
-/// - `key`: 对象标识符(S3为object key,本地为相对路径)
-/// - `size`: 文件大小(字节)
-/// - `content_type`: MIME类型
-/// - `etag`: 实体标签(S3专用,用于版本控制)
-/// - `storage_type`: 存储类型
+/// - `key`: Object identifier (S3: object key, local: relative path)
+/// - `size`: File size (bytes)
+/// - `content_type`: MIME type
+/// - `etag`: Entity tag (S3 only, for version control)
+/// - `storage_type`: Storage type
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct StorageInfo {
-    /// 存储桶名称
-    /// S3模式下表示对象所在的桶
+    /// Bucket name
+    /// In S3 mode, represents the bucket containing the object
     pub bucket: Option<String>,
-    
-    /// 对象key
-    /// S3模式为object key,本地模式为相对路径
+
+    /// Object key
+    /// S3 mode: object key, local mode: relative path
     pub key: String,
-    
-    /// 文件大小(字节)
+
+    /// File size (bytes)
     pub size: i64,
-    
-    /// MIME类型
-    /// 如: "image/jpeg", "application/pdf"
+
+    /// MIME type
+    /// e.g., "image/jpeg", "application/pdf"
     pub content_type: Option<String>,
-    
-    /// ETag(实体标签)
-    /// S3模式的文件版本标识,用于一致性校验
+
+    /// ETag (entity tag)
+    /// File version identifier in S3 mode, used for consistency check
     pub etag: Option<String>,
-    
-    /// 存储类型
-    /// 标识文件存储在本地还是S3
+
+    /// Storage type
+    /// Identifies whether file is stored locally or on S3
     pub storage_type: StorageType,
 }
 
-/// 对象信息结构体
+/// Object information struct
 ///
-/// 列举存储桶中的对象时返回的信息。
-/// 包含对象的基本属性。
+/// Information returned when listing objects in a bucket.
+/// Contains basic object attributes.
 ///
-/// # 字段说明
+/// # Field Description
 ///
-/// - `key`: 对象键名
-/// - `size`: 对象大小(字节)
-/// - `last_modified`: 最后修改时间
-/// - `etag`: 实体标签
-/// - `storage_class`: 存储类型
+/// - `key`: Object key name
+/// - `size`: Object size (bytes)
+/// - `last_modified`: Last modification time
+/// - `etag`: Entity tag
+/// - `storage_class`: Storage class
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ObjectInfo {
-    /// 对象key(路径/文件名)
+    /// Object key (path/filename)
     pub key: String,
-    
-    /// 文件大小(字节)
+
+    /// File size (bytes)
     pub size: i64,
-    
-    /// 最后修改时间
-    /// ISO 8601格式的时间字符串
+
+    /// Last modification time
+    /// ISO 8601 format time string
     pub last_modified: Option<String>,
-    
-    /// ETag(实体标签)
-    /// 用于验证对象内容是否改变
+
+    /// ETag (entity tag)
+    /// Used to verify whether object content has changed
     pub etag: Option<String>,
-    
-    /// 存储类型
-    /// S3存储类型,如STANDARD, GLACIER等
+
+    /// Storage class
+    /// S3 storage class, such as STANDARD, GLACIER, etc.
     pub storage_class: Option<String>,
 }
 
-/// 对象元数据结构体
+/// Object metadata struct
 ///
-/// 包含对象的完整元数据信息,
-/// 包括系统元数据和用户自定义元数据。
+/// Contains complete object metadata information,
+/// including system metadata and user-defined metadata.
 ///
-/// # 元数据类型
+/// # Metadata Types
 ///
-/// ## 系统元数据
-/// - `key`: 对象标识
-/// - `size`: 对象大小
-/// - `content_type`: 内容类型
-/// - `last_modified`: 最后修改时间
-/// - `etag`: 实体标签
+/// ## System Metadata
+/// - `key`: Object identifier
+/// - `size`: Object size
+/// - `content_type`: Content type
+/// - `last_modified`: Last modification time
+/// - `etag`: Entity tag
 ///
-/// ## 自定义元数据
-/// - `metadata`: 用户自定义的键值对
+/// ## Custom Metadata
+/// - `metadata`: User-defined key-value pairs
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ObjectMetadata {
-    /// 对象key
+    /// Object key
     pub key: String,
-    
-    /// 文件大小(字节)
+
+    /// File size (bytes)
     pub size: i64,
-    
-    /// MIME类型
+
+    /// MIME type
     pub content_type: Option<String>,
-    
-    /// 最后修改时间
+
+    /// Last modification time
     pub last_modified: Option<String>,
-    
-    /// ETag(实体标签)
+
+    /// ETag (entity tag)
     pub etag: Option<String>,
-    
-    /// 自定义元数据
-    /// 用户上传时设置的额外元数据
+
+    /// Custom metadata
+    /// Additional metadata set by user during upload
     pub metadata: std::collections::HashMap<String, String>,
 }
 
-/// 预签名URL的HTTP方法
+/// Pre-signed URL HTTP method
 ///
-/// 指定预签名URL用于哪种操作。
+/// Specifies which operation the pre-signed URL is used for.
 ///
-/// # 方法说明
+/// # Method Description
 ///
-/// - `Get`: 用于下载对象
-/// - `Put`: 用于上传对象
+/// - `Get`: Used for downloading objects
+/// - `Put`: Used for uploading objects
 #[derive(Debug, Clone)]
 pub enum PresignedMethod {
-    /// GET方法 - 用于下载
+    /// GET method - for download
     Get,
-    /// PUT方法 - 用于上传
+    /// PUT method - for upload
     Put,
 }
 
-/// 存储错误类型
+/// Storage error type
 ///
-/// 定义存储后端操作可能返回的错误。
-/// 包装了S3错误和其他类型的错误。
+/// Defines errors that may be returned by storage backend operations.
+/// Wraps S3 errors and other types of errors.
 ///
-/// # 错误类型
+/// # Error Types
 ///
-/// - `S3Error`: S3服务错误
-/// - `IoError`: IO操作错误
-/// - `NotFound`: 文件或对象不存在
-/// - `PermissionDenied`: 权限不足
-/// - `Other`: 其他错误
+/// - `S3Error`: S3 service error
+/// - `IoError`: IO operation error
+/// - `NotFound`: File or object does not exist
+/// - `PermissionDenied`: Insufficient permissions
+/// - `Other`: Other error
 #[derive(Debug)]
 pub enum StorageError {
-    /// S3服务错误
+    /// S3 service error
     S3Error(crate::error::S3Error),
-    
-    /// IO操作错误
+
+    /// IO operation error
     IoError(String),
-    
-    /// 文件或对象不存在
+
+    /// File or object does not exist
     NotFound(String),
-    
-    /// 权限不足
+
+    /// Insufficient permissions
     PermissionDenied(String),
-    
-    /// 其他错误
+
+    /// Other error
     Other(String),
 }
 
-/// Display trait实现
+/// Display trait implementation
 impl fmt::Display for StorageError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            StorageError::S3Error(e) => write!(f, "S3错误: {}", e),
-            StorageError::IoError(msg) => write!(f, "IO错误: {}", msg),
-            StorageError::NotFound(msg) => write!(f, "未找到: {}", msg),
-            StorageError::PermissionDenied(msg) => write!(f, "权限不足: {}", msg),
-            StorageError::Other(msg) => write!(f, "存储错误: {}", msg),
+            StorageError::S3Error(e) => write!(f, "S3 error: {}", e),
+            StorageError::IoError(msg) => write!(f, "IO error: {}", msg),
+            StorageError::NotFound(msg) => write!(f, "Not found: {}", msg),
+            StorageError::PermissionDenied(msg) => write!(f, "Permission denied: {}", msg),
+            StorageError::Other(msg) => write!(f, "Storage error: {}", msg),
         }
     }
 }
 
-/// 实现标准Error trait
+/// Standard Error trait implementation
 impl std::error::Error for StorageError {}
 
-/// 从S3Error转换
+/// Convert from S3Error
 impl From<crate::error::S3Error> for StorageError {
     fn from(err: crate::error::S3Error) -> Self {
         StorageError::S3Error(err)
     }
 }
 
-/// 从std::io::Error转换
+/// Convert from std::io::Error
 impl From<std::io::Error> for StorageError {
     fn from(err: std::io::Error) -> Self {
         StorageError::IoError(err.to_string())
     }
 }
 
-/// 存储后端抽象trait
+/// Storage backend abstract trait
 ///
-/// 定义统一的存储操作接口,支持多种存储后端实现。
-/// 所有存储服务(S3、本地等)都需要实现此trait。
+/// Defines unified storage operation interface, supports multiple storage backend implementations.
+/// All storage services (S3, local, etc.) need to implement this trait.
 ///
-/// # 设计模式
+/// # Design Pattern
 ///
-/// 使用策略模式,通过trait抽象存储操作,
-/// 上层代码可以透明地切换不同的存储后端。
+/// Uses strategy pattern, abstracts storage operations through trait,
+/// upper-level code can transparently switch between different storage backends.
 ///
-/// # 线程安全
+/// # Thread Safety
 ///
-/// 实现了Send + Sync trait,支持多线程并发访问。
+/// Implements Send + Sync trait, supports multi-thread concurrent access.
 ///
-/// # 核心方法
+/// # Core Methods
 ///
-/// ## 上传下载
-/// - `upload`: 上传数据
-/// - `upload_stream`: 流式上传(支持大文件)
-/// - `download`: 下载完整数据
-/// - `download_range`: Range下载(支持断点续传)
+/// ## Upload/Download
+/// - `upload`: Upload data
+/// - `upload_stream`: Stream upload (supports large files)
+/// - `download`: Download complete data
+/// - `download_range`: Range download (supports resumable)
 ///
-/// ## 删除操作
-/// - `delete`: 删除单个对象
-/// - `delete_batch`: 批量删除
+/// ## Delete Operations
+/// - `delete`: Delete single object
+/// - `delete_batch`: Batch delete
 ///
-/// ## 列举查询
-/// - `list`: 列举对象
-/// - `get_metadata`: 获取元数据
+/// ## List/Query
+/// - `list`: List objects
+/// - `get_metadata`: Get metadata
 ///
-/// ## 其他操作
-/// - `copy`: 复制对象
-/// - `move_object`: 移动对象
-/// - `presigned_url`: 生成预签名URL
-/// - `storage_type`: 获取存储类型
+/// ## Other Operations
+/// - `copy`: Copy object
+/// - `move_object`: Move object
+/// - `presigned_url`: Generate pre-signed URL
+/// - `storage_type`: Get storage type
 ///
-/// # 示例
+/// # Example
 ///
 /// ```rust,no_run
 /// use s3_service::storage::{StorageBackend, StorageInfo};
@@ -265,17 +265,17 @@ impl From<std::io::Error> for StorageError {
 /// ```
 #[async_trait]
 pub trait StorageBackend: Send + Sync {
-    /// 上传数据到存储后端
+    /// Upload data to storage backend
     ///
-    /// # 参数
+    /// # Parameters
     ///
-    /// - `key`: 对象键名/文件路径
-    /// - `data`: 要上传的数据
-    /// - `content_type`: 可选的MIME类型
+    /// - `key`: Object key / file path
+    /// - `data`: Data to upload
+    /// - `content_type`: Optional MIME type
     ///
-    /// # 返回值
+    /// # Returns
     ///
-    /// 返回上传后的存储信息
+    /// Returns storage information after upload
     async fn upload(
         &self,
         key: &str,
@@ -283,17 +283,17 @@ pub trait StorageBackend: Send + Sync {
         content_type: Option<&str>,
     ) -> Result<StorageInfo, StorageError>;
 
-    /// 流式上传数据
+    /// Stream upload data
     ///
-    /// 用于大文件上传,支持分片上传。
-    /// S3实现会自动使用分片上传。
+    /// Used for large file uploads, supports multipart uploads.
+    /// S3 implementation will automatically use multipart uploads.
     ///
-    /// # 参数
+    /// # Parameters
     ///
-    /// - `key`: 对象键名
-    /// - `data`: 数据内容
-    /// - `size`: 数据大小(字节)
-    /// - `content_type`: MIME类型
+    /// - `key`: Object key
+    /// - `data`: Data content
+    /// - `size`: Data size (bytes)
+    /// - `content_type`: MIME type
     async fn upload_stream(
         &self,
         key: &str,
@@ -302,26 +302,26 @@ pub trait StorageBackend: Send + Sync {
         content_type: Option<&str>,
     ) -> Result<StorageInfo, StorageError>;
 
-    /// 下载对象数据
+    /// Download object data
     ///
-    /// # 参数
+    /// # Parameters
     ///
-    /// - `key`: 对象键名
+    /// - `key`: Object key
     ///
-    /// # 返回值
+    /// # Returns
     ///
-    /// 对象的完整数据内容
+    /// Complete data content of the object
     async fn download(&self, key: &str) -> Result<Vec<u8>, StorageError>;
 
-    /// Range下载对象数据
+    /// Download object data with Range header
     ///
-    /// 支持断点续传和部分下载。
+    /// Supports resumable and partial downloads.
     ///
-    /// # 参数
+    /// # Parameters
     ///
-    /// - `key`: 对象键名
-    /// - `start`: 起始字节位置(包含)
-    /// - `end`: 结束字节位置(包含)
+    /// - `key`: Object key
+    /// - `start`: Start byte position (inclusive)
+    /// - `end`: End byte position (inclusive)
     async fn download_range(
         &self,
         key: &str,
@@ -329,74 +329,74 @@ pub trait StorageBackend: Send + Sync {
         end: i64,
     ) -> Result<Vec<u8>, StorageError>;
 
-    /// 删除对象
+    /// Delete object
     ///
-    /// # 参数
+    /// # Parameters
     ///
-    /// - `key`: 要删除的对象键名
+    /// - `key`: Object key to delete
     async fn delete(&self, key: &str) -> Result<(), StorageError>;
 
-    /// 批量删除对象
+    /// Batch delete objects
     ///
-    /// # 参数
+    /// # Parameters
     ///
-    /// - `keys`: 要删除的对象键名数组
+    /// - `keys`: Array of object keys to delete
     ///
-    /// # 返回值
+    /// # Returns
     ///
-    /// 返回删除失败的对象列表
+    /// Returns list of objects that failed to delete
     async fn delete_batch(&self, keys: &[&str]) -> Result<Vec<String>, StorageError>;
 
-    /// 列举对象
+    /// List objects
     ///
-    /// # 参数
+    /// # Parameters
     ///
-    /// - `prefix`: 可选的前缀过滤
-    /// - `max_keys`: 最大返回数量
+    /// - `prefix`: Optional prefix filter
+    /// - `max_keys`: Maximum number of objects to return
     async fn list(
         &self,
         prefix: Option<&str>,
         max_keys: Option<i32>,
     ) -> Result<Vec<ObjectInfo>, StorageError>;
 
-    /// 复制对象
+    /// Copy object
     ///
-    /// # 参数
+    /// # Parameters
     ///
-    /// - `src`: 源对象键名
-    /// - `dst`: 目标对象键名
+    /// - `src`: Source object key
+    /// - `dst`: Destination object key
     async fn copy(&self, src: &str, dst: &str) -> Result<(), StorageError>;
 
-    /// 移动对象
+    /// Move object
     ///
-    /// 通过复制+删除实现。
+    /// Implemented via copy + delete.
     ///
-    /// # 参数
+    /// # Parameters
     ///
-    /// - `src`: 源对象键名
-    /// - `dst`: 目标对象键名
+    /// - `src`: Source object key
+    /// - `dst`: Destination object key
     async fn move_object(&self, src: &str, dst: &str) -> Result<(), StorageError>;
 
-    /// 获取对象元数据
+    /// Get object metadata
     ///
-    /// # 参数
+    /// # Parameters
     ///
-    /// - `key`: 对象键名
+    /// - `key`: Object key
     ///
-    /// # 返回值
+    /// # Returns
     ///
-    /// 对象的完整元数据
+    /// Complete object metadata
     async fn get_metadata(&self, key: &str) -> Result<ObjectMetadata, StorageError>;
 
-    /// 生成预签名URL
+    /// Generate pre-signed URL
     ///
-    /// 创建一个临时访问URL,可在指定时间内直接访问。
+    /// Creates a temporary access URL that can be used directly within a specified time.
     ///
-    /// # 参数
+    /// # Parameters
     ///
-    /// - `key`: 对象键名
-    /// - `expires`: 过期时间
-    /// - `method`: HTTP方法(GET/PUT)
+    /// - `key`: Object key
+    /// - `expires`: Expiration duration
+    /// - `method`: HTTP method (GET/PUT)
     async fn presigned_url(
         &self,
         key: &str,
@@ -404,41 +404,41 @@ pub trait StorageBackend: Send + Sync {
         method: PresignedMethod,
     ) -> Result<String, StorageError>;
 
-    /// 构建公开访问URL
+    /// Build public access URL
     ///
-    /// 适用于公开桶，直接返回可访问的S3 URL，无需签名。
+    /// Suitable for public buckets, directly returns an accessible S3 URL without signature.
     fn public_url(&self, key: &str) -> String;
 
-    /// 获取存储类型
+    /// Get storage type
     ///
-    /// # 返回值
+    /// # Returns
     ///
-    /// 当前存储后端的类型
+    /// The current storage backend type
     fn storage_type(&self) -> StorageType;
 }
 
-// ==================== LocalStorage 本地存储实现 ====================
+// ==================== LocalStorage Local Storage Implementation ====================
 
 use common::config_str::USER_FILE_PUBLIC_DIR;
 
-/// 本地文件存储实现
+/// Local file storage implementation
 ///
-/// 提供基于本地文件系统的存储实现,
-/// 主要用于开发和测试环境。
+/// Provides file system-based storage implementation,
+/// primarily used for development and testing environments.
 ///
-/// # 特性
+/// # Features
 ///
-/// - 简单易用,无需外部依赖
-/// - 性能高,本地IO速度快
-/// - 不支持真正的预签名URL(返回本地路径)
-/// - 不适合生产环境(无法分布式部署)
+/// - Simple to use, no external dependencies required
+/// - High performance, local I/O is fast
+/// - Does not support true pre-signed URLs (returns local path)
+/// - Not suitable for production (cannot be distributed)
 ///
-/// # 存储路径
+/// # Storage Path
 ///
-/// 默认使用USER_FILE_PUBLIC_DIR作为基础目录,
-/// 所有文件都存储在此目录下。
+/// Uses USER_FILE_PUBLIC_DIR as the base directory by default,
+/// all files are stored under this directory.
 ///
-/// # 示例
+/// # Example
 ///
 /// ```rust,no_run
 /// use s3_service::storage::{LocalStorage, StorageBackend};
@@ -450,55 +450,55 @@ use common::config_str::USER_FILE_PUBLIC_DIR;
 /// }
 /// ```
 pub struct LocalStorage {
-    /// 存储基础目录
-    /// 所有文件的根路径
+    /// Storage base directory
+    /// Root path for all files
     base_dir: String,
 }
 
 impl LocalStorage {
-    /// 创建本地存储实例
+    /// Create local storage instance
     ///
-    /// 使用默认的USER_FILE_PUBLIC_DIR作为基础目录
+    /// Uses the default USER_FILE_PUBLIC_DIR as base directory
     pub fn new() -> Self {
         LocalStorage {
             base_dir: USER_FILE_PUBLIC_DIR.to_string(),
         }
     }
 
-    /// 使用指定目录创建存储实例
+    /// Create storage instance with specified directory
     ///
-    /// # 参数
+    /// # Parameters
     ///
-    /// - `base_dir`: 自定义的基础目录路径
+    /// - `base_dir`: Custom base directory path
     pub fn with_base_dir(base_dir: String) -> Self {
         LocalStorage { base_dir }
     }
 
-    /// 构建完整文件路径
+    /// Build full file path
     ///
-    /// 将基础目录和key组合成完整路径
+    /// Combines base directory and key into full path
     fn full_path(&self, key: &str) -> String {
         format!("{}/{}", self.base_dir, key)
     }
 }
 
-/// Default trait实现
+/// Default trait implementation
 impl Default for LocalStorage {
     fn default() -> Self {
         Self::new()
     }
 }
 
-/// LocalStorage的StorageBackend trait实现
+/// StorageBackend trait implementation for LocalStorage
 ///
-/// 实现所有存储后端必需的方法,
-/// 将操作映射到本地文件系统操作。
+/// Implements all required methods for storage backends,
+/// maps operations to local file system operations.
 #[async_trait]
 impl StorageBackend for LocalStorage {
-    /// 上传文件到本地文件系统
+    /// Upload file to local file system
     ///
-    /// 实际上是将数据写入本地文件。
-    /// 会自动创建所需的目录结构。
+    /// Writes data to local file.
+    /// Automatically creates required directory structure.
     async fn upload(
         &self,
         key: &str,
@@ -507,27 +507,27 @@ impl StorageBackend for LocalStorage {
     ) -> Result<StorageInfo, StorageError> {
         let path = self.full_path(key);
         
-        // 确保父目录存在,不存在则创建
+        // Ensure parent directory exists, create if not
         if let Some(parent) = std::path::Path::new(&path).parent() {
             tokio::fs::create_dir_all(parent).await?;
         }
 
-        // 写入文件数据
+        // Write file data
         tokio::fs::write(&path, &data).await?;
         
         Ok(StorageInfo {
-            bucket: None,  // 本地存储无bucket概念
+            bucket: None,  // Local storage has no bucket concept
             key: key.to_string(),
             size: data.len() as i64,
             content_type: content_type.map(|s| s.to_string()),
-            etag: None,  // 本地存储不支持ETag
+            etag: None,  // Local storage does not support ETag
             storage_type: StorageType::Local,
         })
     }
 
-    /// 流式上传(本地存储直接调用upload)
+    /// Stream upload (local storage calls upload directly)
     ///
-    /// 本地存储不需要流式处理,直接写入即可
+    /// Local storage does not require streaming, writes directly
     async fn upload_stream(
         &self,
         key: &str,
@@ -535,18 +535,18 @@ impl StorageBackend for LocalStorage {
         _size: i64,
         content_type: Option<&str>,
     ) -> Result<StorageInfo, StorageError> {
-        // 本地存储直接写入,不区分普通上传和流式上传
+        // Local storage writes directly, no distinction between regular and stream upload
         self.upload(key, data, content_type).await
     }
 
-    /// 下载文件
+    /// Download file
     ///
-    /// 读取本地文件的全部内容
+    /// Reads full content of local file
     async fn download(&self, key: &str) -> Result<Vec<u8>, StorageError> {
         let path = self.full_path(key);
         let data = tokio::fs::read(&path).await.map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
-                StorageError::NotFound(format!("文件不存在: {}", key))
+                StorageError::NotFound(format!("File not found: {}", key))
             } else {
                 StorageError::IoError(e.to_string())
             }
@@ -554,9 +554,9 @@ impl StorageBackend for LocalStorage {
         Ok(data)
     }
 
-    /// Range下载(读取文件的部分内容)
+    /// Range download (reads partial file content)
     ///
-    /// 支持断点续传场景
+    /// Supports resumable download scenarios
     async fn download_range(
         &self,
         key: &str,
@@ -564,16 +564,16 @@ impl StorageBackend for LocalStorage {
         end: i64,
     ) -> Result<Vec<u8>, StorageError> {
         let path = self.full_path(key);
-        // 读取完整文件
+        // Read full file
         let data = tokio::fs::read(&path).await.map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
-                StorageError::NotFound(format!("文件不存在: {}", key))
+                StorageError::NotFound(format!("File not found: {}", key))
             } else {
                 StorageError::IoError(e.to_string())
             }
         })?;
         
-        // 提取指定范围的数据
+        // Extract data in specified range
         let start = start as usize;
         let end = std::cmp::min(end as usize, data.len());
         if start >= data.len() || start > end {
@@ -582,23 +582,23 @@ impl StorageBackend for LocalStorage {
         Ok(data[start..end].to_vec())
     }
 
-    /// 删除文件
+    /// Delete file
     async fn delete(&self, key: &str) -> Result<(), StorageError> {
         let path = self.full_path(key);
         tokio::fs::remove_file(&path)
             .await
             .map_err(|e| {
                 if e.kind() == std::io::ErrorKind::NotFound {
-                    StorageError::NotFound(format!("文件不存在: {}", key))
+                    StorageError::NotFound(format!("File not found: {}", key))
                 } else {
                     StorageError::IoError(e.to_string())
                 }
             })
     }
 
-    /// 批量删除文件
+    /// Batch delete files
     ///
-    /// 返回删除失败的文件列表
+    /// Returns list of files that failed to delete
     async fn delete_batch(&self, keys: &[&str]) -> Result<Vec<String>, StorageError> {
         let mut failed = Vec::new();
         for key in keys {
@@ -609,9 +609,9 @@ impl StorageBackend for LocalStorage {
         Ok(failed)
     }
 
-    /// 列举文件
+    /// List files
     ///
-    /// 列出基础目录下的文件
+    /// Lists files under the base directory
     async fn list(
         &self,
         prefix: Option<&str>,
@@ -624,7 +624,7 @@ impl StorageBackend for LocalStorage {
             return Ok(result);
         }
 
-        // 读取目录内容
+        // Read directory contents
         let mut entries = tokio::fs::read_dir(&self.base_dir).await?;
         let mut count = 0i32;
         let max = max_keys.unwrap_or(1000);
@@ -639,21 +639,21 @@ impl StorageBackend for LocalStorage {
                 continue;
             }
 
-            // 获取文件名
+            // Get file name
             let key = path
                 .file_name()
                 .and_then(|n| n.to_str())
                 .unwrap_or("")
                 .to_string();
 
-            // 前缀过滤
+            // Prefix filter
             if let Some(p) = prefix {
                 if !key.starts_with(p) {
                     continue;
                 }
             }
 
-            // 获取文件元数据
+            // Get file metadata
             let metadata = tokio::fs::metadata(&path).await?;
             result.push(ObjectInfo {
                 key,
@@ -672,35 +672,35 @@ impl StorageBackend for LocalStorage {
         Ok(result)
     }
 
-    /// 复制文件
+    /// Copy file
     async fn copy(&self, src: &str, dst: &str) -> Result<(), StorageError> {
         let src_path = self.full_path(src);
         let dst_path = self.full_path(dst);
         
-        // 确保目标目录存在
+        // Ensure target directory exists
         if let Some(parent) = std::path::Path::new(&dst_path).parent() {
             tokio::fs::create_dir_all(parent).await?;
         }
         
-        // 执行文件复制
+        // Execute file copy
         tokio::fs::copy(&src_path, &dst_path)
             .await
             .map_err(|e| StorageError::IoError(e.to_string()))?;
         Ok(())
     }
 
-    /// 移动文件(复制+删除)
+    /// Move file (copy + delete)
     async fn move_object(&self, src: &str, dst: &str) -> Result<(), StorageError> {
         self.copy(src, dst).await?;
         self.delete(src).await
     }
 
-    /// 获取文件元数据
+    /// Get file metadata
     async fn get_metadata(&self, key: &str) -> Result<ObjectMetadata, StorageError> {
         let path = self.full_path(key);
         let metadata = tokio::fs::metadata(&path).await.map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
-                StorageError::NotFound(format!("文件不存在: {}", key))
+                StorageError::NotFound(format!("File not found: {}", key))
             } else {
                 StorageError::IoError(e.to_string())
             }
@@ -720,21 +720,21 @@ impl StorageBackend for LocalStorage {
         })
     }
 
-    /// 生成预签名URL
+    /// Generate pre-signed URL
     ///
-    /// 本地存储不支持真正的预签名URL,
-    /// 返回本地文件访问路径
+    /// Local storage does not support true pre-signed URLs,
+    /// returns local file access path
     async fn presigned_url(
         &self,
         key: &str,
         _expires: std::time::Duration,
         _method: PresignedMethod,
     ) -> Result<String, StorageError> {
-        // 本地存储不支持预签名URL,返回本地文件路径
+        // Local storage does not support pre-signed URLs, returns local file path
         Ok(format!("/resources/pub_file/{}", key))
     }
 
-    /// 返回存储类型为Local
+    /// Returns storage type as Local
     fn storage_type(&self) -> StorageType {
         StorageType::Local
     }
@@ -744,31 +744,31 @@ impl StorageBackend for LocalStorage {
     }
 }
 
-// ==================== S3Storage S3存储实现 ====================
+// ==================== S3Storage S3 Storage Implementation ====================
 
 use std::sync::Arc;
 
 use crate::client::S3Client;
 use crate::error::S3Error;
 
-/// S3对象存储实现
+/// S3 object storage implementation
 ///
-/// 提供基于AWS S3及兼容服务(MinIO、阿里云OSS)的存储实现。
-/// 支持完整的对象存储功能,适合生产环境使用。
+/// Provides storage implementation based on AWS S3 and compatible services (MinIO, Aliyun OSS).
+/// Supports complete object storage functionality, suitable for production environments.
 ///
-/// # 特性
+/// # Features
 ///
-/// - 支持大文件分片上传
-/// - 支持预签名URL
-/// - 支持元数据和标签管理
-/// - 支持Range下载(断点续传)
-/// - 高可用、分布式部署
+/// - Supports large file multipart uploads
+/// - Supports pre-signed URLs
+/// - Supports metadata and tag management
+/// - Supports Range downloads (resumable)
+/// - High availability, distributed deployment
 ///
-/// # 线程安全
+/// # Thread Safety
 ///
-/// 内部使用Arc包装的客户端,支持多线程共享。
+/// Uses client wrapped in Arc internally, supports multi-threaded sharing.
 ///
-/// # 示例
+/// # Example
 ///
 /// ```rust,no_run
 /// use std::sync::Arc;
@@ -779,63 +779,63 @@ use crate::error::S3Error;
 ///     let config = S3Config::default_minio();
 ///     let client = Arc::new(S3Client::new(config).await?);
 ///     let storage = S3Storage::new(client);
-///     
+///
 ///     let info = storage.upload("test.txt", b"hello".to_vec(), None).await?;
 ///     Ok(())
 /// }
 /// ```
 pub struct S3Storage {
-    /// S3客户端实例
-    /// Arc包装,支持多线程共享
+    /// S3 client instance
+    /// Wrapped in Arc for multi-threaded sharing
     client: Arc<S3Client>,
     
-    /// 存储桶名称
-    /// 所有操作都在此桶中进行
+    /// Bucket name
+    /// All operations are performed within this bucket
     bucket: String,
 }
 
 impl S3Storage {
-    /// 创建S3存储实例
+    /// Create S3 storage instance
     ///
-    /// 使用客户端配置中的默认桶
+    /// Uses default bucket from client configuration
     ///
-    /// # 参数
+    /// # Parameters
     ///
-    /// - `client`: S3客户端实例
+    /// - `client`: S3 client instance
     pub fn new(client: Arc<S3Client>) -> Self {
         let bucket = client.config.default_bucket.clone();
         S3Storage { client, bucket }
     }
 
-    /// 使用指定桶创建S3存储实例
+    /// Create S3 storage instance with specified bucket
     ///
-    /// # 参数
+    /// # Parameters
     ///
-    /// - `client`: S3客户端实例
-    /// - `bucket`: 指定的存储桶名称
+    /// - `client`: S3 client instance
+    /// - `bucket`: Specified bucket name
     pub fn with_bucket(client: Arc<S3Client>, bucket: String) -> Self {
         S3Storage { client, bucket }
     }
 }
 
-/// 将AWS SDK错误映射为StorageError
+/// Map AWS SDK errors to StorageError
 ///
-/// 统一错误类型转换函数
+/// Unified error type conversion function
 fn map_sdk_error(e: impl std::fmt::Display) -> StorageError {
     StorageError::S3Error(S3Error::AwsError(e.to_string()))
 }
 
-/// S3Storage的StorageBackend trait实现
+/// StorageBackend trait implementation for S3Storage
 ///
-/// 实现所有存储后端必需的方法,
-/// 将操作映射到S3 API调用。
+/// Implements all required methods for storage backends,
+/// maps operations to S3 API calls.
 #[async_trait]
 impl StorageBackend for S3Storage {
-    /// 上传对象到S3
+    /// Upload object to S3
     ///
-    /// 自动判断是否使用分片上传:
-    /// - 小于阈值: 直接上传
-    /// - 大于阈值: 使用分片上传
+    /// Automatically determines whether to use multipart upload:
+    /// - Below threshold: direct upload
+    /// - Above threshold: multipart upload
     async fn upload(
         &self,
         key: &str,
@@ -844,12 +844,12 @@ impl StorageBackend for S3Storage {
     ) -> Result<StorageInfo, StorageError> {
         let size = data.len() as i64;
         
-        // 大文件自动走分片上传流程
+        // Large files automatically use multipart upload flow
         if size > self.client.config.multipart_threshold {
             return self.upload_stream(key, data, size, content_type).await;
         }
 
-        // 构建上传请求
+        // Build upload request
         let mut builder = self
             .client
             .inner
@@ -857,15 +857,15 @@ impl StorageBackend for S3Storage {
             .bucket(&self.bucket)
             .key(key);
 
-        // 设置内容类型
+        // Set content type
         if let Some(ct) = content_type {
             builder = builder.content_type(ct);
         }
 
-        // 设置上传数据
+        // Set upload data
         builder = builder.body(data.into());
 
-        // 执行上传
+        // Execute upload
         let result = builder.send().await.map_err(map_sdk_error)?;
 
         Ok(StorageInfo {
@@ -878,9 +878,9 @@ impl StorageBackend for S3Storage {
         })
     }
 
-    /// 流式上传对象
+    /// Stream upload object
     ///
-    /// 用于大文件上传,支持分片上传
+    /// Used for large file uploads, supports multipart uploads
     async fn upload_stream(
         &self,
         key: &str,
@@ -888,7 +888,7 @@ impl StorageBackend for S3Storage {
         size: i64,
         content_type: Option<&str>,
     ) -> Result<StorageInfo, StorageError> {
-        // 超过分片阈值使用分片上传
+        // Use multipart upload when exceeding threshold
         if size > self.client.config.multipart_threshold {
             return crate::operations::multipart_upload(
                 &self.client,
@@ -902,13 +902,13 @@ impl StorageBackend for S3Storage {
             .map_err(StorageError::from);
         }
 
-        // 小文件直接上传
+        // Direct upload for small files
         self.upload(key, data, content_type).await
     }
 
-    /// 下载对象
+    /// Download object
     ///
-    /// 下载S3对象的完整内容
+    /// Downloads full content of S3 object
     async fn download(&self, key: &str) -> Result<Vec<u8>, StorageError> {
         let result = self
             .client
@@ -919,29 +919,29 @@ impl StorageBackend for S3Storage {
             .send()
             .await
             .map_err(|e| {
-                // 处理对象不存在的错误
+                // Handle object not found error
                 if e.as_service_error().map(|se| se.is_no_such_key()).unwrap_or(false) {
-                    StorageError::NotFound(format!("对象不存在: {}", key))
+                    StorageError::NotFound(format!("Object not found: {}", key))
                 } else {
                     map_sdk_error(e)
                 }
             })?;
 
-        // 收集响应流数据
+        // Collect response stream data
         let data = result.body.collect().await.map_err(map_sdk_error)?;
         Ok(data.into_bytes().to_vec())
     }
 
-    /// Range下载对象
+    /// Range download object
     ///
-    /// 支持断点续传和部分下载
+    /// Supports resumable and partial downloads
     async fn download_range(
         &self,
         key: &str,
         start: i64,
         end: i64,
     ) -> Result<Vec<u8>, StorageError> {
-        // 构建Range请求头
+        // Build Range request header
         let range = format!("bytes={}-{}", start, end);
         let result = self
             .client
@@ -958,7 +958,7 @@ impl StorageBackend for S3Storage {
         Ok(data.into_bytes().to_vec())
     }
 
-    /// 删除对象
+    /// Delete object
     async fn delete(&self, key: &str) -> Result<(), StorageError> {
         self.client
             .inner
@@ -971,9 +971,9 @@ impl StorageBackend for S3Storage {
         Ok(())
     }
 
-    /// 批量删除对象
+    /// Batch delete objects
     ///
-    /// 调用批量删除API,返回失败的key列表
+    /// Calls batch delete API, returns list of failed keys
     async fn delete_batch(&self, keys: &[&str]) -> Result<Vec<String>, StorageError> {
         let result = crate::operations::delete::delete_objects(
             &self.client, &self.bucket, keys,
@@ -984,9 +984,9 @@ impl StorageBackend for S3Storage {
         Ok(result.failed.into_iter().map(|e| e.key).collect())
     }
 
-    /// 列举对象
+    /// List objects
     ///
-    /// 列出存储桶中的对象
+    /// Lists objects in the bucket
     async fn list(
         &self,
         prefix: Option<&str>,
@@ -1001,11 +1001,11 @@ impl StorageBackend for S3Storage {
         Ok(result.objects)
     }
 
-    /// 复制对象
+    /// Copy object
     ///
-    /// 在同一桶内复制对象
+    /// Copy object within the same bucket
     async fn copy(&self, src: &str, dst: &str) -> Result<(), StorageError> {
-        // 构建复制源: bucket/key格式
+        // Build copy source: bucket/key format
         let copy_source = format!("{}/{}", self.bucket, src);
         self.client
             .inner
@@ -1019,15 +1019,15 @@ impl StorageBackend for S3Storage {
         Ok(())
     }
 
-    /// 移动对象(复制+删除)
+    /// Move object (copy + delete)
     async fn move_object(&self, src: &str, dst: &str) -> Result<(), StorageError> {
         self.copy(src, dst).await?;
         self.delete(src).await
     }
 
-    /// 获取对象元数据
+    /// Get object metadata
     ///
-    /// 使用HEAD操作获取对象元数据
+    /// Uses HEAD operation to get object metadata
     async fn get_metadata(&self, key: &str) -> Result<ObjectMetadata, StorageError> {
         let result = self
             .client
@@ -1038,18 +1038,18 @@ impl StorageBackend for S3Storage {
             .send()
             .await
             .map_err(|e| {
-                // 处理对象不存在的错误
+                // Handle object not found error
                 if e.as_service_error()
                     .map(|se| se.is_not_found())
                     .unwrap_or(false)
                 {
-                    StorageError::NotFound(format!("对象不存在: {}", key))
+                    StorageError::NotFound(format!("Object not found: {}", key))
                 } else {
                     map_sdk_error(e)
                 }
             })?;
 
-        // 提取自定义元数据
+        // Extract custom metadata
         let mut metadata = std::collections::HashMap::new();
         if let Some(meta) = result.metadata() {
             for (k, v) in meta.iter() {
@@ -1067,9 +1067,9 @@ impl StorageBackend for S3Storage {
         })
     }
 
-    /// 生成预签名URL
+    /// Generate pre-signed URL
     ///
-    /// 创建临时访问URL
+    /// Creates temporary access URL
     async fn presigned_url(
         &self,
         key: &str,
@@ -1081,7 +1081,7 @@ impl StorageBackend for S3Storage {
             .map_err(StorageError::from)
     }
 
-    /// 返回存储类型为S3
+    /// Returns storage type as S3
     fn storage_type(&self) -> StorageType {
         StorageType::S3
     }

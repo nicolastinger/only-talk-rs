@@ -19,7 +19,7 @@ use rustls_pemfile::{certs, ec_private_keys, pkcs8_private_keys, rsa_private_key
 use crate::controller::configure_api_routes;
 
 fn read_key_file(path: &str, label: &str) -> anyhow::Result<File> {
-    File::open(path).map_err(|e| anyhow::anyhow!("找不到{}: {}", label, e))
+    File::open(path).map_err(|e| anyhow::anyhow!("{} not found: {}", label, e))
 }
 
 fn reset_file(file: &mut impl Seek) -> anyhow::Result<()> {
@@ -28,17 +28,17 @@ fn reset_file(file: &mut impl Seek) -> anyhow::Result<()> {
 }
 
 fn init_cert_file() -> anyhow::Result<(Vec<Certificate>, PrivateKey)> {
-    let cert_file = &mut BufReader::new(read_key_file("./config/ssl/fullchain.pem", "TLS证书")?);
-    let key_file = &mut BufReader::new(read_key_file("./config/ssl/privkey.pem", "TLS证书密钥")?);
+    let cert_file = &mut BufReader::new(read_key_file("./config/ssl/fullchain.pem", "TLS certificate")?);
+    let key_file = &mut BufReader::new(read_key_file("./config/ssl/privkey.pem", "TLS certificate key")?);
 
     let cert_chain = certs(cert_file)
-        .map_err(|e| anyhow::anyhow!("读取证书链失败: {}", e))?
+        .map_err(|e| anyhow::anyhow!("Failed to read certificate chain: {}", e))?
         .into_iter()
         .map(Certificate)
         .collect::<Vec<_>>();
     info!("loaded {} certificates", cert_chain.len());
 
-    // 尝试读取不同类型的私钥
+    // Try reading private keys of different types
     let mut keys = {
         reset_file(key_file)?;
         if let Ok(keys) = rsa_private_keys(key_file) {
@@ -52,12 +52,12 @@ fn init_cert_file() -> anyhow::Result<(Vec<Certificate>, PrivateKey)> {
                     } else {
                         reset_file(key_file)?;
                         pkcs8_private_keys(key_file)
-                            .map_err(|e| anyhow::anyhow!("无法读取PKCS8私钥: {}", e))?
+                .map_err(|e| anyhow::anyhow!("Unable to read PKCS8 private key: {}", e))?
                     }
                 } else {
                     reset_file(key_file)?;
                     pkcs8_private_keys(key_file)
-                        .map_err(|e| anyhow::anyhow!("无法读取PKCS8私钥: {}", e))?
+            .map_err(|e| anyhow::anyhow!("Unable to read PKCS8 private key: {}", e))?
                 }
             }
         } else {
@@ -68,27 +68,27 @@ fn init_cert_file() -> anyhow::Result<(Vec<Certificate>, PrivateKey)> {
                 } else {
                     reset_file(key_file)?;
                     pkcs8_private_keys(key_file)
-                        .map_err(|e| anyhow::anyhow!("无法读取PKCS8私钥: {}", e))?
+            .map_err(|e| anyhow::anyhow!("Unable to read PKCS8 private key: {}", e))?
                 }
             } else {
                 reset_file(key_file)?;
                 pkcs8_private_keys(key_file)
-                    .map_err(|e| anyhow::anyhow!("无法读取PKCS8私钥: {}", e))?
+                    .map_err(|e| anyhow::anyhow!("Unable to read PKCS8 private key: {}", e))?
             }
         }
     };
 
     if keys.is_empty() {
-        return Err(anyhow::anyhow!("私钥文件中没有找到有效的私钥"));
+        return Err(anyhow::anyhow!("No valid private key found in key file"));
     }
 
     let key = PrivateKey(keys.remove(0));
     Ok((cert_chain, key))
 }
 
-/// 初始化S3客户端
+/// Initialize S3 client
 async fn init_s3_client() -> Option<Arc<s3_service::S3Client>> {
-    // 尝试读取S3配置
+    // Try reading S3 config
     let enabled = common::config_manager::get_config("s3.enabled")
         .unwrap_or_else(|| "false".to_string())
         .parse::<bool>()
@@ -120,13 +120,13 @@ async fn init_s3_client() -> Option<Arc<s3_service::S3Client>> {
     }
 }
 
-///初始化服务
+/// Initialize services
 pub async fn start_server() -> anyhow::Result<()> {
-    // 创建公开文件夹
+    // Create public file directory
     let pub_file_path = USER_FILE_PUBLIC_DIR;
     if !std::path::Path::new(pub_file_path).exists() {
         fs::create_dir_all(pub_file_path)
-            .map_err(|e| anyhow::anyhow!("创建公开文件夹失败: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Failed to create public directory: {}", e))?;
     }
 
     init_app_config()?;
@@ -137,21 +137,21 @@ pub async fn start_server() -> anyhow::Result<()> {
 
     let (cert_chain, key) = init_cert_file()?;
 
-    // 配置 TLS
+    // Configure TLS
     let config = ServerConfig::builder()
         .with_safe_defaults()
         .with_no_client_auth()
         .with_single_cert(cert_chain, key)
-        .map_err(|e| {
-            error!("failed to set certificate and private key: {}", e);
-            std::io::Error::other("无法设置证书和私钥")
-        })?;
+                .map_err(|e| {
+                error!("failed to set certificate and private key: {}", e);
+                std::io::Error::other("Failed to set certificate and private key")
+            })?;
 
     let redis_url = read_global_config!("redis", "url");
     let redis_pool = init_redis(&redis_url)?;
     verify_redis(&redis_pool).await;
 
-    // 初始化S3客户端
+    // Initialize S3 client
     let s3_client = init_s3_client().await;
 
     let address = read_global_config!("server", "address");
@@ -160,7 +160,7 @@ pub async fn start_server() -> anyhow::Result<()> {
         Some(client) => web::Data::new(client),
         None => {
             warn!("S3 client not initialized, S3-related features unavailable");
-            // 创建一个placeholder，不会实际使用
+            // Create a placeholder that won't be actually used
             let config = S3Config::default_minio();
             web::Data::new(Arc::new(s3_service::S3Client::new(config).await?))
         }
@@ -178,7 +178,7 @@ pub async fn start_server() -> anyhow::Result<()> {
             .configure(configure_api_routes)
             .service(Files::new(USER_FILE_PUBLIC, USER_FILE_PUBLIC_DIR).show_files_listing())
     })
-    .bind_rustls_021(address, config)? // 绑定到 HTTPS 端口
+    .bind_rustls_021(address, config)? // Bind to HTTPS port
     // .bind(address)?
     .run()
     .await?;

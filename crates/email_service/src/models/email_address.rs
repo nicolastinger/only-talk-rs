@@ -1,33 +1,33 @@
-//! 邮箱地址定义
+//! Email address definition
 //!
-//! 本模块定义了 [`EmailAddress`] 结构体，用于表示邮件地址。
+//! This module defines the [`EmailAddress`] struct for representing email addresses.
 
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use once_cell::sync::Lazy;
 
-/// 邮箱地址正则表达式
+/// Email address regex pattern
 ///
-/// 使用 `once_cell::Lazy` 延迟初始化，避免重复编译。
+/// Uses `once_cell::Lazy` for lazy initialization to avoid recompilation.
 static EMAIL_REGEX: Lazy<Regex> = Lazy::new(|| {
     Regex::new(
         r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
     ).unwrap_or_else(|e| panic!("email regex compilation failed: {}", e))
 });
 
-/// 邮箱地址
+/// Email address
 ///
-/// 表示一个邮箱地址，可选包含显示名称。
+/// Represents an email address, optionally with a display name.
 ///
-/// # 格式
+/// # Format
 ///
-/// - 纯地址: `user@example.com`
-/// - 带名称: `张三 <user@example.com>`
+/// - Plain address: `user@example.com`
+/// - With name: `Name <user@example.com>`
 ///
-/// # 验证
+/// # Validation
 ///
-/// 创建时会自动验证邮箱格式，不符合规范会返回错误。
+/// Format is validated on creation; invalid addresses return an error.
 ///
 /// # 示例
 ///
@@ -58,15 +58,15 @@ pub struct EmailAddress {
 }
 
 impl EmailAddress {
-    /// 创建邮箱地址
+    /// Create email address
     ///
-    /// # 参数
+    /// # Arguments
     ///
-    /// - `address`: 邮箱地址字符串
+    /// - `address`: Email address string
     ///
-    /// # 错误
+    /// # Errors
     ///
-    /// 如果地址格式无效，返回 [`EmailError::InvalidEmailAddress`]。
+    /// Returns [`EmailError::InvalidEmailAddress`] if the address format is invalid.
     ///
     /// # 示例
     ///
@@ -89,12 +89,12 @@ impl EmailAddress {
         })
     }
 
-    /// 创建带名称的邮箱地址
+    /// Create email address with display name
     ///
-    /// # 参数
+    /// # Arguments
     ///
-    /// - `address`: 邮箱地址字符串
-    /// - `name`: 显示名称
+    /// - `address`: Email address string
+    /// - `name`: Display name
     ///
     /// # 示例
     ///
@@ -116,23 +116,23 @@ impl EmailAddress {
         })
     }
 
-    /// 获取邮箱地址
+    /// Get email address
     ///
-    /// 返回纯邮箱地址，不包含显示名称。
+    /// Returns the plain email address without display name.
     pub fn address(&self) -> &str {
         &self.address
     }
 
-    /// 获取显示名称
+    /// Get display name
     ///
-    /// 如果设置了名称，返回 `Some(name)`，否则返回 `None`。
+    /// Returns `Some(name)` if set, otherwise `None`.
     pub fn name(&self) -> Option<&str> {
         self.name.as_deref()
     }
 
-    /// 验证邮箱地址格式
+    /// Validate email address format
     ///
-    /// 使用正则表达式验证邮箱格式是否正确。
+    /// Uses regex to verify whether the email format is valid.
     ///
     /// # 示例
     ///
@@ -148,9 +148,9 @@ impl EmailAddress {
         EMAIL_REGEX.is_match(email)
     }
 
-    /// 获取邮箱域名
+    /// Get email domain
     ///
-    /// 返回 `@` 符号后面的域名部分。
+    /// Returns the domain part after the `@` symbol.
     ///
     /// # 示例
     ///
@@ -165,9 +165,9 @@ impl EmailAddress {
         self.address.split('@').nth(1)
     }
 
-    /// 获取邮箱本地部分
+    /// Get email local part
     ///
-    /// 返回 `@` 符号前面的用户名部分。
+    /// Returns the username part before the `@` symbol.
     ///
     /// # 示例
     ///

@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 
 use crate::external::state::ServiceError;
 
-/// 内网 QUIC 服务配置 (无需配置TLS证书)
+/// Internal QUIC service configuration (no TLS cert required)
 #[derive(Debug, Clone)]
 pub struct InternalQuicConfig {
     pub bind_address: SocketAddr,
@@ -12,21 +12,21 @@ pub struct InternalQuicConfig {
 }
 
 impl InternalQuicConfig {
-    /// 从 TOML 配置文件读取 internal_quic_server 节
+    /// Read internal_quic_server section from TOML config file
     pub fn from_toml(path: &str) -> Result<Self, ServiceError> {
         let content = std::fs::read_to_string(path)
-            .map_err(|e| ServiceError::Config(format!("读取配置文件失败: {}", e)))?;
+            .map_err(|e| ServiceError::Config(format!("Failed to read config file: {}", e)))?;
         Self::from_toml_str(&content)
     }
 
-    /// 从 TOML 字符串解析配置（调用方需先完成环境变量替换）
+    /// Parse config from TOML string (caller must complete env var substitution first)
     pub fn from_toml_str(content: &str) -> Result<Self, ServiceError> {
         let config_map: toml::Value = toml::from_str(content)
-            .map_err(|e| ServiceError::Config(format!("解析TOML配置失败: {}", e)))?;
+            .map_err(|e| ServiceError::Config(format!("Failed to parse TOML config: {}", e)))?;
 
         let internal = config_map
             .get("internal_quic_server")
-            .ok_or_else(|| ServiceError::Config("缺少 internal_quic_server 配置节".to_string()))?;
+            .ok_or_else(|| ServiceError::Config("Missing internal_quic_server config section".to_string()))?;
 
         let addr_str = internal
             .get("address")
@@ -35,7 +35,7 @@ impl InternalQuicConfig {
 
         let bind_address: SocketAddr = addr_str
             .parse()
-            .map_err(|e| ServiceError::Config(format!("解析内网QUIC地址失败: {}", e)))?;
+            .map_err(|e| ServiceError::Config(format!("Failed to parse internal QUIC address: {}", e)))?;
 
         let server_name = internal
             .get("server_name")

@@ -13,13 +13,13 @@ use crate::http_service::user_service::dto::friend_request_info_dto::FriendReque
 use crate::http_service::user_service::vo::friend_vo::query_friend_list;
 use crate::utils::http_response::CommonResponseRef;
 
-///发起好友申请
+/// Initiate friend request
 pub async fn add_friend(
     rb: &RBatis,
     friend_request_info_dto: FriendRequestInfoDTO,
 ) -> Result<FriendRequestInfo, anyhow::Error> {
     let uuid = Uuid::now_v7().to_string();
-    // 开启事务
+    // Start transaction
     let tx = rb.acquire_begin().await?;
     let request_user =
         friend_request_info_dto.request_user.ok_or_else(|| anyhow!("request_user is None"))?;
@@ -29,32 +29,32 @@ pub async fn add_friend(
     let accept_user = accept_user_str.clone();
     let accept_user = rbatis::rbdc::Uuid::from_str(accept_user.as_str())?;
 
-    // 是否存在这个接受用户
+    // Check if accept user exists
     let is_exist_accept_user = is_exist_user_by_uuid(rb, &accept_user).await?;
     if !is_exist_accept_user {
-        return Err(anyhow!("接受用户不存在"));
+        return Err(anyhow!("Accept user does not exist"));
     }
-    // TODO 是否被接受用户拉黑
-    // TODO 是否超出发送用户或者接受用户添加数量
+    // TODO Check if blocked by accept user
+    // TODO Check if sender/receiver friend request limit exceeded
 
-    // 查询是否为已添加
+    // Check if already added
     let friend_link = FriendLink::select_by_last_uuid(rb, &request_user, &accept_user).await?;
     if friend_link.is_some() && !friend_link.as_ref().ok_or(anyhow!("friend_link is None"))?.is_del.unwrap_or(true) {
-        return Err(anyhow!("已添加"));
+        return Err(anyhow("Already added as friend"));
     }
 
-    // 查询之前添加的申请
+    // Query previous friend requests
     let friend_request_info =
         FriendRequestInfo::select_by_uuid(rb, &request_user, &accept_user).await?;
     if !friend_request_info.is_empty() {
         for item in friend_request_info.iter() {
             if let Some(0) = item.accept_status {
-                return Err(anyhow!("请勿重复添加"));
+                return Err(anyhow("Please do not add repeatedly"));
             }
         }
     }
 
-    // 使用事务块包裹逻辑
+    // Wrap logic in transaction block
     let result = async {
         let now = get_now_time_stamp_as_millis()?;
 
@@ -77,14 +77,14 @@ pub async fn add_friend(
         Ok(friend_link_info)
     }
     .await;
-    // 如果事务中有错误，回滚事务
+    // Rollback transaction on error
     if result.is_err() {
         let _ = tx.rollback().await;
     }
     result
 }
 
-/// 处理好友申请
+/// Process friend request
 pub async fn process_friend(
     rb: &RBatis,
     friend_request_info_dto: FriendRequestInfoDTO,
@@ -95,20 +95,20 @@ pub async fn process_friend(
     let accept_user = friend_request_info_dto.accept_user.ok_or(anyhow!("accept_user is None"))?;
     let accept_user = rbatis::rbdc::Uuid::from_str(accept_user.as_str())?;
 
-    // 是否存在这个发起用户
+    // Check if request user exists
     let is_exist_accept_user = is_exist_user_by_uuid(rb, &request_user).await?;
     if !is_exist_accept_user {
-        return Err(anyhow!("请求用户不存在"));
+        return Err(anyhow("Request user does not exist"));
     }
-    // TODO 是否超出接受用户添加数量
+    // TODO Check if accept user friend limit exceeded
 
-    // 查询是否为已添加
+    // Check if already added
     let friend_link = FriendLink::select_by_last_uuid(rb, &request_user, &accept_user).await?;
     if friend_link.is_some() && !friend_link.as_ref().ok_or(anyhow!("friend_link is None"))?.is_del.unwrap_or(true) {
-        return Err(anyhow!("已添加"));
+        return Err(anyhow("Already added as friend"));
     }
 
-    // 查询之前添加的申请
+    // Query previous friend requests
     let friend_request_info =
         FriendRequestInfo::select_by_uuid(rb, &request_user, &accept_user).await?;
     let get_request_info = || {
@@ -119,10 +119,10 @@ pub async fn process_friend(
         }
         None
     };
-    let mut exit_request_info = get_request_info().ok_or(anyhow!("未找到申请"))?;
-    // 开启事务
+    let mut exit_request_info = get_request_info().ok_or(anyhow!("Request not found"))?;
+    // Start transaction
     let tx = rb.acquire_begin().await?;
-    // 使用事务块包裹逻辑
+    // Wrap logic in transaction block
     let result = async {
         let now = get_now_time_stamp_as_millis()?;
         let uuid = exit_request_info.uuid.clone().ok_or(anyhow!("uuid is None"))?;
@@ -135,7 +135,7 @@ pub async fn process_friend(
         let update_value = value! {"id":&exit_request_info.id};
         FriendRequestInfo::update_by_map(rb, &exit_request_info, update_value).await?;
         match friend_request_info_dto.accept_status {
-            // 接受
+            // Accept
             Some(1) => {
                 let friend_link = FriendLink {
                     uuid: Some(uuid),
@@ -148,10 +148,10 @@ pub async fn process_friend(
                 };
                 FriendLink::insert(rb, &friend_link).await?;
             }
-            // 拒绝
+            // Reject
             Some(2) => {}
             _ => {
-                return Err(anyhow!("参数错误!"));
+                return Err(anyhow("Invalid parameter"));
             }
         }
         tx.commit().await?;
@@ -159,7 +159,7 @@ pub async fn process_friend(
         Ok(exit_request_info)
     }
     .await;
-    // 如果事务中有错误，回滚事务
+    // Rollback transaction on error
     if result.is_err() {
         let _ = tx.rollback().await;
     }
@@ -172,7 +172,7 @@ pub async fn get_friend_list(
     last_uuid: String,
     version: String,
 ) -> Result<String, anyhow::Error> {
-    let uuid = request_user.ok_or(anyhow!("获取账号失败!"))?;
+    let uuid = request_user.ok_or(anyhow("Failed to get account!"))?;
     let version = version.parse::<i32>()?;
     let uuid = rbatis::rbdc::uuid::Uuid::from_str(&uuid)?;
 
@@ -185,34 +185,34 @@ pub async fn get_friend_list(
     let res = FriendLink::select_by_last_uuid(rb, &uuid, &uuid_v7).await?;
 
     if res.is_some()
-        && res.as_ref().ok_or(anyhow!("获取时间戳失败"))?.version.unwrap_or(-1i32) == version
+        && res.as_ref().ok_or(anyhow!("Failed to get timestamp!"))?.version.unwrap_or(-1i32) == version
     {
-        timestamp = res.ok_or(anyhow!("获取时间戳失败"))?.created_at.unwrap_or(0i64);
+        timestamp = res.ok_or(anyhow!("Failed to get timestamp!"))?.created_at.unwrap_or(0i64);
     }
 
     query_friend_list(rb, &uuid, timestamp).await
 }
 
-/// 获取我接收的好友申请列表
+/// Get list of friend requests I received
 pub async fn get_accept_friend_request_list(
     rb: &RBatis,
     uuid: Option<String>,
     accept_status: Option<u8>,
 ) -> Result<String, anyhow::Error> {
-    let uuid = uuid.ok_or(anyhow!("获取账号失败!"))?;
+    let uuid = uuid.ok_or(anyhow!("Failed to get account"))?;
     let uuid = rbatis::rbdc::uuid::Uuid::from_str(&uuid)?;
 
     let res = FriendRequestInfo::select_by_accept_user_and_status(rb, &uuid, accept_status).await?;
     Ok(CommonResponseRef::<Vec<FriendRequestInfo>>::success_json(&res)?)
 }
 
-/// 获取我请求的好友申请列表
+/// Get list of friend requests I sent
 pub async fn get_friend_request_list(
     rb: &RBatis,
     uuid: Option<String>,
     accept_status: Option<u8>,
 ) -> Result<String, anyhow::Error> {
-    let uuid = uuid.ok_or(anyhow!("获取账号失败!"))?;
+    let uuid = uuid.ok_or(anyhow!("Failed to get account"))?;
     let uuid = rbatis::rbdc::uuid::Uuid::from_str(&uuid)?;
 
     let res =
@@ -220,23 +220,23 @@ pub async fn get_friend_request_list(
     Ok(CommonResponseRef::<Vec<FriendRequestInfo>>::success_json(&res)?)
 }
 
-/// 删除好友
+/// Delete friend
 pub async fn delete_friend_service(
     rb: &RBatis,
     my_uuid: Option<String>,
     friend_uuid: String,
 ) -> Result<String, anyhow::Error> {
-    let my_uuid_str = my_uuid.ok_or(anyhow!("获取当前用户ID失败"))?;
+    let my_uuid_str = my_uuid.ok_or(anyhow!("Failed to get current user ID"))?;
     let my_uuid = rbatis::rbdc::Uuid::from_str(&my_uuid_str)?;
     let friend_uuid = rbatis::rbdc::Uuid::from_str(&friend_uuid)?;
 
     let friend_link = FriendLink::select_by_last_uuid(rb, &my_uuid, &friend_uuid).await?;
     if friend_link.is_none() {
-        return Err(anyhow!("好友关系不存在"));
+        return Err(anyhow("Friend relationship does not exist"));
     }
-    let mut friend_link = friend_link.ok_or(anyhow!("好友关系不存在"))?;
+    let mut friend_link = friend_link.ok_or(anyhow("Friend relationship does not exist"))?;
     if friend_link.is_del.unwrap_or(true) {
-        return Err(anyhow!("好友关系已删除"));
+        return Err(anyhow("Friend relationship has been deleted"));
     }
 
     let now = get_now_time_stamp_as_millis()?;

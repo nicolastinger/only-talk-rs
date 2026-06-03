@@ -19,16 +19,16 @@ use crate::msg_service::group_msg_service::process_group_broadcast;
 
 async fn get_internal_addr_by_index(index: u32) -> Result<SocketAddr> {
     let redis = REDIS_CLIENT.read().await;
-    let redis = redis.as_ref().ok_or_else(|| anyhow::anyhow!("Redis 未初始化"))?;
+    let redis = redis.as_ref().ok_or_else(|| anyhow::anyhow!("Redis not initialized"))?;
     let mut conn = redis.get().await?;
     let key = format!("{}{}", REDIS_INTERNAL_QUIC_SERVERS, index);
     let addr_str: String = conn.get(&key).await?;
-    addr_str.parse().map_err(|e| anyhow::anyhow!("解析内网地址失败: {}", e))
+    addr_str.parse().map_err(|e| anyhow::anyhow!("Failed to parse internal address: {}", e))
 }
 
 async fn get_actual_node_index(uuid: &str, platform: &str) -> Result<Option<u32>> {
     let redis = REDIS_CLIENT.read().await;
-    let redis = redis.as_ref().ok_or_else(|| anyhow::anyhow!("Redis 未初始化"))?;
+    let redis = redis.as_ref().ok_or_else(|| anyhow::anyhow!("Redis not initialized"))?;
     let mut conn = redis.get().await?;
     let key = format!(
         "{}:{}{}{}{}",
@@ -62,19 +62,19 @@ async fn try_deliver_local(
     match conn {
         Some(conn) => {
             info!(
-                "[路由] 本机投递成功 target={} platform={} msg_type={}",
+                "[route] Local delivery successful target={} platform={} msg_type={}",
                 request.target_user, request.platform, request.msg_type
             );
             let mut send = conn.open_uni().await?;
 
-            // payload 已经是 TextQuicMsg 二进制，直接透传
+            // payload is already TextQuicMsg binary, direct passthrough
             send.write_all(&request.payload).await?;
             send.finish().await?;
             Ok(Some(InternalQuicResponse::ok()))
         }
         None => {
             info!(
-                "[路由] 本机未找到 target={} platform={}",
+                "[route] Not found locally target={} platform={}",
                 request.target_user, request.platform
             );
             Ok(None)
@@ -87,7 +87,7 @@ async fn forward_to_remote(
     request: &InternalQuicRequest,
 ) -> Result<InternalQuicResponse> {
     info!(
-        "[路由] 转发到远程节点 {} target={} preferred_index={} ttl={}",
+        "[route] Forwarding to remote node {} target={} preferred_index={} ttl={}",
         addr, request.target_user, request.preferred_index, request.ttl
     );
     send_internal_quic_msg(*addr, request.clone()).await
@@ -117,7 +117,7 @@ pub async fn route_request(
                 }
                 Err(e) => {
                     warn!(
-                        "[路由] 获取首选节点 {} 地址失败: {}，进入 Redis 兜底",
+                        "[route] Failed to get preferred node {} address: {}, falling back to Redis",
                         preferred_index, e
                     );
                 }
@@ -151,7 +151,7 @@ pub async fn route_request(
         }
         None => {
             info!(
-                "[路由] 用户不在线 target={} platform={}",
+                "[route] User offline target={} platform={}",
                 request.target_user, request.platform
             );
             Ok(InternalQuicResponse::user_offline())
@@ -166,7 +166,7 @@ pub async fn route_internal_request(
 ) -> Result<Vec<u8>> {
     if let Ok(broadcast) = bincode::deserialize::<InternalGroupBroadcast>(request) {
         info!(
-            "[内网QUIC] 收到群聊广播 group_uuid={} sender={} members_count={}",
+            "[internal QUIC] Received group chat broadcast group_uuid={} sender={} members_count={}",
             broadcast.group_uuid,
             broadcast.sender,
             broadcast.all_members.len()
@@ -180,5 +180,5 @@ pub async fn route_internal_request(
         return Ok(bincode::serialize(&resp)?);
     }
 
-    Err(anyhow::anyhow!("未知的内网 QUIC 请求类型"))
+    Err(anyhow::anyhow!("Unknown internal QUIC request type"))
 }

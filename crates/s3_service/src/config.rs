@@ -2,18 +2,18 @@ use std::fmt;
 
 use crate::error::S3Error;
 
-/// S3存储提供者类型枚举
+/// S3 storage provider type enum
 ///
-/// 定义支持的S3兼容存储服务类型。
-/// 目前支持MinIO、阿里云OSS和AWS S3三种。
+/// Defines the supported S3-compatible storage service types.
+/// Currently supports MinIO, Aliyun OSS, and AWS S3.
 ///
-/// # 支持的提供者
+/// # Supported Providers
 ///
-/// - `MinIO`: 开源的对象存储服务,兼容AWS S3 API
-/// - `AliyunOSS`: 阿里云对象存储服务
-/// - `AwsS3`: Amazon S3标准服务
+/// - `MinIO`: Open-source object storage service, compatible with AWS S3 API
+/// - `AliyunOSS`: Alibaba Cloud object storage service
+/// - `AwsS3`: Amazon S3 standard service
 ///
-/// # 示例
+/// # Example
 ///
 /// ```rust
 /// use s3_service::config::S3Provider;
@@ -23,11 +23,11 @@ use crate::error::S3Error;
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum S3Provider {
-    /// MinIO对象存储服务
+    /// MinIO object storage service
     MinIO,
-    /// 阿里云OSS对象存储服务
+    /// Aliyun OSS object storage service
     AliyunOSS,
-    /// AWS S3标准服务
+    /// AWS S3 standard service
     AwsS3,
 }
 
@@ -42,65 +42,65 @@ impl fmt::Display for S3Provider {
 }
 
 impl S3Provider {
-    /// 从字符串解析存储提供者类型
+    /// Parse storage provider type from string
     ///
-    /// 将配置文件中的字符串转换为S3Provider枚举。
-    /// 支持多种别名,不区分大小写。
+    /// Converts a configuration string to an S3Provider enum.
+    /// Supports multiple aliases, case-insensitive.
     ///
-    /// # 参数
+    /// # Parameters
     ///
-    /// - `s`: 提供者名称字符串
+    /// - `s`: Provider name string
     ///
-    /// # 返回值
+    /// # Returns
     ///
-    /// 解析成功返回对应的S3Provider,失败返回配置错误
+    /// Returns the corresponding S3Provider on success, or config error on failure
     ///
-    /// # 支持的字符串格式
+    /// # Supported String Formats
     ///
-    /// - `"minio"`: MinIO服务
-    /// - `"aliyun_oss"`, `"aliyun"`, `"oss"`: 阿里云OSS
+    /// - `"minio"`: MinIO service
+    /// - `"aliyun_oss"`, `"aliyun"`, `"oss"`: Aliyun OSS
     /// - `"aws_s3"`, `"aws"`: AWS S3
     ///
-    /// # 错误
+    /// # Errors
     ///
-    /// 不支持的提供者名称会返回配置错误
+    /// Unsupported provider names return a config error
     pub fn from_str(s: &str) -> Result<Self, S3Error> {
         match s.to_lowercase().as_str() {
             "minio" => Ok(S3Provider::MinIO),
             "aliyun_oss" | "aliyun" | "oss" => Ok(S3Provider::AliyunOSS),
             "aws_s3" | "aws" => Ok(S3Provider::AwsS3),
             _ => Err(S3Error::ConfigError(format!(
-                "不支持的S3提供者: {}，支持: minio, aliyun_oss, aws_s3",
+                "Unsupported S3 provider: {}. Supported: minio, aliyun_oss, aws_s3",
                 s
             ))),
         }
     }
 }
 
-/// S3服务配置结构体
+/// S3 service configuration struct
 ///
-/// 包含所有S3服务初始化所需的配置参数。
-/// 支持从配置文件加载或手动构建。
+/// Contains all configuration parameters required for S3 service initialization.
+/// Supports loading from configuration files or manual construction.
 ///
-/// # 配置项说明
+/// # Configuration Items
 ///
-/// ## 基础配置
-/// - `provider`: 存储提供者类型
-/// - `endpoint_url`: S3服务端点地址
-/// - `access_key_id`: 访问密钥ID
-/// - `secret_access_key`: 访问密钥
-/// - `region`: 服务区域
-/// - `default_bucket`: 默认存储桶名称
+/// ## Basic Configuration
+/// - `provider`: Storage provider type
+/// - `endpoint_url`: S3 service endpoint address
+/// - `access_key_id`: Access key ID
+/// - `secret_access_key`: Secret access key
+/// - `region`: Service region
+/// - `default_bucket`: Default bucket name
 ///
-/// ## 高级配置
-/// - `force_path_style`: 是否使用路径风格访问
-/// - `enabled`: 是否启用S3服务
-/// - `presign_expire_seconds`: 预签名URL过期时间
-/// - `multipart_threshold`: 分片上传阈值
-/// - `multipart_chunk_size`: 分片大小
-/// - `max_concurrent_uploads`: 最大并发上传数
+/// ## Advanced Configuration
+/// - `force_path_style`: Whether to use path-style access
+/// - `enabled`: Whether S3 service is enabled
+/// - `presign_expire_seconds`: Pre-signed URL expiration time
+/// - `multipart_threshold`: Multipart upload threshold
+/// - `multipart_chunk_size`: Chunk size
+/// - `max_concurrent_uploads`: Maximum concurrent uploads
 ///
-/// # 示例
+/// # Example
 ///
 /// ```rust
 /// use s3_service::config::{S3Config, S3Provider};
@@ -126,123 +126,122 @@ impl S3Provider {
 /// ```
 #[derive(Debug, Clone)]
 pub struct S3Config {
-    /// 存储提供者类型
-    /// 指定使用哪个S3兼容服务
+    /// Storage provider type
+    /// Specifies which S3-compatible service to use
     pub provider: S3Provider,
-    
-    /// S3兼容端点URL
-    /// AWS S3可留空,MinIO和OSS需要指定具体地址
+
+    /// S3-compatible endpoint URL
+    /// Leave empty for AWS S3, specify for MinIO and OSS
     pub endpoint_url: String,
-    
-    /// 访问密钥ID
-    /// 用于身份认证的用户名
+
+    /// Access key ID
+    /// Username for authentication
     pub access_key_id: String,
-    
-    /// 访问密钥
-    /// 用于身份认证的密码
+
+    /// Secret access key
+    /// Password for authentication
     pub secret_access_key: String,
-    
-    /// 服务区域
-    /// 如: us-east-1, cn-north-1等
+
+    /// Service region
+    /// e.g., us-east-1, cn-north-1, etc.
     pub region: String,
-    
-    /// 默认存储桶名称
-    /// 未指定桶名时使用此桶
+
+    /// Default bucket name
+    /// Used when no bucket is specified
     pub default_bucket: String,
-    
-    /// 聊天文件预览桶名称
-    /// 用于存储压缩后的聊天文件
+
+    /// Chat file preview bucket name
+    /// Used to store compressed chat files
     pub chat_file_preview_bucket: String,
-    
-    /// 聊天文件原文件桶名称
-    /// 用于存储原始聊天文件
+
+    /// Chat file origin bucket name
+    /// Used to store original chat files
     pub chat_file_origin_bucket: String,
-    
-    /// 用户头像桶名称
-    /// 用于存储用户头像文件
+
+    /// User avatar bucket name
+    /// Used to store user avatar files
     pub user_avatar_bucket: String,
 
-    /// 群组头像桶名称
-    /// 用于存储群组头像文件
+    /// Group avatar bucket name
+    /// Used to store group avatar files
     pub group_avatar_bucket: String,
-    
-    /// 是否启用路径风格访问
-    /// MinIO必须为true,AWS S3推荐false
-    /// true: http://endpoint/bucket/key
-    /// false: http://bucket.endpoint/key
+
+    /// Whether to enable path-style access
+    /// true: http://endpoint/bucket/key (required for MinIO)
+    /// false: http://bucket.endpoint/key (recommended for AWS S3)
     pub force_path_style: bool,
-    
-    /// 是否启用S3存储
-    /// false时可能回退到本地存储
+
+    /// Whether to enable S3 storage
+    /// false may fall back to local storage
     pub enabled: bool,
-    
-    /// 预签名URL过期时间(秒)
-    /// 生成的临时访问URL的有效期
+
+    /// Pre-signed URL expiration time (seconds)
+    /// Validity period for generated temporary access URLs
     pub presign_expire_seconds: u64,
-    
-    /// 分片上传阈值(字节)
-    /// 文件大小超过此值时启用分片上传
+
+    /// Multipart upload threshold (bytes)
+    /// Files exceeding this size use multipart upload
     pub multipart_threshold: i64,
-    
-    /// 分片大小(字节)
-    /// 分片上传时每个分片的大小
+
+    /// Chunk size (bytes)
+    /// Size of each chunk during multipart upload
     pub multipart_chunk_size: i64,
-    
-    /// 最大并发上传数
-    /// 分片上传时的最大并发数
+
+    /// Maximum concurrent uploads
+    /// Maximum concurrency during multipart upload
     pub max_concurrent_uploads: usize,
 }
 
 impl S3Config {
-    /// 从全局配置文件加载S3配置
+    /// Load S3 configuration from global config file
     ///
-    /// 从应用的配置管理器中读取S3相关配置项。
-    /// 支持可选配置,缺失时使用默认值。
+    /// Reads S3-related configuration from the application's config manager.
+    /// Supports optional configuration with defaults for missing values.
     ///
-    /// # 返回值
+    /// # Returns
     ///
-    /// 返回完整的S3Config实例,或配置错误
+    /// Returns a complete S3Config instance, or config error
     ///
-    /// # 配置项说明
+    /// # Configuration Items
     ///
-    /// ## 必需配置
-    /// - `s3.provider`: 存储提供者
-    /// - `s3.endpoint`: 服务端点
-    /// - `s3.access_key`: 访问密钥ID
-    /// - `s3.secret_key`: 访问密钥
+    /// ## Required Configuration
+    /// - `s3.provider`: Storage provider
+    /// - `s3.endpoint`: Service endpoint
+    /// - `s3.access_key`: Access key ID
+    /// - `s3.secret_key`: Secret access key
     ///
-    /// ## 可选配置(有默认值)
-    /// - `s3.enabled`: 是否启用,默认false
-    /// - `s3.region`: 区域,默认"us-east-1"
-    /// - `s3.default_bucket`: 默认桶,默认"only-talk-rs"
-    /// - `s3.force_path_style`: 路径风格,默认true
-    /// - `s3.presign_expire_seconds`: 预签名过期时间,默认3600秒
-    /// - `s3.multipart_threshold`: 分片阈值,默认10MB
-    /// - `s3.multipart_chunk_size`: 分片大小,默认5MB
-    /// - `s3.max_concurrent_uploads`: 并发数,默认10
+    /// ## Optional Configuration (with defaults)
+    /// - `s3.enabled`: Whether enabled, default false
+    /// - `s3.region`: Region, default "us-east-1"
+    /// - `s3.default_bucket`: Default bucket, default "only-talk-rs"
+    /// - `s3.force_path_style`: Path style, default true
+    /// - `s3.presign_expire_seconds`: Pre-signed URL expiration, default 3600 seconds
+    /// - `s3.multipart_threshold`: Multipart threshold, default 10MB
+    /// - `s3.multipart_chunk_size`: Chunk size, default 5MB
+    /// - `s3.max_concurrent_uploads`: Concurrency, default 10
     ///
-    /// # 错误
+    /// # Errors
     ///
-    /// 必需配置缺失时返回ConfigError
+    /// Returns ConfigError for missing required configuration
     pub fn from_global_config() -> Result<Self, S3Error> {
-        // 辅助函数: 获取配置项或返回错误
+        // Helper function: get config item or return error
         let get_config = |key: &str| -> Result<String, S3Error> {
             common::config_manager::get_config(key).ok_or_else(|| {
-                S3Error::ConfigError(format!("配置文件中不存在该字段: {}", key))
+                S3Error::ConfigError(format!("Config key not found: {}", key))
             })
         };
 
-        // 解析存储提供者类型
+        // Parse storage provider type
         let provider_str = get_config("s3.provider")?;
         let provider = S3Provider::from_str(&provider_str)?;
 
-        // 解析是否启用S3服务
+        // Parse whether S3 service is enabled
         let enabled = get_config("s3.enabled")
             .unwrap_or_else(|_| "false".to_string())
             .parse::<bool>()
             .unwrap_or(false);
 
-        // 构建配置对象
+        // Build configuration object
         Ok(S3Config {
             provider,
             endpoint_url: get_config("s3.endpoint")?,
@@ -283,31 +282,31 @@ impl S3Config {
         })
     }
 
-    /// 创建默认的MinIO配置
+    /// Create default MinIO configuration
     ///
-    /// 提供一个预配置的MinIO配置实例,
-    /// 主要用于开发和测试环境。
+    /// Provides a pre-configured MinIO configuration instance,
+    /// mainly for development and testing environments.
     ///
-    /// # 默认值
+    /// # Defaults
     ///
-    /// - 端点: http://xxxx
-    /// - 访问密钥: xxxx
-    /// - 密钥: xxxxxxx
-    /// - 区域: us-east-1
-    /// - 默认桶: only-talk-rs
-    /// - 路径风格: true (MinIO必需)
-    /// - 启用状态: true
-    /// - 预签名过期: 3600秒(1小时)
-    /// - 分片阈值: 10MB
-    /// - 分片大小: 5MB
-    /// - 并发数: 10
+    /// - Endpoint: http://xxxx
+    /// - Access key: xxxx
+    /// - Secret key: xxxxxxx
+    /// - Region: us-east-1
+    /// - Default bucket: only-talk-rs
+    /// - Path style: true (required for MinIO)
+    /// - Enabled: true
+    /// - Pre-signed expiration: 3600 seconds (1 hour)
+    /// - Multipart threshold: 10MB
+    /// - Chunk size: 5MB
+    /// - Concurrency: 10
     ///
-    /// # 安全警告
+    /// # Security Warning
     ///
-    /// 生产环境请勿使用默认密钥!
-    /// 请从配置文件或环境变量加载实际密钥。
+    /// Do NOT use default keys in production!
+    /// Load actual keys from configuration or environment variables.
     ///
-    /// # 示例
+    /// # Example
     ///
     /// ```rust
     /// use s3_service::S3Config;
@@ -327,9 +326,9 @@ impl S3Config {
             chat_file_origin_bucket: "chat-file-origin".to_string(),
             user_avatar_bucket: "user-avatar".to_string(),
             group_avatar_bucket: "group-avatar".to_string(),
-            force_path_style: true,      // MinIO必须使用路径风格
+            force_path_style: true,      // MinIO requires path-style
             enabled: true,
-            presign_expire_seconds: 3600, // 1小时
+            presign_expire_seconds: 3600, // 1 hour
             multipart_threshold: 10 * 1024 * 1024,  // 10MB
             multipart_chunk_size: 5 * 1024 * 1024,   // 5MB
             max_concurrent_uploads: 10,

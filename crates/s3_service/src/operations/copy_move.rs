@@ -1,23 +1,23 @@
-//! 对象复制和移动操作模块
+//! Object copy and move operations module
 //!
-//! 提供对象的复制和移动功能。
+//! Provides object copy and move functionality.
 
 use crate::client::S3Client;
 use crate::error::S3Error;
 
-/// 复制对象
+/// Copy object
 ///
-/// 在不同的存储桶之间复制对象。
+/// Copy objects between different buckets.
 ///
-/// # 参数
+/// # Parameters
 ///
-/// - `client`: S3客户端实例
-/// - `source_bucket`: 源存储桶
-/// - `source_key`: 源对象键名
-/// - `dest_bucket`: 目标存储桶
-/// - `dest_key`: 目标对象键名
+/// - `client`: S3 client instance
+/// - `source_bucket`: Source bucket
+/// - `source_key`: Source object key name
+/// - `dest_bucket`: Destination bucket
+/// - `dest_key`: Destination object key name
 ///
-/// # 示例
+/// # Example
 ///
 /// ```rust,no_run
 /// async fn copy_example(client: &s3_service::S3Client) -> Result<(), s3_service::S3Error> {
@@ -37,7 +37,7 @@ pub async fn copy_object(
     dest_bucket: &str,
     dest_key: &str,
 ) -> Result<(), S3Error> {
-    // 构建复制源路径: bucket/key格式
+    // Build copy source path: bucket/key format
     let copy_source = format!("{}/{}", source_bucket, source_key);
     client
         .inner
@@ -47,26 +47,26 @@ pub async fn copy_object(
         .copy_source(copy_source)
         .send()
         .await
-        .map_err(|e| S3Error::AwsError(format!("复制对象失败: {}", e)))?;
+        .map_err(|e| S3Error::AwsError(format!("Failed to copy object: {}", e)))?;
     Ok(())
 }
 
-/// 移动对象
+/// Move object
 ///
-/// 将对象从一个位置移动到另一个位置。
-/// 实现方式: 先复制,再删除源对象。
+/// Move an object from one location to another.
+/// Implementation: Copy first, then delete source object.
 ///
-/// # 参数
+/// # Parameters
 ///
-/// - `client`: S3客户端实例
-/// - `source_bucket`: 源存储桶
-/// - `source_key`: 源对象键名
-/// - `dest_bucket`: 目标存储桶
-/// - `dest_key`: 目标对象键名
+/// - `client`: S3 client instance
+/// - `source_bucket`: Source bucket
+/// - `source_key`: Source object key name
+/// - `dest_bucket`: Destination bucket
+/// - `dest_key`: Destination object key name
 ///
-/// # 注意事项
+/// # Notes
 ///
-/// 移动操作是原子性的,复制失败时不会删除源对象
+/// Move operation is atomic, source object is not deleted if copy fails
 pub async fn move_object(
     client: &S3Client,
     source_bucket: &str,
@@ -74,10 +74,10 @@ pub async fn move_object(
     dest_bucket: &str,
     dest_key: &str,
 ) -> Result<(), S3Error> {
-    // 先复制对象
+    // First copy object
     copy_object(client, source_bucket, source_key, dest_bucket, dest_key).await?;
 
-    // 只有源和目标不同时才删除源
+    // Only delete source when source and target differ
     if source_bucket != dest_bucket || source_key != dest_key {
         client
             .inner
@@ -86,22 +86,22 @@ pub async fn move_object(
             .key(source_key)
             .send()
             .await
-            .map_err(|e| S3Error::AwsError(format!("移动对象-删除源对象失败: {}", e)))?;
+            .map_err(|e| S3Error::AwsError(format!("Failed to delete source object during move: {}", e)))?;
     }
 
     Ok(())
 }
 
-/// 在同一桶内复制对象
+/// Copy object within same bucket
 ///
-/// 简化版的复制操作,源和目标在同一桶内。
+/// Simplified copy operation, source and destination in same bucket.
 ///
-/// # 参数
+/// # Parameters
 ///
-/// - `client`: S3客户端实例
-/// - `bucket`: 存储桶名称
-/// - `source_key`: 源对象键名
-/// - `dest_key`: 目标对象键名
+/// - `client`: S3 client instance
+/// - `bucket`: Bucket name
+/// - `source_key`: Source object key name
+/// - `dest_key`: Destination object key name
 pub async fn copy_object_same_bucket(
     client: &S3Client,
     bucket: &str,
@@ -111,16 +111,16 @@ pub async fn copy_object_same_bucket(
     copy_object(client, bucket, source_key, bucket, dest_key).await
 }
 
-/// 在同一桶内移动对象
+/// Move object within same bucket
 ///
-/// 简化版的移动操作,源和目标在同一桶内。
+/// Simplified move operation, source and destination in same bucket.
 ///
-/// # 参数
+/// # Parameters
 ///
-/// - `client`: S3客户端实例
-/// - `bucket`: 存储桶名称
-/// - `source_key`: 源对象键名
-/// - `dest_key`: 目标对象键名
+/// - `client`: S3 client instance
+/// - `bucket`: Bucket name
+/// - `source_key`: Source object key name
+/// - `dest_key`: Destination object key name
 pub async fn move_object_same_bucket(
     client: &S3Client,
     bucket: &str,

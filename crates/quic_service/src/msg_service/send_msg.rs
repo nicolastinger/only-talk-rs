@@ -11,14 +11,14 @@ use common::utils::server_count_sync::compute_preferred_index;
 use crate::models::quic_connection::{ConnectionType, QuicConnection};
 use crate::msg_service::text_msg_service::generate_text_msg;
 
-/// 针对用户发送系统消息（通过内网 QUIC 路由）
+/// Send system message to user (routed via internal QUIC)
 pub async fn send_quic_system_msg(
     current_user: String,
     msg_type: u16,
     text: String,
     connections: &Arc<DashMap<String, QuicConnection>>,
 ) -> anyhow::Result<()> {
-    // 1. 先尝试本机投递（对 PC / MOBILE 两个平台）
+    // 1. First try local delivery (for both PC / MOBILE platforms)
     let preferred_index = compute_preferred_index(&current_user);
 
     for platform in [common::config_str::PC_PLATFORM, common::config_str::MOBILE_PLATFORM] {
@@ -51,8 +51,8 @@ pub async fn send_quic_system_msg(
         }
     }
 
-    // 2. 本机未找到 → 转发给内网 QUIC
-    // 先包装成 TextQuicMsg 二进制，再通过内网透传
+    // 2. Not found locally -> forward to internal QUIC
+    // First wrap as TextQuicMsg binary, then passthrough via internal network
     let msg_bytes = generate_text_msg(
         msg_type,
         text.as_bytes().to_vec(),
@@ -69,7 +69,7 @@ pub async fn send_quic_system_msg(
         ttl: 3,
     };
 
-    // 根据 preferred_index 从 Redis 获取目标节点的内网 QUIC 地址
+    // Get target node's internal QUIC address from Redis based on preferred_index
     let redis = REDIS_CLIENT.read().await;
     if let Some(redis) = redis.as_ref() {
         let mut conn = redis.get().await?;

@@ -1,6 +1,6 @@
-//! HTTP API 服务独立启动入口
+//! HTTP API service standalone entry point
 //!
-//! 仅启动 actix-web HTTPS 服务，不启动 QUIC 相关服务。
+//! Starts only the actix-web HTTPS service, no QUIC services.
 
 use api::init_server::start_server;
 use common::tracing::init_tracing;

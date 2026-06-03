@@ -7,26 +7,26 @@ use uuid::Uuid;
 
 use crate::{REDIS_CLIENT, REDIS_INIT_ONCE};
 
-/// 初始化 Redis 连接池（仅首次调用生效）
+/// Initialize Redis connection pool (only effective on first call)
 pub fn init_redis(url: &str) -> Result<Pool, anyhow::Error> {
     if REDIS_INIT_ONCE.get().is_some() {
         return REDIS_CLIENT
             .try_read()
-            .map_err(|_| anyhow!("获取Redis读锁失败"))?
+            .map_err(|_| anyhow!("Failed to acquire Redis read lock"))?
             .clone()
-            .ok_or_else(|| anyhow!("Redis未初始化"));
+            .ok_or_else(|| anyhow!("Redis not initialized"));
     }
 
     info!("connecting to Redis - address: {}", url);
     let config = RedisConfig::from_url(url);
     let pool = config
         .create_pool(Some(Runtime::Tokio1))
-        .map_err(|e| anyhow!("创建Redis连接池失败: {}", e))?;
+        .map_err(|e| anyhow!("Failed to create Redis connection pool: {}", e))?;
 
     {
         let mut guard = REDIS_CLIENT
             .try_write()
-            .map_err(|_| anyhow!("获取Redis写锁失败"))?;
+            .map_err(|_| anyhow!("Failed to acquire Redis write lock"))?;
         if REDIS_INIT_ONCE.set(()).is_ok() {
             *guard = Some(pool.clone());
         }
@@ -62,43 +62,43 @@ pub async fn verify_redis(pool: &Pool) {
 
 pub async fn get_redis_conn() -> Result<Connection, anyhow::Error> {
     let redis_client = REDIS_CLIENT.read().await;
-    let redis_conn = redis_client.as_ref().ok_or(anyhow!("redis客户端错误"))?;
+    let redis_conn = redis_client.as_ref().ok_or(anyhow!("Redis client error"))?;
     let conn = redis_conn.get().await?;
     Ok(conn)
 }
 
-/// Redis 连接兜底：不可用时返回 None，不报错
+/// Redis connection fallback: returns None when unavailable, no error
 pub async fn try_get_redis_conn() -> Option<Connection> {
     let redis = REDIS_CLIENT.read().await;
     redis.as_ref()?.get().await.ok()
 }
 
-/// redis分布式锁加锁
+/// Redis distributed lock acquire
 pub async fn acquire_lock(
     conn: &mut Connection,
     key: &str,
     ttl_sec: u64,
     content: String,
 ) -> Result<Option<String>, anyhow::Error> {
-    let lock_id = Uuid::new_v4().to_string(); // 生成唯一标识
+    let lock_id = Uuid::new_v4().to_string(); // Generate unique identifier
     let lock_id = format!("{}_{}", lock_id, content);
     let result: Option<()> = cmd("SET")
         .arg(key)
         .arg(&lock_id)
-        .arg("NX") // 互斥性：仅当 key 不存在时设置
-        .arg("EX") // 过期时间单位秒
+        .arg("NX") // Mutual exclusion: only set when key does not exist
+        .arg("EX") // Expiry time unit: seconds
         .arg(ttl_sec)
         .query_async(conn)
         .await?;
 
     Ok(if result.is_some() {
-        Some(lock_id) // 返回锁标识，用于后续释放
+        Some(lock_id) // Return lock identifier for subsequent release
     } else {
         None
     })
 }
 
-/// redis分布式锁释放
+/// Redis distributed lock release
 pub async fn release_lock(
     conn: &mut Connection,
     key: &str,
@@ -114,5 +114,5 @@ pub async fn release_lock(
     let deleted: i32 =
         cmd("EVAL").arg(script).arg(1).arg(key).arg(lock_id).query_async(conn).await?;
 
-    Ok(deleted == 1) // 是否成功释放
+    Ok(deleted == 1) // Whether the lock was successfully released
 }

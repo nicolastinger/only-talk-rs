@@ -16,8 +16,8 @@ pub fn generate_rsa_keys() -> Result<(RsaPrivateKey, RsaPublicKey), anyhow::Erro
     let public_key_config = get_config("jwt_public_key");
 
     let (private_key_str, public_key_str) = if private_key_config.is_some() && public_key_config.is_some() {
-        let private_key_str = private_key_config.ok_or(anyhow!("jwt_private_key 配置不存在"))?;
-        let public_key_str = public_key_config.ok_or(anyhow!("jwt_public_key 配置不存在"))?;
+        let private_key_str = private_key_config.ok_or(anyhow!("jwt_private_key config not found"))?;
+        let public_key_str = public_key_config.ok_or(anyhow!("jwt_public_key config not found"))?;
         (private_key_str, public_key_str)
     } else {
         let private_key_text = fs::read_to_string("./config/jwt/private.key");
@@ -43,32 +43,32 @@ pub fn generate_rsa_keys() -> Result<(RsaPrivateKey, RsaPublicKey), anyhow::Erro
 }
 
 fn new_rsa_key() -> Result<(RsaPrivateKey, RsaPublicKey), anyhow::Error> {
-    // 如果没有现有的密钥文件，则生成新的 RSA 密钥对
+    // Generate a new RSA key pair if no existing key files
     let mut rng = rand::thread_rng();
     let bits = 2048;
     let private_key = RsaPrivateKey::new(&mut rng, bits)?;
 
-    // 从私钥派生出公钥
+    // Derive public key from private key
     let public_key = RsaPublicKey::from(&private_key);
     let private_key_pem = private_key.to_pkcs8_pem(Default::default())?;
     let private_key_str = private_key_pem.to_string();
-    // 将公钥转换为 PEM 格式的字符串
+    // Convert public key to PEM format string
     let public_key_pem = public_key.to_pkcs1_pem(Default::default())?;
     let public_key_str = public_key_pem.to_string();
     set_config("jwt_private_key".string(), private_key_str.clone());
     set_config("jwt_public_key".string(), public_key_str.clone());
-    // 保存生成的密钥到文件
+    // Save generated key to file
     fs::write("./config/jwt/private.key", private_key_str)?;
     fs::write("./config/jwt/public.key", public_key_str)?;
     Ok((private_key, public_key))
 }
 
-// 生成一个指定长度的随机字符串
+// Generate a random string of specified length
 pub fn generate_random_string(length: usize) -> String {
     let mut rng = rand::thread_rng();
     std::iter::repeat(())
         .map(|_| rng.sample(Alphanumeric))
-        .map(|num| num as char) // 将 u8 转换为 char
+        .map(|num| num as char) // Convert u8 to char
         .take(length)
         .collect::<String>()
 }

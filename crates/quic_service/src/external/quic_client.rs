@@ -17,11 +17,11 @@ use super::set_server::configure_client;
 
 #[allow(dead_code)]
 pub async fn run_client(server_addr: SocketAddr) {
-    // 创建客户端端点
+    // Create client endpoint
     let mut endpoint = Endpoint::client("0.0.0.0:0".parse().unwrap()).unwrap();
-    endpoint.set_default_client_config(configure_client()); // 设置默认客户端配置
+    endpoint.set_default_client_config(configure_client()); // Set default client config
 
-    // 尝试连接到服务器
+    // Try connecting to server
     let connection = match endpoint
         .connect(server_addr, "onlytalk.cn")
     {
@@ -37,9 +37,9 @@ pub async fn run_client(server_addr: SocketAddr) {
             return;
         }
     };
-    info!("[client] connected: addr={}", connection.remote_address()); // 打印连接成功的服务器地址
+    info!("[client] connected: addr={}", connection.remote_address()); // Print connected server address
 
-    // 开启一个双向流用于初始化和接收
+    // Open a bi-directional stream for init and receiving
     let (mut send_stream, mut _recv_stream) = match connection.open_bi().await {
         Ok(stream) => stream,
         Err(e) => {
@@ -52,7 +52,7 @@ pub async fn run_client(server_addr: SocketAddr) {
     }
     let head_length = 9;
     let buffer_msg: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
-    // bidi recv loop（初始化流接收）
+    // bidi recv loop (init stream receive)
     tokio::spawn(async move {
         let mut buffer = vec![0u8; 1024 * 8];
         loop {
@@ -85,7 +85,7 @@ pub async fn run_client(server_addr: SocketAddr) {
         }
     });
 
-    // uni stream 接收循环（服务端通过 open_uni 推送消息）
+    // uni stream receive loop (server pushes messages via open_uni)
     {
         let conn_for_uni = connection.clone();
         tokio::spawn(async move {
@@ -129,7 +129,7 @@ pub async fn run_client(server_addr: SocketAddr) {
         }
     }
 
-    // 保持 bidi send half 存活，防止服务端看到流关闭而下线
+    // Keep bidi send half alive, prevent server from going offline when it sees stream closed
     tokio::spawn(async move {
         let _keep = send_stream;
         std::future::pending::<()>().await;
@@ -137,7 +137,7 @@ pub async fn run_client(server_addr: SocketAddr) {
 }
 
 async fn init_send_msg(send_stream: &mut SendStream, conn: Connection) -> Result<(), anyhow::Error> {
-    // 发送消息给服务器
+    // Send message to server
     let uuid = "01965d95-0ffc-7d23-911e-1111485fb9be".to_string();
     let mut first_quic_msg = FirstQuicMsg::new();
     first_quic_msg.dyn_header_size = 9;
@@ -145,18 +145,18 @@ async fn init_send_msg(send_stream: &mut SendStream, conn: Connection) -> Result
     first_quic_msg.text_serde_struct = "user_chat_json".to_string();
     first_quic_msg.msg_type = ConnectionType::Text;
     let token = generate_access_token(uuid.clone(), PC_PLATFORM.to_string())
-        .map_err(|e| anyhow::anyhow!("获取token失败: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("Failed to get token: {}", e))?;
     first_quic_msg.token = token;
 
     let first_msg_json = serde_json::to_string(&first_quic_msg)?;
     info!("[client] preparing to send init message: {}", first_msg_json);
 
     send_stream.write_all(first_msg_json.as_bytes()).await?;
-    send_stream.flush().await?; // 确保数据被立即发送
+    send_stream.flush().await?; // Ensure data is sent immediately
 
     info!("[client] init message sent, waiting for server response");
 
-    tokio::time::sleep(Duration::from_secs(1)).await; //初始化一秒，防止连发元数据
+    tokio::time::sleep(Duration::from_secs(1)).await; // Init delay 1 second, prevent sending metadata repeatedly
 
     let test_msg = generate_text_msg(
         message_types::MSG_TYPE_TEXT,
@@ -172,14 +172,14 @@ async fn init_send_msg(send_stream: &mut SendStream, conn: Connection) -> Result
         uuid.clone(),
     )?;
 
-    // 按需开流发送测试消息
+    // Send test messages via on-demand streams
     send_via_new_stream(&conn, &test_msg).await?;
     send_via_new_stream(&conn, &test_msg2).await?;
     send_via_new_stream(&conn, &test_msg2).await?;
     send_via_new_stream(&conn, &test_msg2).await?;
     send_via_new_stream(&conn, &test_msg2).await?;
 
-    // 心跳循环 - 按需开流
+    // Heartbeat loop - open stream on demand
     tokio::spawn(async move {
         loop {
             tokio::time::sleep(Duration::from_secs(30)).await;
@@ -208,7 +208,7 @@ async fn init_send_msg(send_stream: &mut SendStream, conn: Connection) -> Result
     Ok(())
 }
 
-/// 按需开流发送数据
+/// Send data via on-demand stream
 async fn send_via_new_stream(conn: &Connection, data: &[u8]) -> Result<(), anyhow::Error> {
     let mut send = conn.open_uni().await?;
     send.write_all(data).await?;

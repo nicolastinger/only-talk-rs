@@ -10,7 +10,7 @@ use crate::internal::internal_quic_server::run_internal_server;
 use crate::external::lifecycle::ServiceLifecycle;
 use crate::nat_ip::nat_udp_service::run_udp_server;
 
-/// 启动 QUIC 服务（ChatNode + NAT UDP + 内网 QUIC），完全自包含
+/// Start QUIC service (ChatNode + NAT UDP + internal QUIC), fully self-contained
 pub async fn start_server() -> anyhow::Result<Arc<ChatNode>> {
     let resolved_content = common::init_app_config()?;
 
@@ -20,7 +20,7 @@ pub async fn start_server() -> anyhow::Result<Arc<ChatNode>> {
     let node = Arc::new(node);
     node.start().await?;
 
-    // 初始化基础设施（幂等操作，api 层后续调用不会重复初始化）
+    // Initialize infrastructure (idempotent, api layer subsequent calls won't re-initialize)
     let redis_url = read_global_config!("redis", "url");
     match common::init_redis(&redis_url) {
         Ok(_) => info!("Redis connection pool ready"),
@@ -36,7 +36,7 @@ pub async fn start_server() -> anyhow::Result<Arc<ChatNode>> {
     let connections = node.connections();
     let server_index = node.config().server_index;
 
-    // 集群：注册外网节点 + 启动 server_count 后台同步 + 节点 key 续期
+    // Cluster: register external node + start server_count background sync + node key renewal
     {
         let redis = common::REDIS_CLIENT.read().await;
         if let Some(redis) = redis.as_ref() {
@@ -55,10 +55,10 @@ pub async fn start_server() -> anyhow::Result<Arc<ChatNode>> {
         }
     }
 
-    // 启动 NAT 发现 + 客户端 P2P 请求转发 UDP 服务
+    // Start NAT discovery + client P2P request forwarding UDP service
     run_udp_server(connections.clone()).await?;
 
-    // 启动内网 QUIC 服务
+    // Start internal QUIC service
     let internal_config = InternalQuicConfig::from_toml_str(&resolved_content)?;
     let (internal_shutdown_tx, internal_shutdown_rx) = tokio::sync::watch::channel(false);
     tokio::spawn(async move {

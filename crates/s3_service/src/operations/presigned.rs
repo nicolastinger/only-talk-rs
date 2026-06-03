@@ -1,6 +1,6 @@
-//! 预签名URL操作模块
+//! Pre-signed URL operations module
 //!
-//! 提供生成临时访问URL的功能。
+//! Provides functionality for generating temporary access URLs.
 
 use std::time::Duration;
 
@@ -8,42 +8,42 @@ use crate::client::S3Client;
 use crate::error::S3Error;
 use crate::storage::PresignedMethod;
 
-/// 生成预签名URL
+/// Generate pre-signed URL
 ///
-/// 生成一个临时的、带签名的URL,允许直接访问对象。
+/// Generates a temporary, signed URL that allows direct access to an object.
 ///
-/// # 参数
+/// # Parameters
 ///
-/// - `client`: S3客户端实例
-/// - `bucket`: 存储桶名称
-/// - `key`: 对象键名
-/// - `expires`: URL过期时间
-/// - `method`: HTTP方法(GET用于下载,PUT用于上传)
+/// - `client`: S3 client instance
+/// - `bucket`: Storage bucket name
+/// - `key`: Object key name
+/// - `expires`: URL expiration time
+/// - `method`: HTTP method (GET for download, PUT for upload)
 ///
-/// # 返回值
+/// # Returns
 ///
-/// 带签名的临时URL字符串
+/// Signed temporary URL string
 ///
-/// # 安全性
+/// # Security
 ///
-/// - URL中包含签名,无法伪造
-/// - 过期后自动失效
-/// - 可限制操作类型(GET/PUT)
+/// - URL contains signature, cannot be forged
+/// - Automatically expires after expiration time
+/// - Can restrict operation type (GET/PUT)
 ///
-/// # 使用场景
+/// # Use Cases
 ///
-/// - 浏览器直接下载/上传
-/// - 分享临时访问链接
-/// - 减少服务器负载(直传)
+/// - Browser direct download/upload
+/// - Share temporary access links
+/// - Reduce server load (direct transfer)
 ///
-/// # 示例
+/// # Example
 ///
 /// ```rust,no_run
 /// use std::time::Duration;
 /// use s3_service::storage::PresignedMethod;
 ///
 /// async fn example(client: &s3_service::S3Client) -> Result<String, s3_service::S3Error> {
-///     // 生成下载URL,1小时后过期
+///     // Generate download URL, expires after 1 hour
 ///     let url = s3_service::operations::generate_presigned_url(
 ///         client,
 ///         "my-bucket",
@@ -65,7 +65,7 @@ pub async fn generate_presigned_url(
 
     match method {
         PresignedMethod::Get => {
-            // 生成下载预签名URL
+            // Generate download pre-signed URL
             let builder = client
                 .inner
                 .get_object()
@@ -75,14 +75,14 @@ pub async fn generate_presigned_url(
             let presigned_request = builder
                 .presigned(aws_sdk_s3::presigning::PresigningConfig::expires_in(
                     Duration::from_secs(expires_secs as u64),
-                ).map_err(|e| S3Error::PresignError(format!("配置预签名失败: {}", e)))?)
+                ).map_err(|e| S3Error::PresignError(format!("Failed to configure presigned URL: {}", e)))?)
                 .await
-                .map_err(|e| S3Error::PresignError(format!("生成下载预签名URL失败: {}", e)))?;
+                .map_err(|e| S3Error::PresignError(format!("Failed to generate download presigned URL: {}", e)))?;
 
             Ok(presigned_request.uri().to_string())
         }
         PresignedMethod::Put => {
-            // 生成上传预签名URL
+            // Generate upload pre-signed URL
             let builder = client
                 .inner
                 .put_object()
@@ -92,25 +92,25 @@ pub async fn generate_presigned_url(
             let presigned_request = builder
                 .presigned(aws_sdk_s3::presigning::PresigningConfig::expires_in(
                     Duration::from_secs(expires_secs as u64),
-                ).map_err(|e| S3Error::PresignError(format!("配置预签名失败: {}", e)))?)
+                ).map_err(|e| S3Error::PresignError(format!("Failed to configure presigned URL: {}", e)))?)
                 .await
-                .map_err(|e| S3Error::PresignError(format!("生成上传预签名URL失败: {}", e)))?;
+                .map_err(|e| S3Error::PresignError(format!("Failed to generate upload presigned URL: {}", e)))?;
 
             Ok(presigned_request.uri().to_string())
         }
     }
 }
 
-/// 生成下载预签名URL
+/// Generate download pre-signed URL
 ///
-/// 便捷函数,专门用于生成下载URL。
+/// Convenience function, specifically for generating download URLs.
 ///
-/// # 参数
+/// # Parameters
 ///
-/// - `client`: S3客户端实例
-/// - `bucket`: 存储桶名称
-/// - `key`: 对象键名
-/// - `expires`: 过期时间
+/// - `client`: S3 client instance
+/// - `bucket`: Storage bucket name
+/// - `key`: Object key name
+/// - `expires`: Expiration time
 pub async fn generate_download_presigned_url(
     client: &S3Client,
     bucket: &str,
@@ -120,16 +120,16 @@ pub async fn generate_download_presigned_url(
     generate_presigned_url(client, bucket, key, expires, PresignedMethod::Get).await
 }
 
-/// 生成上传预签名URL
+/// Generate upload pre-signed URL
 ///
-/// 便捷函数,专门用于生成上传URL。
+/// Convenience function, specifically for generating upload URLs.
 ///
-/// # 参数
+/// # Parameters
 ///
-/// - `client`: S3客户端实例
-/// - `bucket`: 存储桶名称
-/// - `key`: 对象键名
-/// - `expires`: 过期时间
+/// - `client`: S3 client instance
+/// - `bucket`: Storage bucket name
+/// - `key`: Object key name
+/// - `expires`: Expiration time
 pub async fn generate_upload_presigned_url(
     client: &S3Client,
     bucket: &str,
@@ -139,40 +139,40 @@ pub async fn generate_upload_presigned_url(
     generate_presigned_url(client, bucket, key, expires, PresignedMethod::Put).await
 }
 
-/// 使用默认过期时间生成下载预签名URL
+/// Generate download pre-signed URL with default expiration
 ///
-/// 使用配置中的默认过期时间。
+/// Uses the default expiration time from configuration.
 ///
-/// # 参数
+/// # Parameters
 ///
-/// - `client`: S3客户端实例
-/// - `bucket`: 存储桶名称
-/// - `key`: 对象键名
+/// - `client`: S3 client instance
+/// - `bucket`: Storage bucket name
+/// - `key`: Object key name
 pub async fn generate_download_url_default(
     client: &S3Client,
     bucket: &str,
     key: &str,
 ) -> Result<String, S3Error> {
-    // 使用配置的默认过期时间
+    // Use configured default expiration time
     let expires = Duration::from_secs(client.config.presign_expire_seconds);
     generate_download_presigned_url(client, bucket, key, expires).await
 }
 
-/// 使用默认过期时间生成上传预签名URL
+/// Generate upload pre-signed URL with default expiration
 ///
-/// 使用配置中的默认过期时间。
+/// Uses the default expiration time from configuration.
 ///
-/// # 参数
+/// # Parameters
 ///
-/// - `client`: S3客户端实例
-/// - `bucket`: 存储桶名称
-/// - `key`: 对象键名
+/// - `client`: S3 client instance
+/// - `bucket`: Storage bucket name
+/// - `key`: Object key name
 pub async fn generate_upload_url_default(
     client: &S3Client,
     bucket: &str,
     key: &str,
 ) -> Result<String, S3Error> {
-    // 使用配置的默认过期时间
+    // Use configured default expiration time
     let expires = Duration::from_secs(client.config.presign_expire_seconds);
     generate_upload_presigned_url(client, bucket, key, expires).await
 }

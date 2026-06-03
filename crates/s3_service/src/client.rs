@@ -9,17 +9,17 @@ use tracing::info;
 use crate::config::S3Config;
 use crate::error::S3Error;
 
-/// S3客户端封装结构体
+/// S3 client wrapper struct
 ///
-/// 该结构体封装了AWS SDK的S3客户端,提供了统一的S3服务访问接口。
-/// 持有底层的AWS SDK客户端实例和配置信息。
+/// This struct wraps the AWS SDK's S3 client, providing a unified interface for S3 service access.
+/// It holds the underlying AWS SDK client instance and configuration information.
 ///
-/// # 字段说明
+/// # Fields
 ///
-/// - `inner`: AWS SDK的原始S3客户端实例
-/// - `config`: S3服务配置信息
+/// - `inner`: Raw AWS SDK S3 client instance
+/// - `config`: S3 service configuration
 ///
-/// # 示例
+/// # Example
 ///
 /// ```rust,no_run
 /// use s3_service::{S3Client, S3Config};
@@ -32,38 +32,38 @@ use crate::error::S3Error;
 /// ```
 #[derive(Clone)]
 pub struct S3Client {
-    /// AWS S3 SDK客户端实例
-    /// 用于执行实际的S3 API调用
+    /// AWS S3 SDK client instance
+    /// Used for actual S3 API calls
     pub inner: AwsS3Client,
-    
-    /// S3配置信息
-    /// 包含端点、认证信息、默认存储桶等配置
+
+    /// S3 configuration information
+    /// Contains endpoint, authentication, default bucket, etc.
     pub config: S3Config,
 }
 
 impl S3Client {
-    /// 创建新的S3客户端实例
+    /// Create a new S3 client instance
     ///
-    /// 根据提供的配置信息初始化AWS SDK的S3客户端。
-    /// 支持MinIO、阿里云OSS和AWS S3等多种存储服务。
+    /// Initializes the AWS SDK S3 client based on the provided configuration.
+    /// Supports MinIO, Aliyun OSS, and AWS S3 storage services.
     ///
-    /// # 参数
+    /// # Parameters
     ///
-    /// - `config`: S3配置信息,包含认证、端点、区域等
+    /// - `config`: S3 configuration, including authentication, endpoint, region, etc.
     ///
-    /// # 返回值
+    /// # Returns
     ///
-    /// 返回初始化成功的S3客户端实例,或初始化失败的错误
+    /// Returns the initialized S3 client instance, or error on failure
     ///
-    /// # 初始化流程
+    /// # Initialization Flow
     ///
-    /// 1. 根据provider类型设置凭证提供者名称
-    /// 2. 创建AWS凭证对象
-    /// 3. 构建S3 SDK配置(区域、凭证、路径风格等)
-    /// 4. 如果配置了自定义端点,则设置端点URL
-    /// 5. 创建SDK客户端并记录日志
+    /// 1. Set credential provider name based on provider type
+    /// 2. Create AWS credentials object
+    /// 3. Build S3 SDK configuration (region, credentials, path style, etc.)
+    /// 4. If custom endpoint is configured, set the endpoint URL
+    /// 5. Create SDK client and log the initialization
     ///
-    /// # 示例
+    /// # Example
     ///
     /// ```rust,no_run
     /// use s3_service::{S3Client, S3Config};
@@ -74,75 +74,75 @@ impl S3Client {
     /// }
     /// ```
     pub async fn new(config: S3Config) -> Result<Self, S3Error> {
-        // 根据存储提供者类型设置提供者名称标识
+        // Set provider name identifier based on storage provider type
         let provider_name: &'static str = match config.provider {
             crate::config::S3Provider::MinIO => "minio",
             crate::config::S3Provider::AliyunOSS => "aliyun_oss",
             crate::config::S3Provider::AwsS3 => "aws_s3",
         };
-        
-        // 创建AWS凭证对象
+
+        // Create AWS credentials object
         let credentials = Credentials::new(
             &config.access_key_id,
             &config.secret_access_key,
-            None,  // 无会话令牌
-            None,  // 无过期时间
+            None,  // No session token
+            None,  // No expiration
             provider_name,
         );
 
-        // 构建S3 SDK配置
+        // Build S3 SDK configuration
         let mut s3_config_builder = aws_sdk_s3::Config::builder()
-            .behavior_version(BehaviorVersion::latest())  // 使用最新行为版本
-            .region(Region::new(config.region.clone()))   // 设置区域
-            .credentials_provider(credentials)              // 设置凭证
-            .force_path_style(config.force_path_style);    // 路径风格访问(MinIO必需)
+            .behavior_version(BehaviorVersion::latest())  // Use latest behavior version
+            .region(Region::new(config.region.clone()))   // Set region
+            .credentials_provider(credentials)              // Set credentials
+            .force_path_style(config.force_path_style);    // Path-style access (required for MinIO)
 
-        // 如果配置了自定义端点,则设置端点URL
-        // 用于MinIO、阿里云OSS等非AWS S3服务
+        // If custom endpoint is configured, set the endpoint URL
+        // Used for non-AWS S3 services like MinIO, Aliyun OSS
         if !config.endpoint_url.is_empty() {
             s3_config_builder = s3_config_builder
                 .endpoint_url(&config.endpoint_url);
         }
 
-        // 构建配置并创建客户端
+        // Build configuration and create client
         let s3_config = s3_config_builder.build();
         let inner = AwsS3Client::from_conf(s3_config);
 
-        // 记录初始化成功的日志
+        // Log successful initialization
         info!(
-            "S3客户端初始化成功 - Provider: {}, Endpoint: {}, Bucket: {}",
+            "S3 client initialized - Provider: {}, Endpoint: {}, Bucket: {}",
             config.provider, config.endpoint_url, config.default_bucket
         );
 
         Ok(S3Client { inner, config })
     }
 
-    /// 获取默认存储桶名称
+    /// Get default bucket name
     ///
-    /// 返回配置中设置的默认存储桶名称。
-    /// 默认存储桶用于未指定桶名时的操作。
+    /// Returns the default bucket name from configuration.
+    /// The default bucket is used for operations when no bucket is specified.
     ///
-    /// # 返回值
+    /// # Returns
     ///
-    /// 默认存储桶名称的字符串引用
+    /// String reference to the default bucket name
     pub fn default_bucket(&self) -> &str {
         &self.config.default_bucket
     }
 
-    /// S3服务健康检查
+    /// S3 service health check
     ///
-    /// 通过尝试列举所有存储桶来检查S3服务的可用性。
-    /// 这是一个轻量级的健康检查方法。
+    /// Checks S3 service availability by attempting to list all buckets.
+    /// This is a lightweight health check method.
     ///
-    /// # 返回值
+    /// # Returns
     ///
-    /// - `Ok(true)`: 服务可用
-    /// - `Ok(false)`: 服务不可用
-    /// - `Err`: 检查过程中发生错误
+    /// - `Ok(true)`: Service is available
+    /// - `Ok(false)`: Service is unavailable
+    /// - `Err`: Error during the check
     ///
-    /// # 注意事项
+    /// # Notes
     ///
-    /// 即使健康检查失败,服务可能仍然部分可用(如权限不足时)
+    /// Even if the health check fails, the service may still be partially available (e.g., permission issues)
     pub async fn health_check(&self) -> Result<bool, S3Error> {
         match self.inner.list_buckets().send().await {
             Ok(_) => {
@@ -156,28 +156,28 @@ impl S3Client {
         }
     }
 
-    /// 确保默认存储桶存在
+    /// Ensure default bucket exists
     ///
-    /// 检查默认存储桶是否存在,如果不存在则创建。
-    /// 这是一个幂等操作,可以安全地多次调用。
+    /// Checks if the default bucket exists, creates it if not.
+    /// This is an idempotent operation, safe to call multiple times.
     ///
-    /// # 返回值
+    /// # Returns
     ///
-    /// 成功返回`Ok(())`,失败返回错误信息
+    /// Returns `Ok(())` on success, error on failure
     ///
-    /// # 工作流程
+    /// # Workflow
     ///
-    /// 1. 使用`head_bucket`检查桶是否存在
-    /// 2. 如果桶不存在,则调用`create_bucket`创建
-    /// 3. 记录操作日志
+    /// 1. Use `head_bucket` to check if bucket exists
+    /// 2. If bucket does not exist, call `create_bucket` to create it
+    /// 3. Log the operation
     ///
-    /// # 错误情况
+    /// # Error Conditions
     ///
-    /// - 权限不足
-    /// - 桶名已被其他账户占用
-    /// - 网络连接失败
+    /// - Insufficient permissions
+    /// - Bucket name already in use by another account
+    /// - Network connection failure
     ///
-    /// # 示例
+    /// # Example
     ///
     /// ```rust,no_run
     /// use s3_service::S3Client;
@@ -188,9 +188,9 @@ impl S3Client {
     /// ```
     pub async fn ensure_default_bucket(&self) -> Result<(), S3Error> {
         let bucket = &self.config.default_bucket;
-        
-        // 检查桶是否存在
-        // head_bucket成功表示桶存在且有访问权限
+
+        // Check if bucket exists
+        // head_bucket success means bucket exists and we have access
         let exists = self
             .inner
             .head_bucket()
@@ -201,13 +201,13 @@ impl S3Client {
 
         if !exists {
             info!("default bucket {} does not exist, creating...", bucket);
-            // 创建存储桶
+            // Create bucket
             self.inner
                 .create_bucket()
                 .bucket(bucket)
                 .send()
                 .await
-                .map_err(|e| S3Error::AwsError(format!("创建存储桶失败: {}", e)))?;
+                .map_err(|e| S3Error::AwsError(format!("Failed to create bucket: {}", e)))?;
             info!("default bucket {} created successfully", bucket);
         } else {
             info!("default bucket {} already exists", bucket);
@@ -217,43 +217,43 @@ impl S3Client {
     }
 }
 
-/// 全局S3客户端单例管理器
+/// Global S3 client singleton manager
 ///
-/// 提供全局单例的S3客户端初始化和管理功能。
-/// 使用Arc实现线程安全的共享访问。
+/// Provides global singleton S3 client initialization and management functionality.
+/// Uses Arc for thread-safe shared access.
 ///
-/// # 设计模式
+/// # Design Pattern
 ///
-/// 采用单例模式,确保整个应用使用同一个S3客户端实例,
-/// 避免重复创建连接,提高资源利用效率。
+/// Uses singleton pattern to ensure the entire application uses the same S3 client instance,
+/// avoiding duplicate connection creation and improving resource utilization.
 pub struct GlobalS3Client;
 
 impl GlobalS3Client {
-    /// 初始化全局S3客户端
+    /// Initialize global S3 client
     ///
-    /// 创建S3客户端并初始化默认存储桶(如果启用)。
-    /// 返回Arc包装的客户端实例,可在多个线程间共享。
+    /// Creates S3 client and initializes default bucket (if enabled).
+    /// Returns Arc-wrapped client instance, sharable across multiple threads.
     ///
-    /// # 参数
+    /// # Parameters
     ///
-    /// - `config`: S3配置信息
+    /// - `config`: S3 configuration
     ///
-    /// # 返回值
+    /// # Returns
     ///
-    /// 返回Arc包装的S3客户端实例
+    /// Returns Arc-wrapped S3 client instance
     ///
-    /// # 初始化流程
+    /// # Initialization Flow
     ///
-    /// 1. 根据配置创建S3客户端
-    /// 2. 如果配置中启用了S3,则确保默认存储桶存在
-    /// 3. 返回Arc包装的客户端实例
+    /// 1. Create S3 client based on configuration
+    /// 2. If S3 is enabled in config, ensure default bucket exists
+    /// 3. Return Arc-wrapped client instance
     ///
-    /// # 错误处理
+    /// # Error Handling
     ///
-    /// - 客户端创建失败会返回错误
-    /// - 默认桶创建失败仅记录警告,不影响服务启动
+    /// - Client creation failure returns error
+    /// - Default bucket creation failure only logs warning, does not affect service startup
     ///
-    /// # 示例
+    /// # Example
     ///
     /// ```rust,no_run
     /// use s3_service::{GlobalS3Client, S3Config};
@@ -265,18 +265,18 @@ impl GlobalS3Client {
     /// }
     /// ```
     pub async fn init(config: S3Config) -> Result<Arc<S3Client>, S3Error> {
-        // 创建S3客户端实例
+        // Create S3 client instance
         let client = S3Client::new(config).await?;
-        
-        // 如果S3服务已启用,确保默认桶存在
+
+        // If S3 service is enabled, ensure default bucket exists
         if client.config.enabled {
             if let Err(e) = client.ensure_default_bucket().await {
-                // 桶创建失败不影响服务启动,仅记录警告
+                // Bucket creation failure only logs warning, service still starts
                 tracing::warn!("failed to ensure default bucket: {}, service still starts", e);
             }
         }
-        
-        // 返回Arc包装的客户端,支持多线程共享
+
+        // Return Arc-wrapped client, supports multi-threading sharing
         Ok(Arc::new(client))
     }
 }

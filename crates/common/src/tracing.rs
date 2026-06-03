@@ -16,7 +16,7 @@ fn read_log_level_from_config() -> String {
         .unwrap_or_else(|| "info".to_string())
 }
 
-/// 初始化 tracing：文件 + 标准输出双通道，返回 guard 须在 main 中持有
+/// Initialize tracing: dual-channel (file + stdout), returns guard that must be held in main
 pub fn init_tracing() -> WorkerGuard {
     let file_appender = tracing_appender::rolling::never("log", "rust_im.log");
     let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
@@ -48,7 +48,7 @@ pub fn init_tracing() -> WorkerGuard {
 
     tracing::subscriber::set_global_default(subscriber)
         .unwrap_or_else(|e| {
-            let msg = format!("设置全局 tracing subscriber 失败: {}", e);
+            let msg = format!("Failed to set global tracing subscriber: {}", e);
             tracing::error!("FATAL: {}", msg);
             std::thread::sleep(std::time::Duration::from_secs(5));
             panic!("{}", msg);

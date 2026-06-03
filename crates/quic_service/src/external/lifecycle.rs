@@ -2,25 +2,25 @@ use async_trait::async_trait;
 
 use super::state::{ServiceError, ServiceState};
 
-/// 服务生命周期 trait。
-/// 定义了服务从创建到销毁的完整生命周期方法。
+/// Service lifecycle trait.
+/// Defines the complete lifecycle methods from creation to destruction.
 #[async_trait]
 pub trait ServiceLifecycle: Send + Sync {
-    /// 服务名称
+    /// Service name
     fn name(&self) -> &str;
 
-    /// 初始化资源：解析配置、创建端点、启动后台监控等。
-    /// 状态必须为 Uninitialized。
+    /// Initialize resources: parse config, create endpoints, start background monitoring, etc.
+    /// State must be Uninitialized.
     async fn init(&mut self) -> Result<(), ServiceError>;
 
-    /// 启动服务主循环（非阻塞，在后台运行）。
-    /// 状态必须为 Initializing 或 Running。
+    /// Start service main loop (non-blocking, runs in background).
+    /// State must be Initializing or Running.
     async fn start(&self) -> Result<(), ServiceError>;
 
-    /// 优雅关闭：发送关闭信号，等待后台任务完成。
-    /// 状态必须为 Running。
+    /// Graceful shutdown: send shutdown signal, wait for background tasks to complete.
+    /// State must be Running.
     async fn stop(&self) -> Result<(), ServiceError>;
 
-    /// 返回当前生命周期状态
+    /// Return current lifecycle state
     fn status(&self) -> ServiceState;
 }

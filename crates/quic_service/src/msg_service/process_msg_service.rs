@@ -56,13 +56,13 @@ async fn process_text_msg(
             error!("mismatched sender {},{}", uuid, text_msg.send_user);
             continue;
         }
-        // 心跳消息
+        // Heartbeat message
         if text_msg.text_type == message_types::MSG_TYPE_PING {
             send_ping(connection_key, text_msg.send_user, connections).await?;
             continue;
         }
 
-        // 群聊消息：路由到群聊处理管线（存库 → Redis 查成员 → 本机投递 + 内网广播）
+        // Group chat message: route to group chat pipeline (save to DB -> Redis lookup members -> local delivery + internal broadcast)
         if matches!(
             text_msg.text_type,
             message_types::MSG_TYPE_GROUP_TEXT
@@ -71,7 +71,7 @@ async fn process_text_msg(
                 | message_types::MSG_TYPE_GROUP_NOTIFICATION
         ) {
             debug!(
-                "[群聊路由] 收到群聊消息 type={} group={} sender={} raw_len={}",
+                "[group chat route] received group message type={} group={} sender={} raw_len={}",
                 text_msg.text_type,
                 text_msg.recv_user,
                 text_msg.send_user,
@@ -95,7 +95,7 @@ async fn process_text_msg(
             let current_user = text_msg.send_user.clone();
             tokio::spawn(async move {
                 debug!(
-                    "[群聊路由] 开始处理群聊消息 nano_id={} group={} sender={}",
+                    "[group chat route] processing group message nano_id={} group={} sender={}",
                     nano_id, group_msg.group_uuid, group_msg.send_user
                 );
                 if let Err(e) =
@@ -137,7 +137,7 @@ async fn process_text_msg(
             if let Err(e) = add_user_chat_record(text_msg_clone).await {
                 error!("failed to insert user message: {}", e);
             }
-            // 发送ack消息
+            // Send ACK message
             if let Err(e) = send_msg_record_success(
                 ack_nano_id,
                 &conn_key,
@@ -176,7 +176,7 @@ async fn send_msg_to_user(
         text_msg.timestamp,
     )?;
 
-    // 计算首选节点序号
+    // Compute preferred node index
     let preferred_index = compute_preferred_index(&recv_user);
 
     for target_platform in [PC_PLATFORM, MOBILE_PLATFORM] {
@@ -190,7 +190,7 @@ async fn send_msg_to_user(
         .await?;
     }
 
-    // 给自己另一设备同步
+    // Sync to own other device
     let own_preferred = compute_preferred_index(&send_user);
     if platform == PC_PLATFORM {
         send_msg_to_user_by_platform(
@@ -231,7 +231,7 @@ async fn send_msg_to_user_by_platform(
     );
     let user_key = user_key.to_uppercase();
 
-    // 尝试本机投递
+    // Try local delivery
     let conn: Option<Connection> = {
         match connections.get(&user_key) {
             Some(s) => Some(s.conn.clone()),
@@ -245,7 +245,7 @@ async fn send_msg_to_user_by_platform(
         send.finish().await?;
     } else {
         warn!("current user not on local machine: {}, preferred node index: {}", user_key, preferred_index);
-        // 本机未找到 → 转发给内网 QUIC 走两阶段路由
+        // Not found locally -> forward to internal QUIC for two-phase routing
         warn!("current user not on local machine: {}, forwarding to internal QUIC", user_key);
 
         // res 已经是 bincode 序列化的 TextQuicMsg 二进制，直接透传
@@ -277,7 +277,7 @@ async fn send_msg_to_user_by_platform(
     Ok(())
 }
 
-/// 发送连接心跳
+/// Send connection heartbeat
 async fn send_ping(
     connection_key: &str,
     current_user: String,
@@ -298,7 +298,7 @@ async fn send_ping(
     Ok(())
 }
 
-/// 发送ack消息
+/// Send ACK message
 async fn send_msg_record_success(
     nano_id: String,
     connection_key: &str,
@@ -325,7 +325,7 @@ async fn send_msg_record_success(
     Ok(())
 }
 
-/// 记录失败消息
+/// Record failed message
 #[allow(dead_code)]
 async fn send_msg_record_failure(
     connection_key: &str,
@@ -348,11 +348,11 @@ async fn send_msg_record_failure(
     Ok(())
 }
 
-/// 用户新增聊天记录
+/// Add user chat record
 pub async fn add_user_chat_record(text_quic_msg: TextQuicMsg) -> Result<(), anyhow::Error> {
     // TODO kafka转发消息ck批量写入
     let rb = RBATIS_DATABASE.read().await;
-    let rb = rb.as_ref().ok_or(anyhow!("获取连接失败"))?;
+    let rb = rb.as_ref().ok_or(anyhow!("Failed to get database connection"))?;
     let chat_msg = ChatMessageRecord {
         id: None,
         nano_id: Some(text_quic_msg.nano_id),

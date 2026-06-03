@@ -1,6 +1,6 @@
-//! QUIC 服务独立启动入口
+//! QUIC service independent entry point
 //!
-//! 仅启动 QUIC ChatNode + NAT UDP + 内网 QUIC 服务，不启动 HTTP。
+//! Starts only QUIC ChatNode + NAT UDP + internal QUIC service, no HTTP.
 
 use common::tracing::init_tracing;
 use common::fatal_panic_async;
@@ -12,7 +12,7 @@ use tracing::{error, info};
 #[tokio::main]
 async fn main() {
     if let Err(e) = dotenvy::dotenv() {
-        eprintln!("加载 .env 文件失败: {}", e);
+        eprintln!("Failed to load .env file: {}", e);
     }
 
     let _guard = init_tracing();
@@ -25,7 +25,7 @@ async fn main() {
 
     info!("QUIC service ready, press Ctrl+C to stop");
 
-    // 等待退出信号
+    // Wait for exit signal
     tokio::signal::ctrl_c().await.unwrap_or_else(|e| {
         error!("failed to register Ctrl+C handler: {}", e);
     });

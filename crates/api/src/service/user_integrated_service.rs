@@ -23,20 +23,20 @@ pub async fn add_user_with_notify(
     tracing::debug!("starting add friend flow: request_user={:?}, accept_user={:?}",
         friend.request_user, friend.accept_user);
     
-    // 1 添加好友
+    // 1. Add friend
     let friend_request = add_friend(rb, friend).await?;
     tracing::debug!("friend request created: uuid={:?}, request_user={:?}, accept_user={:?}", 
         friend_request.uuid, friend_request.request_user, friend_request.accept_user);
 
-    let target_uuid = friend_request.accept_user.ok_or(anyhow!("请选择一个用户"))?;
-    let biz_id = friend_request.uuid.ok_or(anyhow!("添加好友失败，找不到请求id"))?.to_string();
+    let target_uuid = friend_request.accept_user.ok_or(anyhow!("Please select a user"))?;
+    let biz_id = friend_request.uuid.ok_or(anyhow!("Failed to add friend, request ID not found"))?.to_string();
     tracing::debug!("target user: target_uuid={}, biz_id={}", target_uuid, biz_id);
 
     // 2 发送系统通知 (落库)
     let quic_msg = send_request_friend_msg(
         rb,
         target_uuid,
-        friend_request.request_message.clone().ok_or(anyhow!("请填写申请理由"))?,
+        friend_request.request_message.clone().ok_or(anyhow!("Please provide a request reason"))?,
         Some(biz_id.clone()),
     )
     .await?;
@@ -44,10 +44,10 @@ pub async fn add_user_with_notify(
         quic_msg.user_id, friend_request.request_message);
     
     let json_str: String = serde_json::to_string(&quic_msg)?;
-    let target_id_str = quic_msg.user_id.ok_or(anyhow!("通知缺少目标用户ID"))?.to_string();
+    let target_id_str = quic_msg.user_id.ok_or(anyhow!("Notification missing target user ID"))?.to_string();
     tracing::debug!("notification JSON serialized: target_id={}, payload_length={}", target_id_str, json_str.len());
 
-    // 3 通过内网QUIC服务转发通知
+    // 3. Forward notification via internal QUIC service
     let addr_str = read_global_config!("internal_quic_server", "address");
     let server_addr: SocketAddr = addr_str.parse()?;
     let preferred_index = compute_preferred_index(&target_id_str);
@@ -72,16 +72,16 @@ pub async fn add_user_with_notify(
     Ok(CommonResponseNoDataRef::success_empty())
 }
 
-/// 处理好友申请
+/// Process friend request
 pub async fn process_friend_with_notify(
     rb: &RBatis,
     friend_request_info_dto: FriendRequestInfoDTO,
 ) -> Result<String, anyhow::Error> {
-    // 1、处理好友申请
+    // 1. Process friend request
     let friend_request = process_friend(rb, friend_request_info_dto).await?;
-    let target_uuid = friend_request.request_user.ok_or(anyhow!("请选择一个用户"))?;
-    let biz_id = friend_request.uuid.ok_or(anyhow!("添加好友失败，找不到请求id"))?.to_string();
-    // 2 发送系统通知 (落库)
+    let target_uuid = friend_request.request_user.ok_or(anyhow!("Please select a user"))?;
+    let biz_id = friend_request.uuid.ok_or(anyhow!("Failed to add friend, request ID not found"))?.to_string();
+    // 2. Send system notification (persist to DB)
     let accept_msg = friend_request
         .accept_message
         .filter(|m| !m.is_empty())
@@ -94,9 +94,9 @@ pub async fn process_friend_with_notify(
     )
     .await?;
     let json_str: String = serde_json::to_string(&quic_msg)?;
-    let target_id_str = quic_msg.user_id.ok_or(anyhow!("通知缺少目标用户ID"))?.to_string();
+    let target_id_str = quic_msg.user_id.ok_or(anyhow!("Notification missing target user ID"))?.to_string();
 
-    // 3、通过内网QUIC服务转发通知
+    // 3. Forward notification via internal QUIC service
     let addr_str = read_global_config!("internal_quic_server", "address");
     let server_addr: SocketAddr = addr_str.parse()?;
     let preferred_index = compute_preferred_index(&target_id_str);
@@ -114,7 +114,7 @@ pub async fn process_friend_with_notify(
     Ok(CommonResponseNoDataRef::success_empty())
 }
 
-/// 获取分配给当前用户的外网 QUIC 节点地址（hash 取模）
+/// Get external QUIC node address assigned to current user (hash modulo)
 pub async fn get_quic_server_for_user(uuid: &str) -> Result<String, anyhow::Error> {
     use deadpool_redis::redis::AsyncCommands;
     use common::config_str::REDIS_EXTERNAL_QUIC_SERVERS;
@@ -134,12 +134,12 @@ pub async fn get_quic_server_for_user(uuid: &str) -> Result<String, anyhow::Erro
     info!("QUIC node assigned: server_count={} uuid={} index={}", sc, uuid, index);
 
     let redis = common::REDIS_CLIENT.read().await;
-    let redis = redis.as_ref().ok_or(anyhow!("Redis 未初始化"))?;
+    let redis = redis.as_ref().ok_or(anyhow!("Redis not initialized"))?;
     let mut conn = redis.get().await?;
 
     let key = format!("{}{}", REDIS_EXTERNAL_QUIC_SERVERS, index);
     let address: String = conn.get(&key).await?;
 
     let info = QuicServerInfo { index, address };
-    CommonResponseRef::success_json(&info).map_err(|e| anyhow!("序列化失败: {}", e))
+    CommonResponseRef::success_json(&info).map_err(|e| anyhow!("Serialization failed: {}", e))
 }

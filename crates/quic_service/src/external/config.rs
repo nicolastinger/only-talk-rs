@@ -3,7 +3,7 @@ use std::net::SocketAddr;
 
 use super::state::ServiceError;
 
-/// QUIC ChatNode 配置
+/// QUIC ChatNode configuration
 #[derive(Debug, Clone)]
 pub struct ChatNodeConfig {
     pub bind_address: SocketAddr,
@@ -22,7 +22,7 @@ pub struct ChatNodeConfig {
 }
 
 impl ChatNodeConfig {
-    /// 使用指定地址创建配置，其余字段使用默认值
+    /// Create config with specified address, other fields use defaults
     pub fn new(bind_address: SocketAddr) -> Self {
         Self {
             bind_address,
@@ -41,30 +41,30 @@ impl ChatNodeConfig {
         }
     }
 
-    /// 从 TOML 配置文件读取配置，未配置的字段使用默认值
+    /// Read config from TOML file, unconfigured fields use defaults
     pub fn from_toml(path: &str) -> Result<Self, ServiceError> {
         let content = fs::read_to_string(path)
-            .map_err(|e| ServiceError::Config(format!("读取配置文件失败: {}", e)))?;
+            .map_err(|e| ServiceError::Config(format!("Failed to read config file: {}", e)))?;
         Self::from_toml_str(&content)
     }
 
-    /// 从 TOML 字符串解析配置（调用方需先完成环境变量替换）
+    /// Parse config from TOML string (caller must complete env var substitution first)
     pub fn from_toml_str(content: &str) -> Result<Self, ServiceError> {
         let config_map: toml::Value = toml::from_str(content)
-            .map_err(|e| ServiceError::Config(format!("解析TOML配置失败: {}", e)))?;
+            .map_err(|e| ServiceError::Config(format!("Failed to parse TOML config: {}", e)))?;
 
         let quic = config_map
             .get("quic_server")
-            .ok_or_else(|| ServiceError::Config("缺少 quic_server 配置节".to_string()))?;
+            .ok_or_else(|| ServiceError::Config("Missing quic_server config section".to_string()))?;
 
         let addr_str = quic
             .get("address")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| ServiceError::Config("缺少 quic_server.address 配置项".to_string()))?;
+            .ok_or_else(|| ServiceError::Config("Missing quic_server.address config item".to_string()))?;
 
         let bind_address: SocketAddr = addr_str
             .parse()
-            .map_err(|e| ServiceError::Config(format!("解析地址失败: {}", e)))?;
+            .map_err(|e| ServiceError::Config(format!("Failed to parse address: {}", e)))?;
 
         let cert_path = quic
             .get("cert_path")

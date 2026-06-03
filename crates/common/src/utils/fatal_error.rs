@@ -1,7 +1,7 @@
 use tracing::error;
 
-/// 记录致命错误，等待 5 秒后 panic。
-/// 用于不可恢复的启动期错误，确保日志被刷盘后程序才终止。
+/// Log a fatal error, wait 5 seconds, then panic.
+/// Used for unrecoverable startup errors, ensuring logs are flushed before termination.
 #[inline]
 pub fn fatal_panic(msg: &str) -> ! {
     error!("FATAL: {}", msg);
@@ -9,7 +9,7 @@ pub fn fatal_panic(msg: &str) -> ! {
     panic!("{}", msg);
 }
 
-/// 异步版本的 fatal_panic
+/// Async version of fatal_panic
 #[inline]
 pub async fn fatal_panic_async(msg: &str) -> ! {
     error!("FATAL: {}", msg);

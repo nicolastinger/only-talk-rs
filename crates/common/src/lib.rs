@@ -22,10 +22,10 @@ pub use utils::redis_utils::{init_redis, verify_redis};
 pub use utils::server_count_sync::{get_server_count, start_server_count_sync, SERVER_COUNT};
 pub use utils::sql_utils::init_sql_pool;
 
-// Re-export entity 的 models，使外部只需依赖 core 即可访问 DB 实体
+// Re-export entity models so external crates only need to depend on core to access DB entities
 pub use entity::models;
 
-/// 确保 Redis / SQL 只初始化一次
+/// Ensure Redis / SQL is initialized only once
 static REDIS_INIT_ONCE: OnceLock<()> = OnceLock::new();
 static SQL_INIT_ONCE: OnceLock<()> = OnceLock::new();
 
@@ -34,8 +34,8 @@ lazy_static! {
     pub static ref RBATIS_DATABASE: Arc<RwLock<Option<RBatis>>> = Arc::new(RwLock::new(None));
 }
 
-/// 替换字符串中的环境变量占位符 ${VAR_NAME}
-/// 最多迭代 100 次，防止恶意配置导致死循环
+/// Replace environment variable placeholders ${VAR_NAME} in strings
+/// Iterates up to 100 times to prevent malicious config from causing infinite loops
 pub fn substitute_env_vars(content: String) -> String {
     let mut result = content;
     let mut iterations = 0;
@@ -54,8 +54,8 @@ pub fn substitute_env_vars(content: String) -> String {
     result
 }
 
-/// 读取应用配置：替换环境变量、解析 TOML、填充全局 DashMap
-/// 返回替换后的 TOML 字符串，供需要自定义反序列化的调用方使用
+/// Read app config: replace env vars, parse TOML, populate global DashMap
+/// Returns the substituted TOML string for callers that need custom deserialization
 pub fn init_app_config() -> anyhow::Result<String> {
     let content = fs::read_to_string("./config/app_config.toml")?;
     let content = substitute_env_vars(content);

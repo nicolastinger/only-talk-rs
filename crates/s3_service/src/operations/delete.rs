@@ -1,26 +1,26 @@
-//! 对象删除操作模块
+//! Object delete operations module
 //!
-//! 提供单个和批量删除对象的功能。
+//! Provides single and batch object deletion functionality.
 
 use aws_sdk_s3::types::{Error as S3DeleteError, DeletedObject};
 
 use crate::client::S3Client;
 use crate::error::S3Error as AppS3Error;
 
-/// 删除单个对象
+/// Delete single object
 ///
-/// 从存储桶中删除指定对象。
+/// Delete the specified object from a bucket.
 ///
-/// # 参数
+/// # Parameters
 ///
-/// - `client`: S3客户端实例
-/// - `bucket`: 存储桶名称
-/// - `key`: 对象键名
+/// - `client`: S3 client instance
+/// - `bucket`: Bucket name
+/// - `key`: Object key name
 ///
-/// # 注意事项
+/// # Notes
 ///
-/// - 删除不存在的对象不会报错
-/// - 删除操作不可逆
+/// - Deleting a non-existent object does not cause an error
+/// - Delete operation is irreversible
 pub async fn delete_object(
     client: &S3Client,
     bucket: &str,
@@ -33,34 +33,34 @@ pub async fn delete_object(
         .key(key)
         .send()
         .await
-        .map_err(|e| AppS3Error::AwsError(format!("删除对象失败: {}", e)))?;
+        .map_err(|e| AppS3Error::AwsError(format!("Failed to delete object: {}", e)))?;
     Ok(())
 }
 
-/// 批量删除对象
+/// Batch delete objects
 ///
-/// 一次性删除多个对象,比单个删除更高效。
+/// Delete multiple objects at once, more efficient than individual deletes.
 ///
-/// # 参数
+/// # Parameters
 ///
-/// - `client`: S3客户端实例
-/// - `bucket`: 存储桶名称
-/// - `keys`: 对象键名数组
+/// - `client`: S3 client instance
+/// - `bucket`: Bucket name
+/// - `keys`: Array of object key names
 ///
-/// # 返回值
+/// # Returns
 ///
-/// 返回删除结果,包含成功和失败的列表
+/// Returns delete results, including success and failure lists
 ///
-/// # 性能
+/// # Performance
 ///
-/// 单次请求最多可删除1000个对象,
-/// 超过1000个需分批处理
+/// Single request can delete up to 1000 objects,
+/// more than 1000 must be processed in batches
 pub async fn delete_objects(
     client: &S3Client,
     bucket: &str,
     keys: &[&str],
 ) -> Result<DeleteBatchResult, AppS3Error> {
-    // 空列表快速返回
+    // Empty list fast return
     if keys.is_empty() {
         return Ok(DeleteBatchResult {
             deleted: Vec::new(),
@@ -68,7 +68,7 @@ pub async fn delete_objects(
         });
     }
 
-    // 构建删除请求的对象列表
+    // Build list of objects for delete request
     let objects: Vec<aws_sdk_s3::types::ObjectIdentifier> = keys
         .iter()
         .map(|k| {
@@ -79,14 +79,14 @@ pub async fn delete_objects(
         })
         .collect();
 
-    // 构建删除请求
+    // Build delete request
     let delete = aws_sdk_s3::types::Delete::builder()
         .set_objects(Some(objects))
-        .quiet(false)  // 返回删除结果
+        .quiet(false)  // Return delete results
         .build()
         .unwrap();
 
-    // 执行批量删除
+    // Execute batch delete
     let result = client
         .inner
         .delete_objects()
@@ -94,16 +94,16 @@ pub async fn delete_objects(
         .delete(delete)
         .send()
         .await
-        .map_err(|e| AppS3Error::AwsError(format!("批量删除对象失败: {}", e)))?;
+        .map_err(|e| AppS3Error::AwsError(format!("Failed to batch delete objects: {}", e)))?;
 
-    // 提取成功删除的对象
+    // Extract successfully deleted objects
     let deleted = result
         .deleted()
         .iter()
         .filter_map(|obj: &DeletedObject| obj.key().map(|s: &str| s.to_string()))
         .collect::<Vec<String>>();
 
-    // 提取删除失败的对象
+    // Extract failed objects
     let failed = result
         .errors()
         .iter()
@@ -117,29 +117,29 @@ pub async fn delete_objects(
     Ok(DeleteBatchResult { deleted, failed })
 }
 
-/// 批量删除结果
+/// Batch delete result
 ///
-/// 包含成功删除和删除失败的对象信息
+/// Contains successfully deleted and failed object information
 #[derive(Debug, serde::Serialize)]
 pub struct DeleteBatchResult {
-    /// 成功删除的对象key列表
+    /// Successfully deleted object keys
     pub deleted: Vec<String>,
-    
-    /// 删除失败的对象列表
+
+    /// Failed objects list
     pub failed: Vec<DeleteError>,
 }
 
-/// 删除错误信息
+/// Delete error information
 ///
-/// 单个对象删除失败的详细信息
+/// Detailed information for failed object deletions
 #[derive(Debug, serde::Serialize)]
 pub struct DeleteError {
-    /// 对象键名
+    /// Object key name
     pub key: String,
-    
-    /// 错误代码
+
+    /// Error code
     pub code: String,
-    
-    /// 错误消息
+
+    /// Error message
     pub message: String,
 }

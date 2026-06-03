@@ -1,41 +1,41 @@
 use serde::{Deserialize, Serialize};
 
-/// 请求来源
+/// Request source
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum RequestSource {
-    /// 来自外网 QUIC
+    /// From external QUIC
     QuicExternal,
-    /// 来自 HTTP API
+    /// From HTTP API
     HttpApi,
 }
 
-/// 内网QUIC服务请求
+/// Internal QUIC service request
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InternalQuicRequest {
-    /// 消息类型 (对应 message_types 中的常量)
+    /// Message type (corresponds to constants in message_types)
     pub msg_type: u16,
-    /// 已序列化的消息体 (bincode TextQuicMsg 二进制)
+    /// Serialized message body (bincode TextQuicMsg binary)
     pub payload: Vec<u8>,
-    /// 目标用户UUID
+    /// Target user UUID
     pub target_user: String,
-    /// hash 取模得到的首选节点序号
+    /// Preferred node index computed by hash modulo
     pub preferred_index: u32,
-    /// 目标平台 PC / MOBILE
+    /// Target platform PC / MOBILE
     pub platform: String,
-    /// 请求来源
+    /// Request source
     pub source: RequestSource,
-    /// 路由跳数 (每跳一次减 1，0 时停止)
+    /// Route TTL (decremented per hop, stops at 0)
     pub ttl: u8,
 }
 
-/// 内网QUIC服务响应
+/// Internal QUIC service response
 #[derive(Debug, Serialize, Deserialize)]
 pub struct InternalQuicResponse {
-    /// "ok" 或 "error"
+    /// "ok" or "error"
     pub status: String,
-    /// 错误信息(仅 status="error" 时有值)
+    /// Error message (only present when status="error")
     pub message: Option<String>,
-    /// 消息是否已投递到目标客户端
+    /// Whether the message was delivered to the target client
     pub delivered: Option<bool>,
 }
 
@@ -59,7 +59,7 @@ impl InternalQuicResponse {
     pub fn user_offline() -> Self {
         Self {
             status: "ok".to_string(),
-            message: Some("用户不在线".to_string()),
+            message: Some("User offline".to_string()),
             delivered: Some(false),
         }
     }

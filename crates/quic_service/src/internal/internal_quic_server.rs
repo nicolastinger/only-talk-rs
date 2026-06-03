@@ -33,7 +33,7 @@ fn make_internal_endpoint(bind_addr: SocketAddr) -> Result<Endpoint, Box<dyn std
     let (cert_chain, key) = generate_self_signed_cert()?;
     let mut server_config = ServerConfig::with_single_cert(cert_chain, key)?;
     let transport = Arc::get_mut(&mut server_config.transport)
-        .ok_or_else(|| "获取传输配置失败")?;
+        .ok_or_else(|| "Failed to get transport config")?;
     transport.max_concurrent_uni_streams(32_u8.into());
     transport.max_concurrent_bidi_streams(32_u8.into());
     transport.max_idle_timeout(Some(Duration::from_secs(30).try_into()?));
@@ -54,14 +54,14 @@ async fn handle_internal_request(
         Some(len) => {
             info!("[internal QUIC server] read request size={} bytes", len);
 
-            // 尝试解析为群聊广播
+            // Try parse as group chat broadcast
             if let Ok(group_req) = bincode::deserialize::<InternalGroupBroadcast>(&buf[..len]) {
                 info!(
                     "[internal QUIC server] detected group chat broadcast group_uuid={} sender={}",
                     group_req.group_uuid,
                     group_req.sender
                 );
-                // 群聊广播处理
+                // Group chat broadcast processing
                 let resp = match process_group_broadcast(&group_req, &connections).await {
                     Ok(_) => bincode::serialize(&InternalGroupBroadcastResponse::ok())?,
                     Err(e) => {
@@ -75,14 +75,14 @@ async fn handle_internal_request(
                 return Ok(());
             }
 
-            // 尝试解析为文本消息请求（直接本机投递，不再跨节点路由）
+            // Try parse as text message request (direct local delivery, no cross-node routing)
             if let Ok(request) = bincode::deserialize::<InternalQuicRequest>(&buf[..len]) {
                 info!(
                     "[internal QUIC server] detected text message request target_user={} msg_type={} platform={} preferred_index={} ttl={} source={:?}",
                     request.target_user, request.msg_type, request.platform, request.preferred_index, request.ttl, request.source
                 );
 
-                // 构造连接 key，直接在本机查找目标用户
+                // Construct connection key, look up target user locally
                 let connection_key = format!(
                     "{}:{}{}{}{}",
                     request.platform,
@@ -104,7 +104,7 @@ async fn handle_internal_request(
 
                         if let Err(e) = deliver_to_local_conn(conn, &request).await {
                             error!("[internal QUIC server] delivery failed: {}", e);
-                            InternalQuicResponse::error(format!("投递失败: {}", e))
+                            InternalQuicResponse::error(format!("Delivery failed: {}", e))
                         } else {
                             info!("[internal QUIC server] delivery successful target={}", request.target_user);
                             InternalQuicResponse::ok()
@@ -132,7 +132,7 @@ async fn handle_internal_request(
             }
 
             warn!("[internal QUIC server] unrecognized request format size={} bytes", len);
-            let resp = InternalQuicResponse::error("无法识别的请求格式");
+            let resp = InternalQuicResponse::error("Unrecognized request format");
             send_stream.write_all(&bincode::serialize(&resp)?).await?;
             send_stream.finish().await?;
         }
@@ -144,7 +144,7 @@ async fn handle_internal_request(
     Ok(())
 }
 
-/// 向本机连接投递消息（直接透传，payload 已是 TextQuicMsg 二进制）
+/// Deliver message to local connection (direct passthrough, payload is already TextQuicMsg binary)
 async fn deliver_to_local_conn(
     conn: quinn::Connection,
     request: &InternalQuicRequest,

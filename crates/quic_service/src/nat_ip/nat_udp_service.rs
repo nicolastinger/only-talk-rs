@@ -237,7 +237,7 @@ async fn process_p2p_user_info(
                         match (user_address_info.nat_type, target_user_address_info.nat_type) {
                             (4, 4) => {
                                 error!(
-                                    "双方均为对称型NAT，无法建立连接!停止处理 {},{}",
+                                    "Both parties are behind symmetric NAT, connection not possible! Stopping processing {},{}",
                                     user_address_info.uuid, target_user_address_info.uuid
                                 );
                                 return Ok(());
@@ -246,7 +246,7 @@ async fn process_p2p_user_info(
                                 user_address_info.is_server = true;
                                 target_user_address_info.is_server = false;
                                 info!(
-                                    "发起方 {}，接收方 {}",
+                                    "Initiator {}, receiver {}",
                                     user_address_info.uuid, target_user_address_info.uuid
                                 );
                             }
@@ -254,7 +254,7 @@ async fn process_p2p_user_info(
                                 target_user_address_info.is_server = true;
                                 user_address_info.is_server = false;
                                 info!(
-                                    "接收方 {}，发起方 {}",
+                                    "Receiver {}, initiator {}",
                                     target_user_address_info.uuid, user_address_info.uuid
                                 );
                             }

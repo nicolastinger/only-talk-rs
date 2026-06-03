@@ -27,17 +27,17 @@ pub async fn error_record_middleware(
 ) -> Result<ServiceResponse<impl MessageBody>, Error> {
     // pre-processing
 
-    // 获取请求的方法和路径
+    // Get request method and path
     let method = req.method().clone();
     let path = req.path().to_string();
 
     info!("{} path {}", method, path);
-    // 检查路径是否在忽略列表中
+    // Check if path is in ignore list
     if IGNORED_PATHS.read().map(|p| p.contains(&path)).unwrap_or(false) {
         return next.call(req).await;
     }
 
-    // 检查是否是/resources开头的路径
+    // Check if path starts with /resources
     if path.starts_with("/resources/") {
         return next.call(req).await;
     }
@@ -52,7 +52,7 @@ pub async fn error_record_middleware(
             Err(_) => return Err(actix_web::error::ErrorUnauthorized("Invalid token")),
         },
     };
-    //校验token
+    // Validate token
     let account = match verify_token(&token) {
         Ok(t) => t.uuid,
         Err(_) => {

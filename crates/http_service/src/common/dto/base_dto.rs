@@ -8,6 +8,6 @@ pub struct ReqList<T> {
     pub data: Option<T>,
 }
 
-///请求的account
+/// Request account
 #[derive(Clone, Debug)]
 pub struct AuthAccount(pub String);
