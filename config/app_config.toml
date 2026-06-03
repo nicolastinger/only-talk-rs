@@ -7,6 +7,9 @@ url = "${REDIS_URL}"
 [cluster]
 server_index = 0
 
+[app]
+domain = "${APP_DOMAIN}"
+
 [server]
 address="0.0.0.0:8443"
 locales="zh-CN"

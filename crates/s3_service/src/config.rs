@@ -290,8 +290,9 @@ impl S3Config {
     ///
     /// # 默认值
     ///
-    /// - 端点: http://101.33.75.40:19000
-    /// - 访问密钥: minioadmin
+    /// - 端点: http://xxxx
+    /// - 访问密钥: xxxx
+    /// - 密钥: xxxxxxx
     /// - 区域: us-east-1
     /// - 默认桶: only-talk-rs
     /// - 路径风格: true (MinIO必需)
@@ -317,9 +318,9 @@ impl S3Config {
     pub fn default_minio() -> Self {
         S3Config {
             provider: S3Provider::MinIO,
-            endpoint_url: "http://101.33.75.40:19000".to_string(),
-            access_key_id: "REDACTED_S3_ACCESS_KEY".to_string(),
-            secret_access_key: "REDACTED_S3_SECRET_KEY_V2".to_string(),
+            endpoint_url: "http://xxxx".to_string(),
+            access_key_id: "xxxx".to_string(),
+            secret_access_key: "xxxxx".to_string(),
             region: "us-east-1".to_string(),
             default_bucket: "only-talk-rs".to_string(),
             chat_file_preview_bucket: "chat-file-preview".to_string(),

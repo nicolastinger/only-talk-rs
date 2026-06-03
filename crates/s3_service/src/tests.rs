@@ -49,9 +49,9 @@ fn test_default_minio_config() {
     let config = crate::config::S3Config::default_minio();
     
     assert_eq!(config.provider, S3Provider::MinIO);
-    assert_eq!(config.endpoint_url, "http://101.33.75.40:19000");
-    assert_eq!(config.access_key_id, "minioadmin");
-    assert_eq!(config.secret_access_key, "REDACTED_S3_SECRET_KEY_V2");
+    assert_eq!(config.endpoint_url, "http://xxxx");
+    assert_eq!(config.access_key_id, "xxxx");
+    assert_eq!(config.secret_access_key, "xxxxx");
     assert_eq!(config.region, "us-east-1");
     assert_eq!(config.default_bucket, "only-talk-rs");
     assert!(config.force_path_style);

@@ -7,10 +7,10 @@ async fn main() {
 
     let args: Vec<String> = std::env::args().collect();
     
-    let endpoint = args.get(1).cloned().unwrap_or_else(|| "http://165.154.45.156:19000".to_string());
-    let access_key = args.get(2).cloned().unwrap_or_else(|| "REDACTED_S3_ACCESS_KEY".to_string());
-    let secret_key = args.get(3).cloned().unwrap_or_else(|| "REDACTED_S3_SECRET_KEY_V2".to_string());
-    let bucket_name = args.get(4).cloned().unwrap_or_else(|| "user-avatar".to_string());
+    let endpoint = args.get(1).cloned().unwrap_or_else(|| "http://xxxx".to_string());
+    let access_key = args.get(2).cloned().unwrap_or_else(|| "xxxx".to_string());
+    let secret_key = args.get(3).cloned().unwrap_or_else(|| "xxxxx".to_string());
+    let bucket_name = args.get(4).cloned().unwrap_or_else(|| "xxxxx".to_string());
 
     println!("目标服务器: {}", endpoint);
     println!("目标桶: {}", bucket_name);
