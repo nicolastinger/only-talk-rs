@@ -50,6 +50,13 @@ mime_types = ["audio/mpeg", "audio/wav", "audio/x-flac", "audio/aac", "audio/ogg
 extensions = ["mp4", "avi", "mkv", "mov", "wmv", "flv", "webm"]
 mime_types = ["video/mp4", "video/webm"]
 
+[nat_udp]
+# NAT 穿透 UDP 服务端口 (4个独立端口)
+v4_port_1 = 19562
+v6_port_1 = 19563
+v4_port_2 = 19564
+v6_port_2 = 19565
+
 [s3]
 # 存储提供者类型: minio / aliyun_oss / aws_s3
 provider = "minio"

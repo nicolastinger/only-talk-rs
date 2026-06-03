@@ -81,7 +81,7 @@ pub async fn upload_user_chat_file(
         .unwrap_or(false);
 
     if !is_friend {
-        return Err(anyhow("Not friends with each other, unable to send message"));
+        return Err(anyhow!("Not friends with each other, unable to send message"));
     }
     
     // 2. Upload via S3

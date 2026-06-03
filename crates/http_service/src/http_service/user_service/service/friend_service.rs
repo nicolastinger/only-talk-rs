@@ -40,7 +40,7 @@ pub async fn add_friend(
     // Check if already added
     let friend_link = FriendLink::select_by_last_uuid(rb, &request_user, &accept_user).await?;
     if friend_link.is_some() && !friend_link.as_ref().ok_or(anyhow!("friend_link is None"))?.is_del.unwrap_or(true) {
-        return Err(anyhow("Already added as friend"));
+        return Err(anyhow!("Already added as friend"));
     }
 
     // Query previous friend requests
@@ -49,7 +49,7 @@ pub async fn add_friend(
     if !friend_request_info.is_empty() {
         for item in friend_request_info.iter() {
             if let Some(0) = item.accept_status {
-                return Err(anyhow("Please do not add repeatedly"));
+                return Err(anyhow!("Please do not add repeatedly"));
             }
         }
     }
@@ -98,14 +98,14 @@ pub async fn process_friend(
     // Check if request user exists
     let is_exist_accept_user = is_exist_user_by_uuid(rb, &request_user).await?;
     if !is_exist_accept_user {
-        return Err(anyhow("Request user does not exist"));
+        return Err(anyhow!("Request user does not exist"));
     }
     // TODO Check if accept user friend limit exceeded
 
     // Check if already added
     let friend_link = FriendLink::select_by_last_uuid(rb, &request_user, &accept_user).await?;
     if friend_link.is_some() && !friend_link.as_ref().ok_or(anyhow!("friend_link is None"))?.is_del.unwrap_or(true) {
-        return Err(anyhow("Already added as friend"));
+        return Err(anyhow!("Already added as friend"));
     }
 
     // Query previous friend requests
@@ -151,7 +151,7 @@ pub async fn process_friend(
             // Reject
             Some(2) => {}
             _ => {
-                return Err(anyhow("Invalid parameter"));
+                return Err(anyhow!("Invalid parameter"));
             }
         }
         tx.commit().await?;
@@ -172,7 +172,7 @@ pub async fn get_friend_list(
     last_uuid: String,
     version: String,
 ) -> Result<String, anyhow::Error> {
-    let uuid = request_user.ok_or(anyhow("Failed to get account!"))?;
+    let uuid = request_user.ok_or(anyhow!("Failed to get account!"))?;
     let version = version.parse::<i32>()?;
     let uuid = rbatis::rbdc::uuid::Uuid::from_str(&uuid)?;
 
@@ -232,11 +232,11 @@ pub async fn delete_friend_service(
 
     let friend_link = FriendLink::select_by_last_uuid(rb, &my_uuid, &friend_uuid).await?;
     if friend_link.is_none() {
-        return Err(anyhow("Friend relationship does not exist"));
+        return Err(anyhow!("Friend relationship does not exist"));
     }
-    let mut friend_link = friend_link.ok_or(anyhow("Friend relationship does not exist"))?;
+    let mut friend_link = friend_link.ok_or(anyhow!("Friend relationship does not exist"))?;
     if friend_link.is_del.unwrap_or(true) {
-        return Err(anyhow("Friend relationship has been deleted"));
+        return Err(anyhow!("Friend relationship has been deleted"));
     }
 
     let now = get_now_time_stamp_as_millis()?;

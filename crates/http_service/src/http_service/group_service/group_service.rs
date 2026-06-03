@@ -104,7 +104,7 @@ pub async fn create_group_service(
 
     Ok(GroupInfoVO {
         group_uuid: group_uuid.to_string(),
-        group_name: group_info.group_name.clone().ok_or_else(|| anyhow("Group name missing"))?,
+        group_name: group_info.group_name.clone().ok_or_else(|| anyhow!("Group name missing"))?,
         avatar: group_info.avatar,
         owner_uuid: owner_uuid.to_string(),
         description: group_info.description,
@@ -274,12 +274,12 @@ pub async fn invite_group_members_service(
         Some(op) => {
             let role = op.role.unwrap_or(0);
             if role < ROLE_ADMIN {
-                return Err(anyhow("No permission to invite members"));
+                return Err(anyhow!("No permission to invite members"));
             }
 
             let group = GroupInfo::select_by_group_uuid(rb, &group_uuid)
                 .await?
-                .ok_or(anyhow("Group does not exist"))?;
+                .ok_or(anyhow!("Group does not exist"))?;
             let group_name = group.group_name.unwrap_or_default();
 
             let now = get_now_time_stamp_as_millis()?;
@@ -307,7 +307,7 @@ pub async fn invite_group_members_service(
                     let mut updated = p.clone();
                     updated.status = Some(INVITATION_PENDING);
                     updated.updated_at = Some(now);
-                    let inv_id = p.id.ok_or_else(|| anyhow("Invitation record missing ID"))?;
+                    let inv_id = p.id.ok_or_else(|| anyhow!("Invitation record missing ID"))?;
                     GroupInvitation::update_by_id(rb, &updated, &inv_id).await?;
                 } else {
                     let invitation = GroupInvitation {
@@ -343,7 +343,7 @@ pub async fn invite_group_members_service(
             );
             Ok(invited)
         }
-        None => Err(anyhow("Operator is not a group member")),
+        None => Err(anyhow!("Operator is not a group member")),
     }
 }
 
@@ -365,7 +365,7 @@ pub async fn accept_group_invitation_service(
             // Update invitation status
             inv.status = Some(INVITATION_ACCEPTED);
             inv.updated_at = Some(now);
-            let inv_id = inv.id.ok_or_else(|| anyhow("Invitation record missing ID"))?;
+            let inv_id = inv.id.ok_or_else(|| anyhow!("Invitation record missing ID"))?;
             GroupInvitation::update_by_id(rb, &inv, &inv_id).await?;
 
             // Add as group member
@@ -426,7 +426,7 @@ pub async fn decline_group_invitation_service(
 
             inv.status = Some(INVITATION_DECLINED);
             inv.updated_at = Some(now);
-            let inv_id = inv.id.ok_or_else(|| anyhow("Invitation record missing ID"))?;
+            let inv_id = inv.id.ok_or_else(|| anyhow!("Invitation record missing ID"))?;
             GroupInvitation::update_by_id(rb, &inv, &inv_id).await?;
 
             info!(
@@ -529,7 +529,7 @@ pub async fn remove_group_member_service(
                         return Ok(false);
                     }
                     t.status = Some(3);
-                    let user_uuid = t.user_uuid.clone().ok_or_else(|| anyhow("Member missing user_uuid"))?;
+                    let user_uuid = t.user_uuid.clone().ok_or_else(|| anyhow!("Member missing user_uuid"))?;
                     GroupMember::update_by_group_and_user(rb, &t, &g_uuid, &user_uuid).await?;
                     sync_group_members_to_redis(rb,group_uuid).await?;
                     info!("[group] member removed successfully group_uuid={} target={}", group_uuid, target_uuid);
@@ -553,7 +553,7 @@ pub async fn quit_group_service(rb: &RBatis, user_uuid: &str, group_uuid: &str) 
                 return Ok(false);
             }
             m.status = Some(2);
-            let user_uuid_val = m.user_uuid.clone().ok_or_else(|| anyhow("Member missing user_uuid"))?;
+            let user_uuid_val = m.user_uuid.clone().ok_or_else(|| anyhow!("Member missing user_uuid"))?;
             GroupMember::update_by_group_and_user(rb, &m, &g_uuid, &user_uuid_val).await?;
             sync_group_members_to_redis(rb,group_uuid).await?;
             info!("[group] left successfully group_uuid={} user={}", group_uuid, user_uuid);
@@ -584,7 +584,7 @@ pub async fn set_member_role_service(
             match target {
                 Some(mut t) => {
                     t.role = Some(dto.role);
-                    let user_uuid = t.user_uuid.clone().ok_or_else(|| anyhow("Member missing user_uuid"))?;
+                    let user_uuid = t.user_uuid.clone().ok_or_else(|| anyhow!("Member missing user_uuid"))?;
                     GroupMember::update_by_group_and_user(rb, &t, &group_uuid, &user_uuid).await?;
                     info!("[group] role set successfully group_uuid={} user={} role={}", dto.group_uuid, dto.user_uuid, dto.role);
                     Ok(true)
