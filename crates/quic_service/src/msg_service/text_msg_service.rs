@@ -113,7 +113,7 @@ pub async fn get_text_msg(
         let head_msg: HeadMsg = match bincode::deserialize(head_msg_vec) {
             Ok(msg) => msg,
             Err(error) => {
-                error!("序列化粘包数据失败! {}", error);
+                error!("failed to serialize sticky packet data! {}", error);
                 buffer_msg.lock().await.append(&mut buffer[round..length].to_vec());
                 return Ok(result_vec);
             }
@@ -130,7 +130,7 @@ pub async fn get_text_msg(
         let body_msg: TextQuicMsg = match bincode::deserialize(body_msg_vec) {
             Ok(msg) => msg,
             Err(error) => {
-                error!("序列化粘包数据失败! {}", error);
+                error!("failed to serialize sticky packet data! {}", error);
                 buffer_msg.lock().await.append(&mut buffer[round..length].to_vec());
                 return Ok(result_vec);
             }

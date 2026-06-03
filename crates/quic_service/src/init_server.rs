@@ -23,14 +23,14 @@ pub async fn start_server() -> anyhow::Result<Arc<ChatNode>> {
     // 初始化基础设施（幂等操作，api 层后续调用不会重复初始化）
     let redis_url = read_global_config!("redis", "url");
     match common::init_redis(&redis_url) {
-        Ok(_) => info!("Redis 连接池已就绪"),
-        Err(e) => tracing::warn!("Redis 初始化失败: {}", e),
+        Ok(_) => info!("Redis connection pool ready"),
+        Err(e) => tracing::warn!("Redis initialization failed: {}", e),
     }
 
     let db_url = read_global_config!("database", "url");
     match common::init_sql_pool(&db_url).await {
-        Ok(_) => info!("数据库连接池已就绪"),
-        Err(e) => tracing::warn!("数据库初始化失败: {}", e),
+        Ok(_) => info!("database connection pool ready"),
+        Err(e) => tracing::warn!("database initialization failed: {}", e),
     }
 
     let connections = node.connections();
@@ -44,14 +44,14 @@ pub async fn start_server() -> anyhow::Result<Arc<ChatNode>> {
             if let Err(e) =
                 common::utils::server_count_sync::register_external_node(redis, server_index, &node_address).await
             {
-                tracing::warn!("外网 QUIC 节点注册失败: {}", e);
+                tracing::warn!("external QUIC node registration failed: {}", e);
             }
             common::utils::server_count_sync::start_server_count_sync(
                 redis.clone(),
                 server_index,
                 node_address,
             );
-            info!("server_count 后台同步已启动 (server_index={})", server_index);
+            info!("server_count background sync started (server_index={})", server_index);
         }
     }
 

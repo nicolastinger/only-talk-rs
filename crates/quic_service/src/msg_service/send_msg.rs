@@ -46,7 +46,7 @@ pub async fn send_quic_system_msg(
                 return Ok(());
             }
             None => {
-                warn!("当前用户不在本机: {} (platform={})", user_key, platform);
+                warn!("current user not on local machine: {} (platform={})", user_key, platform);
             }
         }
     }
@@ -79,7 +79,7 @@ pub async fn send_quic_system_msg(
             let internal_addr: std::net::SocketAddr = addr_str.parse()?;
             send_internal_quic_msg(internal_addr, request).await?;
         } else {
-            warn!("未找到节点 {} 的内网 QUIC 地址", preferred_index);
+            warn!("internal QUIC address not found for node {}", preferred_index);
         }
     }
     Ok(())

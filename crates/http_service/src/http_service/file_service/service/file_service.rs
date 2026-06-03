@@ -153,7 +153,7 @@ async fn save_uploaded_file(
         let data = match chunk {
             Ok(d) => d,
             Err(e) => {
-                error!("读取数据块时出错: {}", e);
+                error!("error reading data chunk: {}", e);
                 return Err(anyhow!("未知错误"));
             }
         };
@@ -161,7 +161,7 @@ async fn save_uploaded_file(
         // 检查文件大小是否超出限制
         let new_size = file_size + data.len() as i64;
         if new_size > DEFAULT_MAX_FILE_SIZE {
-            error!("文件大小超出限制: {} > {}", new_size, DEFAULT_MAX_FILE_SIZE);
+            error!("file size exceeds limit: {} > {}", new_size, DEFAULT_MAX_FILE_SIZE);
             return Err(anyhow!(
                 "文件大小超出限制，最大允许 {} 字节",
                 DEFAULT_MAX_FILE_SIZE
@@ -175,7 +175,7 @@ async fn save_uploaded_file(
 
         // 异步写入数据块
         if let Err(e) = file.write_all(&data).await {
-            error!("写入文件时出错: {}", e);
+            error!("error writing file: {}", e);
             return Err(anyhow!(e));
         }
     }
@@ -191,7 +191,7 @@ async fn save_uploaded_file(
     )
     .await?;
 
-    info!("上传的文件mime_type: {:?}", mime_type);
+    info!("uploaded file mime_type: {:?}", mime_type);
 
     let now = get_now_time_stamp_as_millis()?;
     let mut file_record = FileUploadRecord {
@@ -215,10 +215,10 @@ async fn save_uploaded_file(
     };
 
     if !file_upload_record_exist.is_empty() {
-        warn!("文件已存在: {}", filename);
+        warn!("file already exists: {}", filename);
         // 如果文件已存在，则删除刚上传的临时文件
         if let Err(e) = tokio::fs::remove_file(&filepath).await {
-            error!("删除重复文件失败: {}", e);
+            error!("failed to delete duplicate file: {}", e);
         }
 
         // 使用已存在的文件记录

@@ -28,7 +28,7 @@ pub async fn download_file_api() -> impl Responder {
     let file_content = match fs::read(&test_icon_path) {
         Ok(content) => content,
         Err(e) => {
-            error!("读取文件失败: {}", e);
+            error!("failed to read file: {}", e);
             return HttpResponse::NotFound()
                 .body(CommonResponseNoDataRef::error_json(&format!("文件不存在: {}", e)));
         }
@@ -72,14 +72,14 @@ pub async fn download_pub_file_id_api(
     match res {
         Ok(res) => res,
         Err(t) => {
-            error!("下载公开文件失败 {:?}, {}", t, t.backtrace());
+            error!("failed to download public file: {:?}, {}", t, t.backtrace());
             HttpResponse::BadRequest().body(CommonResponseNoDataRef::error_json(&t.to_string()))
         }
     }
 }
 
 /**
- * 获取聊天业务文件下载link
+ * get chat file download link by biz_id
  */
 #[post("/download_link/chat_biz/{biz_id}/{is_preview}")]
 async fn download_chat_biz_api(
@@ -100,11 +100,11 @@ async fn download_chat_biz_api(
 }
 
 /**
- * 通过业务id和文件id下载聊天文件
+ * download chat file by biz_id and file_id
  */
 #[get("/download_chat_file/{biz_id}/{file_id}")]
 pub async fn download_chat_file_api(
-    req: HttpRequest, 
+    req: HttpRequest,
     state: web::Data<RBatis>,
     s3_client: web::Data<Arc<S3Client>>,
     params: web::Path<(String, String)>
@@ -117,7 +117,7 @@ pub async fn download_chat_file_api(
     match res {
         Ok(res) => res,
         Err(t) => {
-            error!("下载公开文件失败 {:?}, {}", t, t.backtrace());
+            error!("failed to download chat file: {:?}, {}", t, t.backtrace());
             HttpResponse::BadRequest().body(CommonResponseNoDataRef::error_json(&t.to_string()))
         }
     }

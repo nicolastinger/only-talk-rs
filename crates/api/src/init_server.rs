@@ -36,7 +36,7 @@ fn init_cert_file() -> anyhow::Result<(Vec<Certificate>, PrivateKey)> {
         .into_iter()
         .map(Certificate)
         .collect::<Vec<_>>();
-    info!("读取到 {} 个证书", cert_chain.len());
+    info!("loaded {} certificates", cert_chain.len());
 
     // 尝试读取不同类型的私钥
     let mut keys = {
@@ -95,26 +95,26 @@ async fn init_s3_client() -> Option<Arc<s3_service::S3Client>> {
         .unwrap_or(false);
 
     if !enabled {
-        info!("S3存储未启用，使用本地存储");
+        info!("S3 storage not enabled, using local storage");
         return None;
     }
 
     match S3Config::from_global_config() {
         Ok(config) => {
-            info!("正在初始化S3客户端 - Provider: {}", config.provider);
+            info!("initializing S3 client - Provider: {}", config.provider);
             match GlobalS3Client::init(config).await {
                 Ok(client) => {
-                    info!("S3客户端初始化成功");
+                    info!("S3 client initialized successfully");
                     Some(client)
                 }
                 Err(e) => {
-                    error!("S3客户端初始化失败: {}，将降级为本地存储", e);
+                    error!("S3 client initialization failed: {}, falling back to local storage", e);
                     None
                 }
             }
         }
         Err(e) => {
-            warn!("读取S3配置失败: {}，使用本地存储", e);
+            warn!("failed to read S3 config: {}, using local storage", e);
             None
         }
     }
@@ -143,7 +143,7 @@ pub async fn start_server() -> anyhow::Result<()> {
         .with_no_client_auth()
         .with_single_cert(cert_chain, key)
         .map_err(|e| {
-            error!("无法设置证书和私钥: {}", e);
+            error!("failed to set certificate and private key: {}", e);
             std::io::Error::other("无法设置证书和私钥")
         })?;
 
@@ -159,7 +159,7 @@ pub async fn start_server() -> anyhow::Result<()> {
     let s3_data = match s3_client {
         Some(client) => web::Data::new(client),
         None => {
-            warn!("S3客户端未初始化，S3相关功能不可用");
+            warn!("S3 client not initialized, S3-related features unavailable");
             // 创建一个placeholder，不会实际使用
             let config = S3Config::default_minio();
             web::Data::new(Arc::new(s3_service::S3Client::new(config).await?))

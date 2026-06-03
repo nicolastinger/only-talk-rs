@@ -99,7 +99,7 @@ fn test_s3_error_from_io_error() {
     
     match s3_err {
         S3Error::IoError(msg) => assert!(msg.contains("file not found")),
-        _ => panic!("应该是 IoError 类型"),
+        _ => panic!("expected IoError type"),
     }
 }
 
@@ -140,11 +140,11 @@ async fn diagnose_s3_connection() {
     // 初始化日志
     let _ = tracing_subscriber::fmt::try_init();
 
-    info!("====== S3 连接诊断测试 ======");
-    
+    info!("====== S3 Connection Diagnostic Test ======");
+
     // 1. 加载配置
     let config = S3Config::default_minio();
-    info!("配置信息:");
+    info!("Configuration:");
     info!("  Provider: {:?}", config.provider);
     info!("  Endpoint: {}", config.endpoint_url);
     info!("  Access Key: {}", config.access_key_id);
@@ -153,76 +153,76 @@ async fn diagnose_s3_connection() {
     info!("  Force Path Style: {}", config.force_path_style);
     
     // 2. 创建客户端
-    info!("\n正在创建 S3 客户端...");
+    info!("\nCreating S3 client...");
     let client = match S3Client::new(config).await {
         Ok(c) => {
-            info!("✓ S3 客户端创建成功");
+            info!("✓ S3 client created successfully");
             c
         }
         Err(e) => {
-            info!("✗ S3 客户端创建失败: {}", e);
-            panic!("无法创建 S3 客户端");
+            info!("✗ S3 client creation failed: {}", e);
+            panic!("failed to create S3 client");
         }
     };
     
     // 3. 测试连接 - 列出所有桶
-    info!("\n正在测试连接（列出所有桶）...");
+    info!("\nTesting connection (listing all buckets)...");
     match client.inner.list_buckets().send().await {
         Ok(result) => {
-            info!("✓ 连接成功！");
+            info!("✓ Connection successful!");
             let buckets = result.buckets();
-            info!("  当前桶数量: {}", buckets.len());
+            info!("  Current bucket count: {}", buckets.len());
             for bucket in buckets {
                 info!("  - {}", bucket.name().unwrap_or("unknown"));
             }
         }
         Err(e) => {
-            info!("✗ 连接失败: {:?}", e);
-            info!("\n可能的原因:");
-            info!("  1. 网络连接问题 - 检查端点 URL 是否正确");
-            info!("  2. S3 服务未启动 - 确认 MinIO 是否运行");
-            info!("  3. 防火墙阻止 - 检查端口是否开放");
-            info!("  4. TLS/SSL 问题 - HTTP vs HTTPS");
+            info!("✗ Connection failed: {:?}", e);
+            info!("\nPossible reasons:");
+            info!("  1. Network connection issue - check if endpoint URL is correct");
+            info!("  2. S3 service not started - confirm MinIO is running");
+            info!("  3. Firewall blocked - check if port is open");
+            info!("  4. TLS/SSL issue - HTTP vs HTTPS");
             return;
         }
     }
     
     // 4. 检查默认桶是否存在
-    info!("\n正在检查默认桶 '{}'...", client.config.default_bucket);
+    info!("\nChecking default bucket '{}'...", client.config.default_bucket);
     match client.inner.head_bucket().bucket(&client.config.default_bucket).send().await {
         Ok(_) => {
-            info!("✓ 默认桶已存在");
+            info!("✓ Default bucket already exists");
         }
         Err(e) => {
-            info!("✗ 默认桶不存在或无法访问: {:?}", e);
-            info!("\n尝试创建桶...");
+            info!("✗ Default bucket does not exist or inaccessible: {:?}", e);
+            info!("\nAttempting to create bucket...");
             
             // 5. 尝试创建桶
             match client.inner.create_bucket().bucket(&client.config.default_bucket).send().await {
                 Ok(_) => {
-                    info!("✓ 桶创建成功");
+                    info!("✓ Bucket created successfully");
                 }
                 Err(create_err) => {
-                    info!("✗ 桶创建失败: {:?}", create_err);
-                    info!("\n可能的原因:");
-                    info!("  1. 权限不足 - 检查 Access Key 和 Secret Key");
-                    info!("  2. 桶名已被占用");
-                    info!("  3. 区域配置错误");
-                    info!("  4. MinIO 版本不兼容");
-                    
+                    info!("✗ Bucket creation failed: {:?}", create_err);
+                    info!("\nPossible reasons:");
+                    info!("  1. Insufficient permissions - check Access Key and Secret Key");
+                    info!("  2. Bucket name already taken");
+                    info!("  3. Region configuration error");
+                    info!("  4. MinIO version incompatible");
+
                     // 尝试获取更详细的错误信息
                     let meta = create_err.meta();
-                    info!("\n错误详情:");
-                    info!("  错误码: {:?}", meta.code());
-                    info!("  错误消息: {:?}", meta.message());
-                    info!("  请求ID: {:?}", meta.request_id());
+                    info!("\nError details:");
+                    info!("  Error code: {:?}", meta.code());
+                    info!("  Error message: {:?}", meta.message());
+                    info!("  Request ID: {:?}", meta.request_id());
                 }
             }
         }
     }
     
     // 6. 测试上传和下载
-    info!("\n正在测试文件上传...");
+    info!("\nTesting file upload...");
     let test_key = "test/diagnostic-test.txt";
     let test_data = b"Hello, S3 Diagnostic Test!";
     
@@ -234,10 +234,10 @@ async fn diagnose_s3_connection() {
         .await
     {
         Ok(_) => {
-            info!("✓ 文件上传成功");
+            info!("✓ File uploaded successfully");
             
             // 尝试下载
-            info!("\n正在测试文件下载...");
+            info!("\nTesting file download...");
             match client.inner.get_object()
                 .bucket(&client.config.default_bucket)
                 .key(test_key)
@@ -246,7 +246,7 @@ async fn diagnose_s3_connection() {
             {
                 Ok(result) => {
                     let body = result.body.collect().await.unwrap().into_bytes();
-                    info!("✓ 文件下载成功，大小: {} bytes", body.len());
+                    info!("✓ File downloaded successfully, size: {} bytes", body.len());
                     
                     // 清理测试文件
                     let _ = client.inner.delete_object()
@@ -254,19 +254,19 @@ async fn diagnose_s3_connection() {
                         .key(test_key)
                         .send()
                         .await;
-                    info!("✓ 测试文件已清理");
+                    info!("✓ Test file cleaned up");
                 }
                 Err(e) => {
-                    info!("✗ 文件下载失败: {:?}", e);
+                    info!("✗ File download failed: {:?}", e);
                 }
             }
         }
         Err(e) => {
-            info!("✗ 文件上传失败: {:?}", e);
+            info!("✗ File upload failed: {:?}", e);
         }
     }
     
-    info!("\n====== 诊断完成 ======");
+    info!("\n====== Diagnostic Complete ======");
 }
 
 /// 测试桶创建权限

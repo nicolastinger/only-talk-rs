@@ -136,10 +136,10 @@ pub async fn upload_original_file_by_biz_id(
         return Err(anyhow!("S3服务未启用"));
     }
     
-    info!("上传原始文件到S3...");
+    info!("uploading original file to S3...");
     let original_record = upload_chat_origin_file_s3(rb, uuid.clone(), payload, s3_client.clone()).await
         .map_err(|e| anyhow!("S3上传失败: {}", e))?;
-    info!("原始文件上传到S3成功");
+    info!("original file uploaded to S3 successfully");
 
     let preview_id = rbdc::Uuid::from_str(&preview_id)?;
     // 3. 更新biz_file_link

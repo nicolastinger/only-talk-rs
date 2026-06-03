@@ -17,7 +17,7 @@ pub fn init_redis(url: &str) -> Result<Pool, anyhow::Error> {
             .ok_or_else(|| anyhow!("Redis未初始化"));
     }
 
-    info!("正在连接 Redis - 地址: {}", url);
+    info!("connecting to Redis - address: {}", url);
     let config = RedisConfig::from_url(url);
     let pool = config
         .create_pool(Some(Runtime::Tokio1))
@@ -32,7 +32,7 @@ pub fn init_redis(url: &str) -> Result<Pool, anyhow::Error> {
         }
     }
 
-    info!("Redis 连接池初始化成功");
+    info!("Redis connection pool initialized successfully");
     Ok(pool)
 }
 
@@ -44,18 +44,18 @@ pub async fn verify_redis(pool: &Pool) {
                 .await;
             match result {
                 Ok(ref s) if s == "PONG" => {
-                    info!("Redis 连接成功 (PING: {})", s);
+                    info!("Redis connected (PING: {})", s);
                 }
                 Ok(s) => {
-                    warn!("Redis PING 返回异常: {}", s);
+                    warn!("Redis PING returned anomaly: {}", s);
                 }
                 Err(e) => {
-                    error!("Redis 连接失败: {}", e);
+                    error!("Redis connection failed: {}", e);
                 }
             }
         }
         Err(e) => {
-            error!("Redis 获取连接失败: {}", e);
+            error!("Redis connection acquisition failed: {}", e);
         }
     }
 }

@@ -63,7 +63,7 @@ impl ServiceLifecycle for ChatNode {
             }
         }
         self.state.write().await.transition_to(ServiceState::Initializing)?;
-        info!("[{}] 正在初始化...", self.name());
+        info!("[{}] initializing...", self.name());
 
         let (endpoint, _server_cert) = make_server_endpoint(
             self.config.bind_address,
@@ -94,7 +94,7 @@ impl ServiceLifecycle for ChatNode {
             }
         }
 
-        info!("[{}] 正在启动...", self.name());
+        info!("[{}] starting...", self.name());
 
         let endpoint = {
             let ep = self.endpoint.read().await;
@@ -128,7 +128,7 @@ impl ServiceLifecycle for ChatNode {
             run_server(endpoint, connections, config, shutdown_rx).await;
         });
 
-        info!("[{}] 服务已启动", self.name());
+        info!("[{}] service started", self.name());
         Ok(())
     }
 
@@ -143,7 +143,7 @@ impl ServiceLifecycle for ChatNode {
             }
         }
         self.state.write().await.transition_to(ServiceState::Stopping)?;
-        info!("[{}] 正在优雅关闭...", self.name());
+        info!("[{}] shutting down gracefully...", self.name());
 
         // 发送 shutdown 信号
         {
@@ -165,7 +165,7 @@ impl ServiceLifecycle for ChatNode {
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
         self.state.write().await.transition_to(ServiceState::Stopped)?;
-        info!("[{}] 已关闭", self.name());
+        info!("[{}] closed", self.name());
         Ok(())
     }
 

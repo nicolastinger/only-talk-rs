@@ -136,14 +136,14 @@ pub async fn upload_user_avatar_s3(
             .unwrap_or("");
 
         let mime_type = field.content_type().map(|ct| ct.essence_str().to_string());
-        info!("上传的文件mime_type: {:?}", mime_type);
+        info!("uploaded file mime_type: {:?}", mime_type);
                 
         // 如果客户端没有提供 MIME 类型，则根据文件扩展名推断
         let mime_type = mime_type.or_else(|| {
             infer_mime_from_extension(filename)
         });
                 
-        info!("上传的文件mime_type2: {:?}", mime_type);
+        info!("uploaded file mime_type2: {:?}", mime_type);
         validate_file_type(filename, mime_type.as_deref()).map_err(|e| anyhow!(e))?;
         // 读取文件数据
         let mut file_data = Vec::new();
@@ -154,14 +154,14 @@ pub async fn upload_user_avatar_s3(
             let data = match chunk {
                 Ok(d) => d,
                 Err(e) => {
-                    error!("读取数据块时出错: {}", e);
+                    error!("error reading data chunk: {}", e);
                     return Err(anyhow!("未知错误"));
                 }
             };
 
             let new_size = file_size + data.len() as i64;
             if new_size > DEFAULT_MAX_FILE_SIZE {
-                error!("文件大小超出限制: {} > {}", new_size, DEFAULT_MAX_FILE_SIZE);
+                error!("file size exceeds limit: {} > {}", new_size, DEFAULT_MAX_FILE_SIZE);
                 return Err(anyhow!(
                     "文件大小超出限制，最大允许 {} 字节",
                     DEFAULT_MAX_FILE_SIZE
@@ -199,7 +199,7 @@ pub async fn upload_user_avatar_s3(
         let oss_type = get_oss_type(&s3_client.config.provider);
 
         if !file_upload_record_exist.is_empty() {
-            warn!("头像文件已存在(S3): {}", filename);
+            warn!("avatar file already exists (S3): {}", filename);
             let exist_record = file_upload_record_exist[0].clone();
             let exist_file_path = exist_record.file_path.clone().ok_or(anyhow!("文件路径为空"))?;
 
@@ -228,7 +228,7 @@ pub async fn upload_user_avatar_s3(
                 .await
                 .map_err(|e| anyhow!("S3上传失败: {}", e))?;
 
-            info!("S3头像文件上传成功: key={}, size={}", storage_info.key, storage_info.size);
+            info!("S3 avatar file uploaded successfully: key={}, size={}", storage_info.key, storage_info.size);
 
             let file_record = FileUploadRecord {
                 id: None,
@@ -283,13 +283,13 @@ pub async fn upload_group_avatar_s3(
             .unwrap_or("");
 
         let mime_type = field.content_type().map(|ct| ct.essence_str().to_string());
-        info!("上传的群组头像文件mime_type: {:?}", mime_type);
+        info!("uploaded group avatar file mime_type: {:?}", mime_type);
 
         let mime_type = mime_type.or_else(|| {
             infer_mime_from_extension(filename)
         });
 
-        info!("上传的群组头像文件mime_type2: {:?}", mime_type);
+        info!("uploaded group avatar file mime_type2: {:?}", mime_type);
         validate_file_type(filename, mime_type.as_deref()).map_err(|e| anyhow!(e))?;
 
         let mut file_data = Vec::new();
@@ -300,14 +300,14 @@ pub async fn upload_group_avatar_s3(
             let data = match chunk {
                 Ok(d) => d,
                 Err(e) => {
-                    error!("读取数据块时出错: {}", e);
+                    error!("error reading data chunk: {}", e);
                     return Err(anyhow!("未知错误"));
                 }
             };
 
             let new_size = file_size + data.len() as i64;
             if new_size > DEFAULT_MAX_FILE_SIZE {
-                error!("文件大小超出限制: {} > {}", new_size, DEFAULT_MAX_FILE_SIZE);
+                error!("file size exceeds limit: {} > {}", new_size, DEFAULT_MAX_FILE_SIZE);
                 return Err(anyhow!(
                     "文件大小超出限制，最大允许 {} 字节",
                     DEFAULT_MAX_FILE_SIZE
@@ -343,7 +343,7 @@ pub async fn upload_group_avatar_s3(
         let oss_type = get_oss_type(&s3_client.config.provider);
 
         if !file_upload_record_exist.is_empty() {
-            warn!("群组头像文件已存在(S3): {}", filename);
+            warn!("group avatar file already exists (S3): {}", filename);
             let exist_record = file_upload_record_exist[0].clone();
             let exist_file_path = exist_record.file_path.clone().ok_or(anyhow!("文件路径为空"))?;
 
@@ -367,7 +367,7 @@ pub async fn upload_group_avatar_s3(
                 .await
                 .map_err(|e| anyhow!("S3上传失败: {}", e))?;
 
-            info!("S3群组头像文件上传成功: key={}, size={}", storage_info.key, storage_info.size);
+            info!("S3 group avatar file uploaded successfully: key={}, size={}", storage_info.key, storage_info.size);
 
             let file_record = FileUploadRecord {
                 id: None,

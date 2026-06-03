@@ -167,7 +167,7 @@ pub async fn handle_group_msg_from_client(
     let group_msg_clone = group_msg.clone();
     tokio::spawn(async move {
         if let Err(e) = save_group_message_to_db(&group_msg).await {
-            error!("保存群消息到数据库失败: {}", e);
+            error!("failed to save group message to database: {}", e);
         }
     });
 
@@ -187,7 +187,7 @@ pub async fn handle_group_msg_from_client(
     
     tokio::spawn(async move {
         if let Err(e) = process_group_broadcast_local(&broadcast_clone, &connections_clone).await {
-            error!("处理群消息失败: {}", e);
+            error!("failed to process group message: {}", e);
         }
     });
 
@@ -202,7 +202,7 @@ pub async fn handle_group_msg_from_client(
                     let _ = send_internal_group_broadcast(*addr, &broadcast).await;
                 }
             }
-            Err(e) => error!("获取节点地址失败: {}", e),
+            Err(e) => error!("failed to get node address: {}", e),
         }
     });
     
@@ -213,7 +213,7 @@ async fn get_all_internal_node_addresses() -> Result<Vec<(u32, std::net::SocketA
     // 命中缓存直接返回
     {
         let cache_read = NODE_CACHE.lock().unwrap_or_else(|e| {
-            error!("NODE_CACHE 锁中毒: {}", e);
+            error!("NODE_CACHE lock poisoned: {}", e);
             std::process::exit(1);
         });
         if let Some((ts, nodes)) = cache_read.as_ref() {
@@ -261,7 +261,7 @@ async fn get_all_internal_node_addresses() -> Result<Vec<(u32, std::net::SocketA
     }
 
     let mut cache_write = NODE_CACHE.lock().unwrap_or_else(|e| {
-        error!("NODE_CACHE 写入锁中毒: {}", e);
+        error!("NODE_CACHE write lock poisoned: {}", e);
         std::process::exit(1);
     });
     *cache_write = Some((Instant::now(), nodes.clone()));
@@ -307,15 +307,15 @@ pub async fn process_group_broadcast_local(
             match conn.open_uni().await {
                 Ok(mut send) => {
                     if let Err(e) = send.write_all(&broadcast.msg_bytes).await {
-                        warn!("[群聊广播] 投递失败 member={} error={}", member, e);
+                        warn!("[group broadcast] delivery failed member={} error={}", member, e);
                     } else if let Err(e) = send.finish().await {
-                        warn!("[群聊广播] finish失败 member={} error={}", member, e);
+                        warn!("[group broadcast] finish failed member={} error={}", member, e);
                     } else {
-                        info!("[群聊广播] 投递成功 member={}", member);
+                        info!("[group broadcast] delivery successful member={}", member);
                     }
                 }
                 Err(e) => {
-                    warn!("[群聊广播] 打开uni流失败 member={} error={}", member, e);
+                    warn!("[group broadcast] failed to open uni stream member={} error={}", member, e);
                 }
             }
         }
@@ -389,7 +389,7 @@ async fn save_group_message_to_db(group_msg: &GroupQuicMsg) -> Result<()> {
     };
 
     GroupMessageRecord::insert(rb, &record).await?;
-    info!("[群聊] 消息已持久化 nano_id={}", group_msg.nano_id);
+    info!("[group chat] message persisted nano_id={}", group_msg.nano_id);
 
     Ok(())
 }

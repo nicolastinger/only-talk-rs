@@ -38,14 +38,14 @@ pub(crate) async fn run_server(
         let incoming_conn = {
             tokio::select! {
                 _ = shutdown_rx.changed() => {
-                    info!("收到关闭信号，停止接受新连接");
+                    info!("received shutdown signal, stopping new connections");
                     return;
                 }
                 result = endpoint.accept() => {
                     match result {
                         Some(conn) => conn,
                         None => {
-                            error!("接收新连接请求失败: endpoint 已关闭");
+                            error!("failed to accept new connection: endpoint closed");
                             return;
                         }
                     }
@@ -56,7 +56,7 @@ pub(crate) async fn run_server(
         let conn = match incoming_conn.await {
             Ok(t) => t,
             Err(e) => {
-                error!("建立链接失败 {}", e);
+                error!("failed to establish connection {}", e);
                 continue;
             }
         };
@@ -69,7 +69,7 @@ pub(crate) async fn run_server(
         let cfg = config.clone();
         tokio::spawn(async move {
             if let Err(e) = handle_connection(conn, conns, cfg).await {
-                error!("打开双向流失败: {}", e);
+                error!("failed to open bi-directional stream: {}", e);
             }
         });
     }
@@ -80,7 +80,7 @@ async fn handle_connection(
     connections: Arc<DashMap<String, QuicConnection>>,
     config: ChatNodeConfig,
 ) -> Result<(), anyhow::Error> {
-    info!("新连接来源: {:?}", quic_conn.remote_address());
+    info!("new connection source: {:?}", quic_conn.remote_address());
 
     loop {
         match quic_conn.accept_bi().await {
@@ -92,7 +92,7 @@ async fn handle_connection(
                 tokio::spawn(async move {
                     handle_conn(send_stream, recv_stream, conn_handle, address, conns, cfg)
                         .await
-                        .unwrap_or_else(|x| error!("初始化连接失败 {}", x));
+                        .unwrap_or_else(|x| error!("failed to initialize connection {}", x));
                 });
             }
             Err(e) => {
@@ -116,7 +116,7 @@ async fn process_first_msg(
     match recv_stream.read(&mut first_buffer).await {
         Ok(Some(length)) => {
             let origin_str = String::from_utf8_lossy(&first_buffer[0..length]);
-            info!("[服务端] 接收到客户端初始化数据，长度为 {}，内容: {}", length, origin_str);
+            info!("[server] received client init data, length: {}, content: {}", length, origin_str);
             match serde_json::from_str(&origin_str) {
                 Ok(t) => {
                     _first_quic_msg = t;
@@ -126,7 +126,7 @@ async fn process_first_msg(
                     );
                 }
                 Err(e) => {
-                    error!("序列化流数据的元数据失败: {}，原始数据: {}", e, origin_str);
+                    error!("failed to serialize stream metadata: {}, raw data: {}", e, origin_str);
                     send_stream.finish().await?;
                     return Err(anyhow!("[服务端] 客户端初始化消息格式错误"));
                 }
@@ -141,7 +141,7 @@ async fn process_first_msg(
             return Err(anyhow!("[服务端] 客户端未发送初始化消息就关闭了连接"));
         }
         Err(e) => {
-            error!("[服务端] 初始化读取元数据错误: {}, 客户端地址: {}", e, address.as_str());
+            error!("[server] failed to read init metadata: {}, client address: {}", e, address.as_str());
             send_stream.finish().await?;
             return Err(anyhow!("[服务端] 读取客户端初始化消息时发生错误"));
         }
@@ -157,14 +157,14 @@ async fn authenticate_connection(
     let claims = match verify_token(first_quic_msg.token.as_ref()).map_err(|_| "解析token失败") {
         Ok(t) => {
             if t.uuid != first_quic_msg.uuid {
-                error!("令牌跟账号不匹配！");
+                error!("token does not match account!");
                 send_stream.finish().await?;
-                return Err(anyhow!("令牌跟账号不匹配！"));
+                return Err(anyhow!("token does not match account!"));
             }
             t
         }
         Err(e) => {
-            error!("解析令牌失败 {}", e);
+            error!("failed to parse token: {}", e);
             send_stream.finish().await?;
             return Err(anyhow!("解析令牌失败！"));
         }
@@ -180,7 +180,7 @@ async fn verify_max_client(
 ) -> Result<(), anyhow::Error> {
     let server_book_len = connections.len();
     if server_book_len > max_connections {
-        error!("达到最大连接数 {}", server_book_len);
+        error!("max connections reached: {}", server_book_len);
         send_stream.finish().await?;
         return Err(anyhow!("达到最大连接数 {}", server_book_len));
     }
@@ -220,7 +220,7 @@ async fn set_conn_info(
         conn.set_ex::<&str, &str, ()>(connection_key, &index_str, 7200).await?;
     }
 
-    info!("当前的在线客户端 {}", connections.len());
+    info!("current online clients: {}", connections.len());
     Ok(())
 }
 
@@ -233,7 +233,7 @@ async fn handle_conn(
     connections: Arc<DashMap<String, QuicConnection>>,
     config: ChatNodeConfig,
 ) -> Result<(), anyhow::Error> {
-    info!("[服务端] 开始处理新连接，客户端地址: {}", address);
+    info!("[server] processing new connection, client address: {}", address);
 
     let first_quic_msg =
         process_first_msg(&mut send_stream, &mut recv_stream, &address.clone()).await?;
@@ -268,7 +268,7 @@ async fn handle_conn(
             let uni_buffer_msg: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
             loop {
                 if uni_shutdown_clone.load(Ordering::Relaxed) {
-                    info!("[服务端] uni流收到关闭信号，退出循环");
+                    info!("[server] uni stream received close signal, exiting loop");
                     break;
                 }
                 match conn_for_uni.accept_uni().await {
@@ -291,12 +291,12 @@ async fn handle_conn(
                             }
                             Ok(None) => {}
                             Err(e) => {
-                                warn!("[服务端] uni流读取错误: {}", e);
+                                warn!("[server] uni stream read error: {}", e);
                             }
                         }
                     }
                     Err(e) => {
-                        warn!("[服务端] uni accept 错误: {}，继续等待", e);
+                        warn!("[server] uni accept error: {}, continuing to wait", e);
                         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                     }
                 }
@@ -312,7 +312,7 @@ async fn handle_conn(
         let mut buffer = vec![0u8; 1024 * 10]; //设置缓冲区为10KB
         let buffer_len = buffer_msg.lock().await.len();
         if buffer_len > config.max_buffer_length {
-            error!("半包长度超过限制 {}", buffer.len());
+            error!("partial packet length exceeds limit: {}", buffer.len());
             // TODO发送限制消息给客户端纠错
             break;
         }
@@ -334,19 +334,19 @@ async fn handle_conn(
                 .await
                 {
                     Ok(_) => {
-                        info!("处理消息完成")
+                        info!("message processing complete")
                     }
                     Err(error) => {
-                        error!("处理信息失败! {:#}", error.backtrace());
+                        error!("failed to process message! {:#}", error.backtrace());
                     }
                 }
             }
             Ok(None) => {
-                info!("[服务端] 流关闭");
+                info!("[server] stream closed");
                 break;
             }
             Err(e) => {
-                warn!("[服务端] 读取错误: {},退出流{}", e, recv_stream.id());
+                warn!("[server] read error: {}, exiting stream {}", e, recv_stream.id());
                 break;
             }
         }
@@ -370,7 +370,7 @@ async fn end_server(
         if let Some(book) = connections.get_mut(close_key) {
             let now = book.update_time;
             if now == close_now as u64 {
-                info!("用户下线 {}", close_key);
+                info!("user disconnected: {}", close_key);
                 uuid = book.uuid.clone();
                 drop(book);
                 connections.remove(close_key);
@@ -378,22 +378,22 @@ async fn end_server(
                 let redis = match redis.as_ref() {
                     Some(r) => r,
                     None => {
-                        error!("FATAL: 获取redis连接失败");
+                        error!("FATAL: failed to get redis connection");
                         tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-                        panic!("获取redis连接失败");
+                        panic!("failed to get redis connection");
                     }
                 };
 
                 let mut conn = match redis.get().await {
                     Ok(c) => c,
                     Err(e) => {
-                        error!("FATAL: 打开redis连接失败: {}", e);
+                        error!("FATAL: failed to open redis connection: {}", e);
                         tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-                        panic!("打开redis连接失败: {}", e);
+                        panic!("failed to open redis connection: {}", e);
                     }
                 };
                 if let Err(e) = conn.del::<&str, ()>(connection_key).await {
-                    error!("删除连接信息失败: {}", e);
+                    error!("failed to delete connection info: {}", e);
                 }
             }
         }
@@ -420,9 +420,9 @@ async fn user_offline(uuid: String) -> std::result::Result<(), anyhow::Error> {
     // 已读消息从redis中持久化到数据库
     let read_key = format!("{}{}", USER_READ_MSG, uuid);
     let read_record: String = redis.get(&read_key).await?;
-    info!("已读消息, 源 {}", read_record);
+    info!("read messages, source: {}", read_record);
     let last_chat_message_read: Vec<ChatMessageRecordRead> = serde_json::from_str(&read_record)?;
-    info!("已读消息, 转换 {:?}", last_chat_message_read);
+    info!("read messages, converted: {:?}", last_chat_message_read);
     // TODO已读消息有效校验
 
     for item in last_chat_message_read.into_iter() {
@@ -434,7 +434,7 @@ async fn user_offline(uuid: String) -> std::result::Result<(), anyhow::Error> {
         let exit_item = match is_exist.first() {
             Some(item) => item,
             None => {
-                error!("已读消息列表异常: is_exist 为空");
+                error!("read message list exception: is_exist is empty");
                 continue;
             }
         };
@@ -475,7 +475,7 @@ async fn user_offline(uuid: String) -> std::result::Result<(), anyhow::Error> {
 
 /// 用户上线
 async fn user_online(uuid: &str, _platform: &str) -> std::result::Result<(), anyhow::Error> {
-    info!("用户上线 {}", uuid);
+    info!("user online: {}", uuid);
     // TODO
     // 1.设置redis分布式锁，防止用户上线的同时立马下线
     // 2.同步所有数据库到redis缓存

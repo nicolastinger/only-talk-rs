@@ -28,7 +28,7 @@ pub fn user_service(cfg: &mut web::ServiceConfig) {
 
 #[post("/get_exit_user_flag/is_exit")]
 pub async fn get_exit_user_flag(state: web::Data<RBatis>, account: String) -> impl Responder {
-    info!("获取到值 {}", account);
+    info!("received value: {}", account);
     let res = get_exit_user(state.get_ref(), &account).await;
     HttpResponse::Ok().body(res.to_string())
 }
@@ -85,7 +85,7 @@ pub async fn get_user_by_uuid_api(
     uuid: web::Path<String>,
 ) -> impl Responder {
     let uuid = uuid.into_inner();
-    info!("获取用户信息 by uuid: {}", uuid);
+    info!("getting user info by uuid: {}", uuid);
     let res = get_user_info_by_uuid(state.get_ref(), Some(uuid)).await;
     respond_json_any!(res)
 }

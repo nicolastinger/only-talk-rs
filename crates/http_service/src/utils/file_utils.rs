@@ -32,7 +32,7 @@ pub async fn compress_image(
 
     // 检查原始文件大小
     if file_data.len() <= target_size {
-        info!("文件大小 {} 小于目标大小 {}，无需压缩", file_data.len(), target_size);
+        info!("file size {} is smaller than target size {}, skipping compression", file_data.len(), target_size);
         return Ok(file_data);
     }
 
@@ -50,20 +50,20 @@ pub async fn compress_image(
     if file_data.len() > 3 * target_size {
         // 如果原始文件远大于目标，先缩小尺寸
         if let Ok(compressed) = try_compress_by_resize_fast(&img, target_size, INITIAL_QUALITY, ENCODING_METHOD) {
-            info!("通过缩小尺寸压缩成功，压缩后大小: {} bytes", compressed.len());
+            info!("compression by resizing successful, compressed size: {} bytes", compressed.len());
             return Ok(compressed);
         }
     }
 
     // 尝试通过降低质量来压缩（使用二分法）
     if let Ok(compressed) = try_compress_by_quality_binary(&img, target_size, INITIAL_QUALITY, MIN_QUALITY, ENCODING_METHOD) {
-        info!("压缩成功，压缩后大小: {} bytes", compressed.len());
+        info!("compression successful, compressed size: {} bytes", compressed.len());
         return Ok(compressed);
     }
 
     // 如果所有方法都失败，返回质量最低的图片
     let compressed = compress_image_with_quality(&img, MIN_QUALITY, ENCODING_METHOD)?;
-    info!("使用最低质量压缩，最终大小: {} bytes", compressed.len());
+    info!("using minimum quality compression, final size: {} bytes", compressed.len());
     Ok(compressed)
 }
 

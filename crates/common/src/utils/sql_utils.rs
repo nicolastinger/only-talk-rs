@@ -22,7 +22,7 @@ pub async fn init_sql_pool(url: &str) -> Result<RBatis, anyhow::Error> {
             .ok_or_else(|| anyhow!("数据库未初始化"));
     }
 
-    info!("正在连接数据库 - 地址: {}", url);
+    info!("connecting to database - address: {}", url);
     let rb = RBatis::new();
 
     let mut opts = PgConnectOptions::new();
@@ -48,7 +48,7 @@ pub async fn init_sql_pool(url: &str) -> Result<RBatis, anyhow::Error> {
         }
     }
 
-    info!("数据库连接池初始化成功");
+    info!("database connection pool initialized successfully");
     Ok(rb)
 }
 

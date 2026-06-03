@@ -100,7 +100,7 @@ pub async fn create_group_service(
 
     GroupMember::insert(rb, &group_member).await?;
 
-    info!("[群组] 创建成功 group_uuid={} owner={}", group_uuid, owner_uuid);
+    info!("[group] created successfully group_uuid={} owner={}", group_uuid, owner_uuid);
 
     Ok(GroupInfoVO {
         group_uuid: group_uuid.to_string(),
@@ -168,7 +168,7 @@ pub async fn update_group_service(
             update_group.updated_at = Some(now);
 
             GroupInfo::update_by_group_uuid(rb, &update_group, &group_uuid).await?;
-            info!("[群组] 更新成功 group_uuid={}", group_uuid);
+            info!("[group] updated successfully group_uuid={}", group_uuid);
             Ok(true)
         }
         None => Ok(false),
@@ -190,7 +190,7 @@ pub async fn dissolve_group_service(rb: &RBatis, user_uuid: &str, group_uuid: &s
             g.updated_at = Some(now);
             GroupInfo::update_by_group_uuid(rb, &g, &uuid).await?;
 
-            info!("[群组] 解散成功 group_uuid={}", group_uuid);
+            info!("[group] dissolved successfully group_uuid={}", group_uuid);
             Ok(true)
         }
         None => Ok(false),
@@ -532,7 +532,7 @@ pub async fn remove_group_member_service(
                     let user_uuid = t.user_uuid.clone().ok_or_else(|| anyhow!("成员缺少 user_uuid"))?;
                     GroupMember::update_by_group_and_user(rb, &t, &g_uuid, &user_uuid).await?;
                     sync_group_members_to_redis(rb,group_uuid).await?;
-                    info!("[群组] 移除成员成功 group_uuid={} target={}", group_uuid, target_uuid);
+                    info!("[group] member removed successfully group_uuid={} target={}", group_uuid, target_uuid);
                     Ok(true)
                 }
                 None => Ok(false),
@@ -556,7 +556,7 @@ pub async fn quit_group_service(rb: &RBatis, user_uuid: &str, group_uuid: &str) 
             let user_uuid_val = m.user_uuid.clone().ok_or_else(|| anyhow!("成员缺少 user_uuid"))?;
             GroupMember::update_by_group_and_user(rb, &m, &g_uuid, &user_uuid_val).await?;
             sync_group_members_to_redis(rb,group_uuid).await?;
-            info!("[群组] 退出成功 group_uuid={} user={}", group_uuid, user_uuid);
+            info!("[group] left successfully group_uuid={} user={}", group_uuid, user_uuid);
             Ok(true)
         }
         None => Ok(false),
@@ -586,7 +586,7 @@ pub async fn set_member_role_service(
                     t.role = Some(dto.role);
                     let user_uuid = t.user_uuid.clone().ok_or_else(|| anyhow!("成员缺少 user_uuid"))?;
                     GroupMember::update_by_group_and_user(rb, &t, &group_uuid, &user_uuid).await?;
-                    info!("[群组] 设置角色成功 group_uuid={} user={} role={}", dto.group_uuid, dto.user_uuid, dto.role);
+                    info!("[group] role set successfully group_uuid={} user={} role={}", dto.group_uuid, dto.user_uuid, dto.role);
                     Ok(true)
                 }
                 None => Ok(false),

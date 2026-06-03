@@ -27,11 +27,11 @@ use crate::utils::http_response::{CommonResponseNoDataRef, CommonResponseRef};
 pub async fn test_sql(rb: &RBatis) -> Vec<BasicUser> {
     let basic_user_all = match BasicUser::select_all(rb).await {
         Ok(v) => v,
-        Err(e) => { error!("select_all 查询出错: {}", e); vec![] }
+        Err(e) => { error!("select_all query error: {}", e); vec![] }
     };
     let basic_user_icon = match BasicUser::select_by_map(rb, value! { "icon": "33333" }).await {
         Ok(v) => v,
-        Err(e) => { error!("select_by_map 查询出错: {}", e); vec![] }
+        Err(e) => { error!("select_by_map query error: {}", e); vec![] }
     };
     info!("1 {:?}", basic_user_all);
     info!("2 {:?}", basic_user_icon);
@@ -42,7 +42,7 @@ pub async fn get_exit_user(rb: &RBatis, account: &str) -> bool {
     match BasicUser::select_by_account(rb, account).await {
         Ok(user) => user.is_some(),
         Err(error) => {
-            error!("查询用户是否存在出错 {}", error);
+            error!("query user existence error: {}", error);
             true
         }
     }
@@ -248,7 +248,7 @@ pub async fn verify_p2p_token_service(
     let key = format!("P2P:USER:AUTH:{}:{}", uuid, token);
     let result: RedisResult<String> = cmd("GET").arg(&key).query_async(&mut conn).await;
     let res = result?;
-    info!("结果为 {} {}", uuid, res);
+    info!("result: {} {}", uuid, res);
     match res == me {
         true => {
             let key = format!("{}{}", "USER_UDP_ADDRESS_", uuid);

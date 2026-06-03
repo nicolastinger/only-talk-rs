@@ -29,7 +29,7 @@ pub fn configure_client() -> ClientConfig {
     let mut config = ClientConfig::new(Arc::new(crypto));
     let mut time_out_config = TransportConfig::default();
     let idle_timeout = Duration::from_secs(190).try_into()
-        .unwrap_or_else(|_| panic!("设置超时时间失败"));
+        .unwrap_or_else(|_| panic!("failed to set timeout"));
     time_out_config.max_idle_timeout(Some(idle_timeout));
     time_out_config.max_concurrent_uni_streams(32_u8.into());
     config.transport_config(Arc::from(time_out_config));

@@ -126,14 +126,14 @@ pub async fn upload_file_s3(
                 let data = match chunk {
                     Ok(d) => d,
                     Err(e) => {
-                        error!("读取数据块时出错: {}", e);
+                        error!("error reading data chunk: {}", e);
                         return Err(anyhow!("未知错误"));
                     }
                 };
 
                 let new_size = file_size + data.len() as i64;
                 if new_size > DEFAULT_MAX_FILE_SIZE {
-                    error!("文件大小超出限制: {} > {}", new_size, DEFAULT_MAX_FILE_SIZE);
+                    error!("file size exceeds limit: {} > {}", new_size, DEFAULT_MAX_FILE_SIZE);
                     return Err(anyhow!(
                         "文件大小超出限制，最大允许 {} 字节",
                         DEFAULT_MAX_FILE_SIZE
@@ -171,7 +171,7 @@ pub async fn upload_file_s3(
             let oss_type = get_oss_type(&s3_client.config.provider);
 
             if !file_upload_record_exist.is_empty() {
-                warn!("文件已存在(S3): {}", filename);
+                warn!("file already exists (S3): {}", filename);
                 let exist_record = file_upload_record_exist[0].clone();
                 let exist_file_path = exist_record.file_path.clone().ok_or(anyhow!("文件路径为空"))?;
 
@@ -199,9 +199,9 @@ pub async fn upload_file_s3(
                 let storage_info = storage
                     .upload_stream(&s3_key, file_data, file_size, mime_type.as_deref())
                     .await
-                    .map_err(|e| anyhow!("S3上传失败: {}", e))?;
+                    .map_err(|e| anyhow!("S3 upload failed: {}", e))?;
 
-                info!("S3上传成功: key={}, size={}", storage_info.key, storage_info.size);
+                info!("S3 upload successful: key={}, size={}", storage_info.key, storage_info.size);
 
                 let file_record = FileUploadRecord {
                     id: None,

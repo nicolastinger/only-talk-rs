@@ -28,7 +28,7 @@ pub async fn get_chat_by_limit(
     let chat = res.first().ok_or(anyhow!("没有数据"))?;
     let vec = chat.raw.clone();
     let str = String::from_utf8(vec.into_inner())?;
-    info!("结果为 {}", str);
+    info!("result: {}", str);
     Ok(CommonResponseRef::<Vec<ChatMessageRecord>>::success_json(&res)?)
 }
 
@@ -47,7 +47,7 @@ pub async fn get_unread_chat_record(
     rb: &RBatis,
     uuid: Option<String>,
 ) -> Result<String, anyhow::Error> {
-    info!("收到请求");
+    info!("request received");
     let uuid = uuid.ok_or(anyhow!("账号获取失败"))?.parse::<Uuid>()?;
 
     let empty_vec = CommonResponseNoDataRef::success_empty();
@@ -69,23 +69,23 @@ pub async fn get_unread_chat_record(
     let last_msg_ref = last_msg.as_ref().ok_or(anyhow!("获取最新消息失败"))?;
     let res = read_msg.iter().find(|x| x.nano_id == last_msg_ref.nano_id);
     if res.is_some() {
-        info!("结束请求");
+        info!("request finished");
         return Ok(empty_vec);
     }
     // 5、获取未读消息
     let last_read = read_msg
         .first()
-        .ok_or(anyhow!("获取已读消息失败"))?
+        .ok_or(anyhow!("failed to get read messages"))?
         .nano_id
         .clone()
-        .ok_or(anyhow!("获取已读消息时间失败"))?;
+        .ok_or(anyhow!("failed to get read message timestamp"))?;
     let last_record = ChatMessageRecord::select_by_map(rb, value! {"nano_id": &last_read}).await?;
     if !last_record.is_empty() {
         let last_read = last_record
             .last()
-            .ok_or(anyhow!("获取已读消息失败"))?
+            .ok_or(anyhow!("failed to get read message"))?
             .timestamp
-            .ok_or(anyhow!("获取已读消息时间失败"))?;
+            .ok_or(anyhow!("failed to get read message timestamp"))?;
         let unread_msg = ChatMessageRecord::select_unread_by_time(rb, &uuid, last_read).await?;
         let unread_msg: Vec<ChatMessageRecord> = unread_msg
             .into_iter()
@@ -94,10 +94,10 @@ pub async fn get_unread_chat_record(
                 x
             })
             .collect();
-        info!("结束请求");
+        info!("request finished");
         return Ok(CommonResponseRef::<Vec<ChatMessageRecord>>::success_json(&unread_msg)?);
     }
-    info!("结束请求");
+    info!("request finished");
     Ok(empty_vec)
 }
 

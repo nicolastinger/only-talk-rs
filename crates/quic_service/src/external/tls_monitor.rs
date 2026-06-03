@@ -137,7 +137,7 @@ fn log_cert_status(status: &CertStatus) {
     );
 
     if status.is_expired {
-        error!("TLS证书已过期！");
+        error!("TLS certificate has expired!");
     } else if status.is_near_expiry {
         warn!(
             "TLS证书将在 {} 天后过期，请尽快更新证书！",
@@ -160,10 +160,10 @@ pub fn start_tls_monitor(
     expiry_check_interval_secs: u64,
 ) {
     tokio::spawn(async move {
-        info!("TLS证书监控任务已启动");
+        info!("TLS certificate monitoring task started");
 
         let mut last_cert_hash = compute_file_hash(&cert_path).unwrap_or_else(|e| {
-            error!("计算初始证书哈希失败: {}", e);
+            error!("failed to compute initial certificate hash: {}", e);
             [0u8; 32]
         });
 
@@ -174,30 +174,30 @@ pub fn start_tls_monitor(
         loop {
             tokio::select! {
                 _ = shutdown_rx.changed() => {
-                    info!("TLS证书监控收到关闭信号，正在退出...");
+                    info!("TLS certificate monitor received shutdown signal, exiting...");
                     return;
                 }
                 _ = interval.tick() => {
                     let current_hash = match compute_file_hash(&cert_path) {
                         Ok(h) => h,
                         Err(e) => {
-                            error!("计算证书文件哈希失败: {}", e);
+                            error!("failed to compute certificate file hash: {}", e);
                             continue;
                         }
                     };
 
                     if current_hash != last_cert_hash {
-                        info!("检测到TLS证书文件已更新，触发quinn热重载机制...");
+                        info!("TLS certificate file updated, triggering quinn hot-reload...");
 
                         match reload_tls_config(&endpoint, &cert_path, &key_path, expiry_warning_days) {
                             Ok(new_status) => {
-                                info!("TLS证书热重载成功");
+                                info!("TLS certificate hot-reload successful");
                                 last_cert_hash = current_hash;
                                 log_cert_status(&new_status);
                                 last_expiry_log = SystemTime::now();
                             }
                             Err(e) => {
-                                error!("TLS证书热重载失败: {}", e);
+                                error!("TLS certificate hot-reload failed: {}", e);
                             }
                         }
                     }
@@ -219,7 +219,7 @@ pub fn start_tls_monitor(
                             }
                         }
                         Err(e) => {
-                            error!("读取证书状态失败: {}", e);
+                            error!("failed to read certificate status: {}", e);
                         }
                     }
                 }
@@ -242,6 +242,6 @@ fn reload_tls_config(
 
     endpoint.set_server_config(Some(server_config));
 
-    info!("已通过set_server_config()更新TLS配置，新连接将使用新证书");
+    info!("TLS config updated via set_server_config(), new connections will use new certificate");
     Ok(cert_status)
 }

@@ -144,7 +144,7 @@ pub async fn route_request(
                     forward_to_remote(&target_addr, &forward_req).await
                 }
                 Err(e) => {
-                    error!("[路由] Redis 兜底获取节点 {} 地址失败: {}", idx, e);
+                    error!("[route] Redis fallback failed to get node {} address: {}", idx, e);
                     Ok(InternalQuicResponse::user_offline())
                 }
             }

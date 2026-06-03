@@ -37,7 +37,7 @@ pub async fn process_rec_msg(
     server_index: u32,
 ) -> anyhow::Result<()> {
     let text_vec = get_text_msg(buffer, length, buffer_msg, head_length).await?;
-    info!("接收到客户端信息 {:?}", text_vec);
+    info!("received client message {:?}", text_vec);
     process_text_msg(text_vec, uuid, platform, connection_key, &connections, server_index).await?;
 
     Ok(())
@@ -53,7 +53,7 @@ async fn process_text_msg(
 ) -> anyhow::Result<()> {
     for mut text_msg in text_quic_msg.into_iter() {
         if uuid != text_msg.send_user {
-            error!("错误的发送人 {},{}", uuid, text_msg.send_user);
+            error!("mismatched sender {},{}", uuid, text_msg.send_user);
             continue;
         }
         // 心跳消息
@@ -101,7 +101,7 @@ async fn process_text_msg(
                 if let Err(e) =
                     handle_group_msg_from_client(group_msg, server_index, &conns).await
                 {
-                    error!("[群聊路由] 处理群聊消息失败: {}", e);
+                    error!("[group chat route] failed to process group message: {}", e);
                     return;
                 }
                 let now = get_now_time_stamp_as_millis().unwrap_or(0);
@@ -116,7 +116,7 @@ async fn process_text_msg(
                 )
                 .await
                 {
-                    error!("[群聊路由] 发送群聊ACK失败: {}", e);
+                    error!("[group chat route] failed to send group chat ACK: {}", e);
                 }
             });
             continue;
@@ -135,7 +135,7 @@ async fn process_text_msg(
         tokio::spawn(async move {
             let current_user = text_msg_clone.send_user.clone();
             if let Err(e) = add_user_chat_record(text_msg_clone).await {
-                error!("插入用户消息失败: {}", e);
+                error!("failed to insert user message: {}", e);
             }
             // 发送ack消息
             if let Err(e) = send_msg_record_success(
@@ -149,13 +149,13 @@ async fn process_text_msg(
             )
                 .await
             {
-                error!("发送ack消息失败: {}", e);
+                error!("failed to send ack message: {}", e);
             }
         });
         send_msg_to_user(text_msg, platform, connections).await?;
     }
 
-    info!("处理完成");
+    info!("processing complete");
     Ok(())
 }
 
@@ -244,9 +244,9 @@ async fn send_msg_to_user_by_platform(
         send.write_all(res).await?;
         send.finish().await?;
     } else {
-        warn!("当前用户不在本机: {}，首选节点序号: {}", user_key, preferred_index);
+        warn!("current user not on local machine: {}, preferred node index: {}", user_key, preferred_index);
         // 本机未找到 → 转发给内网 QUIC 走两阶段路由
-        warn!("当前用户不在本机: {}，转发到内网 QUIC", user_key);
+        warn!("current user not on local machine: {}, forwarding to internal QUIC", user_key);
 
         // res 已经是 bincode 序列化的 TextQuicMsg 二进制，直接透传
         let request = InternalQuicRequest {
@@ -267,10 +267,10 @@ async fn send_msg_to_user_by_platform(
             let addr_str: Option<String> = conn.get(&key).await?;
             if let Some(addr_str) = addr_str {
                 let internal_addr: std::net::SocketAddr = addr_str.parse()?;
-                info!("发送内网QUIC消息到: {}", internal_addr);
+                info!("sending internal QUIC message to: {}", internal_addr);
                 send_internal_quic_msg(internal_addr, request).await?;
             } else {
-                warn!("未找到节点 {} 的内网 QUIC 地址", preferred_index);
+                warn!("internal QUIC address not found for node {}", preferred_index);
             }
         }
     }

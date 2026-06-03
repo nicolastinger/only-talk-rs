@@ -30,7 +30,7 @@ pub async fn run_udp_server(connections: Arc<DashMap<String, QuicConnection>>) -
             let conns = connections.clone();
             tokio::spawn(async move {
                 if let Err(e) = get_p2p_udp_socket_with_shutdown(addr_1, "V4".to_string(), shutdown, conns).await {
-                    error!("9562 UDP socket 异常: {}", e);
+                    error!("9562 UDP socket error: {}", e);
                 }
             })
         };
@@ -40,7 +40,7 @@ pub async fn run_udp_server(connections: Arc<DashMap<String, QuicConnection>>) -
             let conns = connections.clone();
             tokio::spawn(async move {
                 if let Err(e) = get_p2p_udp_socket_with_shutdown(addr_2, "V6".to_string(), shutdown, conns).await {
-                    error!("9563 UDP socket 异常: {}", e);
+                    error!("9563 UDP socket error: {}", e);
                 }
             })
         };
@@ -50,7 +50,7 @@ pub async fn run_udp_server(connections: Arc<DashMap<String, QuicConnection>>) -
             let conns = connections.clone();
             tokio::spawn(async move {
                 if let Err(e) = get_p2p_udp_socket_with_shutdown(addr_3, "V4".to_string(), shutdown, conns).await {
-                    error!("9564 UDP socket 异常: {}", e);
+                    error!("9564 UDP socket error: {}", e);
                 }
             })
         };
@@ -60,15 +60,15 @@ pub async fn run_udp_server(connections: Arc<DashMap<String, QuicConnection>>) -
             let conns = connections.clone();
             tokio::spawn(async move {
                 if let Err(e) = get_p2p_udp_socket_with_shutdown(addr_4, "V6".to_string(), shutdown, conns).await {
-                    error!("9565 UDP socket 异常: {}", e);
+                    error!("9565 UDP socket error: {}", e);
                 }
             })
         };
 
         if let Err(e) = signal::ctrl_c().await {
-            error!("无法注册 Ctrl+C 处理器: {}", e);
+            error!("failed to register Ctrl+C handler: {}", e);
         }
-        info!("收到 Ctrl+C 信号，正在关闭服务...");
+        info!("received Ctrl+C signal, shutting down...");
 
         shutdown_flag.store(true, Ordering::Relaxed);
 
@@ -84,18 +84,18 @@ pub async fn get_p2p_udp_socket_with_shutdown(
     connections: Arc<DashMap<String, QuicConnection>>,
 ) -> anyhow::Result<()> {
     let socket = UdpSocket::bind(address).await?;
-    info!("NAT 发现 + 客户端 P2P 请求转发服务已启动，监听地址 {}", address);
+    info!("NAT discovery + client P2P request forwarding service started, listening on {}", address);
 
     let mut buf = [0u8; 1024];
 
     loop {
         tokio::select! {
             _ = signal::ctrl_c() => {
-                info!("收到 Ctrl+C 信号，正在关闭 {} 服务...", address);
+                info!("received Ctrl+C signal, shutting down {} service...", address);
                 return Ok(());
             }
             _ = tokio::time::sleep(tokio::time::Duration::from_millis(100)), if shutdown.load(Ordering::Relaxed) => {
-                info!("收到退出信号，正在关闭 {} 服务...", address);
+                info!("received shutdown signal, shutting down {} service...", address);
                 return Ok(());
             }
             result = socket.recv_from(&mut buf) => {
@@ -105,7 +105,7 @@ pub async fn get_p2p_udp_socket_with_shutdown(
                         let client_port = src.port();
 
                         let udp_addr = format!("{}:{}", client_ip, client_port);
-                        info!("收到来自 {}:{} 的消息", udp_addr, size);
+                        info!("received message from {}:{} size={}", client_ip, client_port, size);
 
                         let res = serde_json::from_slice::<UserAddressInfo>(&buf[..size]);
                         match res {
@@ -113,18 +113,18 @@ pub async fn get_p2p_udp_socket_with_shutdown(
                               let conns = connections.clone();
                               let ip = ip_type.clone();
                               process_p2p_user_info(udp_addr, ip, msg, conns).await.unwrap_or_else(|err| {
-                                error!("处理 NAT 发现 / P2P 请求转发失败 {}", err);
+                                error!("failed to process NAT discovery / P2P request forwarding: {}", err);
                             })
                            },
                            Err(e) => {
-                            error!("序列化 NAT 地址信息失败，来源{}:{},{}", client_ip, client_port, e);
+                            error!("failed to serialize NAT address info, source {}:{},{}", client_ip, client_port, e);
                             buf[..size].fill(0);
                             continue;
                            }
                         };
                         buf[..size].fill(0);
                     }
-                    Err(e) => error!("接收错误: {}", e),
+                    Err(e) => error!("recv error: {}", e),
                 }
             }
         }
@@ -133,14 +133,14 @@ pub async fn get_p2p_udp_socket_with_shutdown(
 
 pub async fn get_p2p_udp_socket(address: &str, ip_type: String, connections: Arc<DashMap<String, QuicConnection>>) -> anyhow::Result<()> {
     let socket = UdpSocket::bind(address).await?;
-    info!("NAT 发现 + 客户端 P2P 请求转发服务已启动，监听地址 {}", address);
+    info!("NAT discovery + client P2P request forwarding service started, listening on {}", address);
 
     let mut buf = [0u8; 1024];
 
     loop {
         tokio::select! {
             _ = signal::ctrl_c() => {
-                info!("收到 Ctrl+C 信号，正在关闭 {} 服务...", address);
+                info!("received Ctrl+C signal, shutting down {} service...", address);
                 return Ok(());
             }
             result = socket.recv_from(&mut buf) => {
@@ -156,18 +156,18 @@ pub async fn get_p2p_udp_socket(address: &str, ip_type: String, connections: Arc
                               let conns = connections.clone();
                               let ip = ip_type.clone();
                               process_p2p_user_info(udp_addr, ip, msg, conns).await.unwrap_or_else(|err| {
-                                error!("处理 NAT 发现 / P2P 请求转发失败 {}", err);
+                                error!("failed to process NAT discovery / P2P request forwarding: {}", err);
                             })
                            },
                            Err(e) => {
-                            error!("序列化 NAT 地址信息失败，来源{}:{},{}", client_ip, client_port, e);
+                            error!("failed to serialize NAT address info, source {}:{},{}", client_ip, client_port, e);
                             buf[..size].fill(0);
                             continue;
                            }
                         };
                         buf[..size].fill(0);
                     }
-                    Err(e) => error!("接收错误: {}", e),
+                    Err(e) => error!("recv error: {}", e),
                 }
             }
         }
@@ -183,7 +183,7 @@ async fn process_p2p_user_info(
     match verify_token(user_address_info.token.as_ref()) {
         Ok(claims) => {
             let uuid = claims.uuid;
-            info!("收到来自 {} 的消息, 用户uuid: {}", udp_addr, uuid);
+            info!("received message from {}, user uuid: {}", udp_addr, uuid);
             let key = format!("{}{}_{}", "USER_UDP_ADDRESS_", ip_type, uuid);
             let lock_key = format!("{}{}_{}", "USER_UDP_ADDRESS_LOCK_", ip_type, uuid);
             let lock_key = lock_key.to_uppercase();
@@ -203,12 +203,12 @@ async fn process_p2p_user_info(
             }
 
             if !acquire_flag {
-                info!("进入redis锁");
+                info!("entered redis lock");
                 let mut conn = get_redis_conn().await?;
                 let result: String = conn.get(&lock_key).await?;
                 let user_addr = result.split('_').skip(1).collect::<Vec<&str>>().join("");
 
-                info!("获取自身值为 {:?},值2为 {:?}", user_addr, user_address_info);
+                info!("self value: {:?}, value2: {:?}", user_addr, user_address_info);
                 if user_addr == user_address_info.address {
                     user_address_info.nat_type = 3;
                 } else {
@@ -222,7 +222,7 @@ async fn process_p2p_user_info(
 
             match get_target_user_address_info(&user_address_info.target_uuid, &ip_type).await {
                 Ok(mut target_user_address_info) => {
-                    info!("进入到服务器和连接端匹配");
+                    info!("matching server and connection endpoint");
                     if target_user_address_info.is_lock && !acquire_flag {
                         {
                             let mut conn = get_redis_conn().await?;
@@ -259,7 +259,7 @@ async fn process_p2p_user_info(
                                 );
                             }
                             _ => {
-                                error!("匹配为空，不处理");
+                                error!("match is empty, skipping");
                                 return Ok(());
                             }
                         }
@@ -314,16 +314,16 @@ async fn process_p2p_user_info(
                             send.finish().await?;
                         }
                     }
-                    info!("转发建立 P2P 连接信息完成");
+                    info!("P2P connection info forwarding completed");
                     return Ok(());
                 }
                 Err(e) => {
-                    warn!("获取目标用户信息失败 {}，等待目标用户上传redis", e);
+                    warn!("failed to get target user info: {}, waiting for target user to upload to redis", e);
                 }
             }
 
             {
-                info!("插入用户信息到redis中");
+                info!("inserting user info to redis");
                 let mut conn = get_redis_conn().await?;
                 let user_address_info_json =
                     serde_json::to_string(&user_address_info).unwrap_or_default();
@@ -334,11 +334,11 @@ async fn process_p2p_user_info(
                     .arg(60)
                     .query_async(&mut conn)
                     .await
-                    .unwrap_or_else(|e| error!("新增用户连接信息失败 {}", e));
+                    .unwrap_or_else(|e| error!("failed to add user connection info: {}", e));
             }
         }
         Err(e) => {
-            error!("获取token失败 {}", e.backtrace());
+            error!("failed to get token: {}", e.backtrace());
         }
     };
 

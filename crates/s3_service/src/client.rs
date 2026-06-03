@@ -146,11 +146,11 @@ impl S3Client {
     pub async fn health_check(&self) -> Result<bool, S3Error> {
         match self.inner.list_buckets().send().await {
             Ok(_) => {
-                info!("S3健康检查通过");
+                info!("S3 health check passed");
                 Ok(true)
             }
             Err(e) => {
-                tracing::error!("S3健康检查失败: {:?}", e);
+                tracing::error!("S3 health check failed: {:?}", e);
                 Ok(false)
             }
         }
@@ -200,7 +200,7 @@ impl S3Client {
             .is_ok();
 
         if !exists {
-            info!("默认存储桶 {} 不存在，正在创建...", bucket);
+            info!("default bucket {} does not exist, creating...", bucket);
             // 创建存储桶
             self.inner
                 .create_bucket()
@@ -208,9 +208,9 @@ impl S3Client {
                 .send()
                 .await
                 .map_err(|e| S3Error::AwsError(format!("创建存储桶失败: {}", e)))?;
-            info!("默认存储桶 {} 创建成功", bucket);
+            info!("default bucket {} created successfully", bucket);
         } else {
-            info!("默认存储桶 {} 已存在", bucket);
+            info!("default bucket {} already exists", bucket);
         }
 
         Ok(())
@@ -272,7 +272,7 @@ impl GlobalS3Client {
         if client.config.enabled {
             if let Err(e) = client.ensure_default_bucket().await {
                 // 桶创建失败不影响服务启动,仅记录警告
-                tracing::warn!("确保默认存储桶失败: {}，服务仍可启动", e);
+                tracing::warn!("failed to ensure default bucket: {}, service still starts", e);
             }
         }
         

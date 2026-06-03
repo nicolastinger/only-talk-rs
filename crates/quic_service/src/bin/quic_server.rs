@@ -16,23 +16,23 @@ async fn main() {
     }
 
     let _guard = init_tracing();
-    info!("启动 QUIC 服务（独立模式）");
+    info!("starting QUIC service (standalone mode)");
 
     let chat_node: Arc<ChatNode> = match start_server().await {
         Ok(node) => node,
-        Err(e) => fatal_panic_async(&format!("启动quic服务失败: {:?}", e)).await,
+        Err(e) => fatal_panic_async(&format!("failed to start QUIC service: {:?}", e)).await,
     };
 
-    info!("QUIC 服务已就绪，按 Ctrl+C 停止");
+    info!("QUIC service ready, press Ctrl+C to stop");
 
     // 等待退出信号
     tokio::signal::ctrl_c().await.unwrap_or_else(|e| {
-        error!("无法注册 Ctrl+C 处理器: {}", e);
+        error!("failed to register Ctrl+C handler: {}", e);
     });
 
-    info!("收到退出信号，正在优雅关闭...");
+    info!("received shutdown signal, shutting down gracefully...");
     if let Err(e) = chat_node.stop().await {
-        error!("关闭 QUIC 服务失败: {:?}", e);
+        error!("failed to shutdown QUIC service: {:?}", e);
     }
-    info!("QUIC 服务已停止");
+    info!("QUIC service stopped");
 }

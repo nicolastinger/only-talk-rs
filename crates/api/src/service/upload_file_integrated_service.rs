@@ -38,10 +38,10 @@ pub async fn upload_user_avatar(
         return Err(anyhow!("S3服务未启用"));
     }
     
-    info!("上传头像到S3...");
+    info!("uploading avatar to S3...");
     let original_record = upload_user_avatar_s3(rb, uuid.clone(), payload, s3_client.clone()).await
         .map_err(|e| anyhow!("S3上传失败: {}", e))?;
-    info!("头像上传到S3成功");
+    info!("avatar uploaded to S3 successfully");
     
     // 2. 保存业务信息
     let biz_record = create_avatar_biz(rb, user_id).await?;
@@ -90,10 +90,10 @@ pub async fn upload_user_chat_file(
         return Err(anyhow!("S3服务未启用"));
     }
     
-    info!("上传聊天文件到S3...");
+    info!("uploading chat file to S3...");
     let record = upload_chat_preview_file_s3(rb, uuid.clone(), payload, s3_client.clone()).await
         .map_err(|e| anyhow!("S3上传失败: {}", e))?;
-    info!("聊天文件上传到S3成功");
+    info!("chat file uploaded to S3 successfully");
     
     // 3. 保存业务信息
     let chat_biz_record = create_user_chat_biz(rb, user_id, friend_uuid).await?;
@@ -131,10 +131,10 @@ pub async fn upload_group_avatar(
         return Err(anyhow!("S3服务未启用"));
     }
     
-    info!("上传群组头像到S3...");
+    info!("uploading group avatar to S3...");
     let original_record = upload_group_avatar_s3(rb, uuid.clone(), payload, s3_client.clone()).await
         .map_err(|e| anyhow!("S3上传失败: {}", e))?;
-    info!("群组头像上传到S3成功");
+    info!("group avatar uploaded to S3 successfully");
 
     let biz_record = create_group_avatar_biz(rb, user_id, group_id).await?;
     let biz_file_link = BizFileLink {

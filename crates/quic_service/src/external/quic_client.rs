@@ -28,12 +28,12 @@ pub async fn run_client(server_addr: SocketAddr) {
         Ok(conn) => match conn.await {
             Ok(c) => c,
             Err(e) => {
-                error!("连接到服务器失败: {}", e);
+                error!("failed to connect to server: {}", e);
                 return;
             }
         },
         Err(e) => {
-            error!("创建连接失败: {}", e);
+            error!("failed to create connection: {}", e);
             return;
         }
     };
@@ -43,12 +43,12 @@ pub async fn run_client(server_addr: SocketAddr) {
     let (mut send_stream, mut _recv_stream) = match connection.open_bi().await {
         Ok(stream) => stream,
         Err(e) => {
-            error!("打开双向流失败: {}", e);
+            error!("failed to open bi-directional stream: {}", e);
             return;
         }
     };
     if let Err(e) = send_stream.set_priority(0) {
-        error!("设置优先级失败: {}", e);
+        error!("failed to set priority: {}", e);
     }
     let head_length = 9;
     let buffer_msg: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
@@ -74,11 +74,11 @@ pub async fn run_client(server_addr: SocketAddr) {
                     };
                 }
                 Ok(None) => {
-                    info!("[客户端]没有接收到数据");
+                    info!("[client] no data received");
                     break;
                 }
                 Err(e) => {
-                    error!("[客户端] 读取错误: {}", e);
+                    error!("[client] read error: {}", e);
                     break;
                 }
             }
@@ -107,12 +107,12 @@ pub async fn run_client(server_addr: SocketAddr) {
                             }
                             Ok(None) => {}
                             Err(e) => {
-                                error!("[client] uni流读取错误: {}", e);
+                                error!("[client] uni stream read error: {}", e);
                             }
                         }
                     }
                     Err(e) => {
-                        error!("[client] uni accept 错误: {}，继续等待", e);
+                        error!("[client] uni accept error: {}, continuing to wait", e);
                         tokio::time::sleep(Duration::from_secs(1)).await;
                     }
                 }
@@ -122,10 +122,10 @@ pub async fn run_client(server_addr: SocketAddr) {
 
     match init_send_msg(&mut send_stream, connection).await {
         Ok(_) => {
-            info!("客户端初始化连接成功")
+            info!("client init connection successful")
         }
         Err(_) => {
-            error!("客户端初始化连接失败")
+            error!("client init connection failed")
         }
     }
 
@@ -149,12 +149,12 @@ async fn init_send_msg(send_stream: &mut SendStream, conn: Connection) -> Result
     first_quic_msg.token = token;
 
     let first_msg_json = serde_json::to_string(&first_quic_msg)?;
-    info!("[客户端] 准备发送初始化消息: {}", first_msg_json);
+    info!("[client] preparing to send init message: {}", first_msg_json);
 
     send_stream.write_all(first_msg_json.as_bytes()).await?;
     send_stream.flush().await?; // 确保数据被立即发送
 
-    info!("[客户端] 初始化消息发送完成，等待服务器响应");
+    info!("[client] init message sent, waiting for server response");
 
     tokio::time::sleep(Duration::from_secs(1)).await; //初始化一秒，防止连发元数据
 
@@ -191,16 +191,16 @@ async fn init_send_msg(send_stream: &mut SendStream, conn: Connection) -> Result
             ) {
                 Ok(m) => m,
                 Err(e) => {
-                    error!("生成心跳消息失败: {}", e);
+                    error!("failed to generate heartbeat message: {}", e);
                     continue;
                 }
             };
             match send_via_new_stream(&conn, &ping_msg).await {
                 Ok(_) => {
-                    info!("发送成功");
+                    info!("sent successfully");
                 }
                 Err(e) => {
-                    error!("发送心跳失败 {}", e);
+                    error!("failed to send heartbeat: {}", e);
                 }
             };
         }
@@ -226,7 +226,7 @@ async fn process_rec_msg(
     match msg_type {
         ConnectionType::Text => {
             let text_vec = get_text_msg(buffer, length, buffer_msg, head_length).await?;
-            info!("服务器返回的消息为 {:?}", text_vec);
+            info!("server response: {:?}", text_vec);
         }
         ConnectionType::Img => {}
         ConnectionType::Video => {}
