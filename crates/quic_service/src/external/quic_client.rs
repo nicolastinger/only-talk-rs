@@ -182,7 +182,7 @@ async fn init_send_msg(send_stream: &mut SendStream, conn: Connection) -> Result
     // Heartbeat loop - open stream on demand
     tokio::spawn(async move {
         loop {
-            tokio::time::sleep(Duration::from_secs(30)).await;
+            tokio::time::sleep(Duration::from_secs(10)).await;
             let ping_msg = match generate_text_msg(
                 message_types::MSG_TYPE_PING,
                 PING.as_bytes().to_vec(),
