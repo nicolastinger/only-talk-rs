@@ -57,7 +57,7 @@ async fn handle_internal_request(
             // Try parse as group chat broadcast
             if let Ok(group_req) = bincode::deserialize::<InternalGroupBroadcast>(&buf[..len]) {
                 info!(
-                    "[internal QUIC server] detected group chat broadcast group_uuid={} sender={}",
+                    "[internal QUIC server] [group chat] received broadcast group_uuid={} sender={}",
                     group_req.group_uuid,
                     group_req.sender
                 );
@@ -65,20 +65,20 @@ async fn handle_internal_request(
                 let resp = match process_group_broadcast(&group_req, &connections).await {
                     Ok(_) => bincode::serialize(&InternalGroupBroadcastResponse::ok())?,
                     Err(e) => {
-                        error!("[internal QUIC server] failed to process group chat broadcast: {}", e);
+                        error!("[internal QUIC server] [group chat] failed to process broadcast: {}", e);
                         bincode::serialize(&InternalGroupBroadcastResponse::error(e.to_string()))?
                     }
                 };
                 send_stream.write_all(&resp).await?;
                 send_stream.finish().await?;
-                info!("[internal QUIC server] group chat broadcast response sent");
+                info!("[internal QUIC server] [group chat] broadcast response sent");
                 return Ok(());
             }
 
             // Try parse as text message request (direct local delivery, no cross-node routing)
             if let Ok(request) = bincode::deserialize::<InternalQuicRequest>(&buf[..len]) {
                 info!(
-                    "[internal QUIC server] detected text message request target_user={} msg_type={} platform={} preferred_index={} ttl={} source={:?}",
+                    "[internal QUIC server] [single chat] received request target_user={} msg_type={} platform={} preferred_index={} ttl={} source={:?}",
                     request.target_user, request.msg_type, request.platform, request.preferred_index, request.ttl, request.source
                 );
 
@@ -92,27 +92,27 @@ async fn handle_internal_request(
                     ConnectionType::Text
                 );
                 let connection_key = connection_key.to_uppercase();
-                debug!("[internal QUIC server] looking up local connection key={}", connection_key);
+                debug!("[internal QUIC server] [single chat] looking up local connection key={}", connection_key);
 
                 let response = match connections.get(&connection_key) {
                     Some(entry) => {
                         info!(
-                            "[internal QUIC server] found target user {} locally, delivering...",
+                            "[internal QUIC server] [single chat] found target user {} locally, delivering...",
                             request.target_user
                         );
                         let conn = entry.conn.clone();
 
                         if let Err(e) = deliver_to_local_conn(conn, &request).await {
-                            error!("[internal QUIC server] delivery failed: {}", e);
+                            error!("[internal QUIC server] [single chat] delivery failed: {}", e);
                             InternalQuicResponse::error(format!("Delivery failed: {}", e))
                         } else {
-                            info!("[internal QUIC server] delivery successful target={}", request.target_user);
+                            info!("[internal QUIC server] [single chat] delivery successful target={}", request.target_user);
                             InternalQuicResponse::ok()
                         }
                     }
                     None => {
                         warn!(
-                            "[internal QUIC server] target user not found locally key={} (user offline)",
+                            "[internal QUIC server] [single chat] target user not found locally key={} (user offline)",
                             connection_key
                         );
                         InternalQuicResponse::user_offline()
@@ -121,13 +121,13 @@ async fn handle_internal_request(
 
                 let resp_bytes = bincode::serialize(&response)?;
                 info!(
-                    "[internal QUIC server] response status={} delivered={:?} message={:?}",
+                    "[internal QUIC server] [single chat] response status={} delivered={:?} message={:?}",
                     response.status, response.delivered, response.message
                 );
 
                 send_stream.write_all(&resp_bytes).await?;
                 send_stream.finish().await?;
-                info!("[internal QUIC server] text message response sent, processing complete");
+                info!("[internal QUIC server] [single chat] response sent, processing complete");
                 return Ok(());
             }
 
@@ -150,20 +150,20 @@ async fn deliver_to_local_conn(
     request: &InternalQuicRequest,
 ) -> Result<()> {
     info!(
-        "[internal QUIC server] starting delivery msg_type={} target_user={} payload_len={}",
+        "[internal QUIC server] [single chat] starting delivery msg_type={} target_user={} payload_len={}",
         request.msg_type,
         request.target_user,
         request.payload.len()
     );
 
     let mut send = conn.open_uni().await?;
-    debug!("[internal QUIC server] uni stream opened");
+    debug!("[internal QUIC server] [single chat] uni stream opened");
 
     // payload 已经是 bincode 序列化的 TextQuicMsg 二进制，直接透传给客户端
     send.write_all(&request.payload).await?;
     send.finish().await?;
     info!(
-        "[internal QUIC server] delivery complete, passthrough {} bytes",
+        "[internal QUIC server] [single chat] delivery complete, passthrough {} bytes",
         request.payload.len()
     );
     Ok(())
@@ -267,7 +267,7 @@ pub async fn run_internal_server(
         tokio::spawn(async move {
             match conn.accept_bi().await {
                 Ok((send_stream, recv_stream)) => {
-                    debug!("[internal QUIC server] bi-directional stream opened");
+                    info!("[internal QUIC server] bi-directional stream opened");
                     if let Err(e) =
                         handle_internal_request(send_stream, recv_stream, conns, server_index)
                             .await

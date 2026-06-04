@@ -12,7 +12,7 @@ use crate::utils::internal_quic_msg::{InternalQuicRequest, InternalQuicResponse}
 
 /// Skip server certificate verification (internal services use self-signed certs)
 #[derive(Debug)]
-struct SkipServerVerification;
+pub struct SkipServerVerification;
 
 impl ServerCertVerifier for SkipServerVerification {
     fn verify_server_cert(
@@ -29,8 +29,8 @@ impl ServerCertVerifier for SkipServerVerification {
 }
 
 /// Create QUIC client config that skips server cert verification
-fn make_internal_client_config() -> Result<ClientConfig> {
-    debug!("[internal QUIC client] creating client config (skipping cert verification)");
+pub fn make_internal_client_config() -> Result<ClientConfig> {
+    debug!("[internal QUIC client] [single chat] creating client config (skipping cert verification)");
     let crypto = rustls::ClientConfig::builder()
         .with_safe_defaults()
         .with_custom_certificate_verifier(Arc::new(SkipServerVerification))
@@ -41,7 +41,7 @@ fn make_internal_client_config() -> Result<ClientConfig> {
     let mut config = ClientConfig::new(Arc::new(crypto));
     config.transport_config(Arc::new(transport));
 
-    debug!("[internal QUIC client] client config complete idle_timeout=30s");
+    debug!("[internal QUIC client] [single chat] client config complete idle_timeout=30s");
     Ok(config)
 }
 
@@ -53,7 +53,7 @@ pub async fn send_internal_quic_msg(
     request: InternalQuicRequest,
 ) -> Result<InternalQuicResponse> {
     info!(
-        "[internal QUIC client] sending request target_user={} msg_type={} preferred_index={}",
+        "[internal QUIC client] [single chat] sending internal request target_user={} msg_type={} preferred_index={}",
         request.target_user, request.msg_type, request.preferred_index
     );
 
@@ -61,42 +61,42 @@ pub async fn send_internal_quic_msg(
     let client_config = make_internal_client_config()?;
     let mut endpoint = Endpoint::client("0.0.0.0:0".parse()?)?;
     endpoint.set_default_client_config(client_config);
-    debug!("[internal QUIC client] endpoint created");
+    debug!("[internal QUIC client] [single chat] endpoint created");
 
     // Establish connection
-    info!("[internal QUIC client] connecting to {}", server_addr);
+    info!("[internal QUIC client] [single chat] connecting to internal node {}", server_addr);
     let connection = endpoint
         .connect(server_addr, "localhost")?
         .await
         .map_err(|e| {
-            error!("[internal QUIC client] connection to {} failed: {}", server_addr, e);
+            error!("[internal QUIC client] [single chat] connection to internal node {} failed: {}", server_addr, e);
             anyhow::anyhow!("Internal QUIC connection to {} failed: {}", server_addr, e)
         })?;
-    info!("[internal QUIC client] connected to {}", server_addr);
+    info!("[internal QUIC client] [single chat] connected to internal node {}", server_addr);
 
     // open bi-directional stream
     let (mut send_stream, mut recv_stream) = connection.open_bi().await?;
-    debug!("[internal QUIC client] bi-directional stream opened");
+    debug!("[internal QUIC client] [single chat] bi-directional stream opened");
 
     // serialize and send request
     let body = bincode::serialize(&request)?;
     let body_len = body.len();
-    debug!("[internal QUIC client] request serialized size={} bytes", body_len);
+    debug!("[internal QUIC client] [single chat] request serialized size={} bytes", body_len);
 
     send_stream.write_all(&body).await?;
-    debug!("[internal QUIC client] request sent {} bytes", body_len);
+    debug!("[internal QUIC client] [single chat] request sent {} bytes", body_len);
     send_stream.finish().await?;
-    debug!("[internal QUIC client] send stream closed");
+    debug!("[internal QUIC client] [single chat] send stream closed");
 
     // read response
     let mut buf = vec![0u8; 1024 * 16];
-    debug!("[internal QUIC client] waiting for response...");
+    debug!("[internal QUIC client] [single chat] waiting for response...");
     match recv_stream.read(&mut buf).await? {
         Some(len) => {
-            debug!("[internal QUIC client] response received size={} bytes", len);
+            debug!("[internal QUIC client] [single chat] response received size={} bytes", len);
             let resp: InternalQuicResponse = bincode::deserialize(&buf[..len])?;
             info!(
-                "[internal QUIC client] response parsed status={} delivered={:?} message={:?}",
+                "[internal QUIC client] [single chat] response parsed status={} delivered={:?} message={:?}",
                 resp.status,
                 resp.delivered,
                 resp.message
@@ -104,7 +104,7 @@ pub async fn send_internal_quic_msg(
             Ok(resp)
         }
         None => {
-            warn!("[internal QUIC client] server closed stream, no response returned");
+            warn!("[internal QUIC client] [single chat] server closed stream, no response returned");
             Ok(InternalQuicResponse::error("server returned no response"))
         }
     }

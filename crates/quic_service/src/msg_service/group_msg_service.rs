@@ -15,6 +15,7 @@ use common::config_str::{MOBILE_PLATFORM, PC_PLATFORM, REDIS_INTERNAL_QUIC_SERVE
 use common::utils::group_msg::{
     BroadcastType, GroupQuicMsg, InternalGroupBroadcast, InternalGroupBroadcastResponse,
 };
+use common::utils::internal_quic_client::make_internal_client_config;
 use common::utils::time::get_now_time_stamp_as_millis;
 use common::REDIS_CLIENT;
 use entity::models::group_entity::group_message_record::GroupMessageRecord;
@@ -147,7 +148,7 @@ pub async fn handle_group_msg_from_client(
     let msg_bytes = serialize_group_msg(&group_msg)?;
 
     let all_members = get_group_members_cached(&group_msg.group_uuid).await?;
-    debug!("group members cache: {:?}", all_members);
+    debug!("[group chat] members cache: {:?}", all_members);
 
     let sender_uuid: Uuid = group_msg
         .send_user
@@ -167,7 +168,7 @@ pub async fn handle_group_msg_from_client(
     let group_msg_clone = group_msg.clone();
     tokio::spawn(async move {
         if let Err(e) = save_group_message_to_db(&group_msg).await {
-            error!("failed to save group message to database: {}", e);
+            error!("[group chat] failed to save message to database: {}", e);
         }
     });
 
@@ -187,7 +188,7 @@ pub async fn handle_group_msg_from_client(
     
     tokio::spawn(async move {
         if let Err(e) = process_group_broadcast_local(&broadcast_clone, &connections_clone).await {
-            error!("failed to process group message: {}", e);
+            error!("[group chat] failed to process broadcast local: {}", e);
         }
     });
 
@@ -199,10 +200,15 @@ pub async fn handle_group_msg_from_client(
                     if *node_index == server_index {
                         continue;
                     }
-                    let _ = send_internal_group_broadcast(*addr, &broadcast).await;
+                    if let Err(e) = send_internal_group_broadcast(*addr, &broadcast).await {
+                        error!(
+                            "[group chat] failed to send broadcast to node {} ({}): {}",
+                            node_index, addr, e
+                        );
+                    }
                 }
             }
-            Err(e) => error!("failed to get node address: {}", e),
+            Err(e) => error!("[group chat] failed to get node address: {}", e),
         }
     });
     
@@ -273,8 +279,11 @@ async fn send_internal_group_broadcast(
     addr: std::net::SocketAddr,
     broadcast: &InternalGroupBroadcast,
 ) -> Result<InternalGroupBroadcastResponse> {
-    let endpoint = quinn::Endpoint::client(std::net::SocketAddr::from(([0, 0, 0, 0], 0)))?;
+    let client_config = make_internal_client_config()?;
+    let mut endpoint = quinn::Endpoint::client(std::net::SocketAddr::from(([0, 0, 0, 0], 0)))?;
+    endpoint.set_default_client_config(client_config);
 
+    info!("[group chat] send broadcast to {}, broadcast={:?}", addr, broadcast);
     let conn = endpoint.connect(addr, "localhost")?.await?;
 
     let (mut send, mut recv) = conn.open_bi().await?;
@@ -307,15 +316,15 @@ pub async fn process_group_broadcast_local(
             match conn.open_uni().await {
                 Ok(mut send) => {
                     if let Err(e) = send.write_all(&broadcast.msg_bytes).await {
-                        warn!("[group broadcast] delivery failed member={} error={}", member, e);
+                        warn!("[group chat] delivery failed member={} error={}", member, e);
                     } else if let Err(e) = send.finish().await {
-                        warn!("[group broadcast] finish failed member={} error={}", member, e);
+                        warn!("[group chat] finish failed member={} error={}", member, e);
                     } else {
-                        info!("[group broadcast] delivery successful member={}", member);
+                        info!("[group chat] delivery successful member={}", member);
                     }
                 }
                 Err(e) => {
-                    warn!("[group broadcast] failed to open uni stream member={} error={}", member, e);
+                    warn!("[group chat] failed to open uni stream member={} error={}", member, e);
                 }
             }
         }

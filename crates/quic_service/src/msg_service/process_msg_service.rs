@@ -37,7 +37,7 @@ pub async fn process_rec_msg(
     server_index: u32,
 ) -> anyhow::Result<()> {
     let text_vec = get_text_msg(buffer, length, buffer_msg, head_length).await?;
-    info!("received client message {:?}", text_vec);
+    info!("[single chat] received client message {:?}", text_vec);
     process_text_msg(text_vec, uuid, platform, connection_key, &connections, server_index).await?;
 
     Ok(())
@@ -53,7 +53,7 @@ async fn process_text_msg(
 ) -> anyhow::Result<()> {
     for mut text_msg in text_quic_msg.into_iter() {
         if uuid != text_msg.send_user {
-            error!("mismatched sender {},{}", uuid, text_msg.send_user);
+            error!("[single chat] mismatched sender {},{}", uuid, text_msg.send_user);
             continue;
         }
         // Heartbeat message
@@ -71,7 +71,7 @@ async fn process_text_msg(
                 | message_types::MSG_TYPE_GROUP_NOTIFICATION
         ) {
             debug!(
-                "[group chat route] received group message type={} group={} sender={} raw_len={}",
+                "[group chat] received group message type={} group={} sender={} raw_len={}",
                 text_msg.text_type,
                 text_msg.recv_user,
                 text_msg.send_user,
@@ -95,13 +95,13 @@ async fn process_text_msg(
             let current_user = text_msg.send_user.clone();
             tokio::spawn(async move {
                 debug!(
-                    "[group chat route] processing group message nano_id={} group={} sender={}",
+                    "[group chat] processing group message nano_id={} group={} sender={}",
                     nano_id, group_msg.group_uuid, group_msg.send_user
                 );
                 if let Err(e) =
                     handle_group_msg_from_client(group_msg, server_index, &conns).await
                 {
-                    error!("[group chat route] failed to process group message: {}", e);
+                    error!("[group chat] failed to process group message: {}", e);
                     return;
                 }
                 let now = get_now_time_stamp_as_millis().unwrap_or(0);
@@ -116,7 +116,7 @@ async fn process_text_msg(
                 )
                 .await
                 {
-                    error!("[group chat route] failed to send group chat ACK: {}", e);
+                    error!("[group chat] failed to send ACK: {}", e);
                 }
             });
             continue;
@@ -135,7 +135,7 @@ async fn process_text_msg(
         tokio::spawn(async move {
             let current_user = text_msg_clone.send_user.clone();
             if let Err(e) = add_user_chat_record(text_msg_clone).await {
-                error!("failed to insert user message: {}", e);
+                error!("[single chat] failed to insert message: {}", e);
             }
             // Send ACK message
             if let Err(e) = send_msg_record_success(
@@ -149,13 +149,13 @@ async fn process_text_msg(
             )
                 .await
             {
-                error!("failed to send ack message: {}", e);
+                error!("[single chat] failed to send ACK: {}", e);
             }
         });
         send_msg_to_user(text_msg, platform, connections).await?;
     }
 
-    info!("processing complete");
+    info!("[single chat] processing complete");
     Ok(())
 }
 
@@ -244,9 +244,9 @@ async fn send_msg_to_user_by_platform(
         send.write_all(res).await?;
         send.finish().await?;
     } else {
-        warn!("current user not on local machine: {}, preferred node index: {}", user_key, preferred_index);
+        warn!("[single chat] user not on local machine: {}, preferred node index: {}", user_key, preferred_index);
         // Not found locally -> forward to internal QUIC for two-phase routing
-        warn!("current user not on local machine: {}, forwarding to internal QUIC", user_key);
+        warn!("[single chat] forwarding to internal QUIC: {}", user_key);
 
         // res 已经是 bincode 序列化的 TextQuicMsg 二进制，直接透传
         let request = InternalQuicRequest {
@@ -267,10 +267,10 @@ async fn send_msg_to_user_by_platform(
             let addr_str: Option<String> = conn.get(&key).await?;
             if let Some(addr_str) = addr_str {
                 let internal_addr: std::net::SocketAddr = addr_str.parse()?;
-                info!("sending internal QUIC message to: {}", internal_addr);
+                info!("[single chat] sending internal QUIC message to: {}", internal_addr);
                 send_internal_quic_msg(internal_addr, request).await?;
             } else {
-                warn!("internal QUIC address not found for node {}", preferred_index);
+                warn!("[single chat] internal QUIC address not found for node {}", preferred_index);
             }
         }
     }

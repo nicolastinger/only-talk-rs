@@ -62,7 +62,7 @@ async fn try_deliver_local(
     match conn {
         Some(conn) => {
             info!(
-                "[route] Local delivery successful target={} platform={} msg_type={}",
+                "[single chat] local delivery successful target={} platform={} msg_type={}",
                 request.target_user, request.platform, request.msg_type
             );
             let mut send = conn.open_uni().await?;
@@ -74,7 +74,7 @@ async fn try_deliver_local(
         }
         None => {
             info!(
-                "[route] Not found locally target={} platform={}",
+                "[single chat] not found locally target={} platform={}",
                 request.target_user, request.platform
             );
             Ok(None)
@@ -87,7 +87,7 @@ async fn forward_to_remote(
     request: &InternalQuicRequest,
 ) -> Result<InternalQuicResponse> {
     info!(
-        "[route] Forwarding to remote node {} target={} preferred_index={} ttl={}",
+        "[single chat] forwarding to remote node {} target={} preferred_index={} ttl={}",
         addr, request.target_user, request.preferred_index, request.ttl
     );
     send_internal_quic_msg(*addr, request.clone()).await
@@ -117,7 +117,7 @@ pub async fn route_request(
                 }
                 Err(e) => {
                     warn!(
-                        "[route] Failed to get preferred node {} address: {}, falling back to Redis",
+                        "[single chat] failed to get preferred node {} address: {}, falling back to Redis",
                         preferred_index, e
                     );
                 }
@@ -144,14 +144,14 @@ pub async fn route_request(
                     forward_to_remote(&target_addr, &forward_req).await
                 }
                 Err(e) => {
-                    error!("[route] Redis fallback failed to get node {} address: {}", idx, e);
+                    error!("[single chat] Redis fallback failed to get node {} address: {}", idx, e);
                     Ok(InternalQuicResponse::user_offline())
                 }
             }
         }
         None => {
             info!(
-                "[route] User offline target={} platform={}",
+                "[single chat] user offline target={} platform={}",
                 request.target_user, request.platform
             );
             Ok(InternalQuicResponse::user_offline())
@@ -166,7 +166,7 @@ pub async fn route_internal_request(
 ) -> Result<Vec<u8>> {
     if let Ok(broadcast) = bincode::deserialize::<InternalGroupBroadcast>(request) {
         info!(
-            "[internal QUIC] Received group chat broadcast group_uuid={} sender={} members_count={}",
+            "[group chat] received broadcast group_uuid={} sender={} members_count={}",
             broadcast.group_uuid,
             broadcast.sender,
             broadcast.all_members.len()
