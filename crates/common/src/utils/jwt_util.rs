@@ -2,7 +2,7 @@ use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode}
 use rsa::pkcs1::EncodeRsaPublicKey;
 use rsa::pkcs8::EncodePrivateKey;
 use serde::{Deserialize, Serialize};
-use crate::utils::rsa_util::generate_rsa_keys;
+use crate::utils::rsa_util::get_rsa_keys;
 use crate::utils::time::get_now_time_stamp_as_secs;
 
 // Define JWT Claims struct
@@ -14,7 +14,7 @@ pub struct Claims {
 }
 
 fn load_jwt_keys() -> Result<(EncodingKey, DecodingKey), anyhow::Error> {
-    let (private_key, public_key) = generate_rsa_keys()?;
+    let (private_key, public_key) = get_rsa_keys()?;
     let private_key_pem = private_key.to_pkcs8_pem(Default::default())?;
     let private_key_str = private_key_pem.to_string();
     // Convert public key to PEM format string

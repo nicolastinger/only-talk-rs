@@ -11,7 +11,11 @@ use argon2::password_hash::rand_core::OsRng;
 use argon2::password_hash::PasswordHash;
 use crate::config_manager::{get_config, set_config};
 
-pub fn generate_rsa_keys() -> Result<(RsaPrivateKey, RsaPublicKey), anyhow::Error> {
+/// Get RSA keys with three-level caching strategy:
+/// 1. First try to get from memory (config manager)
+/// 2. If not in memory, try to read from file system
+/// 3. If not in file system, generate new keys
+pub fn get_rsa_keys() -> Result<(RsaPrivateKey, RsaPublicKey), anyhow::Error> {
     let private_key_config = get_config("jwt_private_key");
     let public_key_config = get_config("jwt_public_key");
 
@@ -23,7 +27,7 @@ pub fn generate_rsa_keys() -> Result<(RsaPrivateKey, RsaPublicKey), anyhow::Erro
         let private_key_text = fs::read_to_string("./config/jwt/private.key");
         let public_key_text = fs::read_to_string("./config/jwt/public.key");
         if private_key_text.is_err() || public_key_text.is_err() {
-            let (private_key, public_key) = new_rsa_key()?;
+            let (private_key, public_key) = generate_rsa_key_pair()?;
             return Ok((private_key, public_key));
         }
         let private_key_str = private_key_text?;
@@ -38,11 +42,12 @@ pub fn generate_rsa_keys() -> Result<(RsaPrivateKey, RsaPublicKey), anyhow::Erro
         let public_key = RsaPublicKey::from(&private_key);
         return Ok((private_key, public_key));
     };
-    let (private_key, public_key) = new_rsa_key()?;
+    let (private_key, public_key) = generate_rsa_key_pair()?;
     Ok((private_key, public_key))
 }
 
-fn new_rsa_key() -> Result<(RsaPrivateKey, RsaPublicKey), anyhow::Error> {
+/// Generate a new RSA key pair and save to memory and file system
+fn generate_rsa_key_pair() -> Result<(RsaPrivateKey, RsaPublicKey), anyhow::Error> {
     // Generate a new RSA key pair if no existing key files
     let mut rng = rand::thread_rng();
     let bits = 2048;
