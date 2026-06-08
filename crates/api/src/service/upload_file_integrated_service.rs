@@ -18,7 +18,7 @@ use rbatis::{rbdc, RBatis};
 use s3_service::S3Client;
 use common::models::file_entity::biz_file_link::BizFileLink;
 use common::models::user_entity::friend_link::FriendLink;
-use http_service::http_service::file_service::service::chat_biz_service::create_user_chat_biz;
+use http_service::http_service::file_service::service::chat_biz_service::{create_user_chat_biz, create_group_chat_biz};
 use http_service::http_service::file_service::vo::biz_file_link_vo::BizFileLinkVO;
 use http_service::http_service::file_service::vo::biz_record_vo::BizRecordVO;
 
@@ -109,6 +109,48 @@ pub async fn upload_user_chat_file(
     let biz_link_vo = BizFileLinkVO::from_biz_file_link(biz_file_link);
     let biz_link_vo_vec = vec![biz_link_vo];
     // 5. Convert to VO
+    let biz_record = BizRecordVO::from_chat_biz_record(chat_biz_record, biz_link_vo_vec);
+    
+    Ok(CommonResponseRef::<BizRecordVO>::success_json(&biz_record)?)
+}
+
+/// Upload group chat file (no friend relationship check)
+pub async fn upload_group_chat_file(
+    rb: &RBatis,
+    uuid: Option<String>,
+    payload: Multipart,
+    group_uuid: String,
+    s3_client: Option<Arc<S3Client>>,
+) -> Result<String, anyhow::Error> {
+    let uuid = uuid.ok_or(anyhow!("User ID cannot be empty"))?;
+    let user_id = rbdc::Uuid::from_str(&uuid)?;
+    let group_id = rbdc::Uuid::from_str(&group_uuid)?;
+    
+    // Upload via S3 (no friend check for group chat)
+    let s3_client = s3_client.ok_or(anyhow!("S3 client not initialized"))?;
+    if !s3_client.config.enabled {
+        return Err(anyhow!("S3 service not enabled"));
+    }
+    
+    info!("uploading group chat file to S3...");
+    let record = upload_chat_preview_file_s3(rb, uuid.clone(), payload, s3_client.clone()).await
+        .map_err(|e| anyhow!("S3 upload failed: {}", e))?;
+    info!("group chat file uploaded to S3 successfully");
+    
+    // Save business info (no friend check)
+    let chat_biz_record = create_group_chat_biz(rb, user_id, group_id).await?;
+    // Save file association
+    let biz_file_link = BizFileLink {
+        id: None,
+        biz_id: chat_biz_record.uuid.clone(),
+        origin_file_id: None,
+        file_id: record.uuid,
+        is_del: Some(false),
+    };
+    BizFileLink::insert(rb, &biz_file_link).await?;
+    let biz_link_vo = BizFileLinkVO::from_biz_file_link(biz_file_link);
+    let biz_link_vo_vec = vec![biz_link_vo];
+    // Convert to VO
     let biz_record = BizRecordVO::from_chat_biz_record(chat_biz_record, biz_link_vo_vec);
     
     Ok(CommonResponseRef::<BizRecordVO>::success_json(&biz_record)?)

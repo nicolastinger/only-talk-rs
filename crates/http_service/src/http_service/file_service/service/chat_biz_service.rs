@@ -62,3 +62,34 @@ pub async fn get_chat_file_record_by_biz_id(
         ChatBizRecord::select_by_uuid(rb, &chat_biz_id).await?.ok_or(anyhow!("未找到对应的文件记录信息"))?;
     Ok(chat_biz_record)
 }
+
+/// 创建上传群聊文件业务id（不检查好友关系）
+pub async fn create_group_chat_biz(
+    rb: &RBatis,
+    user_id: rbdc::Uuid,
+    group_uuid: rbdc::Uuid,
+) -> Result<ChatBizRecord, anyhow::Error> {
+    let now = get_now_time_stamp_as_millis()?;
+    let uuid_v4 = Uuid::new_v4();
+    let uuid_v4_str = uuid_v4.to_string();
+    let biz_id = rbdc::Uuid::from_str(&uuid_v4_str)?;
+    let remark = format!("群聊上传，用户ID: {}, 群ID: {}", user_id, group_uuid);
+
+    let chat_biz_record = ChatBizRecord {
+        id: None,
+        uuid: Some(biz_id),
+        biz_name: Some("群聊上传".to_string()),
+        description: Some("用户上传群聊文件的业务记录".to_string()),
+        created_by: Some(user_id),
+        receiver: Some(group_uuid),
+        created_at: Some(now),
+        updated_at: Some(now),
+        status: Some(0),
+        approve_status: Some(1),
+        biz_type: Some("group_chat".to_string()),
+        remark: Some(remark),
+    };
+
+    ChatBizRecord::insert(rb, &chat_biz_record).await?;
+    Ok(chat_biz_record)
+}
