@@ -62,6 +62,8 @@ fn generate_rsa_key_pair() -> Result<(RsaPrivateKey, RsaPublicKey), anyhow::Erro
     let public_key_str = public_key_pem.to_string();
     set_config("jwt_private_key".string(), private_key_str.clone());
     set_config("jwt_public_key".string(), public_key_str.clone());
+    // Ensure the config/jwt directory exists before writing key files
+    fs::create_dir_all("./config/jwt")?;
     // Save generated key to file
     fs::write("./config/jwt/private.key", private_key_str)?;
     fs::write("./config/jwt/public.key", public_key_str)?;
