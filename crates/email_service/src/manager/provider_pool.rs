@@ -35,11 +35,7 @@ impl HealthStatus {
 
 impl ProviderPool {
     pub fn new(config: crate::config::PoolConfig) -> Self {
-        Self {
-            providers: DashMap::new(),
-            health_status: DashMap::new(),
-            config,
-        }
+        Self { providers: DashMap::new(), health_status: DashMap::new(), config }
     }
 
     pub fn register(&self, name: String, provider: BoxedEmailProvider) {
@@ -56,11 +52,8 @@ impl ProviderPool {
 
     pub fn get_healthy(&self, name: &str) -> EmailResult<BoxedEmailProvider> {
         let provider = self.get(name)?;
-        
-        let is_healthy = self.health_status
-            .get(name)
-            .map(|s| s.is_healthy)
-            .unwrap_or(true);
+
+        let is_healthy = self.health_status.get(name).map(|s| s.is_healthy).unwrap_or(true);
 
         if !is_healthy {
             return Err(EmailError::ProviderUnavailable(name.to_string()));
@@ -74,24 +67,19 @@ impl ProviderPool {
             .iter()
             .filter(|entry| {
                 let name = entry.key();
-                self.health_status
-                    .get(name)
-                    .map(|s| s.is_healthy)
-                    .unwrap_or(true)
+                self.health_status.get(name).map(|s| s.is_healthy).unwrap_or(true)
             })
             .max_by_key(|entry| entry.value().priority())
             .map(|entry| entry.value().clone())
     }
 
     pub fn get_providers_by_priority(&self) -> Vec<BoxedEmailProvider> {
-        let mut providers: Vec<_> = self.providers
+        let mut providers: Vec<_> = self
+            .providers
             .iter()
             .filter(|entry| {
                 let name = entry.key();
-                self.health_status
-                    .get(name)
-                    .map(|s| s.is_healthy)
-                    .unwrap_or(true)
+                self.health_status.get(name).map(|s| s.is_healthy).unwrap_or(true)
             })
             .map(|entry| entry.value().clone())
             .collect();
@@ -209,7 +197,7 @@ impl ProviderSelector {
 
     fn select_round_robin(&self) -> Option<BoxedEmailProvider> {
         static COUNTER: RwLock<usize> = RwLock::new(0);
-        
+
         let providers = self.pool.get_providers_by_priority();
         if providers.is_empty() {
             return None;
@@ -218,13 +206,13 @@ impl ProviderSelector {
         let mut counter = COUNTER.write();
         let index = *counter % providers.len();
         *counter = (*counter + 1) % providers.len();
-        
+
         Some(providers[index].clone())
     }
 
     fn select_random(&self) -> Option<BoxedEmailProvider> {
         use rand::seq::SliceRandom;
-        
+
         let mut providers = self.pool.get_providers_by_priority();
         providers.shuffle(&mut rand::thread_rng());
         providers.into_iter().next()

@@ -1,16 +1,19 @@
 use crate::common::dto::base_dto::AuthAccount;
-use std::fs;
-use std::sync::Arc;
+use crate::http_service::file_service::service::biz_service::upload_original_file_by_biz_id;
+use crate::http_service::file_service::service::file_service::{
+    download_chat_file_by_id, download_link_chat_biz, download_link_pub_biz,
+    download_pub_file_by_id,
+};
+use crate::utils::http_response::CommonResponseNoDataRef;
+use crate::{get_uuid_from_header, respond_json_any};
 use actix_multipart::Multipart;
-use actix_web::{HttpResponse, Responder, post, web, get, HttpRequest};
-use tracing::error;
+use actix_web::{HttpRequest, HttpResponse, Responder, get, post, web};
+use common::config_str::USER_FILE_PUBLIC_DIR;
 use rbatis::RBatis;
 use s3_service::S3Client;
-use common::config_str::USER_FILE_PUBLIC_DIR;
-use crate::{get_uuid_from_header, respond_json_any};
-use crate::http_service::file_service::service::biz_service::upload_original_file_by_biz_id;
-use crate::http_service::file_service::service::file_service::{download_chat_file_by_id, download_link_chat_biz, download_link_pub_biz, download_pub_file_by_id};
-use crate::utils::http_response::CommonResponseNoDataRef;
+use std::fs;
+use std::sync::Arc;
+use tracing::error;
 
 pub fn file_service(cfg: &mut web::ServiceConfig) {
     cfg.service(download_file_api)
@@ -64,7 +67,7 @@ async fn download_pub_biz_api(
 pub async fn download_pub_file_id_api(
     state: web::Data<RBatis>,
     s3_client: web::Data<Arc<S3Client>>,
-    params: web::Path<(String, String)>
+    params: web::Path<(String, String)>,
 ) -> impl Responder {
     let (biz_id, file_id) = params.into_inner();
     let s3_client = (*s3_client.into_inner()).clone();
@@ -88,14 +91,16 @@ async fn download_chat_biz_api(
     s3_client: web::Data<Arc<S3Client>>,
     biz_id: web::Path<(String, String)>,
 ) -> impl Responder {
-    let (biz_id,is_preview) = biz_id.into_inner();
+    let (biz_id, is_preview) = biz_id.into_inner();
     let uuid = get_uuid_from_header!(req);
     let is_preview_bool = match is_preview.as_str() {
         "1" => true,
         _ => false,
     };
     let s3_client = (*s3_client.into_inner()).clone();
-    let res = download_link_chat_biz(state.as_ref(), Some(s3_client), uuid, biz_id, is_preview_bool).await;
+    let res =
+        download_link_chat_biz(state.as_ref(), Some(s3_client), uuid, biz_id, is_preview_bool)
+            .await;
     respond_json_any!(res)
 }
 
@@ -107,12 +112,13 @@ pub async fn download_chat_file_api(
     req: HttpRequest,
     state: web::Data<RBatis>,
     s3_client: web::Data<Arc<S3Client>>,
-    params: web::Path<(String, String)>
+    params: web::Path<(String, String)>,
 ) -> impl Responder {
     let uuid = get_uuid_from_header!(req);
     let (biz_id, file_id) = params.into_inner();
     let s3_client = (*s3_client.into_inner()).clone();
-    let res = download_chat_file_by_id(state.as_ref(), Some(s3_client), uuid, biz_id, file_id).await;
+    let res =
+        download_chat_file_by_id(state.as_ref(), Some(s3_client), uuid, biz_id, file_id).await;
 
     match res {
         Ok(res) => res,
@@ -146,13 +152,22 @@ async fn upload_origin_file_by_biz_api(
     biz_record_type: web::Query<String>,
     preview_id: web::Query<String>,
     req: HttpRequest,
-    payload: Multipart
+    payload: Multipart,
 ) -> impl Responder {
-    let biz_id= biz_id.into_inner();
+    let biz_id = biz_id.into_inner();
     let biz_record_type = biz_record_type.into_inner();
     let preview_id = preview_id.into_inner();
     let uuid = get_uuid_from_header!(req);
     let s3_client = (*s3_client.into_inner()).clone();
-    let res = upload_original_file_by_biz_id(state.as_ref(), Some(s3_client), uuid, biz_id, biz_record_type, preview_id, payload).await;
+    let res = upload_original_file_by_biz_id(
+        state.as_ref(),
+        Some(s3_client),
+        uuid,
+        biz_id,
+        biz_record_type,
+        preview_id,
+        payload,
+    )
+    .await;
     respond_json_any!(res)
 }

@@ -1,8 +1,8 @@
-use rbatis::rbdc::Uuid;
-use serde::{Deserialize, Serialize};
+use crate::http_service::file_service::vo::biz_file_link_vo::BizFileLinkVO;
 use common::models::file_entity::biz_record::BizRecord;
 use common::models::file_entity::chat_biz_record::ChatBizRecord;
-use crate::http_service::file_service::vo::biz_file_link_vo::BizFileLinkVO;
+use rbatis::rbdc::Uuid;
+use serde::{Deserialize, Serialize};
 
 /// 文件上传业务表
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -33,7 +33,10 @@ impl BizRecordVO {
         }
     }
 
-    pub fn from_chat_biz_record(chat_biz_record: ChatBizRecord, file_ids: Vec<BizFileLinkVO>) -> Self {
+    pub fn from_chat_biz_record(
+        chat_biz_record: ChatBizRecord,
+        file_ids: Vec<BizFileLinkVO>,
+    ) -> Self {
         BizRecordVO {
             uuid: chat_biz_record.uuid,
             biz_name: chat_biz_record.biz_name,

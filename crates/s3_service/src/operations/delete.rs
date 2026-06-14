@@ -2,7 +2,7 @@
 //!
 //! Provides single and batch object deletion functionality.
 
-use aws_sdk_s3::types::{Error as S3DeleteError, DeletedObject};
+use aws_sdk_s3::types::{DeletedObject, Error as S3DeleteError};
 
 use crate::client::S3Client;
 use crate::error::S3Error as AppS3Error;
@@ -21,11 +21,7 @@ use crate::error::S3Error as AppS3Error;
 ///
 /// - Deleting a non-existent object does not cause an error
 /// - Delete operation is irreversible
-pub async fn delete_object(
-    client: &S3Client,
-    bucket: &str,
-    key: &str,
-) -> Result<(), AppS3Error> {
+pub async fn delete_object(client: &S3Client, bucket: &str, key: &str) -> Result<(), AppS3Error> {
     client
         .inner
         .delete_object()
@@ -62,27 +58,19 @@ pub async fn delete_objects(
 ) -> Result<DeleteBatchResult, AppS3Error> {
     // Empty list fast return
     if keys.is_empty() {
-        return Ok(DeleteBatchResult {
-            deleted: Vec::new(),
-            failed: Vec::new(),
-        });
+        return Ok(DeleteBatchResult { deleted: Vec::new(), failed: Vec::new() });
     }
 
     // Build list of objects for delete request
     let objects: Vec<aws_sdk_s3::types::ObjectIdentifier> = keys
         .iter()
-        .map(|k| {
-            aws_sdk_s3::types::ObjectIdentifier::builder()
-                .key(*k)
-                .build()
-                .unwrap()
-        })
+        .map(|k| aws_sdk_s3::types::ObjectIdentifier::builder().key(*k).build().unwrap())
         .collect();
 
     // Build delete request
     let delete = aws_sdk_s3::types::Delete::builder()
         .set_objects(Some(objects))
-        .quiet(false)  // Return delete results
+        .quiet(false) // Return delete results
         .build()
         .unwrap();
 

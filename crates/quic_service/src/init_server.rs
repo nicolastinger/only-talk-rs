@@ -5,9 +5,9 @@ use tracing::info;
 
 use crate::external::chat_node::ChatNode;
 use crate::external::config::ChatNodeConfig;
+use crate::external::lifecycle::ServiceLifecycle;
 use crate::internal::internal_config::InternalQuicConfig;
 use crate::internal::internal_quic_server::run_internal_server;
-use crate::external::lifecycle::ServiceLifecycle;
 use crate::nat_ip::nat_udp_service::run_udp_server;
 
 /// Start QUIC service (ChatNode + NAT UDP + internal QUIC), fully self-contained
@@ -41,8 +41,12 @@ pub async fn start_server() -> anyhow::Result<Arc<ChatNode>> {
         let redis = common::REDIS_CLIENT.read().await;
         if let Some(redis) = redis.as_ref() {
             let node_address = node.config().node_address.clone();
-            if let Err(e) =
-                common::utils::server_count_sync::register_external_node(redis, server_index, &node_address).await
+            if let Err(e) = common::utils::server_count_sync::register_external_node(
+                redis,
+                server_index,
+                &node_address,
+            )
+            .await
             {
                 tracing::warn!("external QUIC node registration failed: {}", e);
             }

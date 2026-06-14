@@ -31,24 +31,14 @@ pub async fn head_object(
     bucket: &str,
     key: &str,
 ) -> Result<ObjectMetadata, S3Error> {
-    let result = client
-        .inner
-        .head_object()
-        .bucket(bucket)
-        .key(key)
-        .send()
-        .await
-        .map_err(|e| {
-            // Handle object not found error
-            if e.as_service_error()
-                .map(|se| se.is_not_found())
-                .unwrap_or(false)
-            {
-                S3Error::ObjectNotFound(key.to_string())
-            } else {
-                S3Error::AwsError(format!("Failed to get object metadata: {}", e))
-            }
-        })?;
+    let result = client.inner.head_object().bucket(bucket).key(key).send().await.map_err(|e| {
+        // Handle object not found error
+        if e.as_service_error().map(|se| se.is_not_found()).unwrap_or(false) {
+            S3Error::ObjectNotFound(key.to_string())
+        } else {
+            S3Error::AwsError(format!("Failed to get object metadata: {}", e))
+        }
+    })?;
 
     // Extract custom metadata
     let mut metadata = std::collections::HashMap::new();
@@ -82,11 +72,7 @@ pub async fn head_object(
 ///
 /// - `Ok(true)`: Object exists
 /// - `Ok(false)`: Object does not exist
-pub async fn object_exists(
-    client: &S3Client,
-    bucket: &str,
-    key: &str,
-) -> Result<bool, S3Error> {
+pub async fn object_exists(client: &S3Client, bucket: &str, key: &str) -> Result<bool, S3Error> {
     match head_object(client, bucket, key).await {
         Ok(_) => Ok(true),
         Err(S3Error::ObjectNotFound(_)) => Ok(false),
@@ -171,16 +157,8 @@ pub async fn put_object_tagging(
     tags: std::collections::HashMap<String, String>,
 ) -> Result<(), S3Error> {
     // Build tag list
-    let tag_set: Vec<Tag> = tags
-        .into_iter()
-        .map(|(k, v)| {
-            Tag::builder()
-                .key(k)
-                .value(v)
-                .build()
-                .unwrap()
-        })
-        .collect();
+    let tag_set: Vec<Tag> =
+        tags.into_iter().map(|(k, v)| Tag::builder().key(k).value(v).build().unwrap()).collect();
 
     // Build tag configuration
     let tagging = aws_sdk_s3::types::Tagging::builder()
@@ -233,12 +211,7 @@ pub async fn get_object_tagging(
     let tags = result
         .tag_set()
         .iter()
-        .map(|t: &Tag| {
-            (
-                t.key().to_string(),
-                t.value().to_string(),
-            )
-        })
+        .map(|t: &Tag| (t.key().to_string(), t.value().to_string()))
         .collect();
 
     Ok(tags)

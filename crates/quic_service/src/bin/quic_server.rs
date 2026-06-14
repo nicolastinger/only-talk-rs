@@ -2,8 +2,8 @@
 //!
 //! Starts only QUIC ChatNode + NAT UDP + internal QUIC service, no HTTP.
 
-use common::tracing::init_tracing;
 use common::fatal_panic_async;
+use common::tracing::init_tracing;
 use quic_service::init_server::start_server;
 use quic_service::{ChatNode, ServiceLifecycle};
 use std::sync::Arc;

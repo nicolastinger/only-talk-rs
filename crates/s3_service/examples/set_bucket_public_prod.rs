@@ -1,12 +1,12 @@
-use s3_service::config::{S3Config, S3Provider};
 use s3_service::S3Client;
+use s3_service::config::{S3Config, S3Provider};
 
 #[tokio::main]
 async fn main() {
     println!("====== 设置桶公开读策略 ======\n");
 
     let args: Vec<String> = std::env::args().collect();
-    
+
     let endpoint = args.get(1).cloned().unwrap_or_else(|| "http://xxxx".to_string());
     let access_key = args.get(2).cloned().unwrap_or_else(|| "xxxx".to_string());
     let secret_key = args.get(3).cloned().unwrap_or_else(|| "xxxxx".to_string());
@@ -48,23 +48,11 @@ async fn main() {
     };
 
     println!("\n正在检查桶 '{}' 是否存在...", bucket_name);
-    let bucket_exists = client
-        .inner
-        .head_bucket()
-        .bucket(&bucket_name)
-        .send()
-        .await
-        .is_ok();
+    let bucket_exists = client.inner.head_bucket().bucket(&bucket_name).send().await.is_ok();
 
     if !bucket_exists {
         println!("  桶不存在，正在创建...");
-        match client
-            .inner
-            .create_bucket()
-            .bucket(&bucket_name)
-            .send()
-            .await
-        {
+        match client.inner.create_bucket().bucket(&bucket_name).send().await {
             Ok(_) => println!("  ✓ 桶创建成功"),
             Err(e) => {
                 println!("  ✗ 桶创建失败: {:?}", e);
@@ -92,14 +80,7 @@ async fn main() {
     let policy_str = serde_json::to_string(&public_policy).unwrap();
     println!("策略内容:\n{}", serde_json::to_string_pretty(&public_policy).unwrap());
 
-    match client
-        .inner
-        .put_bucket_policy()
-        .bucket(&bucket_name)
-        .policy(&policy_str)
-        .send()
-        .await
-    {
+    match client.inner.put_bucket_policy().bucket(&bucket_name).policy(&policy_str).send().await {
         Ok(_) => {
             println!("\n✓ 公开读策略设置成功！");
             println!("  现在可以通过以下方式公开访问桶中的文件:");
@@ -126,7 +107,12 @@ async fn main() {
                 for obj in objects {
                     let key = obj.key().unwrap_or_default();
                     println!("  测试文件: {}", key);
-                    println!("  公开URL: {}/{}/{}", endpoint.trim_end_matches('/'), bucket_name, key);
+                    println!(
+                        "  公开URL: {}/{}/{}",
+                        endpoint.trim_end_matches('/'),
+                        bucket_name,
+                        key
+                    );
                 }
             }
         }

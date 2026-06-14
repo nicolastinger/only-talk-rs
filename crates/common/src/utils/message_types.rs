@@ -45,7 +45,6 @@ pub const MSG_TYPE_SYSTEM: u16 = 10001;
 /// Friend notification message forwarded by internal service
 pub const INTERNAL_FRIEND_NOTIFY: u16 = 20001;
 
-
 // ==================== Group Chat Message Types ====================
 
 /// Group text message

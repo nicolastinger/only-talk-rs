@@ -5,15 +5,15 @@ use std::time::Duration;
 use common::config_str::{PC_PLATFORM, PING, SYSTEM};
 use common::utils::jwt_util::generate_access_token;
 use common::utils::message_types;
-use tracing::{error, info};
 use quinn::{Connection, Endpoint, SendStream};
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
+use tracing::{error, info};
 
+use super::set_server::configure_client;
 use crate::models::first_quic_msg::FirstQuicMsg;
 use crate::models::quic_connection::ConnectionType;
 use crate::msg_service::text_msg_service::{generate_text_msg, get_text_msg};
-use super::set_server::configure_client;
 
 #[allow(dead_code)]
 pub async fn run_client(server_addr: SocketAddr) {
@@ -22,9 +22,7 @@ pub async fn run_client(server_addr: SocketAddr) {
     endpoint.set_default_client_config(configure_client()); // Set default client config
 
     // Try connecting to server
-    let connection = match endpoint
-        .connect(server_addr, "onlytalk.cn")
-    {
+    let connection = match endpoint.connect(server_addr, "onlytalk.cn") {
         Ok(conn) => match conn.await {
             Ok(c) => c,
             Err(e) => {
@@ -136,7 +134,10 @@ pub async fn run_client(server_addr: SocketAddr) {
     });
 }
 
-async fn init_send_msg(send_stream: &mut SendStream, conn: Connection) -> Result<(), anyhow::Error> {
+async fn init_send_msg(
+    send_stream: &mut SendStream,
+    conn: Connection,
+) -> Result<(), anyhow::Error> {
     // Send message to server
     let uuid = "01965d95-0ffc-7d23-911e-1111485fb9be".to_string();
     let mut first_quic_msg = FirstQuicMsg::new();

@@ -27,15 +27,11 @@ impl AwsSesEmailProvider {
     }
 
     async fn send_via_api(&self, email: &Email) -> EmailResult<SendResult> {
-        let endpoint = format!(
-            "https://email.{}.amazonaws.com/v2/email/outbound-emails",
-            self.config.region
-        );
+        let endpoint =
+            format!("https://email.{}.amazonaws.com/v2/email/outbound-emails", self.config.region);
 
-        let to_addresses: Vec<String> = email.to.iter()
-            .map(|a| a.address().to_string())
-            .collect();
-        
+        let to_addresses: Vec<String> = email.to.iter().map(|a| a.address().to_string()).collect();
+
         let mut body = serde_json::json!({
             "FromEmailAddress": self.config.from_email,
             "Destination": {
@@ -45,26 +41,23 @@ impl AwsSesEmailProvider {
         });
 
         if let Some(ref alias) = self.config.from_alias {
-            body["FromEmailAddress"] = serde_json::Value::String(
-                format!("{} <{}>", alias, self.config.from_email)
-            );
+            body["FromEmailAddress"] =
+                serde_json::Value::String(format!("{} <{}>", alias, self.config.from_email));
         }
 
         if !email.cc.is_empty() {
-            let cc_addresses: Vec<String> = email.cc.iter()
-                .map(|a| a.address().to_string())
-                .collect();
+            let cc_addresses: Vec<String> =
+                email.cc.iter().map(|a| a.address().to_string()).collect();
             body["Destination"]["CcAddresses"] = serde_json::Value::Array(
-                cc_addresses.into_iter().map(serde_json::Value::String).collect()
+                cc_addresses.into_iter().map(serde_json::Value::String).collect(),
             );
         }
 
         if !email.bcc.is_empty() {
-            let bcc_addresses: Vec<String> = email.bcc.iter()
-                .map(|a| a.address().to_string())
-                .collect();
+            let bcc_addresses: Vec<String> =
+                email.bcc.iter().map(|a| a.address().to_string()).collect();
             body["Destination"]["BccAddresses"] = serde_json::Value::Array(
-                bcc_addresses.into_iter().map(serde_json::Value::String).collect()
+                bcc_addresses.into_iter().map(serde_json::Value::String).collect(),
             );
         }
 
@@ -91,7 +84,8 @@ impl AwsSesEmailProvider {
 
         body["Content"]["Simple"] = simple;
 
-        let response = self.client
+        let response = self
+            .client
             .post(&endpoint)
             .json(&body)
             .basic_auth(&self.config.access_key_id, Some(&self.config.secret_access_key))
@@ -104,17 +98,16 @@ impl AwsSesEmailProvider {
             let message_id = serde_json::from_str::<serde_json::Value>(&response_body)
                 .ok()
                 .and_then(|v| v.get("MessageId")?.as_str().map(|s| s.to_string()));
-            
+
             Ok(SendResult::success("aws_ses", message_id, None))
         } else {
             let status = response.status();
             let error_body = response.text().await.unwrap_or_default();
-            let error_info = crate::models::ErrorInfo::from_email_error(
-                &EmailError::ProviderError {
+            let error_info =
+                crate::models::ErrorInfo::from_email_error(&EmailError::ProviderError {
                     provider: "aws_ses".to_string(),
                     message: format!("API error: {} - {}", status, error_body),
-                },
-            );
+                });
             Ok(SendResult::failure("aws_ses", error_info))
         }
     }

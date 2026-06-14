@@ -1,6 +1,6 @@
 use actix_web::{HttpMessage, HttpRequest, HttpResponse, Responder, post, web};
-use tracing::{error, info};
 use rbatis::RBatis;
+use tracing::{error, info};
 
 use crate::common::dto::base_dto::{AuthAccount, ReqList};
 use crate::http_service::user_service::dto::friend_dto::FriendDTO;

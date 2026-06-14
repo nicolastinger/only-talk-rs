@@ -3,14 +3,14 @@ use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine};
 use chrono::Utc;
 use hmac::{Hmac, Mac};
 use reqwest::Client;
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::config::TencentConfig;
 use crate::error::{EmailError, EmailResult};
 use crate::models::{Email, SendResult};
-use crate::providers::{EmailProvider, BoxedEmailProvider};
+use crate::providers::{BoxedEmailProvider, EmailProvider};
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -22,21 +22,14 @@ pub struct TencentEmailProvider {
 
 impl TencentEmailProvider {
     pub fn new(config: TencentConfig) -> EmailResult<Self> {
-        let endpoint = format!(
-            "ses.{}.tencentcloudapi.com",
-            config.region
-        );
+        let endpoint = format!("ses.{}.tencentcloudapi.com", config.region);
 
         let client = Client::builder()
             .timeout(std::time::Duration::from_millis(config.timeout_ms))
             .build()
             .map_err(|e| EmailError::Config(format!("Failed to create HTTP client: {}", e)))?;
 
-        Ok(Self {
-            config,
-            client,
-            endpoint,
-        })
+        Ok(Self { config, client, endpoint })
     }
 
     pub fn boxed(config: TencentConfig) -> EmailResult<BoxedEmailProvider> {
@@ -46,7 +39,7 @@ impl TencentEmailProvider {
     fn generate_signature(&self, payload: &str, timestamp: i64) -> String {
         let date = Utc::now().format("%Y-%m-%d").to_string();
         let service = "ses";
-        
+
         let string_to_sign = format!(
             "TC3-HMAC-SHA256\n{}\n{}/{}/tc3_request\n{}",
             timestamp,
@@ -55,13 +48,11 @@ impl TencentEmailProvider {
             hex::encode(Sha256::digest(payload.as_bytes()))
         );
 
-        let secret_date = Self::hmac_sha256(
-            format!("TC3{}", self.config.secret_key).as_bytes(),
-            date.as_bytes(),
-        );
+        let secret_date =
+            Self::hmac_sha256(format!("TC3{}", self.config.secret_key).as_bytes(), date.as_bytes());
         let secret_service = Self::hmac_sha256(&secret_date, service.as_bytes());
         let secret_signing = Self::hmac_sha256(&secret_service, b"tc3_request");
-        
+
         hex::encode(Self::hmac_sha256(&secret_signing, string_to_sign.as_bytes()))
     }
 
@@ -96,13 +87,15 @@ impl TencentEmailProvider {
         headers
     }
 
-    async fn send_request<T: serde::Serialize>(&self, action: &str, body: T) -> EmailResult<serde_json::Value> {
+    async fn send_request<T: serde::Serialize>(
+        &self,
+        action: &str,
+        body: T,
+    ) -> EmailResult<serde_json::Value> {
         let payload = serde_json::to_string(&body)?;
         let headers = self.build_headers(&payload, action);
 
-        let mut request = self.client
-            .post(format!("https://{}", self.endpoint))
-            .body(payload);
+        let mut request = self.client.post(format!("https://{}", self.endpoint)).body(payload);
 
         for (key, value) in headers {
             request = request.header(key, value);
@@ -114,7 +107,9 @@ impl TencentEmailProvider {
             .map_err(|e| EmailError::NetworkError(format!("Request failed: {}", e)))?;
 
         let status = response.status();
-        let body = response.text().await
+        let body = response
+            .text()
+            .await
             .map_err(|e| EmailError::NetworkError(format!("Failed to read response: {}", e)))?;
 
         if !status.is_success() {
@@ -205,25 +200,25 @@ impl EmailProvider for TencentEmailProvider {
             bcc_addresses: email.bcc.iter().map(|a| a.address().to_string()).collect(),
         };
 
-        let simple = SimpleContent {
-            html: email.html_body.clone(),
-            text: email.text_body.clone(),
-        };
+        let simple = SimpleContent { html: email.html_body.clone(), text: email.text_body.clone() };
 
         let attachments = if !email.attachments.is_empty() {
-            Some(email.attachments.iter().map(|a| Attachment {
-                content: BASE64_STANDARD.encode(&a.content),
-                filename: a.filename.clone(),
-                content_type: Some(a.content_type.clone()),
-            }).collect())
+            Some(
+                email
+                    .attachments
+                    .iter()
+                    .map(|a| Attachment {
+                        content: BASE64_STANDARD.encode(&a.content),
+                        filename: a.filename.clone(),
+                        content_type: Some(a.content_type.clone()),
+                    })
+                    .collect(),
+            )
         } else {
             None
         };
 
-        let content = EmailContent {
-            simple: Some(simple),
-            attachments,
-        };
+        let content = EmailContent { simple: Some(simple), attachments };
 
         let request = SendEmailRequest {
             from_email_address: from_email,
@@ -234,12 +229,14 @@ impl EmailProvider for TencentEmailProvider {
 
         match self.send_request("SendEmail", request).await {
             Ok(response) => {
-                let message_id = response.get("Response")
+                let message_id = response
+                    .get("Response")
                     .and_then(|r| r.get("MessageId"))
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string());
 
-                let request_id = response.get("Response")
+                let request_id = response
+                    .get("Response")
                     .and_then(|r| r.get("RequestId"))
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string());

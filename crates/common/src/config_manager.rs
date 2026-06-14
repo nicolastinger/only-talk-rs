@@ -31,10 +31,6 @@ pub fn set_array_config(key: String, values: Vec<String>) {
 /// Get array-type config
 pub fn get_array_config(key: &str) -> Option<Vec<String>> {
     GLOBAL_CONFIG.get(key).map(|v| {
-        v.value()
-            .split(',')
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .collect()
+        v.value().split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
     })
 }

@@ -1,7 +1,7 @@
 #![deny(clippy::unwrap_used)]
 use api::init_server;
-use common::tracing::init_tracing;
 use common::fatal_panic_async;
+use common::tracing::init_tracing;
 use quic_service::init_server::start_server;
 use tracing::{debug, error, info};
 

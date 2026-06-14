@@ -1,8 +1,8 @@
 use actix_web::{
-    dev::{forward_ready, Service, ServiceRequest, ServiceResponse, Transform},
     Error, HttpMessage,
+    dev::{Service, ServiceRequest, ServiceResponse, Transform, forward_ready},
 };
-use futures_util::future::{ok, Ready};
+use futures_util::future::{Ready, ok};
 use tracing::Instrument;
 use uuid::Uuid;
 
@@ -35,13 +35,14 @@ where
 {
     type Response = ServiceResponse<B>;
     type Error = Error;
-    type Future = futures_util::future::LocalBoxFuture<'static, Result<Self::Response, Self::Error>>;
+    type Future =
+        futures_util::future::LocalBoxFuture<'static, Result<Self::Response, Self::Error>>;
 
     forward_ready!(service);
 
     fn call(&self, req: ServiceRequest) -> Self::Future {
         let trace_id = Uuid::new_v4().to_string();
-        
+
         let span = tracing::info_span!(
             "http_request",
             trace_id = %trace_id,
@@ -50,19 +51,19 @@ where
         );
 
         req.extensions_mut().insert(trace_id.clone());
-        
+
         let fut = self.service.call(req);
-        
-        Box::pin(async move {
-            let res = fut.await?;
-            Ok(res)
-        }.instrument(span))
+
+        Box::pin(
+            async move {
+                let res = fut.await?;
+                Ok(res)
+            }
+            .instrument(span),
+        )
     }
 }
 
 pub fn get_trace_id(req: &actix_web::HttpRequest) -> Option<String> {
-    req.extensions()
-        .get::<String>()
-        .filter(|s: &&String| s.len() == 36)
-        .cloned()
+    req.extensions().get::<String>().filter(|s: &&String| s.len() == 36).cloned()
 }

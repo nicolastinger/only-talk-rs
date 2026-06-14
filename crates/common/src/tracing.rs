@@ -1,6 +1,6 @@
 use tracing_appender::non_blocking::WorkerGuard;
-use tracing_subscriber::{fmt, EnvFilter, Registry, prelude::*};
 use tracing_subscriber::fmt::time::LocalTime;
+use tracing_subscriber::{EnvFilter, Registry, fmt, prelude::*};
 
 fn read_log_level_from_config() -> String {
     std::fs::read_to_string("./config/app_config.toml")
@@ -22,8 +22,8 @@ pub fn init_tracing() -> WorkerGuard {
     let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
 
     let log_level = read_log_level_from_config();
-    let env_filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new(&log_level));
+    let env_filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(&log_level));
 
     let timer = LocalTime::rfc_3339();
 
@@ -46,13 +46,12 @@ pub fn init_tracing() -> WorkerGuard {
                 .with_timer(timer),
         );
 
-    tracing::subscriber::set_global_default(subscriber)
-        .unwrap_or_else(|e| {
-            let msg = format!("Failed to set global tracing subscriber: {}", e);
-            tracing::error!("FATAL: {}", msg);
-            std::thread::sleep(std::time::Duration::from_secs(5));
-            panic!("{}", msg);
-        });
+    tracing::subscriber::set_global_default(subscriber).unwrap_or_else(|e| {
+        let msg = format!("Failed to set global tracing subscriber: {}", e);
+        tracing::error!("FATAL: {}", msg);
+        std::thread::sleep(std::time::Duration::from_secs(5));
+        panic!("{}", msg);
+    });
 
     guard
 }

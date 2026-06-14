@@ -1,4 +1,4 @@
-use actix_web::{get, post, web, HttpRequest, HttpResponse, Responder};
+use actix_web::{HttpRequest, HttpResponse, Responder, get, post, web};
 use rbatis::RBatis;
 use tracing::info;
 
@@ -11,12 +11,11 @@ use crate::http_service::group_service::group_dto::{
     update_group_dto::UpdateGroupDTO,
 };
 use crate::http_service::group_service::group_service::{
-    accept_group_invitation_service, create_group_service,
-    decline_group_invitation_service, dissolve_group_service, get_group_info_service,
-    get_group_members_service, get_group_message_history_service, get_my_groups_service,
-    get_pending_invitations_service, get_sent_invitations_service,
-    get_unread_group_messages_service, invite_group_members_service, quit_group_service,
-    remove_group_member_service, set_member_role_service, update_group_service,
+    accept_group_invitation_service, create_group_service, decline_group_invitation_service,
+    dissolve_group_service, get_group_info_service, get_group_members_service,
+    get_group_message_history_service, get_my_groups_service, get_pending_invitations_service,
+    get_sent_invitations_service, get_unread_group_messages_service, invite_group_members_service,
+    quit_group_service, remove_group_member_service, set_member_role_service, update_group_service,
 };
 use crate::utils::http_response::CommonResponse;
 use crate::{get_uuid_from_header, validate_and_respond};
@@ -46,19 +45,27 @@ fn get_uuid(req: &HttpRequest) -> String {
 
 fn respond_json<T: serde::Serialize>(res: anyhow::Result<T>) -> HttpResponse {
     match res {
-        Ok(t) => HttpResponse::Ok()
-            .body(serde_json::to_string(&CommonResponse::success(t)).unwrap_or_else(|e| format!("{{\"error\":\"{}\"}}", e))),
-        Err(e) => HttpResponse::BadRequest()
-            .body(serde_json::to_string(&CommonResponse::error(e.to_string(), "error".to_string())).unwrap_or_else(|e| format!("{{\"error\":\"{}\"}}", e))),
+        Ok(t) => HttpResponse::Ok().body(
+            serde_json::to_string(&CommonResponse::success(t))
+                .unwrap_or_else(|e| format!("{{\"error\":\"{}\"}}", e)),
+        ),
+        Err(e) => HttpResponse::BadRequest().body(
+            serde_json::to_string(&CommonResponse::error(e.to_string(), "error".to_string()))
+                .unwrap_or_else(|e| format!("{{\"error\":\"{}\"}}", e)),
+        ),
     }
 }
 
 fn respond_bool(res: anyhow::Result<bool>) -> HttpResponse {
     match res {
-        Ok(t) => HttpResponse::Ok()
-            .body(serde_json::to_string(&CommonResponse::success(t)).unwrap_or_else(|e| format!("{{\"error\":\"{}\"}}", e))),
-        Err(e) => HttpResponse::BadRequest()
-            .body(serde_json::to_string(&CommonResponse::error(e.to_string(), "error".to_string())).unwrap_or_else(|e| format!("{{\"error\":\"{}\"}}", e))),
+        Ok(t) => HttpResponse::Ok().body(
+            serde_json::to_string(&CommonResponse::success(t))
+                .unwrap_or_else(|e| format!("{{\"error\":\"{}\"}}", e)),
+        ),
+        Err(e) => HttpResponse::BadRequest().body(
+            serde_json::to_string(&CommonResponse::error(e.to_string(), "error".to_string()))
+                .unwrap_or_else(|e| format!("{{\"error\":\"{}\"}}", e)),
+        ),
     }
 }
 
@@ -110,10 +117,7 @@ pub async fn dissolve_group(
 }
 
 #[get("/my/list")]
-pub async fn get_my_groups(
-    state: web::Data<RBatis>,
-    req: HttpRequest,
-) -> impl Responder {
+pub async fn get_my_groups(state: web::Data<RBatis>, req: HttpRequest) -> impl Responder {
     let uuid = get_uuid(&req);
     let res = get_my_groups_service(state.get_ref(), &uuid).await;
     respond_json(res)
@@ -166,20 +170,14 @@ pub async fn decline_group_invitation(
 }
 
 #[get("/member/invite/pending")]
-pub async fn get_pending_invitations(
-    state: web::Data<RBatis>,
-    req: HttpRequest,
-) -> impl Responder {
+pub async fn get_pending_invitations(state: web::Data<RBatis>, req: HttpRequest) -> impl Responder {
     let uuid = get_uuid(&req);
     let res = get_pending_invitations_service(state.get_ref(), &uuid).await;
     respond_json(res)
 }
 
 #[get("/member/invite/sent")]
-pub async fn get_sent_invitations(
-    state: web::Data<RBatis>,
-    req: HttpRequest,
-) -> impl Responder {
+pub async fn get_sent_invitations(state: web::Data<RBatis>, req: HttpRequest) -> impl Responder {
     let uuid = get_uuid(&req);
     let res = get_sent_invitations_service(state.get_ref(), &uuid).await;
     respond_json(res)

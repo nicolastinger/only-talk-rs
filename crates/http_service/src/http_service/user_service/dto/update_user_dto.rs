@@ -13,7 +13,10 @@ pub struct UpdateUserDTO {
     pub gender: Option<u8>,
     pub age: Option<u8>,
     pub birthday: Option<i64>,
-    #[validate(regex(path = "crate::http_service::user_service::dto::update_user_dto::CHINA_PHONE_REGEX", message = "手机号格式不正确"))]
+    #[validate(regex(
+        path = "crate::http_service::user_service::dto::update_user_dto::CHINA_PHONE_REGEX",
+        message = "手机号格式不正确"
+    ))]
     pub phone: Option<String>,
     #[validate(email(message = "邮箱格式不正确"))]
     pub email: Option<String>,

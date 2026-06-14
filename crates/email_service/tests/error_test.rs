@@ -2,10 +2,7 @@ use email_service::{EmailError, EmailResult};
 
 #[test]
 fn test_email_error_is_retryable() {
-    let rate_limited = EmailError::RateLimited {
-        provider: "test".to_string(),
-        retry_after: None,
-    };
+    let rate_limited = EmailError::RateLimited { provider: "test".to_string(), retry_after: None };
     assert!(rate_limited.is_retryable());
 
     let network_error = EmailError::NetworkError("connection failed".to_string());
@@ -32,22 +29,16 @@ fn test_email_error_is_retryable() {
 
 #[test]
 fn test_email_error_provider_name() {
-    let auth_failed = EmailError::AuthFailed {
-        provider: "aliyun".to_string(),
-        message: "test".to_string(),
-    };
+    let auth_failed =
+        EmailError::AuthFailed { provider: "aliyun".to_string(), message: "test".to_string() };
     assert_eq!(auth_failed.provider_name(), Some("aliyun"));
 
-    let rate_limited = EmailError::RateLimited {
-        provider: "tencent".to_string(),
-        retry_after: None,
-    };
+    let rate_limited =
+        EmailError::RateLimited { provider: "tencent".to_string(), retry_after: None };
     assert_eq!(rate_limited.provider_name(), Some("tencent"));
 
-    let provider_error = EmailError::ProviderError {
-        provider: "aws_ses".to_string(),
-        message: "test".to_string(),
-    };
+    let provider_error =
+        EmailError::ProviderError { provider: "aws_ses".to_string(), message: "test".to_string() };
     assert_eq!(provider_error.provider_name(), Some("aws_ses"));
 
     let network_error = EmailError::NetworkError("test".to_string());
@@ -59,10 +50,8 @@ fn test_email_error_display() {
     let config_error = EmailError::Config("missing key".to_string());
     assert!(config_error.to_string().contains("Configuration error"));
 
-    let auth_error = EmailError::AuthFailed {
-        provider: "test".to_string(),
-        message: "invalid key".to_string(),
-    };
+    let auth_error =
+        EmailError::AuthFailed { provider: "test".to_string(), message: "invalid key".to_string() };
     assert!(auth_error.to_string().contains("Authentication failed"));
     assert!(auth_error.to_string().contains("test"));
 

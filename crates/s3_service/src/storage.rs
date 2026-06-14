@@ -460,9 +460,7 @@ impl LocalStorage {
     ///
     /// Uses the default USER_FILE_PUBLIC_DIR as base directory
     pub fn new() -> Self {
-        LocalStorage {
-            base_dir: USER_FILE_PUBLIC_DIR.to_string(),
-        }
+        LocalStorage { base_dir: USER_FILE_PUBLIC_DIR.to_string() }
     }
 
     /// Create storage instance with specified directory
@@ -506,7 +504,7 @@ impl StorageBackend for LocalStorage {
         content_type: Option<&str>,
     ) -> Result<StorageInfo, StorageError> {
         let path = self.full_path(key);
-        
+
         // Ensure parent directory exists, create if not
         if let Some(parent) = std::path::Path::new(&path).parent() {
             tokio::fs::create_dir_all(parent).await?;
@@ -514,13 +512,13 @@ impl StorageBackend for LocalStorage {
 
         // Write file data
         tokio::fs::write(&path, &data).await?;
-        
+
         Ok(StorageInfo {
-            bucket: None,  // Local storage has no bucket concept
+            bucket: None, // Local storage has no bucket concept
             key: key.to_string(),
             size: data.len() as i64,
             content_type: content_type.map(|s| s.to_string()),
-            etag: None,  // Local storage does not support ETag
+            etag: None, // Local storage does not support ETag
             storage_type: StorageType::Local,
         })
     }
@@ -572,7 +570,7 @@ impl StorageBackend for LocalStorage {
                 StorageError::IoError(e.to_string())
             }
         })?;
-        
+
         // Extract data in specified range
         let start = start as usize;
         let end = std::cmp::min(end as usize, data.len());
@@ -585,15 +583,13 @@ impl StorageBackend for LocalStorage {
     /// Delete file
     async fn delete(&self, key: &str) -> Result<(), StorageError> {
         let path = self.full_path(key);
-        tokio::fs::remove_file(&path)
-            .await
-            .map_err(|e| {
-                if e.kind() == std::io::ErrorKind::NotFound {
-                    StorageError::NotFound(format!("File not found: {}", key))
-                } else {
-                    StorageError::IoError(e.to_string())
-                }
-            })
+        tokio::fs::remove_file(&path).await.map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                StorageError::NotFound(format!("File not found: {}", key))
+            } else {
+                StorageError::IoError(e.to_string())
+            }
+        })
     }
 
     /// Batch delete files
@@ -640,11 +636,7 @@ impl StorageBackend for LocalStorage {
             }
 
             // Get file name
-            let key = path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("")
-                .to_string();
+            let key = path.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
 
             // Prefix filter
             if let Some(p) = prefix {
@@ -676,12 +668,12 @@ impl StorageBackend for LocalStorage {
     async fn copy(&self, src: &str, dst: &str) -> Result<(), StorageError> {
         let src_path = self.full_path(src);
         let dst_path = self.full_path(dst);
-        
+
         // Ensure target directory exists
         if let Some(parent) = std::path::Path::new(&dst_path).parent() {
             tokio::fs::create_dir_all(parent).await?;
         }
-        
+
         // Execute file copy
         tokio::fs::copy(&src_path, &dst_path)
             .await
@@ -788,7 +780,7 @@ pub struct S3Storage {
     /// S3 client instance
     /// Wrapped in Arc for multi-threaded sharing
     client: Arc<S3Client>,
-    
+
     /// Bucket name
     /// All operations are performed within this bucket
     bucket: String,
@@ -843,19 +835,14 @@ impl StorageBackend for S3Storage {
         content_type: Option<&str>,
     ) -> Result<StorageInfo, StorageError> {
         let size = data.len() as i64;
-        
+
         // Large files automatically use multipart upload flow
         if size > self.client.config.multipart_threshold {
             return self.upload_stream(key, data, size, content_type).await;
         }
 
         // Build upload request
-        let mut builder = self
-            .client
-            .inner
-            .put_object()
-            .bucket(&self.bucket)
-            .key(key);
+        let mut builder = self.client.inner.put_object().bucket(&self.bucket).key(key);
 
         // Set content type
         if let Some(ct) = content_type {
@@ -910,22 +897,17 @@ impl StorageBackend for S3Storage {
     ///
     /// Downloads full content of S3 object
     async fn download(&self, key: &str) -> Result<Vec<u8>, StorageError> {
-        let result = self
-            .client
-            .inner
-            .get_object()
-            .bucket(&self.bucket)
-            .key(key)
-            .send()
-            .await
-            .map_err(|e| {
-                // Handle object not found error
-                if e.as_service_error().map(|se| se.is_no_such_key()).unwrap_or(false) {
-                    StorageError::NotFound(format!("Object not found: {}", key))
-                } else {
-                    map_sdk_error(e)
-                }
-            })?;
+        let result =
+            self.client.inner.get_object().bucket(&self.bucket).key(key).send().await.map_err(
+                |e| {
+                    // Handle object not found error
+                    if e.as_service_error().map(|se| se.is_no_such_key()).unwrap_or(false) {
+                        StorageError::NotFound(format!("Object not found: {}", key))
+                    } else {
+                        map_sdk_error(e)
+                    }
+                },
+            )?;
 
         // Collect response stream data
         let data = result.body.collect().await.map_err(map_sdk_error)?;
@@ -975,11 +957,9 @@ impl StorageBackend for S3Storage {
     ///
     /// Calls batch delete API, returns list of failed keys
     async fn delete_batch(&self, keys: &[&str]) -> Result<Vec<String>, StorageError> {
-        let result = crate::operations::delete::delete_objects(
-            &self.client, &self.bucket, keys,
-        )
-        .await
-        .map_err(StorageError::from)?;
+        let result = crate::operations::delete::delete_objects(&self.client, &self.bucket, keys)
+            .await
+            .map_err(StorageError::from)?;
 
         Ok(result.failed.into_iter().map(|e| e.key).collect())
     }
@@ -992,11 +972,10 @@ impl StorageBackend for S3Storage {
         prefix: Option<&str>,
         max_keys: Option<i32>,
     ) -> Result<Vec<ObjectInfo>, StorageError> {
-        let result = crate::operations::list::list_objects(
-            &self.client, &self.bucket, prefix, max_keys,
-        )
-        .await
-        .map_err(StorageError::from)?;
+        let result =
+            crate::operations::list::list_objects(&self.client, &self.bucket, prefix, max_keys)
+                .await
+                .map_err(StorageError::from)?;
 
         Ok(result.objects)
     }
@@ -1029,25 +1008,17 @@ impl StorageBackend for S3Storage {
     ///
     /// Uses HEAD operation to get object metadata
     async fn get_metadata(&self, key: &str) -> Result<ObjectMetadata, StorageError> {
-        let result = self
-            .client
-            .inner
-            .head_object()
-            .bucket(&self.bucket)
-            .key(key)
-            .send()
-            .await
-            .map_err(|e| {
-                // Handle object not found error
-                if e.as_service_error()
-                    .map(|se| se.is_not_found())
-                    .unwrap_or(false)
-                {
-                    StorageError::NotFound(format!("Object not found: {}", key))
-                } else {
-                    map_sdk_error(e)
-                }
-            })?;
+        let result =
+            self.client.inner.head_object().bucket(&self.bucket).key(key).send().await.map_err(
+                |e| {
+                    // Handle object not found error
+                    if e.as_service_error().map(|se| se.is_not_found()).unwrap_or(false) {
+                        StorageError::NotFound(format!("Object not found: {}", key))
+                    } else {
+                        map_sdk_error(e)
+                    }
+                },
+            )?;
 
         // Extract custom metadata
         let mut metadata = std::collections::HashMap::new();
@@ -1093,7 +1064,10 @@ impl StorageBackend for S3Storage {
             format!("{}/{}/{}", endpoint.trim_end_matches('/'), bucket, key)
         } else {
             // virtual-hosted style: https://{bucket}.{endpoint_host}/{key}
-            let host = endpoint.trim_start_matches("http://").trim_start_matches("https://").trim_end_matches('/');
+            let host = endpoint
+                .trim_start_matches("http://")
+                .trim_start_matches("https://")
+                .trim_end_matches('/');
             format!("https://{}/{}/{}", bucket, host, key)
         }
     }

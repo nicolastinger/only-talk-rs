@@ -27,10 +27,8 @@ impl SmtpEmailProvider {
     }
 
     async fn send_via_api(&self, email: &Email) -> EmailResult<SendResult> {
-        let to_addresses: Vec<String> = email.to.iter()
-            .map(|a| a.address().to_string())
-            .collect();
-        
+        let to_addresses: Vec<String> = email.to.iter().map(|a| a.address().to_string()).collect();
+
         let mut body = serde_json::json!({
             "from": {
                 "email": self.config.from_email,
@@ -51,7 +49,8 @@ impl SmtpEmailProvider {
             body["html"] = serde_json::Value::String(html.clone());
         }
 
-        let response = self.client
+        let response = self
+            .client
             .post(&format!("https://{}:{}", self.config.host, self.config.port))
             .json(&body)
             .basic_auth(&self.config.username, Some(&self.config.password))
@@ -64,12 +63,11 @@ impl SmtpEmailProvider {
         } else {
             let status = response.status();
             let error_body = response.text().await.unwrap_or_default();
-            let error_info = crate::models::ErrorInfo::from_email_error(
-                &EmailError::ProviderError {
+            let error_info =
+                crate::models::ErrorInfo::from_email_error(&EmailError::ProviderError {
                     provider: "smtp".to_string(),
                     message: format!("API error: {} - {}", status, error_body),
-                },
-            );
+                });
             Ok(SendResult::failure("smtp", error_info))
         }
     }

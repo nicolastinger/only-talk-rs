@@ -121,10 +121,8 @@ fn test_concurrent_operations() {
         })
         .collect();
 
-    let results: Vec<_> = handles
-        .into_iter()
-        .map(|handle| handle.join().expect("Thread panicked"))
-        .collect();
+    let results: Vec<_> =
+        handles.into_iter().map(|handle| handle.join().expect("Thread panicked")).collect();
 
     for (i, result) in results.iter().enumerate() {
         let expected = format!("value_{}", i);

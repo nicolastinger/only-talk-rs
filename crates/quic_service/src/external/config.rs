@@ -53,14 +53,13 @@ impl ChatNodeConfig {
         let config_map: toml::Value = toml::from_str(content)
             .map_err(|e| ServiceError::Config(format!("Failed to parse TOML config: {}", e)))?;
 
-        let quic = config_map
-            .get("quic_server")
-            .ok_or_else(|| ServiceError::Config("Missing quic_server config section".to_string()))?;
+        let quic = config_map.get("quic_server").ok_or_else(|| {
+            ServiceError::Config("Missing quic_server config section".to_string())
+        })?;
 
-        let addr_str = quic
-            .get("address")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| ServiceError::Config("Missing quic_server.address config item".to_string()))?;
+        let addr_str = quic.get("address").and_then(|v| v.as_str()).ok_or_else(|| {
+            ServiceError::Config("Missing quic_server.address config item".to_string())
+        })?;
 
         let bind_address: SocketAddr = addr_str
             .parse()

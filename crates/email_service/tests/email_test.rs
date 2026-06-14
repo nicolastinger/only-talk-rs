@@ -1,4 +1,4 @@
-use email_service::{Email, EmailAddress, EmailPriority, Attachment};
+use email_service::{Attachment, Email, EmailAddress, EmailPriority};
 
 #[test]
 fn test_email_builder_basic() {
@@ -11,7 +11,7 @@ fn test_email_builder_basic() {
 
     assert!(email.is_ok());
     let email = email.unwrap();
-    
+
     assert!(!email.id.is_empty());
     assert_eq!(email.subject, "Test Subject");
     assert_eq!(email.text_body, Some("Test body".to_string()));
@@ -55,11 +55,7 @@ fn test_email_builder_with_html() {
 
 #[test]
 fn test_email_builder_with_attachments() {
-    let attachment = Attachment::new(
-        "test.txt",
-        b"Hello World".to_vec(),
-        "text/plain"
-    );
+    let attachment = Attachment::new("test.txt", b"Hello World".to_vec(), "text/plain");
 
     let email = Email::builder()
         .from(EmailAddress::new("sender@example.com").unwrap())

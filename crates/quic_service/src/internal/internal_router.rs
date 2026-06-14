@@ -6,13 +6,11 @@ use dashmap::DashMap;
 use deadpool_redis::redis::AsyncCommands;
 use tracing::{error, info, warn};
 
+use common::REDIS_CLIENT;
 use common::config_str::{REDIS_INTERNAL_QUIC_SERVERS, REDIS_QUIC_SERVERS, REDIS_SPLIT};
-use common::utils::group_msg::{
-    InternalGroupBroadcast, InternalGroupBroadcastResponse,
-};
+use common::utils::group_msg::{InternalGroupBroadcast, InternalGroupBroadcastResponse};
 use common::utils::internal_quic_client::send_internal_quic_msg;
 use common::utils::internal_quic_msg::{InternalQuicRequest, InternalQuicResponse};
-use common::REDIS_CLIENT;
 
 use crate::models::quic_connection::{ConnectionType, QuicConnection};
 use crate::msg_service::group_msg_service::process_group_broadcast;
@@ -131,24 +129,20 @@ pub async fn route_request(
 
     let actual_index = get_actual_node_index(&request.target_user, &request.platform).await?;
     match actual_index {
-        Some(idx) if idx == server_index => {
-            try_deliver_local(request, connections)
-                .await
-                .map(|r| r.unwrap_or_else(InternalQuicResponse::user_offline))
-        }
-        Some(idx) => {
-            match get_internal_addr_by_index(idx).await {
-                Ok(target_addr) => {
-                    let mut forward_req = request.clone();
-                    forward_req.ttl -= 1;
-                    forward_to_remote(&target_addr, &forward_req).await
-                }
-                Err(e) => {
-                    error!("[single chat] Redis fallback failed to get node {} address: {}", idx, e);
-                    Ok(InternalQuicResponse::user_offline())
-                }
+        Some(idx) if idx == server_index => try_deliver_local(request, connections)
+            .await
+            .map(|r| r.unwrap_or_else(InternalQuicResponse::user_offline)),
+        Some(idx) => match get_internal_addr_by_index(idx).await {
+            Ok(target_addr) => {
+                let mut forward_req = request.clone();
+                forward_req.ttl -= 1;
+                forward_to_remote(&target_addr, &forward_req).await
             }
-        }
+            Err(e) => {
+                error!("[single chat] Redis fallback failed to get node {} address: {}", idx, e);
+                Ok(InternalQuicResponse::user_offline())
+            }
+        },
         None => {
             info!(
                 "[single chat] user offline target={} platform={}",

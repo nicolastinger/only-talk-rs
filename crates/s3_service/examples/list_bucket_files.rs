@@ -1,5 +1,5 @@
-use s3_service::config::S3Config;
 use s3_service::S3Client;
+use s3_service::config::S3Config;
 
 #[tokio::main]
 async fn main() {
@@ -15,9 +15,7 @@ async fn main() {
     let mut count = 0;
 
     loop {
-        let mut request = client.inner.list_objects_v2()
-            .bucket(&bucket_name)
-            .max_keys(1000);
+        let mut request = client.inner.list_objects_v2().bucket(&bucket_name).max_keys(1000);
 
         if !prefix.is_empty() {
             request = request.prefix(&prefix);

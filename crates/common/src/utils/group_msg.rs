@@ -70,16 +70,10 @@ pub struct InternalGroupBroadcastResponse {
 
 impl InternalGroupBroadcastResponse {
     pub fn ok() -> Self {
-        Self {
-            status: "ok".to_string(),
-            message: None,
-        }
+        Self { status: "ok".to_string(), message: None }
     }
 
     pub fn error(msg: impl Into<String>) -> Self {
-        Self {
-            status: "error".to_string(),
-            message: Some(msg.into()),
-        }
+        Self { status: "error".to_string(), message: Some(msg.into()) }
     }
 }

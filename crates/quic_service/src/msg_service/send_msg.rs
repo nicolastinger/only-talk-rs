@@ -1,15 +1,15 @@
 use std::sync::Arc;
 
-use dashmap::DashMap;
-use deadpool_redis::redis::AsyncCommands;
+use crate::models::quic_connection::{ConnectionType, QuicConnection};
+use crate::msg_service::text_msg_service::generate_text_msg;
+use common::REDIS_CLIENT;
 use common::config_str::{REDIS_INTERNAL_QUIC_SERVERS, REDIS_QUIC_SERVERS, REDIS_SPLIT, SYSTEM};
 use common::utils::internal_quic_client::send_internal_quic_msg;
 use common::utils::internal_quic_msg::{InternalQuicRequest, RequestSource};
-use common::REDIS_CLIENT;
-use tracing::warn;
 use common::utils::server_count_sync::compute_preferred_index;
-use crate::models::quic_connection::{ConnectionType, QuicConnection};
-use crate::msg_service::text_msg_service::generate_text_msg;
+use dashmap::DashMap;
+use deadpool_redis::redis::AsyncCommands;
+use tracing::warn;
 
 /// Send system message to user (routed via internal QUIC)
 pub async fn send_quic_system_msg(

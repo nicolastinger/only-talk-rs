@@ -2,11 +2,7 @@ use email_service::{Attachment, ContentDisposition};
 
 #[test]
 fn test_attachment_basic() {
-    let attachment = Attachment::new(
-        "test.txt",
-        b"Hello World".to_vec(),
-        "text/plain"
-    );
+    let attachment = Attachment::new("test.txt", b"Hello World".to_vec(), "text/plain");
 
     assert_eq!(attachment.filename, "test.txt");
     assert_eq!(attachment.size(), 11);
@@ -17,8 +13,8 @@ fn test_attachment_basic() {
 
 #[test]
 fn test_attachment_with_content_id() {
-    let attachment = Attachment::new("image.png", vec![1, 2, 3], "image/png")
-        .with_content_id("img001");
+    let attachment =
+        Attachment::new("image.png", vec![1, 2, 3], "image/png").with_content_id("img001");
 
     assert_eq!(attachment.content_id, Some("img001".to_string()));
 }

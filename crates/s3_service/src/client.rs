@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use aws_config::Region;
 use aws_credential_types::Credentials;
-use aws_sdk_s3::config::BehaviorVersion;
 use aws_sdk_s3::Client as AwsS3Client;
+use aws_sdk_s3::config::BehaviorVersion;
 use tracing::info;
 
 use crate::config::S3Config;
@@ -85,23 +85,22 @@ impl S3Client {
         let credentials = Credentials::new(
             &config.access_key_id,
             &config.secret_access_key,
-            None,  // No session token
-            None,  // No expiration
+            None, // No session token
+            None, // No expiration
             provider_name,
         );
 
         // Build S3 SDK configuration
         let mut s3_config_builder = aws_sdk_s3::Config::builder()
-            .behavior_version(BehaviorVersion::latest())  // Use latest behavior version
-            .region(Region::new(config.region.clone()))   // Set region
-            .credentials_provider(credentials)              // Set credentials
-            .force_path_style(config.force_path_style);    // Path-style access (required for MinIO)
+            .behavior_version(BehaviorVersion::latest()) // Use latest behavior version
+            .region(Region::new(config.region.clone())) // Set region
+            .credentials_provider(credentials) // Set credentials
+            .force_path_style(config.force_path_style); // Path-style access (required for MinIO)
 
         // If custom endpoint is configured, set the endpoint URL
         // Used for non-AWS S3 services like MinIO, Aliyun OSS
         if !config.endpoint_url.is_empty() {
-            s3_config_builder = s3_config_builder
-                .endpoint_url(&config.endpoint_url);
+            s3_config_builder = s3_config_builder.endpoint_url(&config.endpoint_url);
         }
 
         // Build configuration and create client
@@ -191,13 +190,7 @@ impl S3Client {
 
         // Check if bucket exists
         // head_bucket success means bucket exists and we have access
-        let exists = self
-            .inner
-            .head_bucket()
-            .bucket(bucket)
-            .send()
-            .await
-            .is_ok();
+        let exists = self.inner.head_bucket().bucket(bucket).send().await.is_ok();
 
         if !exists {
             info!("default bucket {} does not exist, creating...", bucket);

@@ -41,19 +41,11 @@ pub struct InternalQuicResponse {
 
 impl InternalQuicResponse {
     pub fn ok() -> Self {
-        Self {
-            status: "ok".to_string(),
-            message: None,
-            delivered: Some(true),
-        }
+        Self { status: "ok".to_string(), message: None, delivered: Some(true) }
     }
 
     pub fn error(msg: impl Into<String>) -> Self {
-        Self {
-            status: "error".to_string(),
-            message: Some(msg.into()),
-            delivered: None,
-        }
+        Self { status: "error".to_string(), message: Some(msg.into()), delivered: None }
     }
 
     pub fn user_offline() -> Self {

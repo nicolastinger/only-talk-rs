@@ -1,11 +1,11 @@
 use std::str::FromStr;
 
 use anyhow::anyhow;
+use common::models::file_entity::chat_biz_record::ChatBizRecord;
+use common::models::user_entity::friend_link::FriendLink;
 use common::utils::time::get_now_time_stamp_as_millis;
 use rbatis::{RBatis, rbdc};
 use uuid::Uuid;
-use common::models::file_entity::chat_biz_record::ChatBizRecord;
-use common::models::user_entity::friend_link::FriendLink;
 
 /// 创建上传用户聊天文件业务id
 pub async fn create_user_chat_biz(
@@ -15,9 +15,7 @@ pub async fn create_user_chat_biz(
 ) -> Result<ChatBizRecord, anyhow::Error> {
     // 1、检测双方是否为好友
     let friend_link = FriendLink::select_by_last_uuid(rb, &user_id, &friend_uuid).await?;
-    let is_friend = friend_link.as_ref()
-        .map(|link| !link.is_del.unwrap_or(true))
-        .unwrap_or(false);
+    let is_friend = friend_link.as_ref().map(|link| !link.is_del.unwrap_or(true)).unwrap_or(false);
     if !is_friend {
         return Err(anyhow!("双方不是好友关系，无法发送消息"));
     }
@@ -37,8 +35,8 @@ pub async fn create_user_chat_biz(
         receiver: Some(friend_uuid),
         created_at: Some(now),
         updated_at: Some(now),
-        status: Some(0),                      // 0-正常
-        approve_status: Some(1),              // 1-已通过
+        status: Some(0),                    // 0-正常
+        approve_status: Some(1),            // 1-已通过
         biz_type: Some("chat".to_string()), // 业务类型为聊天
         remark: Some(remark),
     };
@@ -58,8 +56,9 @@ pub async fn get_chat_file_record_by_biz_id(
 ) -> Result<ChatBizRecord, anyhow::Error> {
     // 通过业务id查询文件记录信息
     let chat_biz_id = rbdc::Uuid::from_str(biz_id)?;
-    let chat_biz_record =
-        ChatBizRecord::select_by_uuid(rb, &chat_biz_id).await?.ok_or(anyhow!("未找到对应的文件记录信息"))?;
+    let chat_biz_record = ChatBizRecord::select_by_uuid(rb, &chat_biz_id)
+        .await?
+        .ok_or(anyhow!("未找到对应的文件记录信息"))?;
     Ok(chat_biz_record)
 }
 

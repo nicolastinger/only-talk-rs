@@ -3,13 +3,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Result;
-use dashmap::DashMap;
-use deadpool_redis::redis::AsyncCommands;
+use common::REDIS_CLIENT;
 use common::config_str::REDIS_INTERNAL_QUIC_SERVERS;
 use common::config_str::{REDIS_QUIC_SERVERS, REDIS_SPLIT};
 use common::utils::group_msg::{InternalGroupBroadcast, InternalGroupBroadcastResponse};
 use common::utils::internal_quic_msg::{InternalQuicRequest, InternalQuicResponse};
-use common::REDIS_CLIENT;
+use dashmap::DashMap;
+use deadpool_redis::redis::AsyncCommands;
 use quinn::{Endpoint, RecvStream, SendStream, ServerConfig};
 use rcgen::KeyPair;
 use rustls::{Certificate, PrivateKey};
@@ -20,7 +20,8 @@ use super::internal_config::InternalQuicConfig;
 use crate::models::quic_connection::{ConnectionType, QuicConnection};
 use crate::msg_service::group_msg_service::process_group_broadcast;
 
-fn generate_self_signed_cert() -> Result<(Vec<Certificate>, PrivateKey), Box<dyn std::error::Error>> {
+fn generate_self_signed_cert() -> Result<(Vec<Certificate>, PrivateKey), Box<dyn std::error::Error>>
+{
     let key_pair = KeyPair::generate()?;
     let params = rcgen::CertificateParams::new(vec!["localhost".to_string()])?;
     let cert = params.self_signed(&key_pair)?;
@@ -47,7 +48,10 @@ async fn handle_internal_request(
     connections: Arc<DashMap<String, QuicConnection>>,
     server_index: u32,
 ) -> Result<()> {
-    info!("[internal QUIC server] received new request, server_index={}, reading data...", server_index);
+    info!(
+        "[internal QUIC server] received new request, server_index={}, reading data...",
+        server_index
+    );
 
     let mut buf = vec![0u8; 1024 * 64];
     match recv_stream.read(&mut buf).await? {
@@ -58,14 +62,16 @@ async fn handle_internal_request(
             if let Ok(group_req) = bincode::deserialize::<InternalGroupBroadcast>(&buf[..len]) {
                 info!(
                     "[internal QUIC server] [group chat] received broadcast group_uuid={} sender={}",
-                    group_req.group_uuid,
-                    group_req.sender
+                    group_req.group_uuid, group_req.sender
                 );
                 // Group chat broadcast processing
                 let resp = match process_group_broadcast(&group_req, &connections).await {
                     Ok(_) => bincode::serialize(&InternalGroupBroadcastResponse::ok())?,
                     Err(e) => {
-                        error!("[internal QUIC server] [group chat] failed to process broadcast: {}", e);
+                        error!(
+                            "[internal QUIC server] [group chat] failed to process broadcast: {}",
+                            e
+                        );
                         bincode::serialize(&InternalGroupBroadcastResponse::error(e.to_string()))?
                     }
                 };
@@ -79,7 +85,12 @@ async fn handle_internal_request(
             if let Ok(request) = bincode::deserialize::<InternalQuicRequest>(&buf[..len]) {
                 info!(
                     "[internal QUIC server] [single chat] received request target_user={} msg_type={} platform={} preferred_index={} ttl={} source={:?}",
-                    request.target_user, request.msg_type, request.platform, request.preferred_index, request.ttl, request.source
+                    request.target_user,
+                    request.msg_type,
+                    request.platform,
+                    request.preferred_index,
+                    request.ttl,
+                    request.source
                 );
 
                 // Construct connection key, look up target user locally
@@ -92,7 +103,10 @@ async fn handle_internal_request(
                     ConnectionType::Text
                 );
                 let connection_key = connection_key.to_uppercase();
-                debug!("[internal QUIC server] [single chat] looking up local connection key={}", connection_key);
+                debug!(
+                    "[internal QUIC server] [single chat] looking up local connection key={}",
+                    connection_key
+                );
 
                 let response = match connections.get(&connection_key) {
                     Some(entry) => {
@@ -106,7 +120,10 @@ async fn handle_internal_request(
                             error!("[internal QUIC server] [single chat] delivery failed: {}", e);
                             InternalQuicResponse::error(format!("Delivery failed: {}", e))
                         } else {
-                            info!("[internal QUIC server] [single chat] delivery successful target={}", request.target_user);
+                            info!(
+                                "[internal QUIC server] [single chat] delivery successful target={}",
+                                request.target_user
+                            );
                             InternalQuicResponse::ok()
                         }
                     }
@@ -171,17 +188,13 @@ async fn deliver_to_local_conn(
 
 async fn register_to_redis(config: &InternalQuicConfig) -> Result<()> {
     let redis = REDIS_CLIENT.read().await;
-    let redis = redis
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("failed to get Redis connection pool"))?;
+    let redis =
+        redis.as_ref().ok_or_else(|| anyhow::anyhow!("failed to get Redis connection pool"))?;
     let mut conn = redis.get().await?;
     let key = format!("{}{}", REDIS_INTERNAL_QUIC_SERVERS, config.server_index);
     let value = config.node_address.clone();
     conn.set_ex::<&str, &str, ()>(&key, &value, 7200).await?;
-    info!(
-        "[internal QUIC server] registered to Redis key={} value={} (TTL=7200s)",
-        key, value
-    );
+    info!("[internal QUIC server] registered to Redis key={} value={} (TTL=7200s)", key, value);
     Ok(())
 }
 
@@ -204,9 +217,7 @@ pub async fn run_internal_server(
 ) {
     info!(
         "[internal QUIC server] initializing... bind_address={} server_index={} node_address={}",
-        config.bind_address,
-        config.server_index,
-        config.node_address
+        config.bind_address, config.server_index, config.node_address
     );
 
     let endpoint = match make_internal_endpoint(config.bind_address) {
@@ -269,8 +280,7 @@ pub async fn run_internal_server(
                 Ok((send_stream, recv_stream)) => {
                     info!("[internal QUIC server] bi-directional stream opened");
                     if let Err(e) =
-                        handle_internal_request(send_stream, recv_stream, conns, server_index)
-                            .await
+                        handle_internal_request(send_stream, recv_stream, conns, server_index).await
                     {
                         error!("[internal QUIC server] request processing exception: {}", e);
                     }

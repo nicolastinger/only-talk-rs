@@ -1,5 +1,5 @@
-use rbatis::{crud, impl_select};
 use rbatis::rbdc::Uuid;
+use rbatis::{crud, impl_select};
 use serde::{Deserialize, Serialize};
 
 /// 公开文件业务表关联
@@ -14,7 +14,7 @@ pub struct BizFileLink {
     /// 预览文件唯一标识符
     pub file_id: Option<Uuid>,
     /// 是否删除
-    pub is_del: Option<bool>
+    pub is_del: Option<bool>,
 }
 
 crud!(BizFileLink {});

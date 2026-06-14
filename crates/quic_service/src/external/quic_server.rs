@@ -1,26 +1,26 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use anyhow::{Result, anyhow};
-use dashmap::DashMap;
-use deadpool_redis::redis::AsyncCommands;
-use common::config_str::{USER_READ_MSG};
-use common::models::chat_entity::chat_message_read::ChatMessageRecordRead;
-use common::models::chat_entity::chat_message_record::ChatMessageRecord;
-use common::utils::jwt_util::{verify_token, Claims};
-use common::utils::redis_utils::get_redis_conn;
-use common::utils::time::get_now_time_stamp_as_millis;
-use common::{REDIS_CLIENT};
-use tracing::{error, info, warn};
-use quinn::{Connection, Endpoint, RecvStream, SendStream};
-use rbatis::dark_std::err;
-use rbs::value;
-use tokio::sync::{Mutex, watch};
-use common::utils::sql_utils::get_sql_client;
 use super::config::ChatNodeConfig;
 use crate::models::first_quic_msg::FirstQuicMsg;
 use crate::models::quic_connection::{ConnectionType, QuicConnection};
 use crate::msg_service::process_msg_service::process_rec_msg;
+use anyhow::{Result, anyhow};
+use common::REDIS_CLIENT;
+use common::config_str::USER_READ_MSG;
+use common::models::chat_entity::chat_message_read::ChatMessageRecordRead;
+use common::models::chat_entity::chat_message_record::ChatMessageRecord;
+use common::utils::jwt_util::{Claims, verify_token};
+use common::utils::redis_utils::get_redis_conn;
+use common::utils::sql_utils::get_sql_client;
+use common::utils::time::get_now_time_stamp_as_millis;
+use dashmap::DashMap;
+use deadpool_redis::redis::AsyncCommands;
+use quinn::{Connection, Endpoint, RecvStream, SendStream};
+use rbatis::dark_std::err;
+use rbs::value;
+use tokio::sync::{Mutex, watch};
+use tracing::{error, info, warn};
 
 /// Start and run the QUIC server, continuously listening for new connections
 pub(crate) async fn run_server(
@@ -29,10 +29,7 @@ pub(crate) async fn run_server(
     config: ChatNodeConfig,
     mut shutdown_rx: watch::Receiver<bool>,
 ) {
-    info!(
-        "QUIC server started successfully, address: {}",
-        config.bind_address
-    );
+    info!("QUIC server started successfully, address: {}", config.bind_address);
 
     loop {
         let incoming_conn = {
@@ -61,10 +58,7 @@ pub(crate) async fn run_server(
             }
         };
 
-        info!(
-            "[server] Connection accepted: address={}",
-            conn.remote_address()
-        );
+        info!("[server] Connection accepted: address={}", conn.remote_address());
         let conns = connections.clone();
         let cfg = config.clone();
         tokio::spawn(async move {
@@ -116,7 +110,10 @@ async fn process_first_msg(
     match recv_stream.read(&mut first_buffer).await {
         Ok(Some(length)) => {
             let origin_str = String::from_utf8_lossy(&first_buffer[0..length]);
-            info!("[server] received client init data, length: {}, content: {}", length, origin_str);
+            info!(
+                "[server] received client init data, length: {}, content: {}",
+                length, origin_str
+            );
             match serde_json::from_str(&origin_str) {
                 Ok(t) => {
                     _first_quic_msg = t;
@@ -141,7 +138,11 @@ async fn process_first_msg(
             return Err(anyhow!("[server] Client closed connection without sending init message"));
         }
         Err(e) => {
-            error!("[server] failed to read init metadata: {}, client address: {}", e, address.as_str());
+            error!(
+                "[server] failed to read init metadata: {}, client address: {}",
+                e,
+                address.as_str()
+            );
             send_stream.finish().await?;
             return Err(anyhow!("[server] Error reading client init message"));
         }
@@ -154,21 +155,22 @@ async fn authenticate_connection(
     first_quic_msg: &FirstQuicMsg,
     send_stream: &mut SendStream,
 ) -> Result<Claims, anyhow::Error> {
-    let claims = match verify_token(first_quic_msg.token.as_ref()).map_err(|_| "Failed to parse token") {
-        Ok(t) => {
-            if t.uuid != first_quic_msg.uuid {
-                error!("token does not match account!");
-                send_stream.finish().await?;
-                return Err(anyhow!("token does not match account!"));
+    let claims =
+        match verify_token(first_quic_msg.token.as_ref()).map_err(|_| "Failed to parse token") {
+            Ok(t) => {
+                if t.uuid != first_quic_msg.uuid {
+                    error!("token does not match account!");
+                    send_stream.finish().await?;
+                    return Err(anyhow!("token does not match account!"));
+                }
+                t
             }
-            t
-        }
-        Err(e) => {
-            error!("failed to parse token: {}", e);
-            send_stream.finish().await?;
-            return Err(anyhow!("Failed to parse token!"));
-        }
-    };
+            Err(e) => {
+                error!("failed to parse token: {}", e);
+                send_stream.finish().await?;
+                return Err(anyhow!("Failed to parse token!"));
+            }
+        };
     Ok(claims)
 }
 
@@ -253,7 +255,16 @@ async fn handle_conn(
     info!("connection key: {}", connection_key);
 
     let now = get_now_time_stamp_as_millis().unwrap_or(0);
-    set_conn_info(uuid, conn.clone(), &connection_key, address, now, &connections, config.server_index).await?;
+    set_conn_info(
+        uuid,
+        conn.clone(),
+        &connection_key,
+        address,
+        now,
+        &connections,
+        config.server_index,
+    )
+    .await?;
 
     // 启动 uni stream 接收循环（客户端通过 open_uni 发送消息）
     let uni_shutdown = Arc::new(AtomicBool::new(false));
@@ -319,7 +330,6 @@ async fn handle_conn(
         let change_buffer = &mut buffer;
         match recv_stream.read(change_buffer).await {
             Ok(Some(length)) => {
-
                 match process_rec_msg(
                     change_buffer,
                     current_uuid.clone(),

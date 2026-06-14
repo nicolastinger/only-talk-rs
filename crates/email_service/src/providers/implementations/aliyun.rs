@@ -10,7 +10,7 @@ use std::sync::Arc;
 use crate::config::AliyunConfig;
 use crate::error::{EmailError, EmailResult};
 use crate::models::{Email, SendResult};
-use crate::providers::{EmailProvider, BoxedEmailProvider};
+use crate::providers::{BoxedEmailProvider, EmailProvider};
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -22,20 +22,15 @@ pub struct AliyunEmailProvider {
 
 impl AliyunEmailProvider {
     pub fn new(config: AliyunConfig) -> EmailResult<Self> {
-        let endpoint = config.endpoint.clone().unwrap_or_else(|| {
-            "https://dm.aliyuncs.com".to_string()
-        });
+        let endpoint =
+            config.endpoint.clone().unwrap_or_else(|| "https://dm.aliyuncs.com".to_string());
 
         let client = Client::builder()
             .timeout(std::time::Duration::from_millis(config.timeout_ms))
             .build()
             .map_err(|e| EmailError::Config(format!("Failed to create HTTP client: {}", e)))?;
 
-        Ok(Self {
-            config,
-            client,
-            endpoint,
-        })
+        Ok(Self { config, client, endpoint })
     }
 
     pub fn boxed(config: AliyunConfig) -> EmailResult<BoxedEmailProvider> {
@@ -48,24 +43,15 @@ impl AliyunEmailProvider {
 
         let canonicalized_query: String = sorted_params
             .iter()
-            .map(|(k, v)| {
-                format!(
-                    "{}={}",
-                    urlencoding::encode(k),
-                    urlencoding::encode(v)
-                )
-            })
+            .map(|(k, v)| format!("{}={}", urlencoding::encode(k), urlencoding::encode(v)))
             .collect::<Vec<_>>()
             .join("&");
 
-        let string_to_sign = format!(
-            "GET&%2F&{}",
-            urlencoding::encode(&canonicalized_query)
-        );
+        let string_to_sign = format!("GET&%2F&{}", urlencoding::encode(&canonicalized_query));
 
         let key = format!("{}&", self.config.access_key_secret);
-        let mut mac = HmacSha256::new_from_slice(key.as_bytes())
-            .expect("HMAC can take key of any size");
+        let mut mac =
+            HmacSha256::new_from_slice(key.as_bytes()).expect("HMAC can take key of any size");
         mac.update(string_to_sign.as_bytes());
         let result = mac.finalize();
 
@@ -84,7 +70,11 @@ impl AliyunEmailProvider {
         params
     }
 
-    async fn send_request(&self, action: &str, params: HashMap<String, String>) -> EmailResult<serde_json::Value> {
+    async fn send_request(
+        &self,
+        action: &str,
+        params: HashMap<String, String>,
+    ) -> EmailResult<serde_json::Value> {
         let mut all_params = self.build_common_params();
         all_params.insert("Action".to_string(), action.to_string());
         all_params.extend(params);
@@ -92,7 +82,8 @@ impl AliyunEmailProvider {
         let signature = self.generate_signature(&all_params);
         all_params.insert("Signature".to_string(), signature);
 
-        let response = self.client
+        let response = self
+            .client
             .get(&self.endpoint)
             .query(&all_params)
             .send()
@@ -100,7 +91,9 @@ impl AliyunEmailProvider {
             .map_err(|e| EmailError::NetworkError(format!("Request failed: {}", e)))?;
 
         let status = response.status();
-        let body = response.text().await
+        let body = response
+            .text()
+            .await
             .map_err(|e| EmailError::NetworkError(format!("Failed to read response: {}", e)))?;
 
         if !status.is_success() {
@@ -151,29 +144,29 @@ impl EmailProvider for AliyunEmailProvider {
         params.insert("AddressType".to_string(), "1".to_string());
         params.insert("ReplyToAddress".to_string(), "false".to_string());
 
-        let from_alias = self.config.from_alias.clone()
-            .or_else(|| email.from.name().map(|s| s.to_string()));
+        let from_alias =
+            self.config.from_alias.clone().or_else(|| email.from.name().map(|s| s.to_string()));
         if let Some(alias) = from_alias {
             params.insert("FromAlias".to_string(), alias);
         }
 
-        params.insert("ToAddress".to_string(), email.to.iter()
-            .map(|a| a.address().to_string())
-            .collect::<Vec<_>>()
-            .join(","));
+        params.insert(
+            "ToAddress".to_string(),
+            email.to.iter().map(|a| a.address().to_string()).collect::<Vec<_>>().join(","),
+        );
 
         if !email.cc.is_empty() {
-            params.insert("CcAddress".to_string(), email.cc.iter()
-                .map(|a| a.address().to_string())
-                .collect::<Vec<_>>()
-                .join(","));
+            params.insert(
+                "CcAddress".to_string(),
+                email.cc.iter().map(|a| a.address().to_string()).collect::<Vec<_>>().join(","),
+            );
         }
 
         if !email.bcc.is_empty() {
-            params.insert("BccAddress".to_string(), email.bcc.iter()
-                .map(|a| a.address().to_string())
-                .collect::<Vec<_>>()
-                .join(","));
+            params.insert(
+                "BccAddress".to_string(),
+                email.bcc.iter().map(|a| a.address().to_string()).collect::<Vec<_>>().join(","),
+            );
         }
 
         params.insert("Subject".to_string(), email.subject.clone());
@@ -199,9 +192,7 @@ impl EmailProvider for AliyunEmailProvider {
 
         match self.send_request("SingleSendMail", params).await {
             Ok(response) => {
-                let env_id = response.get("EnvId")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
+                let env_id = response.get("EnvId").and_then(|v| v.as_str()).map(|s| s.to_string());
 
                 Ok(SendResult::success("aliyun", env_id.clone(), env_id))
             }

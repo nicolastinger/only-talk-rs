@@ -1,29 +1,32 @@
 use std::sync::Arc;
 
-use anyhow::anyhow;
-use dashmap::DashMap;
-use deadpool_redis::redis::AsyncCommands;
-use common::RBATIS_DATABASE;
-use common::config_str::{MOBILE_PLATFORM, PC_PLATFORM, PONG, REDIS_INTERNAL_QUIC_SERVERS, REDIS_QUIC_SERVERS, REDIS_SPLIT, SYSTEM};
-use common::models::chat_entity::chat_message_record::ChatMessageRecord;
-use common::utils::group_msg::GroupQuicMsg;
-use common::utils::internal_quic_client::send_internal_quic_msg;
-use common::utils::internal_quic_msg::{InternalQuicRequest, RequestSource};
-use common::utils::message_types;
-use common::utils::time::get_now_time_stamp_as_millis;
-use common::REDIS_CLIENT;
-use tracing::{debug, error, info, warn};
-use nanoid::nanoid;
-use quinn::Connection;
-use rbatis::rbdc::{Bytes, Uuid};
-use tokio::sync::Mutex;
-use common::utils::server_count_sync::compute_preferred_index;
 use crate::models::quic_connection::{ConnectionType, QuicConnection};
 use crate::models::text_msg::TextQuicMsg;
 use crate::msg_service::group_msg_service::handle_group_msg_from_client;
 use crate::msg_service::text_msg_service::{
     generate_text_msg, generate_text_msg_with_time, get_text_msg,
 };
+use anyhow::anyhow;
+use common::RBATIS_DATABASE;
+use common::REDIS_CLIENT;
+use common::config_str::{
+    MOBILE_PLATFORM, PC_PLATFORM, PONG, REDIS_INTERNAL_QUIC_SERVERS, REDIS_QUIC_SERVERS,
+    REDIS_SPLIT, SYSTEM,
+};
+use common::models::chat_entity::chat_message_record::ChatMessageRecord;
+use common::utils::group_msg::GroupQuicMsg;
+use common::utils::internal_quic_client::send_internal_quic_msg;
+use common::utils::internal_quic_msg::{InternalQuicRequest, RequestSource};
+use common::utils::message_types;
+use common::utils::server_count_sync::compute_preferred_index;
+use common::utils::time::get_now_time_stamp_as_millis;
+use dashmap::DashMap;
+use deadpool_redis::redis::AsyncCommands;
+use nanoid::nanoid;
+use quinn::Connection;
+use rbatis::rbdc::{Bytes, Uuid};
+use tokio::sync::Mutex;
+use tracing::{debug, error, info, warn};
 
 pub async fn process_rec_msg(
     buffer: &mut Vec<u8>,
@@ -98,8 +101,7 @@ async fn process_text_msg(
                     "[group chat] processing group message nano_id={} group={} sender={}",
                     nano_id, group_msg.group_uuid, group_msg.send_user
                 );
-                if let Err(e) =
-                    handle_group_msg_from_client(group_msg, server_index, &conns).await
+                if let Err(e) = handle_group_msg_from_client(group_msg, server_index, &conns).await
                 {
                     error!("[group chat] failed to process group message: {}", e);
                     return;
@@ -147,7 +149,7 @@ async fn process_text_msg(
                 &conns,
                 message_types::MSG_TYPE_RECALL_SUCCESS,
             )
-                .await
+            .await
             {
                 error!("[single chat] failed to send ACK: {}", e);
             }
@@ -193,23 +195,11 @@ async fn send_msg_to_user(
     // Sync to own other device
     let own_preferred = compute_preferred_index(&send_user);
     if platform == PC_PLATFORM {
-        send_msg_to_user_by_platform(
-            &res,
-            MOBILE_PLATFORM,
-            &send_user,
-            connections,
-            own_preferred,
-        )
-        .await?;
+        send_msg_to_user_by_platform(&res, MOBILE_PLATFORM, &send_user, connections, own_preferred)
+            .await?;
     } else {
-        send_msg_to_user_by_platform(
-            &res,
-            PC_PLATFORM,
-            &send_user,
-            connections,
-            own_preferred,
-        )
-        .await?;
+        send_msg_to_user_by_platform(&res, PC_PLATFORM, &send_user, connections, own_preferred)
+            .await?;
     }
     Ok(())
 }
@@ -244,7 +234,10 @@ async fn send_msg_to_user_by_platform(
         send.write_all(res).await?;
         send.finish().await?;
     } else {
-        warn!("[single chat] user not on local machine: {}, preferred node index: {}", user_key, preferred_index);
+        warn!(
+            "[single chat] user not on local machine: {}, preferred node index: {}",
+            user_key, preferred_index
+        );
         // Not found locally -> forward to internal QUIC for two-phase routing
         warn!("[single chat] forwarding to internal QUIC: {}", user_key);
 

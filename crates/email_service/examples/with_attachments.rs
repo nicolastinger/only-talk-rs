@@ -1,5 +1,5 @@
 use email_service::prelude::*;
-use email_service::{EmailManager, ProviderConfig, AliyunConfig, Attachment};
+use email_service::{AliyunConfig, Attachment, EmailManager, ProviderConfig};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -8,23 +8,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== Email Service 附件发送示例 ===\n");
 
     let manager = EmailManager::builder()
-        .provider("aliyun", ProviderConfig::Aliyun(AliyunConfig {
-            enabled: true,
-            priority: 100,
-            access_key_id: "your_access_key_id".to_string(),
-            access_key_secret: "your_access_key_secret".to_string(),
-            region_id: "cn-hangzhou".to_string(),
-            account_name: "noreply@yourdomain.com".to_string(),
-            ..Default::default()
-        }))
+        .provider(
+            "aliyun",
+            ProviderConfig::Aliyun(AliyunConfig {
+                enabled: true,
+                priority: 100,
+                access_key_id: "your_access_key_id".to_string(),
+                access_key_secret: "your_access_key_secret".to_string(),
+                region_id: "cn-hangzhou".to_string(),
+                account_name: "noreply@yourdomain.com".to_string(),
+                ..Default::default()
+            }),
+        )
         .build()?;
 
     let text_content = "这是一个文本附件的内容。\n第二行内容。";
-    let text_attachment = Attachment::new(
-        "report.txt",
-        text_content.as_bytes().to_vec(),
-        "text/plain"
-    );
+    let text_attachment =
+        Attachment::new("report.txt", text_content.as_bytes().to_vec(), "text/plain");
 
     let html_content = r#"<html>
         <body>
@@ -32,11 +32,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             <p>这是一个HTML附件。</p>
         </body>
     </html>"#;
-    let html_attachment = Attachment::new(
-        "report.html",
-        html_content.as_bytes().to_vec(),
-        "text/html"
-    );
+    let html_attachment =
+        Attachment::new("report.html", html_content.as_bytes().to_vec(), "text/html");
 
     let json_data = serde_json::json!({
         "name": "测试数据",
@@ -46,7 +43,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let json_attachment = Attachment::new(
         "data.json",
         serde_json::to_string_pretty(&json_data)?.into_bytes(),
-        "application/json"
+        "application/json",
     );
 
     let auto_attachment = Attachment::from_bytes(
@@ -60,7 +57,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .to(EmailAddress::new("recipient@example.com")?)
         .subject("带附件的测试邮件")
         .text_body("请查收附件中的报告文件。")
-        .html_body(r#"
+        .html_body(
+            r#"
             <html>
                 <body>
                     <h1>附件邮件</h1>
@@ -72,7 +70,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     </ul>
                 </body>
             </html>
-        "#)
+        "#,
+        )
         .with_attachment(text_attachment)
         .with_attachment(html_attachment)
         .with_attachment(json_attachment)
@@ -82,8 +81,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("邮件信息:");
     println!("  附件数量: {}", email.attachments.len());
     for attachment in &email.attachments {
-        println!("  - {} ({} bytes, {})", 
-            attachment.filename, 
+        println!(
+            "  - {} ({} bytes, {})",
+            attachment.filename,
             attachment.size(),
             attachment.content_type
         );

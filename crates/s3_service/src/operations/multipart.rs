@@ -2,8 +2,8 @@
 //!
 //! Provides multipart upload functionality for large files.
 
-use aws_sdk_s3::types::MultipartUpload;
 use aws_sdk_s3::primitives::DateTime;
+use aws_sdk_s3::types::MultipartUpload;
 
 use crate::client::S3Client;
 use crate::error::S3Error;
@@ -46,11 +46,7 @@ pub async fn multipart_upload(
     let chunk_size = client.config.multipart_chunk_size as usize;
 
     // 步骤1: 初始化分片上传
-    let mut create_builder = client
-        .inner
-        .create_multipart_upload()
-        .bucket(bucket)
-        .key(key);
+    let mut create_builder = client.inner.create_multipart_upload().bucket(bucket).key(key);
 
     // 设置内容类型
     if let Some(ct) = content_type {
@@ -58,10 +54,9 @@ pub async fn multipart_upload(
     }
 
     // 获取upload_id
-    let create_result = create_builder
-        .send()
-        .await
-        .map_err(|e| S3Error::MultipartError(format!("Failed to initialize multipart upload: {}", e)))?;
+    let create_result = create_builder.send().await.map_err(|e| {
+        S3Error::MultipartError(format!("Failed to initialize multipart upload: {}", e))
+    })?;
 
     let upload_id = create_result
         .upload_id()
@@ -74,7 +69,7 @@ pub async fn multipart_upload(
 
     for chunk in data.chunks(chunk_size) {
         part_number += 1;
-        
+
         // 上传单个分片
         let upload_part_result = client
             .inner
@@ -94,12 +89,7 @@ pub async fn multipart_upload(
         completed_parts.push(
             aws_sdk_s3::types::CompletedPart::builder()
                 .part_number(part_number)
-                .e_tag(
-                    upload_part_result
-                        .e_tag()
-                        .unwrap_or_default()
-                        .to_string(),
-                )
+                .e_tag(upload_part_result.e_tag().unwrap_or_default().to_string())
                 .build(),
         );
     }
@@ -118,7 +108,9 @@ pub async fn multipart_upload(
         .multipart_upload(completed_multipart_upload)
         .send()
         .await
-        .map_err(|e| S3Error::MultipartError(format!("Failed to complete multipart upload: {}", e)))?;
+        .map_err(|e| {
+            S3Error::MultipartError(format!("Failed to complete multipart upload: {}", e))
+        })?;
 
     Ok(StorageInfo {
         bucket: Some(bucket.to_string()),
@@ -186,10 +178,7 @@ pub async fn list_multipart_uploads(
     prefix: Option<&str>,
 ) -> Result<Vec<MultipartUploadInfo>, S3Error> {
     // 构建列举请求
-    let mut builder = client
-        .inner
-        .list_multipart_uploads()
-        .bucket(bucket);
+    let mut builder = client.inner.list_multipart_uploads().bucket(bucket);
 
     if let Some(p) = prefix {
         builder = builder.prefix(p);

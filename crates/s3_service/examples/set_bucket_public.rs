@@ -1,5 +1,5 @@
-use s3_service::config::S3Config;
 use s3_service::S3Client;
+use s3_service::config::S3Config;
 
 #[tokio::main]
 async fn main() {
@@ -28,23 +28,11 @@ async fn main() {
     };
 
     println!("\n正在检查桶 '{}' 是否存在...", bucket_name);
-    let bucket_exists = client
-        .inner
-        .head_bucket()
-        .bucket(&bucket_name)
-        .send()
-        .await
-        .is_ok();
+    let bucket_exists = client.inner.head_bucket().bucket(&bucket_name).send().await.is_ok();
 
     if !bucket_exists {
         println!("  桶不存在，正在创建...");
-        match client
-            .inner
-            .create_bucket()
-            .bucket(&bucket_name)
-            .send()
-            .await
-        {
+        match client.inner.create_bucket().bucket(&bucket_name).send().await {
             Ok(_) => println!("  ✓ 桶创建成功"),
             Err(e) => {
                 println!("  ✗ 桶创建失败: {:?}", e);
@@ -74,14 +62,7 @@ async fn main() {
     let policy_str = serde_json::to_string(&public_policy).unwrap();
     println!("策略内容:\n{}", serde_json::to_string_pretty(&public_policy).unwrap());
 
-    match client
-        .inner
-        .put_bucket_policy()
-        .bucket(&bucket_name)
-        .policy(&policy_str)
-        .send()
-        .await
-    {
+    match client.inner.put_bucket_policy().bucket(&bucket_name).policy(&policy_str).send().await {
         Ok(_) => {
             println!("\n✓ 公开读策略设置成功！");
             println!("  现在可以通过以下方式公开访问桶中的文件:");

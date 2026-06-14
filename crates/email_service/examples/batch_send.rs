@@ -9,19 +9,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let manager = EmailManager::builder()
         .default_provider("smtp")
-        .provider("smtp", ProviderConfig::Smtp(SmtpConfig {
-            enabled: true,
-            priority: 100,
-            host: "smtp.example.com".to_string(),
-            port: 587,
-            username: "your_username".to_string(),
-            password: "your_password".to_string(),
-            from_email: "noreply@example.com".to_string(),
-            from_alias: Some("批量通知".to_string()),
-            use_tls: true,
-            use_starttls: true,
-            ..Default::default()
-        }))
+        .provider(
+            "smtp",
+            ProviderConfig::Smtp(SmtpConfig {
+                enabled: true,
+                priority: 100,
+                host: "smtp.example.com".to_string(),
+                port: 587,
+                username: "your_username".to_string(),
+                password: "your_password".to_string(),
+                from_email: "noreply@example.com".to_string(),
+                from_alias: Some("批量通知".to_string()),
+                use_tls: true,
+                use_starttls: true,
+                ..Default::default()
+            }),
+        )
         .build()?;
 
     let recipients = vec![
@@ -37,17 +40,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .from(EmailAddress::new("noreply@example.com")?)
             .to(EmailAddress::with_name(email_addr, name)?)
             .subject("批量测试邮件")
-            .html_body(format!(r#"
+            .html_body(format!(
+                r#"
                 <html>
                     <body>
                         <h1>你好, {}!</h1>
                         <p>这是一封批量发送的测试邮件。</p>
                     </body>
                 </html>
-            "#, name))
+            "#,
+                name
+            ))
             .tag("batch", "true")
             .build()?;
-        
+
         emails.push(email);
     }
 
