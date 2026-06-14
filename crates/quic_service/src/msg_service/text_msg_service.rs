@@ -1,78 +1,14 @@
 use std::sync::Arc;
 
 use anyhow::anyhow;
-use common::utils::message_types::MSG_TYPE_TEXT;
-use common::utils::time::get_now_time_stamp_as_millis;
-use nanoid::nanoid;
+use common::utils::text_msg::{HeadMsg, TextQuicMsg, X25};
 use tokio::sync::{Mutex, MutexGuard};
 use tracing::error;
 
-use crate::X25;
-use crate::models::text_msg::{HeadMsg, TextMsg, TextQuicMsg};
-
-// Generate text message
-pub fn generate_text_msg(
-    text_type: u16,
-    raw: Vec<u8>,
-    recv_user: String,
-    send_user: String,
-) -> anyhow::Result<Vec<u8>> {
-    let now = get_now_time_stamp_as_millis().unwrap_or(-99999999999);
-    let text_quic_msg =
-        TextQuicMsg { nano_id: nanoid!(), text_type, raw, recv_user, send_user, timestamp: now };
-    build_text(text_quic_msg)
-}
-
-// Generate text message
-pub fn generate_text_msg_with_id(
-    nano_id: String,
-    text_type: u16,
-    raw: Vec<u8>,
-    recv_user: String,
-    send_user: String,
-) -> anyhow::Result<Vec<u8>> {
-    let now = get_now_time_stamp_as_millis().unwrap_or(-99999999999);
-    let text_quic_msg =
-        TextQuicMsg { nano_id, text_type, raw, recv_user, send_user, timestamp: now };
-    build_text(text_quic_msg)
-}
-
-// Generate text message
-pub fn generate_text_msg_with_time(
-    nano_id: String,
-    text_type: u16,
-    raw: Vec<u8>,
-    recv_user: String,
-    send_user: String,
-    timestamp: i64,
-) -> anyhow::Result<Vec<u8>> {
-    let text_quic_msg = TextQuicMsg { nano_id, text_type, raw, recv_user, send_user, timestamp };
-    build_text(text_quic_msg)
-}
-
-fn build_text(text_quic_msg: TextQuicMsg) -> anyhow::Result<Vec<u8>> {
-    let meta_data = text_quic_msg.get_bytes()?;
-    let crc = X25.checksum(&meta_data);
-    let head_msg = HeadMsg {
-        version: 1,
-        crc,
-        body_len: meta_data.len() as u32, // Message body length
-        message_type: MSG_TYPE_TEXT,      // Message type
-    };
-
-    build_text_msg(&head_msg, &text_quic_msg)
-}
-
-// Assemble header + message body
-pub fn build_text_msg<H: TextMsg, G: TextMsg>(
-    text_head: &H,
-    text_msg: &G,
-) -> anyhow::Result<Vec<u8>> {
-    let mut head_byte = text_head.get_bytes()?;
-    let mut msg_byte = text_msg.get_bytes()?;
-    head_byte.append(&mut msg_byte);
-    Ok(head_byte)
-}
+// Re-export from common (moved to shared crate)
+pub use common::utils::text_msg::{
+    build_text_msg, generate_text_msg, generate_text_msg_with_id, generate_text_msg_with_time,
+};
 
 // Parse text message
 pub async fn get_text_msg(
@@ -149,8 +85,7 @@ pub async fn get_text_msg(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::X25;
-    use crate::models::text_msg::HeadMsg;
+    use common::utils::text_msg::{HeadMsg, X25};
     use common::utils::message_types::MSG_TYPE_TEXT;
     use std::sync::Arc;
     use tokio::sync::Mutex;

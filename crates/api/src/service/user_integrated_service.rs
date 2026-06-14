@@ -65,6 +65,14 @@ pub async fn add_user_with_notify(
         json_str.len()
     );
 
+    // Wrap as TextQuicMsg binary (consistent with other message paths)
+    let payload = common::utils::text_msg::generate_text_msg(
+        NOTIFY_TYPE_MSG,
+        json_str.into_bytes(),
+        target_id_str.clone(),
+        common::config_str::SYSTEM.to_string(),
+    )?;
+
     // 3. Forward notification via internal QUIC service
     let addr_str = read_global_config!("internal_quic_server", "address");
     let server_addr: SocketAddr = addr_str.parse()?;
@@ -78,7 +86,7 @@ pub async fn add_user_with_notify(
 
     let request = InternalQuicRequest {
         msg_type: NOTIFY_TYPE_MSG,
-        payload: json_str.clone().into_bytes(),
+        payload,
         target_user: target_id_str.clone(),
         preferred_index,
         platform: common::config_str::PC_PLATFORM.to_string(),
@@ -122,13 +130,21 @@ pub async fn process_friend_with_notify(
     let target_id_str =
         quic_msg.user_id.ok_or(anyhow!("Notification missing target user ID"))?.to_string();
 
+    // Wrap as TextQuicMsg binary (consistent with other message paths)
+    let payload = common::utils::text_msg::generate_text_msg(
+        NOTIFY_TYPE_MSG,
+        json_str.into_bytes(),
+        target_id_str.clone(),
+        common::config_str::SYSTEM.to_string(),
+    )?;
+
     // 3. Forward notification via internal QUIC service
     let addr_str = read_global_config!("internal_quic_server", "address");
     let server_addr: SocketAddr = addr_str.parse()?;
     let preferred_index = compute_preferred_index(&target_id_str);
     let request = InternalQuicRequest {
         msg_type: NOTIFY_TYPE_MSG,
-        payload: json_str.into_bytes(),
+        payload,
         target_user: target_id_str,
         preferred_index,
         platform: common::config_str::PC_PLATFORM.to_string(),

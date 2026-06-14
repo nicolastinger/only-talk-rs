@@ -47,13 +47,21 @@ async fn push_notification_via_quic(notification: SystemNotification) -> Result<
         .ok_or_else(|| anyhow!("Notification missing target user ID"))?;
     let json_str = serde_json::to_string(&notification)?;
 
+    // Wrap as TextQuicMsg binary (consistent with other message paths)
+    let payload = common::utils::text_msg::generate_text_msg(
+        NOTIFY_TYPE_MSG,
+        json_str.into_bytes(),
+        target_id.clone(),
+        common::config_str::SYSTEM.to_string(),
+    )?;
+
     let addr_str = read_global_config!("internal_quic_server", "address");
     let server_addr: SocketAddr = addr_str.parse()?;
     let preferred_index = compute_preferred_index(&target_id);
 
     let request = InternalQuicRequest {
         msg_type: NOTIFY_TYPE_MSG,
-        payload: json_str.into_bytes(),
+        payload,
         target_user: target_id,
         preferred_index,
         platform: common::config_str::PC_PLATFORM.to_string(),

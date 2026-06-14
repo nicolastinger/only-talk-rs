@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use crc::Crc;
 use dashmap::DashMap;
 
 use crate::models::quic_connection::QuicConnection;
@@ -19,5 +18,5 @@ pub type ConnectionsMap = Arc<DashMap<String, QuicConnection>>;
 pub use external::{ChatNode, ChatNodeConfig, ServiceError, ServiceLifecycle, ServiceState};
 pub use internal::{InternalQuicConfig, run_internal_server};
 
-// Create CRC-16/X25 calculator
-pub const X25: Crc<u16> = Crc::<u16>::new(&crc::CRC_16_IBM_SDLC);
+// Re-export X25 from common (moved to shared crate)
+pub use common::utils::text_msg::X25;

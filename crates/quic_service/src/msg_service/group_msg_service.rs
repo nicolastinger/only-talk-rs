@@ -23,9 +23,8 @@ use common::utils::time::get_now_time_stamp_as_millis;
 use entity::models::group_entity::group_message_record::GroupMessageRecord;
 
 use crate::models::quic_connection::ConnectionType;
-use crate::models::text_msg::{HeadMsg, TextQuicMsg};
-use crate::msg_service::text_msg_service::build_text_msg;
-use crate::{ConnectionsMap, X25};
+use common::utils::text_msg::{HeadMsg, TextQuicMsg, X25, build_text_msg};
+use crate::ConnectionsMap;
 
 static DEDUP: Lazy<BroadcastDedup> = Lazy::new(BroadcastDedup::new);
 
