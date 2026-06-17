@@ -677,9 +677,12 @@ pub async fn download_link_chat_biz(
     let user_id = rbdc::types::uuid::Uuid::from_str(&user_id)?;
     let created_by = chat_biz_record.created_by.ok_or(anyhow!("创建者ID为空"))?;
     let recv_user_id = chat_biz_record.receiver.ok_or(anyhow!("接收者ID为空"))?;
-    if created_by != user_id && recv_user_id != user_id {
+    let biz_type = chat_biz_record.biz_type.unwrap_or_default();
+    if biz_type != "group_chat".to_string() && created_by != user_id && recv_user_id != user_id {
         return Err(anyhow!("无权限访问"));
     }
+
+    // TODO 群聊权限实现
 
     let _biz_id = rbdc::Uuid::from_str(&biz_id)?;
     let biz_file_link = BizFileLink::select_by_biz(rb, &_biz_id).await?;
