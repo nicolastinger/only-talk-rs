@@ -25,7 +25,11 @@ pub struct CertStatus {
     pub is_near_expiry: bool,
 }
 
-pub fn load_tls_certificates(cert_path: &str, key_path: &str, expiry_warning_days: i64) -> Result<(Vec<Certificate>, PrivateKey, CertStatus), Box<dyn std::error::Error>> {
+pub fn load_tls_certificates(
+    cert_path: &str,
+    key_path: &str,
+    expiry_warning_days: i64,
+) -> Result<(Vec<Certificate>, PrivateKey, CertStatus), Box<dyn std::error::Error>> {
     // Load certificate
     let mut cert_file = BufReader::new(File::open(cert_path)?);
     let cert_chain: Vec<Certificate> = certs(&mut cert_file)
@@ -53,7 +57,9 @@ pub fn load_tls_certificates(cert_path: &str, key_path: &str, expiry_warning_day
 }
 
 /// Load private key, trying different key formats
-fn load_private_keys(key_file: &mut BufReader<File>) -> Result<Vec<Vec<u8>>, Box<dyn std::error::Error>> {
+fn load_private_keys(
+    key_file: &mut BufReader<File>,
+) -> Result<Vec<Vec<u8>>, Box<dyn std::error::Error>> {
     key_file.seek(SeekFrom::Start(0))?;
     if let Ok(keys) = rsa_private_keys(key_file) {
         if !keys.is_empty() {
@@ -74,7 +80,10 @@ fn load_private_keys(key_file: &mut BufReader<File>) -> Result<Vec<Vec<u8>>, Box
 }
 
 /// Parse certificate expiry info
-fn parse_cert_expiry(cert_der: &[u8], expiry_warning_days: i64) -> Result<CertStatus, Box<dyn std::error::Error>> {
+fn parse_cert_expiry(
+    cert_der: &[u8],
+    expiry_warning_days: i64,
+) -> Result<CertStatus, Box<dyn std::error::Error>> {
     let (_, cert) = X509Certificate::from_der(cert_der)?;
 
     let not_before = cert.validity().not_before.to_datetime().unix_timestamp();
@@ -83,9 +92,7 @@ fn parse_cert_expiry(cert_der: &[u8], expiry_warning_days: i64) -> Result<CertSt
     let not_before_system = SystemTime::UNIX_EPOCH + Duration::from_secs(not_before as u64);
     let not_after_system = SystemTime::UNIX_EPOCH + Duration::from_secs(not_after as u64);
 
-    let now = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)?
-        .as_secs() as i64;
+    let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)?.as_secs() as i64;
 
     let days_remaining = (not_after - now) / 86400;
     let is_expired = days_remaining <= 0;
@@ -130,10 +137,7 @@ fn compute_file_hash(path: &str) -> Result<[u8; 32], Box<dyn std::error::Error>>
 fn log_cert_status(status: &CertStatus) {
     info!(
         "TLS certificate info: subject={}, valid from={:?}, expires={:?}, days remaining={}",
-        status.subject,
-        status.not_before,
-        status.not_after,
-        status.days_remaining
+        status.subject, status.not_before, status.not_after, status.days_remaining
     );
 
     if status.is_expired {
@@ -236,7 +240,8 @@ fn reload_tls_config(
     key_path: &str,
     expiry_warning_days: i64,
 ) -> Result<CertStatus, Box<dyn std::error::Error>> {
-    let (cert_chain, key, cert_status) = load_tls_certificates(cert_path, key_path, expiry_warning_days)?;
+    let (cert_chain, key, cert_status) =
+        load_tls_certificates(cert_path, key_path, expiry_warning_days)?;
 
     let server_config = create_server_config(cert_chain, key)?;
 

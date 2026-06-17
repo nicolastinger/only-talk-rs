@@ -24,18 +24,15 @@ impl InternalQuicConfig {
         let config_map: toml::Value = toml::from_str(content)
             .map_err(|e| ServiceError::Config(format!("Failed to parse TOML config: {}", e)))?;
 
-        let internal = config_map
-            .get("internal_quic_server")
-            .ok_or_else(|| ServiceError::Config("Missing internal_quic_server config section".to_string()))?;
+        let internal = config_map.get("internal_quic_server").ok_or_else(|| {
+            ServiceError::Config("Missing internal_quic_server config section".to_string())
+        })?;
 
-        let addr_str = internal
-            .get("address")
-            .and_then(|v| v.as_str())
-            .unwrap_or("127.0.0.1:4434");
+        let addr_str = internal.get("address").and_then(|v| v.as_str()).unwrap_or("127.0.0.1:4434");
 
-        let bind_address: SocketAddr = addr_str
-            .parse()
-            .map_err(|e| ServiceError::Config(format!("Failed to parse internal QUIC address: {}", e)))?;
+        let bind_address: SocketAddr = addr_str.parse().map_err(|e| {
+            ServiceError::Config(format!("Failed to parse internal QUIC address: {}", e))
+        })?;
 
         let server_name = internal
             .get("server_name")
@@ -55,11 +52,6 @@ impl InternalQuicConfig {
             .and_then(|v| v.as_integer())
             .unwrap_or(0) as u32;
 
-        Ok(Self {
-            bind_address,
-            server_name,
-            server_index,
-            node_address,
-        })
+        Ok(Self { bind_address, server_name, server_index, node_address })
     }
 }

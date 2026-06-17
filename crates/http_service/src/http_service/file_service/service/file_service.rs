@@ -2,14 +2,21 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
 
+use crate::http_service::file_service::model::file_type_config::{
+    FileTypeConfig, get_file_type_config,
+};
+use crate::http_service::file_service::service::biz_service::get_pub_file_record_by_biz_id;
+use crate::http_service::file_service::service::chat_biz_service::get_chat_file_record_by_biz_id;
+use crate::http_service::file_service::service::chat_s3_service::download_chat_file_s3;
+use crate::utils::http_response::CommonResponseRef;
 use actix_multipart::Multipart;
 use actix_web::HttpResponse;
 use anyhow::anyhow;
 use common::config_str::{DEFAULT_MAX_FILE_SIZE, USER_FILE_PUBLIC_DIR};
+use common::models::file_entity::biz_file_link::BizFileLink;
 use common::models::file_entity::file_upload_record::FileUploadRecord;
 use common::utils::time::get_now_time_stamp_as_millis;
 use futures_util::{StreamExt, TryStreamExt};
-use tracing::{error, info, warn};
 use rbatis::rbdc::rt::fs::File;
 use rbatis::rbdc::rt::{AsyncWriteExt, tokio};
 use rbatis::{RBatis, rbdc};
@@ -17,13 +24,8 @@ use rbs::value;
 use s3_service::S3Client;
 use s3_service::storage::StorageBackend;
 use sha2::{Digest, Sha256};
+use tracing::{error, info, warn};
 use uuid::Uuid;
-use common::models::file_entity::biz_file_link::BizFileLink;
-use crate::http_service::file_service::model::file_type_config::{get_file_type_config, FileTypeConfig};
-use crate::http_service::file_service::service::biz_service::get_pub_file_record_by_biz_id;
-use crate::http_service::file_service::service::chat_biz_service::get_chat_file_record_by_biz_id;
-use crate::http_service::file_service::service::chat_s3_service::download_chat_file_s3;
-use crate::utils::http_response::CommonResponseRef;
 
 /// 根据文件扩展名推断 MIME 类型
 fn infer_mime_from_extension(filename: &str) -> Option<String> {
@@ -32,7 +34,7 @@ fn infer_mime_from_extension(filename: &str) -> Option<String> {
         .and_then(std::ffi::OsStr::to_str)
         .unwrap_or("")
         .to_lowercase();
-    
+
     match extension.as_str() {
         // 图片类型
         "jpg" | "jpeg" => Some("image/jpeg".to_string()),
@@ -42,35 +44,41 @@ fn infer_mime_from_extension(filename: &str) -> Option<String> {
         "bmp" => Some("image/bmp".to_string()),
         "svg" => Some("image/svg+xml".to_string()),
         "ico" => Some("image/x-icon".to_string()),
-        
+
         // 文档类型
         "pdf" => Some("application/pdf".to_string()),
         "doc" => Some("application/msword".to_string()),
-        "docx" => Some("application/vnd.openxmlformats-officedocument.wordprocessingml.document".to_string()),
+        "docx" => Some(
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document".to_string(),
+        ),
         "xls" => Some("application/vnd.ms-excel".to_string()),
-        "xlsx" => Some("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet".to_string()),
+        "xlsx" => {
+            Some("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet".to_string())
+        }
         "ppt" => Some("application/vnd.ms-powerpoint".to_string()),
-        "pptx" => Some("application/vnd.openxmlformats-officedocument.presentationml.presentation".to_string()),
+        "pptx" => Some(
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation".to_string(),
+        ),
         "txt" => Some("text/plain".to_string()),
         "csv" => Some("text/csv".to_string()),
         "html" | "htm" => Some("text/html".to_string()),
         "xml" => Some("application/xml".to_string()),
         "json" => Some("application/json".to_string()),
-        
+
         // 压缩文件
         "zip" => Some("application/zip".to_string()),
         "rar" => Some("application/x-rar-compressed".to_string()),
         "7z" => Some("application/x-7z-compressed".to_string()),
         "tar" => Some("application/x-tar".to_string()),
         "gz" => Some("application/gzip".to_string()),
-        
+
         // 音频文件
         "mp3" => Some("audio/mpeg".to_string()),
         "wav" => Some("audio/wav".to_string()),
         "ogg" => Some("audio/ogg".to_string()),
         "flac" => Some("audio/flac".to_string()),
         "aac" => Some("audio/aac".to_string()),
-        
+
         // 视频文件
         "mp4" => Some("video/mp4".to_string()),
         "avi" => Some("video/x-msvideo".to_string()),
@@ -78,12 +86,10 @@ fn infer_mime_from_extension(filename: &str) -> Option<String> {
         "mov" => Some("video/quicktime".to_string()),
         "wmv" => Some("video/x-ms-wmv".to_string()),
         "webm" => Some("video/webm".to_string()),
-        
+
         _ => None,
     }
 }
-
-
 
 // 确保目录存在
 async fn create_upload_dir() -> std::io::Result<()> {
@@ -162,10 +168,7 @@ async fn save_uploaded_file(
         let new_size = file_size + data.len() as i64;
         if new_size > DEFAULT_MAX_FILE_SIZE {
             error!("file size exceeds limit: {} > {}", new_size, DEFAULT_MAX_FILE_SIZE);
-            return Err(anyhow!(
-                "文件大小超出限制，最大允许 {} 字节",
-                DEFAULT_MAX_FILE_SIZE
-            ));
+            return Err(anyhow!("文件大小超出限制，最大允许 {} 字节", DEFAULT_MAX_FILE_SIZE));
         }
 
         file_size = new_size;
@@ -200,7 +203,7 @@ async fn save_uploaded_file(
         original_name: Some(filename.to_string()),
         stored_name: Some(safe_filename.clone()),
         file_path: Some(filepath.display().to_string()),
-        bucket: None,  // 本地存储无bucket
+        bucket: None, // 本地存储无bucket
         file_size: Some(file_size),
         mime_type,
         file_hash: Some(file_hash.clone()),
@@ -234,7 +237,7 @@ async fn save_uploaded_file(
         file_record.stored_name = exist_record.stored_name;
     } else {
         // 插入文件记录
-        FileUploadRecord::insert(rb, &file_record).await?; 
+        FileUploadRecord::insert(rb, &file_record).await?;
     }
     Ok((file_record, filepath, file_size))
 }
@@ -335,17 +338,16 @@ pub async fn upload_file_local(
 
             // 验证文件类型
             let mime_type = field.content_type().map(|ct| ct.essence_str().to_string());
-            
+
             // 如果客户端没有提供 MIME 类型，则根据文件扩展名推断
-            let mime_type = mime_type.or_else(|| {
-                infer_mime_from_extension(filename)
-            });
-            
+            let mime_type = mime_type.or_else(|| infer_mime_from_extension(filename));
+
             validate_file_type(filename, mime_type.as_deref()).map_err(|e| anyhow!(e))?;
 
             // 保存上传的文件
             let (original_record, filepath, _file_size) =
-                save_uploaded_file(rb, &user_id, filename, extension, mime_type, &mut field).await?;
+                save_uploaded_file(rb, &user_id, filename, extension, mime_type, &mut field)
+                    .await?;
 
             // 获取当前时间戳
             let now = get_now_time_stamp_as_millis()?;
@@ -401,13 +403,13 @@ pub fn validate_file_type(file_name: &str, mime_type: Option<&str>) -> Result<()
     .collect();
 
     // 检查文件扩展名
-    let file_extension = file_name.split('.').next_back().map(|s| s.to_lowercase()).unwrap_or_default();
+    let file_extension =
+        file_name.split('.').next_back().map(|s| s.to_lowercase()).unwrap_or_default();
 
     if !all_extensions.iter().any(|ext| ext.as_str() == file_extension.as_str()) {
         return Err(format!(
             "不支持的文件格式: {}. 支持的格式: {:?}",
-            file_extension,
-            all_extensions
+            file_extension, all_extensions
         ));
     }
 
@@ -425,11 +427,7 @@ pub fn validate_file_type(file_name: &str, mime_type: Option<&str>) -> Result<()
         .collect();
 
         if !all_mime_types.iter().any(|mt| mt.as_str() == mime) {
-            return Err(format!(
-                "不支持的MIME类型: {}. 支持的类型: {:?}",
-                mime,
-                all_mime_types
-            ));
+            return Err(format!("不支持的MIME类型: {}. 支持的类型: {:?}", mime, all_mime_types));
         }
     }
 
@@ -441,9 +439,7 @@ pub fn validate_file_type(file_name: &str, mime_type: Option<&str>) -> Result<()
  * @param file_id: 文件id
  * @param user_id: 用户id
  */
-pub async fn record_file_download(
-
-) -> Result<(), anyhow::Error> {
+pub async fn record_file_download() -> Result<(), anyhow::Error> {
     // TODO
     Ok(())
 }
@@ -505,10 +501,10 @@ pub async fn get_file_by_path(file_path: &str) -> Result<Option<File>, anyhow::E
 
 /// 单个文件下载
 pub async fn download_pub_file_by_id(
-    rb: &RBatis, 
+    rb: &RBatis,
     s3_client: Option<Arc<S3Client>>,
-    biz_id: String, 
-    file_id: String
+    biz_id: String,
+    file_id: String,
 ) -> Result<HttpResponse, anyhow::Error> {
     // 1. 获取业务信息
     info!("biz_id: {}, file_id: {}", biz_id, file_id);
@@ -517,11 +513,13 @@ pub async fn download_pub_file_by_id(
 
     let _biz_id = rbdc::Uuid::from_str(&biz_id)?;
     let _file_id = rbdc::Uuid::from_str(&file_id)?;
-    let biz_file_link = BizFileLink::select_by_biz_and_file(rb, &_biz_id, &_file_id).await?.ok_or(anyhow!("文件不存在"))?;
+    let biz_file_link = BizFileLink::select_by_biz_and_file(rb, &_biz_id, &_file_id)
+        .await?
+        .ok_or(anyhow!("文件不存在"))?;
 
     let preview_file_id = biz_file_link.file_id;
     let origin_file_id = biz_file_link.origin_file_id;
-    
+
     let mut flag = false;
 
     if let Some(preview_file_id) = preview_file_id {
@@ -529,7 +527,7 @@ pub async fn download_pub_file_by_id(
             flag = true;
         }
     }
-    
+
     if let Some(origin_file_id) = origin_file_id {
         if origin_file_id.to_string() == file_id {
             flag = true;
@@ -538,28 +536,34 @@ pub async fn download_pub_file_by_id(
     if !flag {
         return Err(anyhow!("文件不存在"));
     }
-    
+
     // 2. 获取文件信息
     let file_record = get_file_record_by_id(rb, &file_id).await?;
-    
+
     // 3. 从S3下载
     let s3_client = s3_client.ok_or(anyhow!("S3客户端未初始化"))?;
     if file_record.is_oss.unwrap_or(0) != 1 {
         return Err(anyhow!("文件不是S3存储，无法下载"));
     }
-    
+
     let file_vec = if let Some(ref bucket) = file_record.bucket {
-        let storage = s3_service::storage::S3Storage::with_bucket(s3_client.clone(), bucket.clone());
-        storage.download(&file_record.file_path.ok_or(anyhow!("文件路径为空"))?)
+        let storage =
+            s3_service::storage::S3Storage::with_bucket(s3_client.clone(), bucket.clone());
+        storage
+            .download(&file_record.file_path.ok_or(anyhow!("文件路径为空"))?)
             .await
             .map_err(|e| anyhow!("S3下载失败: {}", e))?
     } else {
-        let storage = s3_service::storage::S3Storage::with_bucket(s3_client.clone(), s3_client.config.default_bucket.clone());
-        storage.download(&file_record.file_path.ok_or(anyhow!("文件路径为空"))?)
+        let storage = s3_service::storage::S3Storage::with_bucket(
+            s3_client.clone(),
+            s3_client.config.default_bucket.clone(),
+        );
+        storage
+            .download(&file_record.file_path.ok_or(anyhow!("文件路径为空"))?)
             .await
             .map_err(|e| anyhow!("S3下载失败: {}", e))?
     };
-    
+
     // 4. 返回文件
     Ok(HttpResponse::Ok()
         .content_type(file_record.mime_type.unwrap_or("image/webp".to_string()))
@@ -575,27 +579,29 @@ pub async fn download_pub_file_by_id(
 
 /// 公开业务文件下载link
 pub async fn download_link_pub_biz(
-    rb: &RBatis, 
-    s3_client: Option<Arc<S3Client>>, 
-    biz_id: String, 
-    is_preview: bool
+    rb: &RBatis,
+    s3_client: Option<Arc<S3Client>>,
+    biz_id: String,
+    is_preview: bool,
 ) -> Result<String, anyhow::Error> {
     // 1. 获取业务信息
     let _biz_record = get_pub_file_record_by_biz_id(rb, &biz_id).await?;
     let _biz_id = rbdc::Uuid::from_str(&biz_id)?;
     let biz_file_link = BizFileLink::select_by_biz(rb, &_biz_id).await?;
     let file_ids = match is_preview {
-        true => {
-            biz_file_link.into_iter().map(|item| item.file_id.unwrap_or_default().to_string()).collect::<Vec<String>>()
-        }
-        false => {
-            biz_file_link.into_iter().map(|item| item.origin_file_id.unwrap_or_default().to_string()).collect::<Vec<String>>()
-        }
+        true => biz_file_link
+            .into_iter()
+            .map(|item| item.file_id.unwrap_or_default().to_string())
+            .collect::<Vec<String>>(),
+        false => biz_file_link
+            .into_iter()
+            .map(|item| item.origin_file_id.unwrap_or_default().to_string())
+            .collect::<Vec<String>>(),
     };
     if file_ids.is_empty() {
         return Err(anyhow!("文件ID为空"));
     }
-    
+
     // 2. 组建下载链接 - 公开桶返回直接URL，其他桶返回预签名URL
     let s3_client = s3_client.ok_or(anyhow!("S3客户端未初始化"))?;
     let mut download_link_vec: Vec<String> = vec![];
@@ -621,38 +627,48 @@ pub async fn download_link_pub_biz(
         };
 
         let url = if let Some(ref bucket) = file_record.bucket {
-            let storage = s3_service::storage::S3Storage::with_bucket(s3_client.clone(), bucket.clone());
+            let storage =
+                s3_service::storage::S3Storage::with_bucket(s3_client.clone(), bucket.clone());
             if is_pub_bucket {
                 storage.public_url(file_path)
             } else {
-                storage.presigned_url(
+                storage
+                    .presigned_url(
+                        file_path,
+                        std::time::Duration::from_secs(s3_client.config.presign_expire_seconds),
+                        s3_service::storage::PresignedMethod::Get,
+                    )
+                    .await
+                    .map_err(|e| anyhow!("生成预签名URL失败: {}", e))?
+            }
+        } else {
+            let storage = s3_service::storage::S3Storage::with_bucket(
+                s3_client.clone(),
+                s3_client.config.default_bucket.clone(),
+            );
+            storage
+                .presigned_url(
                     file_path,
                     std::time::Duration::from_secs(s3_client.config.presign_expire_seconds),
                     s3_service::storage::PresignedMethod::Get,
-                ).await.map_err(|e| anyhow!("生成预签名URL失败: {}", e))?
-            }
-        } else {
-            let storage = s3_service::storage::S3Storage::with_bucket(s3_client.clone(), s3_client.config.default_bucket.clone());
-            storage.presigned_url(
-                file_path,
-                std::time::Duration::from_secs(s3_client.config.presign_expire_seconds),
-                s3_service::storage::PresignedMethod::Get,
-            ).await.map_err(|e| anyhow!("生成预签名URL失败: {}", e))?
+                )
+                .await
+                .map_err(|e| anyhow!("生成预签名URL失败: {}", e))?
         };
         download_link_vec.push(url);
     }
-    
+
     let res = CommonResponseRef::<Vec<String>>::success_json(&download_link_vec)?;
     Ok(res)
 }
 
 /// 聊天业务文件下载link
 pub async fn download_link_chat_biz(
-    rb: &RBatis, 
+    rb: &RBatis,
     s3_client: Option<Arc<S3Client>>,
-    uuid: Option<String>, 
-    biz_id: String, 
-    is_preview: bool
+    uuid: Option<String>,
+    biz_id: String,
+    is_preview: bool,
 ) -> Result<String, anyhow::Error> {
     // 1. 获取业务信息
     let chat_biz_record = get_chat_file_record_by_biz_id(rb, &biz_id).await?;
@@ -668,60 +684,72 @@ pub async fn download_link_chat_biz(
     let _biz_id = rbdc::Uuid::from_str(&biz_id)?;
     let biz_file_link = BizFileLink::select_by_biz(rb, &_biz_id).await?;
     let file_ids = match is_preview {
-        true => {
-            biz_file_link.into_iter().map(|item| item.file_id.unwrap_or_default().to_string()).collect::<Vec<String>>()
-        }
-        false => {
-            biz_file_link.into_iter().map(|item| item.origin_file_id.unwrap_or_default().to_string()).collect::<Vec<String>>()
-        }
+        true => biz_file_link
+            .into_iter()
+            .map(|item| item.file_id.unwrap_or_default().to_string())
+            .collect::<Vec<String>>(),
+        false => biz_file_link
+            .into_iter()
+            .map(|item| item.origin_file_id.unwrap_or_default().to_string())
+            .collect::<Vec<String>>(),
     };
     if file_ids.is_empty() {
         return Err(anyhow!("文件ID为空"));
     }
-    
+
     // 3. 组建下载链接 - S3 文件返回预签名 URL
     let s3_client = s3_client.ok_or(anyhow!("S3客户端未初始化"))?;
     let mut download_link_vec: Vec<String> = vec![];
-    
+
     for file_id in file_ids.iter() {
         // 获取文件记录
         let file_record = get_file_record_by_id(rb, file_id).await?;
-        
+
         // 检查是否为S3存储
         if file_record.is_oss.unwrap_or(0) != 1 {
             return Err(anyhow!("文件不是S3存储，无法生成下载链接"));
         }
-        
+
         // 生成预签名 URL
         let presigned_url = if let Some(ref bucket) = file_record.bucket {
-            let storage = s3_service::storage::S3Storage::with_bucket(s3_client.clone(), bucket.clone());
-            storage.presigned_url(
-                &file_record.file_path.ok_or(anyhow!("文件路径为空"))?,
-                std::time::Duration::from_secs(s3_client.config.presign_expire_seconds),
-                s3_service::storage::PresignedMethod::Get,
-            ).await.map_err(|e| anyhow!("生成预签名URL失败: {}", e))?
+            let storage =
+                s3_service::storage::S3Storage::with_bucket(s3_client.clone(), bucket.clone());
+            storage
+                .presigned_url(
+                    &file_record.file_path.ok_or(anyhow!("文件路径为空"))?,
+                    std::time::Duration::from_secs(s3_client.config.presign_expire_seconds),
+                    s3_service::storage::PresignedMethod::Get,
+                )
+                .await
+                .map_err(|e| anyhow!("生成预签名URL失败: {}", e))?
         } else {
-            let storage = s3_service::storage::S3Storage::with_bucket(s3_client.clone(), s3_client.config.chat_file_origin_bucket.clone());
-            storage.presigned_url(
-                &file_record.file_path.ok_or(anyhow!("文件路径为空"))?,
-                std::time::Duration::from_secs(s3_client.config.presign_expire_seconds),
-                s3_service::storage::PresignedMethod::Get,
-            ).await.map_err(|e| anyhow!("生成预签名URL失败: {}", e))?
+            let storage = s3_service::storage::S3Storage::with_bucket(
+                s3_client.clone(),
+                s3_client.config.chat_file_origin_bucket.clone(),
+            );
+            storage
+                .presigned_url(
+                    &file_record.file_path.ok_or(anyhow!("文件路径为空"))?,
+                    std::time::Duration::from_secs(s3_client.config.presign_expire_seconds),
+                    s3_service::storage::PresignedMethod::Get,
+                )
+                .await
+                .map_err(|e| anyhow!("生成预签名URL失败: {}", e))?
         };
         download_link_vec.push(presigned_url);
     }
-    
+
     let res = CommonResponseRef::<Vec<String>>::success_json(&download_link_vec)?;
     Ok(res)
 }
 
 /// 聊天业务文件下载
 pub async fn download_chat_file_by_id(
-    rb: &RBatis, 
+    rb: &RBatis,
     s3_client: Option<Arc<S3Client>>,
-    uuid: Option<String>, 
-    biz_id: String, 
-    file_id: String
+    uuid: Option<String>,
+    biz_id: String,
+    file_id: String,
 ) -> Result<HttpResponse, anyhow::Error> {
     // 1. 获取业务信息
     info!("biz_id: {}, file_id: {}", biz_id, file_id);
@@ -737,7 +765,9 @@ pub async fn download_chat_file_by_id(
     // 3. 组装文件id
     let _biz_id = rbdc::Uuid::from_str(&biz_id)?;
     let _file_id = rbdc::Uuid::from_str(&file_id)?;
-    let biz_file_link = BizFileLink::select_by_biz_and_file(rb, &_biz_id, &_file_id).await?.ok_or(anyhow!("文件不存在"))?;
+    let biz_file_link = BizFileLink::select_by_biz_and_file(rb, &_biz_id, &_file_id)
+        .await?
+        .ok_or(anyhow!("文件不存在"))?;
 
     let preview_file_id = biz_file_link.file_id;
     let origin_file_id = biz_file_link.origin_file_id;
@@ -757,18 +787,18 @@ pub async fn download_chat_file_by_id(
     if !flag {
         return Err(anyhow!("文件不存在"));
     }
-    
+
     // 4. 获取文件信息
     let file_record = get_file_record_by_id(rb, &file_id).await?;
-    
+
     // 5. 从S3下载
     let s3_client = s3_client.ok_or(anyhow!("S3客户端未初始化"))?;
     if file_record.is_oss.unwrap_or(0) != 1 {
         return Err(anyhow!("文件不是S3存储，无法下载"));
     }
-    
+
     let file_vec = download_chat_file_s3(s3_client, &file_record).await?;
-    
+
     // 6. 返回文件
     Ok(HttpResponse::Ok()
         .content_type(file_record.mime_type.unwrap_or("image/webp".to_string()))

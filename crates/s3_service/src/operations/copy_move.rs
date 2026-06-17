@@ -79,14 +79,9 @@ pub async fn move_object(
 
     // Only delete source when source and target differ
     if source_bucket != dest_bucket || source_key != dest_key {
-        client
-            .inner
-            .delete_object()
-            .bucket(source_bucket)
-            .key(source_key)
-            .send()
-            .await
-            .map_err(|e| S3Error::AwsError(format!("Failed to delete source object during move: {}", e)))?;
+        client.inner.delete_object().bucket(source_bucket).key(source_key).send().await.map_err(
+            |e| S3Error::AwsError(format!("Failed to delete source object during move: {}", e)),
+        )?;
     }
 
     Ok(())

@@ -49,11 +49,7 @@ pub async fn upload_object(
     let size = data.len() as i64;
 
     // Build upload request
-    let mut builder = client
-        .inner
-        .put_object()
-        .bucket(bucket)
-        .key(key);
+    let mut builder = client.inner.put_object().bucket(bucket).key(key);
 
     // Set content type
     if let Some(ct) = content_type {
@@ -128,11 +124,7 @@ pub async fn upload_object_with_metadata(
     let size = data.len() as i64;
 
     // Build upload request
-    let mut builder = client
-        .inner
-        .put_object()
-        .bucket(bucket)
-        .key(key);
+    let mut builder = client.inner.put_object().bucket(bucket).key(key);
 
     // Set content type
     if let Some(ct) = content_type {
@@ -145,11 +137,10 @@ pub async fn upload_object_with_metadata(
     }
 
     // Execute upload
-    let result = builder
-        .body(data.into())
-        .send()
-        .await
-        .map_err(|e| S3Error::AwsError(format!("Failed to upload object with metadata: {}", e)))?;
+    let result =
+        builder.body(data.into()).send().await.map_err(|e| {
+            S3Error::AwsError(format!("Failed to upload object with metadata: {}", e))
+        })?;
 
     Ok(StorageInfo {
         bucket: Some(bucket.to_string()),

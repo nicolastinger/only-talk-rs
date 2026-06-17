@@ -1,23 +1,25 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use dashmap::DashMap;
-use deadpool_redis::redis::{AsyncCommands, cmd};
+use crate::models::quic_connection::{ConnectionType, QuicConnection};
+use crate::msg_service::get_connection_by_uuid;
+use crate::msg_service::text_msg_service::generate_text_msg;
 use common::config_str::SYSTEM;
 use common::read_global_config;
 use common::utils::jwt_util::verify_token;
 use common::utils::message_types;
 use common::utils::redis_utils::{acquire_lock, get_redis_conn, release_lock};
-use tracing::{error, info, warn};
-use crate::models::quic_connection::{ConnectionType, QuicConnection};
-use crate::msg_service::get_connection_by_uuid;
-use crate::msg_service::text_msg_service::generate_text_msg;
+use dashmap::DashMap;
+use deadpool_redis::redis::{AsyncCommands, cmd};
 use tokio::net::UdpSocket;
 use tokio::signal;
+use tracing::{error, info, warn};
 
 use crate::nat_ip::model::UserAddressInfo;
 
-pub async fn run_udp_server(connections: Arc<DashMap<String, QuicConnection>>) -> Result<(), anyhow::Error> {
+pub async fn run_udp_server(
+    connections: Arc<DashMap<String, QuicConnection>>,
+) -> Result<(), anyhow::Error> {
     let v4_port_1: u16 = read_global_config!("nat_udp", "v4_port_1").parse()?;
     let v6_port_1: u16 = read_global_config!("nat_udp", "v6_port_1").parse()?;
     let v4_port_2: u16 = read_global_config!("nat_udp", "v4_port_2").parse()?;
@@ -35,7 +37,10 @@ pub async fn run_udp_server(connections: Arc<DashMap<String, QuicConnection>>) -
             let shutdown = shutdown_flag.clone();
             let conns = connections.clone();
             tokio::spawn(async move {
-                if let Err(e) = get_p2p_udp_socket_with_shutdown(&addr_1, "V4".to_string(), shutdown, conns).await {
+                if let Err(e) =
+                    get_p2p_udp_socket_with_shutdown(&addr_1, "V4".to_string(), shutdown, conns)
+                        .await
+                {
                     error!("{} UDP socket error: {}", addr_1, e);
                 }
             })
@@ -45,7 +50,10 @@ pub async fn run_udp_server(connections: Arc<DashMap<String, QuicConnection>>) -
             let shutdown = shutdown_flag.clone();
             let conns = connections.clone();
             tokio::spawn(async move {
-                if let Err(e) = get_p2p_udp_socket_with_shutdown(&addr_2, "V6".to_string(), shutdown, conns).await {
+                if let Err(e) =
+                    get_p2p_udp_socket_with_shutdown(&addr_2, "V6".to_string(), shutdown, conns)
+                        .await
+                {
                     error!("{} UDP socket error: {}", addr_2, e);
                 }
             })
@@ -55,7 +63,10 @@ pub async fn run_udp_server(connections: Arc<DashMap<String, QuicConnection>>) -
             let shutdown = shutdown_flag.clone();
             let conns = connections.clone();
             tokio::spawn(async move {
-                if let Err(e) = get_p2p_udp_socket_with_shutdown(&addr_3, "V4".to_string(), shutdown, conns).await {
+                if let Err(e) =
+                    get_p2p_udp_socket_with_shutdown(&addr_3, "V4".to_string(), shutdown, conns)
+                        .await
+                {
                     error!("{} UDP socket error: {}", addr_3, e);
                 }
             })
@@ -65,7 +76,10 @@ pub async fn run_udp_server(connections: Arc<DashMap<String, QuicConnection>>) -
             let shutdown = shutdown_flag.clone();
             let conns = connections.clone();
             tokio::spawn(async move {
-                if let Err(e) = get_p2p_udp_socket_with_shutdown(&addr_4, "V6".to_string(), shutdown, conns).await {
+                if let Err(e) =
+                    get_p2p_udp_socket_with_shutdown(&addr_4, "V6".to_string(), shutdown, conns)
+                        .await
+                {
                     error!("{} UDP socket error: {}", addr_4, e);
                 }
             })
@@ -90,7 +104,10 @@ pub async fn get_p2p_udp_socket_with_shutdown(
     connections: Arc<DashMap<String, QuicConnection>>,
 ) -> anyhow::Result<()> {
     let socket = UdpSocket::bind(address).await?;
-    info!("NAT discovery + client P2P request forwarding service started, listening on {}", address);
+    info!(
+        "NAT discovery + client P2P request forwarding service started, listening on {}",
+        address
+    );
 
     let mut buf = [0u8; 1024];
 
@@ -137,9 +154,16 @@ pub async fn get_p2p_udp_socket_with_shutdown(
     }
 }
 
-pub async fn get_p2p_udp_socket(address: &str, ip_type: String, connections: Arc<DashMap<String, QuicConnection>>) -> anyhow::Result<()> {
+pub async fn get_p2p_udp_socket(
+    address: &str,
+    ip_type: String,
+    connections: Arc<DashMap<String, QuicConnection>>,
+) -> anyhow::Result<()> {
     let socket = UdpSocket::bind(address).await?;
-    info!("NAT discovery + client P2P request forwarding service started, listening on {}", address);
+    info!(
+        "NAT discovery + client P2P request forwarding service started, listening on {}",
+        address
+    );
 
     let mut buf = [0u8; 1024];
 
@@ -324,7 +348,10 @@ async fn process_p2p_user_info(
                     return Ok(());
                 }
                 Err(e) => {
-                    warn!("failed to get target user info: {}, waiting for target user to upload to redis", e);
+                    warn!(
+                        "failed to get target user info: {}, waiting for target user to upload to redis",
+                        e
+                    );
                 }
             }
 

@@ -1,15 +1,15 @@
-use std::fs;
+use crate::config_manager::{get_config, set_config};
 use anyhow::anyhow;
+use argon2::password_hash::PasswordHash;
+use argon2::password_hash::rand_core::OsRng;
+use argon2::{Argon2, PasswordHasher, PasswordVerifier};
 use rand::Rng;
 use rand::distributions::Alphanumeric;
 use rbatis::rbatis_codegen::ops::AsProxy;
+use rsa::pkcs1::EncodeRsaPublicKey;
 use rsa::pkcs8::{DecodePrivateKey, EncodePrivateKey};
 use rsa::{RsaPrivateKey, RsaPublicKey};
-use rsa::pkcs1::EncodeRsaPublicKey;
-use argon2::{Argon2, PasswordHasher, PasswordVerifier};
-use argon2::password_hash::rand_core::OsRng;
-use argon2::password_hash::PasswordHash;
-use crate::config_manager::{get_config, set_config};
+use std::fs;
 
 /// Get RSA keys with three-level caching strategy:
 /// 1. First try to get from memory (config manager)
@@ -19,8 +19,11 @@ pub fn get_rsa_keys() -> Result<(RsaPrivateKey, RsaPublicKey), anyhow::Error> {
     let private_key_config = get_config("jwt_private_key");
     let public_key_config = get_config("jwt_public_key");
 
-    let (private_key_str, public_key_str) = if private_key_config.is_some() && public_key_config.is_some() {
-        let private_key_str = private_key_config.ok_or(anyhow!("jwt_private_key config not found"))?;
+    let (private_key_str, public_key_str) = if private_key_config.is_some()
+        && public_key_config.is_some()
+    {
+        let private_key_str =
+            private_key_config.ok_or(anyhow!("jwt_private_key config not found"))?;
         let public_key_str = public_key_config.ok_or(anyhow!("jwt_public_key config not found"))?;
         (private_key_str, public_key_str)
     } else {
@@ -62,6 +65,8 @@ fn generate_rsa_key_pair() -> Result<(RsaPrivateKey, RsaPublicKey), anyhow::Erro
     let public_key_str = public_key_pem.to_string();
     set_config("jwt_private_key".string(), private_key_str.clone());
     set_config("jwt_public_key".string(), public_key_str.clone());
+    // Ensure the config/jwt directory exists before writing key files
+    fs::create_dir_all("./config/jwt")?;
     // Save generated key to file
     fs::write("./config/jwt/private.key", private_key_str)?;
     fs::write("./config/jwt/public.key", public_key_str)?;
@@ -81,8 +86,7 @@ pub fn generate_random_string(length: usize) -> String {
 pub fn hash_password(password: &str) -> Result<String, anyhow::Error> {
     let salt = argon2::password_hash::SaltString::generate(&mut OsRng);
     let argon2 = Argon2::default();
-    let hash = argon2.hash_password(password.as_bytes(), &salt)
-        .map_err(|e| anyhow!("{}", e))?;
+    let hash = argon2.hash_password(password.as_bytes(), &salt).map_err(|e| anyhow!("{}", e))?;
     Ok(hash.to_string())
 }
 

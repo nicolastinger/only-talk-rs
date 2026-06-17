@@ -30,3 +30,6 @@ once_cell = { workspace = true }
 regex = { workspace = true }
 dashmap = "6.1"
 toml = { workspace = true }
+crc = { workspace = true }
+crc-catalog = { workspace = true }
+nanoid = { workspace = true }

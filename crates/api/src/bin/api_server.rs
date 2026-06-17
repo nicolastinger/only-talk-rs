@@ -3,8 +3,8 @@
 //! Starts only the actix-web HTTPS service, no QUIC services.
 
 use api::init_server::start_server;
-use common::tracing::init_tracing;
 use common::fatal_panic_async;
+use common::tracing::init_tracing;
 use tracing::{error, info};
 
 #[actix_web::main]

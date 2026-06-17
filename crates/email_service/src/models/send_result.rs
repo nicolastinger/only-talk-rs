@@ -107,10 +107,7 @@ impl SendResult {
     ///
     /// - `provider`: 服务商名称
     /// - `error`: 错误信息
-    pub fn failure(
-        provider: impl Into<String>,
-        error: ErrorInfo,
-    ) -> Self {
+    pub fn failure(provider: impl Into<String>, error: ErrorInfo) -> Self {
         Self {
             message_id: None,
             request_id: None,
@@ -138,11 +135,7 @@ impl SendResult {
         recipients: Vec<RecipientResult>,
     ) -> Self {
         let has_failures = recipients.iter().any(|r| !r.status.is_success());
-        let status = if has_failures {
-            SendStatus::PartialSuccess
-        } else {
-            SendStatus::Sent
-        };
+        let status = if has_failures { SendStatus::PartialSuccess } else { SendStatus::Sent };
 
         Self {
             message_id,
@@ -260,10 +253,7 @@ impl SendStatus {
     pub fn is_success(&self) -> bool {
         matches!(
             self,
-            SendStatus::Sent
-                | SendStatus::Delivered
-                | SendStatus::Opened
-                | SendStatus::Clicked
+            SendStatus::Sent | SendStatus::Delivered | SendStatus::Opened | SendStatus::Clicked
         )
     }
 
@@ -321,12 +311,7 @@ pub struct RecipientResult {
 impl RecipientResult {
     /// 创建成功结果
     pub fn success(email: impl Into<String>, message_id: Option<String>) -> Self {
-        Self {
-            email: email.into(),
-            status: SendStatus::Sent,
-            message_id,
-            error: None,
-        }
+        Self { email: email.into(), status: SendStatus::Sent, message_id, error: None }
     }
 
     /// 创建失败结果
@@ -388,7 +373,11 @@ impl ErrorInfo {
     /// - `code`: 错误代码
     /// - `message`: 错误描述
     /// - `category`: 错误分类
-    pub fn new(code: impl Into<String>, message: impl Into<String>, category: ErrorCategory) -> Self {
+    pub fn new(
+        code: impl Into<String>,
+        message: impl Into<String>,
+        category: ErrorCategory,
+    ) -> Self {
         Self {
             code: code.into(),
             message: message.into(),
@@ -416,20 +405,42 @@ impl ErrorInfo {
     pub fn from_email_error(error: &crate::error::EmailError) -> Self {
         let (code, category) = match error {
             crate::error::EmailError::Config(_) => ("CONFIG_ERROR", ErrorCategory::Configuration),
-            crate::error::EmailError::AuthFailed { .. } => ("AUTH_FAILED", ErrorCategory::Authentication),
-            crate::error::EmailError::RateLimited { .. } => ("RATE_LIMITED", ErrorCategory::RateLimit),
-            crate::error::EmailError::InvalidEmailAddress(_) => ("INVALID_EMAIL", ErrorCategory::Validation),
-            crate::error::EmailError::InvalidContent(_) => ("INVALID_CONTENT", ErrorCategory::Validation),
-            crate::error::EmailError::AttachmentError(_) => ("ATTACHMENT_ERROR", ErrorCategory::Validation),
-            crate::error::EmailError::ProviderError { .. } => ("PROVIDER_ERROR", ErrorCategory::Provider),
+            crate::error::EmailError::AuthFailed { .. } => {
+                ("AUTH_FAILED", ErrorCategory::Authentication)
+            }
+            crate::error::EmailError::RateLimited { .. } => {
+                ("RATE_LIMITED", ErrorCategory::RateLimit)
+            }
+            crate::error::EmailError::InvalidEmailAddress(_) => {
+                ("INVALID_EMAIL", ErrorCategory::Validation)
+            }
+            crate::error::EmailError::InvalidContent(_) => {
+                ("INVALID_CONTENT", ErrorCategory::Validation)
+            }
+            crate::error::EmailError::AttachmentError(_) => {
+                ("ATTACHMENT_ERROR", ErrorCategory::Validation)
+            }
+            crate::error::EmailError::ProviderError { .. } => {
+                ("PROVIDER_ERROR", ErrorCategory::Provider)
+            }
             crate::error::EmailError::NetworkError(_) => ("NETWORK_ERROR", ErrorCategory::Network),
             crate::error::EmailError::Timeout { .. } => ("TIMEOUT", ErrorCategory::Timeout),
-            crate::error::EmailError::RetryExhausted { .. } => ("RETRY_EXHAUSTED", ErrorCategory::System),
-            crate::error::EmailError::ProviderNotFound(_) => ("PROVIDER_NOT_FOUND", ErrorCategory::Configuration),
-            crate::error::EmailError::ProviderUnavailable(_) => ("PROVIDER_UNAVAILABLE", ErrorCategory::Provider),
-            crate::error::EmailError::TemplateError(_) => ("TEMPLATE_ERROR", ErrorCategory::Template),
+            crate::error::EmailError::RetryExhausted { .. } => {
+                ("RETRY_EXHAUSTED", ErrorCategory::System)
+            }
+            crate::error::EmailError::ProviderNotFound(_) => {
+                ("PROVIDER_NOT_FOUND", ErrorCategory::Configuration)
+            }
+            crate::error::EmailError::ProviderUnavailable(_) => {
+                ("PROVIDER_UNAVAILABLE", ErrorCategory::Provider)
+            }
+            crate::error::EmailError::TemplateError(_) => {
+                ("TEMPLATE_ERROR", ErrorCategory::Template)
+            }
             crate::error::EmailError::QueueError(_) => ("QUEUE_ERROR", ErrorCategory::System),
-            crate::error::EmailError::SerializationError(_) => ("SERIALIZATION_ERROR", ErrorCategory::System),
+            crate::error::EmailError::SerializationError(_) => {
+                ("SERIALIZATION_ERROR", ErrorCategory::System)
+            }
             crate::error::EmailError::Unknown(_) => ("UNKNOWN", ErrorCategory::Unknown),
         };
 

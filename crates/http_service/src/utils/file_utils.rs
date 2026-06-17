@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 use image::DynamicImage;
 use rbatis::rbdc::rt::tokio;
 use std::path::Path;
@@ -26,13 +26,16 @@ pub async fn compress_image(
     let target_size = target_size_bytes.unwrap_or(DEFAULT_TARGET_SIZE);
 
     // Read file
-    let file_data = tokio::fs::read(file_path)
-        .await
-        .with_context(|| format!("无法读取文件: {}", file_path))?;
+    let file_data =
+        tokio::fs::read(file_path).await.with_context(|| format!("无法读取文件: {}", file_path))?;
 
     // Check original file size
     if file_data.len() <= target_size {
-        info!("file size {} is smaller than target size {}, skipping compression", file_data.len(), target_size);
+        info!(
+            "file size {} is smaller than target size {}, skipping compression",
+            file_data.len(),
+            target_size
+        );
         return Ok(file_data);
     }
 
@@ -40,23 +43,30 @@ pub async fn compress_image(
     let img = image::load_from_memory(&file_data)
         .with_context(|| format!("无法加载图片文件: {}", file_path))?;
 
-    info!(
-        "开始压缩图片: {}, 原始大小: {} bytes",
-        file_path,
-        file_data.len()
-    );
+    info!("开始压缩图片: {}, 原始大小: {} bytes", file_path, file_data.len());
 
     // Try reducing dimensions first (faster for large files)
     if file_data.len() > 3 * target_size {
         // 如果原始文件远大于目标，先缩小尺寸
-        if let Ok(compressed) = try_compress_by_resize_fast(&img, target_size, INITIAL_QUALITY, ENCODING_METHOD) {
-            info!("compression by resizing successful, compressed size: {} bytes", compressed.len());
+        if let Ok(compressed) =
+            try_compress_by_resize_fast(&img, target_size, INITIAL_QUALITY, ENCODING_METHOD)
+        {
+            info!(
+                "compression by resizing successful, compressed size: {} bytes",
+                compressed.len()
+            );
             return Ok(compressed);
         }
     }
 
     // Try reducing quality (using binary search)
-    if let Ok(compressed) = try_compress_by_quality_binary(&img, target_size, INITIAL_QUALITY, MIN_QUALITY, ENCODING_METHOD) {
+    if let Ok(compressed) = try_compress_by_quality_binary(
+        &img,
+        target_size,
+        INITIAL_QUALITY,
+        MIN_QUALITY,
+        ENCODING_METHOD,
+    ) {
         info!("compression successful, compressed size: {} bytes", compressed.len());
         return Ok(compressed);
     }
@@ -194,7 +204,11 @@ fn try_compress_by_resize(
 }
 
 /// Compress image to WebP format with specified quality (fastest encoding speed)
-fn compress_image_with_quality(img: &DynamicImage, quality: f32, _encoding_method: i32) -> Result<Vec<u8>, anyhow::Error> {
+fn compress_image_with_quality(
+    img: &DynamicImage,
+    quality: f32,
+    _encoding_method: i32,
+) -> Result<Vec<u8>, anyhow::Error> {
     // Convert to RGBA format
     let rgba_image = img.to_rgba8();
     let (width, height) = (img.width(), img.height());

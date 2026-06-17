@@ -1,5 +1,5 @@
-use s3_service::config::S3Config;
 use s3_service::S3Client;
+use s3_service::config::S3Config;
 
 #[tokio::main]
 async fn main() {
@@ -90,7 +90,9 @@ async fn main() {
     let test_key = "test/diagnostic-test.txt";
     let test_data = b"Hello, S3 Diagnostic Test!";
 
-    match client.inner.put_object()
+    match client
+        .inner
+        .put_object()
         .bucket(&client.config.default_bucket)
         .key(test_key)
         .body(bytes::Bytes::from_static(test_data).into())
@@ -102,7 +104,9 @@ async fn main() {
 
             // 尝试下载
             println!("\n正在测试文件下载...");
-            match client.inner.get_object()
+            match client
+                .inner
+                .get_object()
                 .bucket(&client.config.default_bucket)
                 .key(test_key)
                 .send()
@@ -113,7 +117,9 @@ async fn main() {
                     println!("✓ 文件下载成功，大小: {} bytes", body.len());
 
                     // 清理测试文件
-                    let _ = client.inner.delete_object()
+                    let _ = client
+                        .inner
+                        .delete_object()
                         .bucket(&client.config.default_bucket)
                         .key(test_key)
                         .send()
@@ -132,10 +138,7 @@ async fn main() {
 
     // 7. 测试创建聊天桶
     println!("\n正在测试创建聊天文件桶...");
-    let chat_buckets = vec![
-        "chat-file-preview",
-        "chat-file-origin",
-    ];
+    let chat_buckets = vec!["chat-file-preview", "chat-file-origin"];
 
     for bucket_name in chat_buckets {
         println!("\n  检查桶: {}", bucket_name);

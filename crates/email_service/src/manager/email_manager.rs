@@ -2,18 +2,17 @@
 //!
 //! 本模块实现 [`EmailManager`] 和 [`EmailManagerBuilder`]。
 
-use std::sync::Arc;
 use std::collections::HashMap;
+use std::sync::Arc;
 
+use super::provider_pool::{ProviderPool, ProviderSelector, SelectionStrategy};
 use crate::config::{EmailServiceConfig, ProviderConfig};
 use crate::error::{EmailError, EmailResult};
 use crate::models::{Email, SendResult};
 use crate::providers::{
-    BoxedEmailProvider, RetryStrategy, 
-    AliyunEmailProvider, TencentEmailProvider, 
-    AwsSesEmailProvider, SmtpEmailProvider,
+    AliyunEmailProvider, AwsSesEmailProvider, BoxedEmailProvider, RetryStrategy, SmtpEmailProvider,
+    TencentEmailProvider,
 };
-use super::provider_pool::{ProviderPool, ProviderSelector, SelectionStrategy};
 
 /// 邮件管理器
 ///
@@ -117,18 +116,13 @@ impl EmailManager {
     /// ```
     pub fn new(config: EmailServiceConfig) -> EmailResult<Self> {
         let pool = Arc::new(ProviderPool::new(config.pool.clone()));
-        
+
         Self::register_providers(&pool, &config.providers)?;
-        
+
         let selector = ProviderSelector::new(pool.clone(), SelectionStrategy::Priority);
         let retry_strategy = RetryStrategy::from_config(&config.retry);
 
-        Ok(Self {
-            pool,
-            selector,
-            retry_strategy,
-            config,
-        })
+        Ok(Self { pool, selector, retry_strategy, config })
     }
 
     /// 创建管理器构建器
@@ -207,15 +201,18 @@ impl EmailManager {
     /// ```
     pub async fn send(&self, email: &Email) -> EmailResult<SendResult> {
         let provider = self.get_provider(email)?;
-        
+
         provider.validate_email(email)?;
 
         let provider_name = provider.name().to_string();
-        let result = self.retry_strategy.execute(|| {
-            let provider = provider.clone();
-            let email = email.clone();
-            async move { provider.send(&email).await }
-        }).await;
+        let result = self
+            .retry_strategy
+            .execute(|| {
+                let provider = provider.clone();
+                let email = email.clone();
+                async move { provider.send(&email).await }
+            })
+            .await;
 
         match &result {
             Ok(send_result) => {
@@ -272,7 +269,7 @@ impl EmailManager {
     /// ```
     pub async fn send_batch(&self, emails: &[Email]) -> Vec<EmailResult<SendResult>> {
         let mut results = Vec::with_capacity(emails.len());
-        
+
         for email in emails {
             results.push(self.send(email).await);
         }
@@ -313,7 +310,7 @@ impl EmailManager {
     /// ```
     pub async fn send_with_fallback(&self, email: &Email) -> EmailResult<SendResult> {
         let providers = self.pool.get_providers_by_priority();
-        
+
         if providers.is_empty() {
             return Err(EmailError::ProviderNotFound("No providers available".to_string()));
         }
@@ -322,7 +319,7 @@ impl EmailManager {
 
         for provider in providers {
             let provider_name = provider.name().to_string();
-            
+
             match provider.validate_email(email) {
                 Ok(_) => {}
                 Err(e) => {
@@ -354,9 +351,8 @@ impl EmailManager {
             }
         }
 
-        Err(last_error.unwrap_or_else(|| {
-            EmailError::ProviderUnavailable("All providers failed".to_string())
-        }))
+        Err(last_error
+            .unwrap_or_else(|| EmailError::ProviderUnavailable("All providers failed".to_string())))
     }
 
     /// 获取服务商
@@ -366,7 +362,8 @@ impl EmailManager {
         } else if let Some(ref default) = self.config.default_provider {
             self.selector.select_by_name(default)
         } else {
-            self.selector.select()
+            self.selector
+                .select()
                 .ok_or_else(|| EmailError::ProviderNotFound("No provider available".to_string()))
         }
     }

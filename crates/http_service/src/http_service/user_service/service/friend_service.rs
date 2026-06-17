@@ -39,7 +39,9 @@ pub async fn add_friend(
 
     // Check if already added
     let friend_link = FriendLink::select_by_last_uuid(rb, &request_user, &accept_user).await?;
-    if friend_link.is_some() && !friend_link.as_ref().ok_or(anyhow!("friend_link is None"))?.is_del.unwrap_or(true) {
+    if friend_link.is_some()
+        && !friend_link.as_ref().ok_or(anyhow!("friend_link is None"))?.is_del.unwrap_or(true)
+    {
         return Err(anyhow!("Already added as friend"));
     }
 
@@ -104,7 +106,9 @@ pub async fn process_friend(
 
     // Check if already added
     let friend_link = FriendLink::select_by_last_uuid(rb, &request_user, &accept_user).await?;
-    if friend_link.is_some() && !friend_link.as_ref().ok_or(anyhow!("friend_link is None"))?.is_del.unwrap_or(true) {
+    if friend_link.is_some()
+        && !friend_link.as_ref().ok_or(anyhow!("friend_link is None"))?.is_del.unwrap_or(true)
+    {
         return Err(anyhow!("Already added as friend"));
     }
 
@@ -185,7 +189,8 @@ pub async fn get_friend_list(
     let res = FriendLink::select_by_last_uuid(rb, &uuid, &uuid_v7).await?;
 
     if res.is_some()
-        && res.as_ref().ok_or(anyhow!("Failed to get timestamp!"))?.version.unwrap_or(-1i32) == version
+        && res.as_ref().ok_or(anyhow!("Failed to get timestamp!"))?.version.unwrap_or(-1i32)
+            == version
     {
         timestamp = res.ok_or(anyhow!("Failed to get timestamp!"))?.created_at.unwrap_or(0i64);
     }

@@ -2,8 +2,8 @@
 //!
 //! Provides object listing and pagination functionality for buckets.
 
-use aws_sdk_s3::types::{Object, ObjectStorageClass, CommonPrefix};
 use aws_sdk_s3::primitives::DateTime;
+use aws_sdk_s3::types::{CommonPrefix, Object, ObjectStorageClass};
 
 use crate::client::S3Client;
 use crate::error::S3Error;
@@ -74,9 +74,7 @@ pub async fn list_objects(
         objects,
         common_prefixes,
         is_truncated: result.is_truncated().unwrap_or(false),
-        next_continuation_token: result
-            .next_continuation_token()
-            .map(|s: &str| s.to_string()),
+        next_continuation_token: result.next_continuation_token().map(|s: &str| s.to_string()),
     })
 }
 
@@ -134,9 +132,7 @@ pub async fn list_objects_paginated(
         objects,
         common_prefixes,
         is_truncated: result.is_truncated().unwrap_or(false),
-        next_continuation_token: result
-            .next_continuation_token()
-            .map(|s: &str| s.to_string()),
+        next_continuation_token: result.next_continuation_token().map(|s: &str| s.to_string()),
     })
 }
 
@@ -151,7 +147,9 @@ pub(crate) fn convert_objects(contents: &[Object]) -> Vec<ObjectInfo> {
             size: obj.size().unwrap_or(0),
             last_modified: obj.last_modified().map(|t: &DateTime| t.to_string()),
             etag: obj.e_tag().map(|s: &str| s.to_string()),
-            storage_class: obj.storage_class().map(|sc: &ObjectStorageClass| sc.as_str().to_string()),
+            storage_class: obj
+                .storage_class()
+                .map(|sc: &ObjectStorageClass| sc.as_str().to_string()),
         })
         .collect()
 }
@@ -160,10 +158,7 @@ pub(crate) fn convert_objects(contents: &[Object]) -> Vec<ObjectInfo> {
 ///
 /// Used to simulate directory structure, extracts common prefixes (e.g., directory names)
 fn extract_common_prefixes(common_prefixes: &[CommonPrefix]) -> Vec<String> {
-    common_prefixes
-        .iter()
-        .filter_map(|p| p.prefix().map(|s: &str| s.to_string()))
-        .collect()
+    common_prefixes.iter().filter_map(|p| p.prefix().map(|s: &str| s.to_string())).collect()
 }
 
 /// List objects result

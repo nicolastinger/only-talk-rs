@@ -171,11 +171,7 @@ impl Email {
     /// );
     /// # Ok::<(), email_service::error::EmailError>(())
     /// ```
-    pub fn new(
-        from: EmailAddress,
-        to: Vec<EmailAddress>,
-        subject: impl Into<String>,
-    ) -> Self {
+    pub fn new(from: EmailAddress, to: Vec<EmailAddress>, subject: impl Into<String>) -> Self {
         Self {
             id: Uuid::new_v4().to_string(),
             from,
@@ -265,7 +261,11 @@ impl Email {
     }
 
     /// 设置模板
-    pub fn with_template(mut self, template_id: impl Into<String>, data: HashMap<String, String>) -> Self {
+    pub fn with_template(
+        mut self,
+        template_id: impl Into<String>,
+        data: HashMap<String, String>,
+    ) -> Self {
         self.template_id = Some(template_id.into());
         self.template_data = data;
         self
@@ -510,7 +510,11 @@ impl EmailBuilder {
     }
 
     /// 设置模板
-    pub fn template(mut self, template_id: impl Into<String>, data: HashMap<String, String>) -> Self {
+    pub fn template(
+        mut self,
+        template_id: impl Into<String>,
+        data: HashMap<String, String>,
+    ) -> Self {
         self.template_id = Some(template_id.into());
         self.template_data = data;
         self

@@ -226,9 +226,8 @@ impl S3Config {
     pub fn from_global_config() -> Result<Self, S3Error> {
         // Helper function: get config item or return error
         let get_config = |key: &str| -> Result<String, S3Error> {
-            common::config_manager::get_config(key).ok_or_else(|| {
-                S3Error::ConfigError(format!("Config key not found: {}", key))
-            })
+            common::config_manager::get_config(key)
+                .ok_or_else(|| S3Error::ConfigError(format!("Config key not found: {}", key)))
         };
 
         // Parse storage provider type
@@ -268,11 +267,11 @@ impl S3Config {
                 .parse::<u64>()
                 .unwrap_or(3600),
             multipart_threshold: get_config("s3.multipart_threshold")
-                .unwrap_or_else(|_| "10485760".to_string())  // 10MB
+                .unwrap_or_else(|_| "10485760".to_string()) // 10MB
                 .parse::<i64>()
                 .unwrap_or(10 * 1024 * 1024),
             multipart_chunk_size: get_config("s3.multipart_chunk_size")
-                .unwrap_or_else(|_| "5242880".to_string())   // 5MB
+                .unwrap_or_else(|_| "5242880".to_string()) // 5MB
                 .parse::<i64>()
                 .unwrap_or(5 * 1024 * 1024),
             max_concurrent_uploads: get_config("s3.max_concurrent_uploads")
@@ -326,11 +325,11 @@ impl S3Config {
             chat_file_origin_bucket: "chat-file-origin".to_string(),
             user_avatar_bucket: "user-avatar".to_string(),
             group_avatar_bucket: "group-avatar".to_string(),
-            force_path_style: true,      // MinIO requires path-style
+            force_path_style: true, // MinIO requires path-style
             enabled: true,
-            presign_expire_seconds: 3600, // 1 hour
-            multipart_threshold: 10 * 1024 * 1024,  // 10MB
-            multipart_chunk_size: 5 * 1024 * 1024,   // 5MB
+            presign_expire_seconds: 3600,          // 1 hour
+            multipart_threshold: 10 * 1024 * 1024, // 10MB
+            multipart_chunk_size: 5 * 1024 * 1024, // 5MB
             max_concurrent_uploads: 10,
         }
     }

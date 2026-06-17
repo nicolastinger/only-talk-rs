@@ -35,19 +35,26 @@ macro_rules! validate_and_respond {
 macro_rules! respond_to_json {
     ($model:expr) => {{
         match $model {
-            Ok(t) => actix_web::HttpResponse::Ok()
-                .body(serde_json::to_string(&CommonResponse::success(t)).unwrap_or_else(|e| format!("{{\"error\":\"{}\"}}", e))),
+            Ok(t) => actix_web::HttpResponse::Ok().body(
+                serde_json::to_string(&CommonResponse::success(t))
+                    .unwrap_or_else(|e| format!("{{\"error\":\"{}\"}}", e)),
+            ),
             Err(t) => HttpResponse::BadRequest().body(
-                serde_json::to_string(&CommonResponse::error(t, "error".to_string())).unwrap_or_else(|e| format!("{{\"error\":\"{}\"}}", e)),
+                serde_json::to_string(&CommonResponse::error(t, "error".to_string()))
+                    .unwrap_or_else(|e| format!("{{\"error\":\"{}\"}}", e)),
             ),
         }
     }};
     ($model:expr, $error_str:expr) => {{
         match $model {
-            Ok(t) => actix_web::HttpResponse::Ok()
-                .body(serde_json::to_string(&CommonResponse::success(t)).unwrap_or_else(|e| format!("{{\"error\":\"{}\"}}", e))),
-            Err(t) => HttpResponse::BadRequest()
-                .body(serde_json::to_string(&CommonResponse::error(t, $error_str)).unwrap_or_else(|e| format!("{{\"error\":\"{}\"}}", e))),
+            Ok(t) => actix_web::HttpResponse::Ok().body(
+                serde_json::to_string(&CommonResponse::success(t))
+                    .unwrap_or_else(|e| format!("{{\"error\":\"{}\"}}", e)),
+            ),
+            Err(t) => HttpResponse::BadRequest().body(
+                serde_json::to_string(&CommonResponse::error(t, $error_str))
+                    .unwrap_or_else(|e| format!("{{\"error\":\"{}\"}}", e)),
+            ),
         }
     }};
 }

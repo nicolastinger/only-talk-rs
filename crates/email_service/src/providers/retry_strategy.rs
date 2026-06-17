@@ -281,8 +281,8 @@ impl ExponentialBackoff {
 
     /// 计算第 N 次重试的延迟时间
     fn calculate_delay(&self, attempt: u32) -> Duration {
-        let delay_ms = self.initial_delay.as_millis() as f64
-            * self.multiplier.powi(attempt as i32 - 1);
+        let delay_ms =
+            self.initial_delay.as_millis() as f64 * self.multiplier.powi(attempt as i32 - 1);
 
         let delay = Duration::from_millis(delay_ms as u64).min(self.max_delay);
 
@@ -364,10 +364,7 @@ impl FixedInterval {
     /// - `max_attempts`: 最大尝试次数
     /// - `interval`: 重试间隔
     pub fn new(max_attempts: u32, interval: Duration) -> Self {
-        Self {
-            max_attempts,
-            interval,
-        }
+        Self { max_attempts, interval }
     }
 
     /// 执行带重试的操作
@@ -613,9 +610,7 @@ impl CircuitBreaker {
                         *state = CircuitState::HalfOpen;
                         Ok(())
                     } else {
-                        Err(EmailError::ProviderUnavailable(
-                            "Circuit breaker is open".to_string(),
-                        ))
+                        Err(EmailError::ProviderUnavailable("Circuit breaker is open".to_string()))
                     }
                 } else {
                     *state = CircuitState::HalfOpen;

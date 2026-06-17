@@ -1,9 +1,8 @@
 use std::str::FromStr;
 
 use anyhow::anyhow;
-use deadpool_redis::redis::{RedisResult, cmd};
-use common::config_str::{MOBILE_PLATFORM, PC_PLATFORM, USER_DEFAULT_ICON, USER_FILE_PUBLIC};
 use common::config_manager;
+use common::config_str::{MOBILE_PLATFORM, PC_PLATFORM, USER_DEFAULT_ICON, USER_FILE_PUBLIC};
 use common::models::user_entity::basic_user::BasicUser;
 use common::models::user_entity::user_info::UserInfo;
 use common::utils::jwt_util::{generate_access_token, generate_token_with_expiry};
@@ -11,9 +10,10 @@ use common::utils::redis_utils::get_redis_conn;
 use common::utils::rsa_util::{hash_password, verify_password};
 use common::utils::time::get_now_time_stamp_as_millis;
 use common::{RBATIS_DATABASE, REDIS_CLIENT};
-use tracing::{error, info};
+use deadpool_redis::redis::{RedisResult, cmd};
 use rbatis::{RBatis, rbdc};
 use rbs::value;
+use tracing::{error, info};
 use uuid::Uuid;
 
 use crate::http_service::user_service::dto::basic_user_dto::SignInBasicUserDTO;
@@ -27,11 +27,17 @@ use crate::utils::http_response::{CommonResponseNoDataRef, CommonResponseRef};
 pub async fn test_sql(rb: &RBatis) -> Vec<BasicUser> {
     let basic_user_all = match BasicUser::select_all(rb).await {
         Ok(v) => v,
-        Err(e) => { error!("select_all query error: {}", e); vec![] }
+        Err(e) => {
+            error!("select_all query error: {}", e);
+            vec![]
+        }
     };
     let basic_user_icon = match BasicUser::select_by_map(rb, value! { "icon": "33333" }).await {
         Ok(v) => v,
-        Err(e) => { error!("select_by_map query error: {}", e); vec![] }
+        Err(e) => {
+            error!("select_by_map query error: {}", e);
+            vec![]
+        }
     };
     info!("1 {:?}", basic_user_all);
     info!("2 {:?}", basic_user_icon);
@@ -108,9 +114,10 @@ pub async fn user_sign_in(
     rb: &RBatis,
     basic_user_dto: SignInBasicUserDTO,
 ) -> Result<String, anyhow::Error> {
-    let platform = basic_user_dto.platform.as_ref().cloned().ok_or(anyhow!("平台为空".to_string()))?;
+    let platform =
+        basic_user_dto.platform.as_ref().cloned().ok_or(anyhow!("平台为空".to_string()))?;
     if platform != PC_PLATFORM && platform != MOBILE_PLATFORM {
-        return Err(anyhow!("暂不支持该平台登录".to_string()))
+        return Err(anyhow!("暂不支持该平台登录".to_string()));
     }
     let basic_user = SignInBasicUserDTO::to_basic_user(basic_user_dto);
     let BasicUser { account, password, .. } = basic_user;
@@ -130,13 +137,26 @@ pub async fn user_sign_in(
         // 短效 token (24h)
         let access_token = generate_access_token(uuid.clone(), platform.clone())?;
         // 长效 refresh token (30 days)
-        let refresh_token = generate_token_with_expiry(uuid.clone(), platform.clone(), 3600 * 24 * 30)?;
+        let refresh_token =
+            generate_token_with_expiry(uuid.clone(), platform.clone(), 3600 * 24 * 30)?;
 
         // 存储 refresh_token 到 Redis (30 天过期)
         let rt_key = format!("REFRESH_TOKEN:{}", refresh_token);
-        let _: () = cmd("SET").arg(&rt_key).arg(&uuid).arg("EX").arg(3600 * 24 * 30).query_async(&mut conn).await?;
+        let _: () = cmd("SET")
+            .arg(&rt_key)
+            .arg(&uuid)
+            .arg("EX")
+            .arg(3600 * 24 * 30)
+            .query_async(&mut conn)
+            .await?;
         let rt_platform_key = format!("REFRESH_TOKEN:PLATFORM:{}", refresh_token);
-        let _: () = cmd("SET").arg(&rt_platform_key).arg(&platform).arg("EX").arg(3600 * 24 * 30).query_async(&mut conn).await?;
+        let _: () = cmd("SET")
+            .arg(&rt_platform_key)
+            .arg(&platform)
+            .arg("EX")
+            .arg(3600 * 24 * 30)
+            .query_async(&mut conn)
+            .await?;
 
         let sign_in_vo = SignInResponseVO { access_token, refresh_token };
         Ok(CommonResponseRef::<SignInResponseVO>::success_json(&sign_in_vo)?)
@@ -163,7 +183,8 @@ pub async fn refresh_access_token(
 
     // 生成新的短效 access_token (24h)
     let access_token = generate_access_token(uuid.clone(), platform.clone())?;
-    let sign_in_vo = SignInResponseVO { access_token, refresh_token: refresh_token_dto.refresh_token.clone() };
+    let sign_in_vo =
+        SignInResponseVO { access_token, refresh_token: refresh_token_dto.refresh_token.clone() };
     Ok(CommonResponseRef::<SignInResponseVO>::success_json(&sign_in_vo)?)
 }
 
@@ -300,8 +321,10 @@ pub async fn update_user_info_service(
     let uuid_str = uuid.ok_or(anyhow!("用户ID为空"))?;
     let uuid = rbatis::rbdc::Uuid::from_str(&uuid_str)?;
 
-    let mut basic_user = BasicUser::select_by_uuid(rb, &uuid).await?.ok_or(anyhow!("用户不存在"))?;
-    let mut user_info = UserInfo::select_by_uuid(rb, &uuid).await?.ok_or(anyhow!("用户详情不存在"))?;
+    let mut basic_user =
+        BasicUser::select_by_uuid(rb, &uuid).await?.ok_or(anyhow!("用户不存在"))?;
+    let mut user_info =
+        UserInfo::select_by_uuid(rb, &uuid).await?.ok_or(anyhow!("用户详情不存在"))?;
 
     update_dto.apply_to_basic_user(&mut basic_user);
     update_dto.apply_to_user_info(&mut user_info)?;
@@ -312,7 +335,8 @@ pub async fn update_user_info_service(
         UserInfo::update_by_uuid(&tx, &user_info, &uuid).await?;
         tx.commit().await?;
         Ok(())
-    }.await;
+    }
+    .await;
 
     if result.is_err() {
         let _ = tx.rollback().await;

@@ -1,8 +1,8 @@
 use std::net::SocketAddr;
 
-use anyhow::{anyhow, Result};
-use rbatis::rbdc::Uuid;
+use anyhow::{Result, anyhow};
 use rbatis::RBatis;
+use rbatis::rbdc::Uuid;
 use tracing::{info, warn};
 
 use common::models::notify_entity::system_notification::SystemNotification;
@@ -15,7 +15,9 @@ use common::utils::server_count_sync::compute_preferred_index;
 use common::utils::time::get_now_time_stamp_as_millis;
 use entity::models::group_entity::{
     group_info::GroupInfo,
-    group_invitation::{GroupInvitation, INVITATION_ACCEPTED, INVITATION_DECLINED, INVITATION_PENDING},
+    group_invitation::{
+        GroupInvitation, INVITATION_ACCEPTED, INVITATION_DECLINED, INVITATION_PENDING,
+    },
     group_member::{GroupMember, ROLE_ADMIN, ROLE_MEMBER, ROLE_OWNER, STATUS_NORMAL},
     group_message_record::GroupMessageRecord,
 };
@@ -45,13 +47,21 @@ async fn push_notification_via_quic(notification: SystemNotification) -> Result<
         .ok_or_else(|| anyhow!("Notification missing target user ID"))?;
     let json_str = serde_json::to_string(&notification)?;
 
+    // Wrap as TextQuicMsg binary (consistent with other message paths)
+    let payload = common::utils::text_msg::generate_text_msg(
+        NOTIFY_TYPE_MSG,
+        json_str.into_bytes(),
+        target_id.clone(),
+        common::config_str::SYSTEM.to_string(),
+    )?;
+
     let addr_str = read_global_config!("internal_quic_server", "address");
     let server_addr: SocketAddr = addr_str.parse()?;
     let preferred_index = compute_preferred_index(&target_id);
 
     let request = InternalQuicRequest {
         msg_type: NOTIFY_TYPE_MSG,
-        payload: json_str.into_bytes(),
+        payload,
         target_user: target_id,
         preferred_index,
         platform: common::config_str::PC_PLATFORM.to_string(),
@@ -178,7 +188,11 @@ pub async fn update_group_service(
     }
 }
 
-pub async fn dissolve_group_service(rb: &RBatis, user_uuid: &str, group_uuid: &str) -> Result<bool> {
+pub async fn dissolve_group_service(
+    rb: &RBatis,
+    user_uuid: &str,
+    group_uuid: &str,
+) -> Result<bool> {
     let uuid = group_uuid.parse::<Uuid>()?;
     let group = GroupInfo::select_by_group_uuid(rb, &uuid).await?;
 
@@ -228,7 +242,10 @@ pub async fn get_my_groups_service(rb: &RBatis, user_uuid: &str) -> Result<Vec<G
     Ok(result)
 }
 
-pub async fn get_group_members_service(rb: &RBatis, group_uuid: &str) -> Result<Vec<GroupMemberVO>> {
+pub async fn get_group_members_service(
+    rb: &RBatis,
+    group_uuid: &str,
+) -> Result<Vec<GroupMemberVO>> {
     use deadpool_redis::redis::AsyncCommands;
 
     let cache_key = format!("group:members:{}", group_uuid);
@@ -385,12 +402,13 @@ pub async fn accept_group_invitation_service(
             };
             GroupMember::insert(rb, &member).await?;
 
-            sync_group_members_to_redis(rb,&dto.group_uuid).await?;
+            sync_group_members_to_redis(rb, &dto.group_uuid).await?;
 
             // Notify the inviter
             let group = GroupInfo::select_by_group_uuid(rb, &group_uuid).await?;
             let group_name = group.and_then(|g| g.group_name).unwrap_or_default();
-            let notify_msg = format!("User has accepted the invitation to join group chat '{}'", group_name);
+            let notify_msg =
+                format!("User has accepted the invitation to join group chat '{}'", group_name);
             if let Some(inviter) = inv.inviter_uuid {
                 let notification = send_group_invite_result_msg(
                     rb,
@@ -479,8 +497,7 @@ pub async fn get_sent_invitations_service(
     user_uuid: &str,
 ) -> Result<Vec<GroupInvitationVO>> {
     let uuid = user_uuid.parse::<Uuid>()?;
-    let invitations: Vec<GroupInvitation> =
-        GroupInvitation::select_by_inviter(rb, &uuid).await?;
+    let invitations: Vec<GroupInvitation> = GroupInvitation::select_by_inviter(rb, &uuid).await?;
 
     let mut result = Vec::new();
     for inv in invitations {
@@ -514,7 +531,8 @@ pub async fn remove_group_member_service(
 ) -> Result<bool> {
     let g_uuid = group_uuid.parse::<Uuid>()?;
     let op_uuid = operator_uuid.parse::<Uuid>()?;
-    let operator: Option<GroupMember> = GroupMember::select_by_group_and_user(rb, &g_uuid, &op_uuid).await?;
+    let operator: Option<GroupMember> =
+        GroupMember::select_by_group_and_user(rb, &g_uuid, &op_uuid).await?;
 
     match operator {
         Some(op) => {
@@ -524,7 +542,8 @@ pub async fn remove_group_member_service(
             }
 
             let t_uuid = target_uuid.parse::<Uuid>()?;
-            let target: Option<GroupMember> = GroupMember::select_by_group_and_user(rb, &g_uuid, &t_uuid).await?;
+            let target: Option<GroupMember> =
+                GroupMember::select_by_group_and_user(rb, &g_uuid, &t_uuid).await?;
 
             match target {
                 Some(mut t) => {
@@ -532,10 +551,14 @@ pub async fn remove_group_member_service(
                         return Ok(false);
                     }
                     t.status = Some(3);
-                    let user_uuid = t.user_uuid.clone().ok_or_else(|| anyhow!("Member missing user_uuid"))?;
+                    let user_uuid =
+                        t.user_uuid.clone().ok_or_else(|| anyhow!("Member missing user_uuid"))?;
                     GroupMember::update_by_group_and_user(rb, &t, &g_uuid, &user_uuid).await?;
-                    sync_group_members_to_redis(rb,group_uuid).await?;
-                    info!("[group chat] member removed successfully group_uuid={} target={}", group_uuid, target_uuid);
+                    sync_group_members_to_redis(rb, group_uuid).await?;
+                    info!(
+                        "[group chat] member removed successfully group_uuid={} target={}",
+                        group_uuid, target_uuid
+                    );
                     Ok(true)
                 }
                 None => Ok(false),
@@ -548,7 +571,8 @@ pub async fn remove_group_member_service(
 pub async fn quit_group_service(rb: &RBatis, user_uuid: &str, group_uuid: &str) -> Result<bool> {
     let g_uuid = group_uuid.parse::<Uuid>()?;
     let u_uuid = user_uuid.parse::<Uuid>()?;
-    let member: Option<GroupMember> = GroupMember::select_by_group_and_user(rb, &g_uuid, &u_uuid).await?;
+    let member: Option<GroupMember> =
+        GroupMember::select_by_group_and_user(rb, &g_uuid, &u_uuid).await?;
 
     match member {
         Some(mut m) => {
@@ -556,10 +580,14 @@ pub async fn quit_group_service(rb: &RBatis, user_uuid: &str, group_uuid: &str) 
                 return Ok(false);
             }
             m.status = Some(2);
-            let user_uuid_val = m.user_uuid.clone().ok_or_else(|| anyhow!("Member missing user_uuid"))?;
+            let user_uuid_val =
+                m.user_uuid.clone().ok_or_else(|| anyhow!("Member missing user_uuid"))?;
             GroupMember::update_by_group_and_user(rb, &m, &g_uuid, &user_uuid_val).await?;
-            sync_group_members_to_redis(rb,group_uuid).await?;
-            info!("[group chat] member quit successfully group_uuid={} user={}", group_uuid, user_uuid);
+            sync_group_members_to_redis(rb, group_uuid).await?;
+            info!(
+                "[group chat] member quit successfully group_uuid={} user={}",
+                group_uuid, user_uuid
+            );
             Ok(true)
         }
         None => Ok(false),
@@ -573,7 +601,8 @@ pub async fn set_member_role_service(
 ) -> Result<bool> {
     let group_uuid = dto.group_uuid.parse::<Uuid>()?;
     let op_uuid = operator_uuid.parse::<Uuid>()?;
-    let operator: Option<GroupMember> = GroupMember::select_by_group_and_user(rb, &group_uuid, &op_uuid).await?;
+    let operator: Option<GroupMember> =
+        GroupMember::select_by_group_and_user(rb, &group_uuid, &op_uuid).await?;
 
     match operator {
         Some(op) => {
@@ -582,14 +611,19 @@ pub async fn set_member_role_service(
             }
 
             let t_uuid = dto.user_uuid.parse::<Uuid>()?;
-            let target: Option<GroupMember> = GroupMember::select_by_group_and_user(rb, &group_uuid, &t_uuid).await?;
+            let target: Option<GroupMember> =
+                GroupMember::select_by_group_and_user(rb, &group_uuid, &t_uuid).await?;
 
             match target {
                 Some(mut t) => {
                     t.role = Some(dto.role);
-                    let user_uuid = t.user_uuid.clone().ok_or_else(|| anyhow!("Member missing user_uuid"))?;
+                    let user_uuid =
+                        t.user_uuid.clone().ok_or_else(|| anyhow!("Member missing user_uuid"))?;
                     GroupMember::update_by_group_and_user(rb, &t, &group_uuid, &user_uuid).await?;
-                    info!("[group chat] role set successfully group_uuid={} user={} role={}", dto.group_uuid, dto.user_uuid, dto.role);
+                    info!(
+                        "[group chat] role set successfully group_uuid={} user={} role={}",
+                        dto.group_uuid, dto.user_uuid, dto.role
+                    );
                     Ok(true)
                 }
                 None => Ok(false),
@@ -606,8 +640,9 @@ pub async fn get_group_message_history_service(
 ) -> Result<Vec<GroupMessageVO>> {
     let group_uuid = dto.group_uuid.parse::<Uuid>()?;
     let u_uuid = user_uuid.parse::<Uuid>()?;
-    
-    let member: Option<GroupMember> = GroupMember::select_by_group_and_user(rb, &group_uuid, &u_uuid).await?;
+
+    let member: Option<GroupMember> =
+        GroupMember::select_by_group_and_user(rb, &group_uuid, &u_uuid).await?;
 
     if member.is_none() {
         return Ok(Vec::new());
@@ -616,7 +651,8 @@ pub async fn get_group_message_history_service(
     let start = dto.start.unwrap_or(0);
     let size = dto.size.unwrap_or(20);
 
-    let messages: Vec<GroupMessageRecord> = GroupMessageRecord::select_by_group(rb, &group_uuid, start, size).await?;
+    let messages: Vec<GroupMessageRecord> =
+        GroupMessageRecord::select_by_group(rb, &group_uuid, start, size).await?;
 
     Ok(messages
         .into_iter()
@@ -644,7 +680,8 @@ pub async fn get_unread_group_messages_service(
         if let (Some(g_uuid), Some(last_read_msg_id)) =
             (membership.group_uuid, membership.last_read_msg_id)
         {
-            let unread: Vec<GroupMessageRecord> = GroupMessageRecord::select_unread(rb, &g_uuid, last_read_msg_id).await?;
+            let unread: Vec<GroupMessageRecord> =
+                GroupMessageRecord::select_unread(rb, &g_uuid, last_read_msg_id).await?;
             if !unread.is_empty() {
                 result.push(UnreadCountVO {
                     group_uuid: g_uuid.to_string(),
@@ -662,19 +699,24 @@ async fn sync_group_members_to_redis(rb: &RBatis, group_uuid: &str) -> Result<()
 
     let uuid = group_uuid.parse::<Uuid>()?;
     let members: Vec<GroupMember> = GroupMember::select_members_by_group(rb, &uuid).await?;
-    let uuids: Vec<String> = members
-        .into_iter()
-        .filter_map(|m| m.user_uuid.map(|u: Uuid| u.to_string()))
-        .collect();
+    let uuids: Vec<String> =
+        members.into_iter().filter_map(|m| m.user_uuid.map(|u: Uuid| u.to_string())).collect();
 
     let cache_key = format!("group:members:{}", group_uuid);
     let json = serde_json::to_string(&uuids)?;
 
     if let Some(mut conn) = try_get_redis_conn().await {
         let _: Result<(), _> = conn.set_ex(&cache_key, &json, 1800_u64).await;
-        info!("[group chat] synced members to Redis group_uuid={} member_count={}", group_uuid, uuids.len());
+        info!(
+            "[group chat] synced members to Redis group_uuid={} member_count={}",
+            group_uuid,
+            uuids.len()
+        );
     } else {
-        warn!("[group chat] failed to get Redis connection, members not synced group_uuid={}", group_uuid);
+        warn!(
+            "[group chat] failed to get Redis connection, members not synced group_uuid={}",
+            group_uuid
+        );
     }
 
     Ok(())
@@ -686,9 +728,8 @@ pub async fn update_group_avatar_service(
     group_uuid: &str,
 ) -> Result<(), anyhow::Error> {
     let g_uuid = group_uuid.parse::<Uuid>()?;
-    let mut group = GroupInfo::select_by_group_uuid(rb, &g_uuid)
-        .await?
-        .ok_or(anyhow!("群组不存在"))?;
+    let mut group =
+        GroupInfo::select_by_group_uuid(rb, &g_uuid).await?.ok_or(anyhow!("群组不存在"))?;
     group.avatar = Some(biz_id);
     GroupInfo::update_by_group_uuid(rb, &group, &g_uuid).await?;
     Ok(())

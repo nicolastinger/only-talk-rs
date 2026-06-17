@@ -1,5 +1,5 @@
-use s3_service::config::S3Config;
 use s3_service::S3Client;
+use s3_service::config::S3Config;
 
 #[tokio::main]
 async fn main() {
@@ -39,7 +39,7 @@ async fn main() {
     }
 
     println!("\n2. 尝试使用 MinIO 兼容的公开读策略...");
-    
+
     let minio_public_policy = serde_json::json!({
         "Version": "2012-10-17",
         "Statement": [
@@ -56,14 +56,7 @@ async fn main() {
     println!("新策略内容:");
     println!("{}", serde_json::to_string_pretty(&minio_public_policy).unwrap());
 
-    match client
-        .inner
-        .put_bucket_policy()
-        .bucket(&bucket_name)
-        .policy(&policy_str)
-        .send()
-        .await
-    {
+    match client.inner.put_bucket_policy().bucket(&bucket_name).policy(&policy_str).send().await {
         Ok(_) => println!("✓ 策略更新成功"),
         Err(e) => {
             use aws_sdk_s3::error::ProvideErrorMetadata;

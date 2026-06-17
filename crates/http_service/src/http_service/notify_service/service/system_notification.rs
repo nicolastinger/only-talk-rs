@@ -91,8 +91,8 @@ pub async fn send_group_invite_msg(
         biz_id,
         is_read: Some(false),
         level1: Some(1),
-        level2: Some(3),   // 群聊通知
-        level3: Some(1),   // 群邀请
+        level2: Some(3), // 群聊通知
+        level3: Some(1), // 群邀请
         level4: Some(0),
         unread_count: Some(1),
         priority: Some(1),
@@ -120,8 +120,8 @@ pub async fn send_group_invite_result_msg(
         biz_id,
         is_read: Some(false),
         level1: Some(1),
-        level2: Some(3),   // 群聊通知
-        level3: Some(4),   // 群邀请结果
+        level2: Some(3), // 群聊通知
+        level3: Some(4), // 群邀请结果
         level4: Some(0),
         unread_count: Some(1),
         priority: Some(1),

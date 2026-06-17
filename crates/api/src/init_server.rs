@@ -3,6 +3,7 @@ use std::fs::File;
 use std::io::{BufReader, Seek, SeekFrom};
 use std::sync::Arc;
 
+use crate::controller::configure_api_routes;
 use actix_files::Files;
 use actix_web::middleware::from_fn;
 use actix_web::{App, HttpServer, middleware, web};
@@ -11,12 +12,11 @@ use common::{init_app_config, init_redis, init_sql_pool, read_global_config, ver
 use http_service;
 use http_service::middleware::TraceIdMiddleware;
 use http_service::utils::record_bad_http::error_record_middleware;
+use rustls::{Certificate, PrivateKey, ServerConfig};
+use rustls_pemfile::{certs, ec_private_keys, pkcs8_private_keys, rsa_private_keys};
 use s3_service::client::GlobalS3Client;
 use s3_service::config::S3Config;
 use tracing::{error, info, warn};
-use rustls::{Certificate, PrivateKey, ServerConfig};
-use rustls_pemfile::{certs, ec_private_keys, pkcs8_private_keys, rsa_private_keys};
-use crate::controller::configure_api_routes;
 
 fn read_key_file(path: &str, label: &str) -> anyhow::Result<File> {
     File::open(path).map_err(|e| anyhow::anyhow!("{} not found: {}", label, e))
@@ -28,8 +28,10 @@ fn reset_file(file: &mut impl Seek) -> anyhow::Result<()> {
 }
 
 fn init_cert_file() -> anyhow::Result<(Vec<Certificate>, PrivateKey)> {
-    let cert_file = &mut BufReader::new(read_key_file("./config/ssl/fullchain.pem", "TLS certificate")?);
-    let key_file = &mut BufReader::new(read_key_file("./config/ssl/privkey.pem", "TLS certificate key")?);
+    let cert_file =
+        &mut BufReader::new(read_key_file("./config/ssl/fullchain.pem", "TLS certificate")?);
+    let key_file =
+        &mut BufReader::new(read_key_file("./config/ssl/privkey.pem", "TLS certificate key")?);
 
     let cert_chain = certs(cert_file)
         .map_err(|e| anyhow::anyhow!("Failed to read certificate chain: {}", e))?
@@ -51,13 +53,14 @@ fn init_cert_file() -> anyhow::Result<(Vec<Certificate>, PrivateKey)> {
                         keys
                     } else {
                         reset_file(key_file)?;
-                        pkcs8_private_keys(key_file)
-                .map_err(|e| anyhow::anyhow!("Unable to read PKCS8 private key: {}", e))?
+                        pkcs8_private_keys(key_file).map_err(|e| {
+                            anyhow::anyhow!("Unable to read PKCS8 private key: {}", e)
+                        })?
                     }
                 } else {
                     reset_file(key_file)?;
                     pkcs8_private_keys(key_file)
-            .map_err(|e| anyhow::anyhow!("Unable to read PKCS8 private key: {}", e))?
+                        .map_err(|e| anyhow::anyhow!("Unable to read PKCS8 private key: {}", e))?
                 }
             }
         } else {
@@ -68,7 +71,7 @@ fn init_cert_file() -> anyhow::Result<(Vec<Certificate>, PrivateKey)> {
                 } else {
                     reset_file(key_file)?;
                     pkcs8_private_keys(key_file)
-            .map_err(|e| anyhow::anyhow!("Unable to read PKCS8 private key: {}", e))?
+                        .map_err(|e| anyhow::anyhow!("Unable to read PKCS8 private key: {}", e))?
                 }
             } else {
                 reset_file(key_file)?;
@@ -142,10 +145,10 @@ pub async fn start_server() -> anyhow::Result<()> {
         .with_safe_defaults()
         .with_no_client_auth()
         .with_single_cert(cert_chain, key)
-                .map_err(|e| {
-                error!("failed to set certificate and private key: {}", e);
-                std::io::Error::other("Failed to set certificate and private key")
-            })?;
+        .map_err(|e| {
+            error!("failed to set certificate and private key: {}", e);
+            std::io::Error::other("Failed to set certificate and private key")
+        })?;
 
     let redis_url = read_global_config!("redis", "url");
     let redis_pool = init_redis(&redis_url)?;

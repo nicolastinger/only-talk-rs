@@ -31,7 +31,8 @@ pub async fn init_sql_pool(url: &str) -> Result<RBatis, anyhow::Error> {
     let conn_manager =
         ConnectionManager::new_arc(Arc::new(Box::new(PgDriver {})), Arc::new(Box::new(opts)));
 
-    let pool = FastPool::new(conn_manager).map_err(|e| anyhow!("Failed to create connection pool: {}", e))?;
+    let pool = FastPool::new(conn_manager)
+        .map_err(|e| anyhow!("Failed to create connection pool: {}", e))?;
     pool.set_timeout(Some(Duration::from_secs(2))).await;
 
     rb.pool

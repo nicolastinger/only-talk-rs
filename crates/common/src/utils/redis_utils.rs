@@ -24,9 +24,8 @@ pub fn init_redis(url: &str) -> Result<Pool, anyhow::Error> {
         .map_err(|e| anyhow!("Failed to create Redis connection pool: {}", e))?;
 
     {
-        let mut guard = REDIS_CLIENT
-            .try_write()
-            .map_err(|_| anyhow!("Failed to acquire Redis write lock"))?;
+        let mut guard =
+            REDIS_CLIENT.try_write().map_err(|_| anyhow!("Failed to acquire Redis write lock"))?;
         if REDIS_INIT_ONCE.set(()).is_ok() {
             *guard = Some(pool.clone());
         }
@@ -39,9 +38,8 @@ pub fn init_redis(url: &str) -> Result<Pool, anyhow::Error> {
 pub async fn verify_redis(pool: &Pool) {
     match pool.get().await {
         Ok(mut conn) => {
-            let result: Result<String, _> = deadpool_redis::redis::cmd("PING")
-                .query_async(&mut conn)
-                .await;
+            let result: Result<String, _> =
+                deadpool_redis::redis::cmd("PING").query_async(&mut conn).await;
             match result {
                 Ok(ref s) if s == "PONG" => {
                     info!("Redis connected (PING: {})", s);

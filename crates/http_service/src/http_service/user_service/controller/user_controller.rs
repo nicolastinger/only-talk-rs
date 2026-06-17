@@ -1,6 +1,6 @@
 use actix_web::{HttpRequest, HttpResponse, Responder, get, post, web};
-use tracing::info;
 use rbatis::RBatis;
+use tracing::info;
 
 use crate::common::dto::base_dto::AuthAccount;
 use crate::http_service::user_service::dto::basic_user_dto::SignInBasicUserDTO;
@@ -54,9 +54,7 @@ pub async fn sign_in(
 }
 
 #[post("/refresh_token")]
-pub async fn refresh_token(
-    dto: web::Json<RefreshTokenDTO>,
-) -> impl Responder {
+pub async fn refresh_token(dto: web::Json<RefreshTokenDTO>) -> impl Responder {
     let dto: RefreshTokenDTO = validate_and_respond!(dto);
     let res = refresh_access_token(dto).await;
     respond_json_any!(res)

@@ -1,16 +1,16 @@
-use std::collections::HashMap;
-use std::fs;
-use std::sync::Arc;
-use std::sync::OnceLock;
 use ::tracing::log;
 use deadpool_redis::Pool;
 use lazy_static::lazy_static;
 use rbatis::RBatis;
+use std::collections::HashMap;
+use std::fs;
+use std::sync::Arc;
+use std::sync::OnceLock;
 use tokio::sync::RwLock;
 use toml::Value;
 
-pub mod config_str;
 pub mod config_manager;
+pub mod config_str;
 pub mod marcos;
 pub mod tracing;
 pub mod utils;
@@ -19,7 +19,7 @@ pub mod utils;
 pub use utils::fatal_error::{fatal_panic, fatal_panic_async};
 pub use utils::internal_quic_client::send_internal_quic_msg;
 pub use utils::redis_utils::{init_redis, verify_redis};
-pub use utils::server_count_sync::{get_server_count, start_server_count_sync, SERVER_COUNT};
+pub use utils::server_count_sync::{SERVER_COUNT, get_server_count, start_server_count_sync};
 pub use utils::sql_utils::init_sql_pool;
 
 // Re-export entity models so external crates only need to depend on core to access DB entities
@@ -41,7 +41,9 @@ pub fn substitute_env_vars(content: String) -> String {
     let mut iterations = 0;
     loop {
         if iterations > 100 {
-            log::warn!("env var substitution exceeded 100 iterations, possible circular reference, terminating early");
+            log::warn!(
+                "env var substitution exceeded 100 iterations, possible circular reference, terminating early"
+            );
             break;
         }
         iterations += 1;
@@ -64,11 +66,8 @@ pub fn init_app_config() -> anyhow::Result<String> {
 
     fn insert_config(map: &HashMap<String, Value>, prefix: &str) {
         for (key, value) in map {
-            let full_key = if prefix.is_empty() {
-                key.clone()
-            } else {
-                format!("{}.{}", prefix, key)
-            };
+            let full_key =
+                if prefix.is_empty() { key.clone() } else { format!("{}.{}", prefix, key) };
             match value {
                 Value::String(s) => config_manager::set_config(full_key, s.clone()),
                 Value::Integer(i) => config_manager::set_config(full_key, i.to_string()),

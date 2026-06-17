@@ -4,7 +4,7 @@ use email_service::{EmailAddress, EmailError};
 fn test_valid_email_address() {
     let addr = EmailAddress::new("test@example.com");
     assert!(addr.is_ok());
-    
+
     let addr = addr.unwrap();
     assert_eq!(addr.address(), "test@example.com");
     assert_eq!(addr.domain(), Some("example.com"));
@@ -16,7 +16,7 @@ fn test_valid_email_address() {
 fn test_valid_email_with_name() {
     let addr = EmailAddress::with_name("test@example.com", "Test User");
     assert!(addr.is_ok());
-    
+
     let addr = addr.unwrap();
     assert_eq!(addr.name(), Some("Test User"));
     assert_eq!(addr.to_string(), "Test User <test@example.com>");
@@ -26,7 +26,7 @@ fn test_valid_email_with_name() {
 fn test_invalid_email_address() {
     let result = EmailAddress::new("invalid-email");
     assert!(result.is_err());
-    
+
     if let Err(EmailError::InvalidEmailAddress(email)) = result {
         assert_eq!(email, "invalid-email");
     } else {

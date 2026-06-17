@@ -1,7 +1,7 @@
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
 use deadpool_redis::Pool;
@@ -50,9 +50,7 @@ async fn refresh_external_node_key(pool: &Pool, server_index: u32, node_address:
     use deadpool_redis::redis::AsyncCommands;
     if let Ok(mut conn) = pool.get().await {
         let key = format!("{}{}", REDIS_EXTERNAL_QUIC_SERVERS, server_index);
-        let _: Result<(), _> = conn
-            .set_ex::<&str, &str, ()>(&key, node_address, 120)
-            .await;
+        let _: Result<(), _> = conn.set_ex::<&str, &str, ()>(&key, node_address, 120).await;
     }
 }
 
@@ -83,7 +81,11 @@ pub fn compute_preferred_index(uuid: &str) -> u32 {
 }
 
 /// 节点启动时注册外网 QUIC 节点到 Redis（短 TTL，由后台任务续期）
-pub async fn register_external_node(pool: &Pool, server_index: u32, node_address: &str) -> Result<(), anyhow::Error> {
+pub async fn register_external_node(
+    pool: &Pool,
+    server_index: u32,
+    node_address: &str,
+) -> Result<(), anyhow::Error> {
     use deadpool_redis::redis::AsyncCommands;
     let mut conn = pool.get().await?;
     let key = format!("{}{}", REDIS_EXTERNAL_QUIC_SERVERS, server_index);

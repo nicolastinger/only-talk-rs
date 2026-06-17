@@ -8,11 +8,11 @@ use tracing::info;
 
 use super::config::ChatNodeConfig;
 use super::lifecycle::ServiceLifecycle;
-use crate::models::quic_connection::QuicConnection;
 use super::quic_server::run_server;
 use super::set_server::make_server_endpoint;
 use super::state::{ServiceError, ServiceState};
 use super::tls_monitor::start_tls_monitor;
+use crate::models::quic_connection::QuicConnection;
 
 pub struct ChatNode {
     config: ChatNodeConfig,
@@ -170,9 +170,6 @@ impl ServiceLifecycle for ChatNode {
     }
 
     fn status(&self) -> ServiceState {
-        self.state
-            .try_read()
-            .map(|s| *s)
-            .unwrap_or(ServiceState::Running)
+        self.state.try_read().map(|s| *s).unwrap_or(ServiceState::Running)
     }
 }

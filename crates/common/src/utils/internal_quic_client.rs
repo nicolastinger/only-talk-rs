@@ -30,7 +30,9 @@ impl ServerCertVerifier for SkipServerVerification {
 
 /// Create QUIC client config that skips server cert verification
 pub fn make_internal_client_config() -> Result<ClientConfig> {
-    debug!("[internal QUIC client] [single chat] creating client config (skipping cert verification)");
+    debug!(
+        "[internal QUIC client] [single chat] creating client config (skipping cert verification)"
+    );
     let crypto = rustls::ClientConfig::builder()
         .with_safe_defaults()
         .with_custom_certificate_verifier(Arc::new(SkipServerVerification))
@@ -65,13 +67,13 @@ pub async fn send_internal_quic_msg(
 
     // Establish connection
     info!("[internal QUIC client] [single chat] connecting to internal node {}", server_addr);
-    let connection = endpoint
-        .connect(server_addr, "localhost")?
-        .await
-        .map_err(|e| {
-            error!("[internal QUIC client] [single chat] connection to internal node {} failed: {}", server_addr, e);
-            anyhow::anyhow!("Internal QUIC connection to {} failed: {}", server_addr, e)
-        })?;
+    let connection = endpoint.connect(server_addr, "localhost")?.await.map_err(|e| {
+        error!(
+            "[internal QUIC client] [single chat] connection to internal node {} failed: {}",
+            server_addr, e
+        );
+        anyhow::anyhow!("Internal QUIC connection to {} failed: {}", server_addr, e)
+    })?;
     info!("[internal QUIC client] [single chat] connected to internal node {}", server_addr);
 
     // open bi-directional stream
@@ -97,14 +99,14 @@ pub async fn send_internal_quic_msg(
             let resp: InternalQuicResponse = bincode::deserialize(&buf[..len])?;
             info!(
                 "[internal QUIC client] [single chat] response parsed status={} delivered={:?} message={:?}",
-                resp.status,
-                resp.delivered,
-                resp.message
+                resp.status, resp.delivered, resp.message
             );
             Ok(resp)
         }
         None => {
-            warn!("[internal QUIC client] [single chat] server closed stream, no response returned");
+            warn!(
+                "[internal QUIC client] [single chat] server closed stream, no response returned"
+            );
             Ok(InternalQuicResponse::error("server returned no response"))
         }
     }

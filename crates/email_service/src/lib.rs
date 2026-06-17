@@ -81,31 +81,29 @@
 //! - [`providers`]: 邮件服务商实现
 //! - [`manager`]: 邮件管理器和连接池
 
-pub mod error;
 pub mod config;
-pub mod models;
-pub mod providers;
+pub mod error;
 pub mod manager;
+pub mod models;
 pub mod pool;
+pub mod providers;
 
-pub use error::{EmailError, EmailResult};
 pub use config::{
-    EmailServiceConfig, RetryConfig, PoolConfig, RateLimitConfig,
-    ProviderConfig, AliyunConfig, TencentConfig, AwsSesConfig, SmtpConfig,
+    AliyunConfig, AwsSesConfig, EmailServiceConfig, PoolConfig, ProviderConfig, RateLimitConfig,
+    RetryConfig, SmtpConfig, TencentConfig,
+};
+pub use error::{EmailError, EmailResult};
+pub use manager::{
+    EmailManager, EmailManagerBuilder, ProviderPool, ProviderSelector, SelectionStrategy,
 };
 pub use models::{
-    Email, EmailAddress, EmailBuilder, EmailPriority,
-    Attachment, ContentDisposition,
-    SendResult, SendStatus, RecipientResult, ErrorInfo, ErrorCategory,
+    Attachment, ContentDisposition, Email, EmailAddress, EmailBuilder, EmailPriority,
+    ErrorCategory, ErrorInfo, RecipientResult, SendResult, SendStatus,
 };
 pub use providers::{
-    EmailProvider, BoxedEmailProvider,
-    RetryStrategy, ExponentialBackoff, FixedInterval, NoRetry, AdaptiveRetry, CircuitBreaker,
-    AliyunEmailProvider, TencentEmailProvider, AwsSesEmailProvider, SmtpEmailProvider,
-};
-pub use manager::{
-    EmailManager, EmailManagerBuilder,
-    ProviderPool, ProviderSelector, SelectionStrategy,
+    AdaptiveRetry, AliyunEmailProvider, AwsSesEmailProvider, BoxedEmailProvider, CircuitBreaker,
+    EmailProvider, ExponentialBackoff, FixedInterval, NoRetry, RetryStrategy, SmtpEmailProvider,
+    TencentEmailProvider,
 };
 
 /// 常用类型预导入模块
@@ -116,15 +114,14 @@ pub use manager::{
 /// use email_service::prelude::*;
 /// ```
 pub mod prelude {
-    pub use crate::error::{EmailError, EmailResult};
     pub use crate::config::{
-        EmailServiceConfig, RetryConfig, PoolConfig,
-        ProviderConfig, AliyunConfig, TencentConfig, AwsSesConfig, SmtpConfig,
+        AliyunConfig, AwsSesConfig, EmailServiceConfig, PoolConfig, ProviderConfig, RetryConfig,
+        SmtpConfig, TencentConfig,
     };
+    pub use crate::error::{EmailError, EmailResult};
+    pub use crate::manager::EmailManager;
     pub use crate::models::{
-        Email, EmailAddress, EmailBuilder, EmailPriority,
-        Attachment, SendResult, SendStatus,
+        Attachment, Email, EmailAddress, EmailBuilder, EmailPriority, SendResult, SendStatus,
     };
     pub use crate::providers::EmailProvider;
-    pub use crate::manager::EmailManager;
 }

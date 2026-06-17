@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use actix_web::{web, Responder, HttpResponse, get, post, delete};
+use actix_web::{HttpResponse, Responder, delete, get, post, web};
 use s3_service::S3Client;
 use serde::{Deserialize, Serialize};
 
@@ -22,7 +22,7 @@ pub fn s3_service_routes(cfg: &mut web::ServiceConfig) {
             .service(get_object_tags_api)
             .service(put_object_tags_api)
             .service(put_bucket_cors_api)
-            .service(s3_health_check_api)
+            .service(s3_health_check_api),
     );
 }
 
@@ -117,11 +117,7 @@ fn err_response(msg: &str) -> HttpResponse {
 #[get("/health")]
 async fn s3_health_check_api(client: web::Data<Arc<S3Client>>) -> impl Responder {
     let healthy = client.health_check().await.unwrap_or(false);
-    if healthy {
-        ok_msg("S3服务正常")
-    } else {
-        err_response("S3服务不可用")
-    }
+    if healthy { ok_msg("S3服务正常") } else { err_response("S3服务不可用") }
 }
 
 #[post("/presign/download")]
@@ -135,8 +131,14 @@ async fn get_download_presigned_url_api(
 
     match s3_service::operations::presigned::generate_download_presigned_url(
         &client, &bucket, &body.key, expires,
-    ).await {
-        Ok(url) => ok_response(&PresignedUrlResponse { url, key: body.key.clone(), expires_seconds: expires_secs }),
+    )
+    .await
+    {
+        Ok(url) => ok_response(&PresignedUrlResponse {
+            url,
+            key: body.key.clone(),
+            expires_seconds: expires_secs,
+        }),
         Err(e) => err_response(&e.to_string()),
     }
 }
@@ -152,8 +154,14 @@ async fn get_upload_presigned_url_api(
 
     match s3_service::operations::presigned::generate_upload_presigned_url(
         &client, &bucket, &body.key, expires,
-    ).await {
-        Ok(url) => ok_response(&PresignedUrlResponse { url, key: body.key.clone(), expires_seconds: expires_secs }),
+    )
+    .await
+    {
+        Ok(url) => ok_response(&PresignedUrlResponse {
+            url,
+            key: body.key.clone(),
+            expires_seconds: expires_secs,
+        }),
         Err(e) => err_response(&e.to_string()),
     }
 }
@@ -208,8 +216,13 @@ async fn list_objects_api(
 ) -> impl Responder {
     let bucket = get_bucket(&client, body.bucket.as_ref());
     match s3_service::operations::list::list_objects(
-        &client, &bucket, body.prefix.as_deref(), body.max_keys,
-    ).await {
+        &client,
+        &bucket,
+        body.prefix.as_deref(),
+        body.max_keys,
+    )
+    .await
+    {
         Ok(objects) => ok_response(&objects),
         Err(e) => err_response(&e.to_string()),
     }
@@ -250,8 +263,14 @@ async fn copy_object_api(
     let source_bucket = get_bucket(&client, body.source_bucket.as_ref());
     let dest_bucket = get_bucket(&client, body.dest_bucket.as_ref());
     match s3_service::operations::copy_move::copy_object(
-        &client, &source_bucket, &body.source_key, &dest_bucket, &body.dest_key,
-    ).await {
+        &client,
+        &source_bucket,
+        &body.source_key,
+        &dest_bucket,
+        &body.dest_key,
+    )
+    .await
+    {
         Ok(_) => ok_msg("对象复制成功"),
         Err(e) => err_response(&e.to_string()),
     }
@@ -265,8 +284,14 @@ async fn move_object_api(
     let source_bucket = get_bucket(&client, body.source_bucket.as_ref());
     let dest_bucket = get_bucket(&client, body.dest_bucket.as_ref());
     match s3_service::operations::copy_move::move_object(
-        &client, &source_bucket, &body.source_key, &dest_bucket, &body.dest_key,
-    ).await {
+        &client,
+        &source_bucket,
+        &body.source_key,
+        &dest_bucket,
+        &body.dest_key,
+    )
+    .await
+    {
         Ok(_) => ok_msg("对象移动成功"),
         Err(e) => err_response(&e.to_string()),
     }
@@ -306,7 +331,14 @@ async fn put_object_tags_api(
     body: web::Json<PutTagsRequest>,
 ) -> impl Responder {
     let bucket = get_bucket(&client, body.bucket.as_ref());
-    match s3_service::operations::metadata::put_object_tagging(&client, &bucket, &body.key, body.tags.clone()).await {
+    match s3_service::operations::metadata::put_object_tagging(
+        &client,
+        &bucket,
+        &body.key,
+        body.tags.clone(),
+    )
+    .await
+    {
         Ok(_) => ok_msg("标签设置成功"),
         Err(e) => err_response(&e.to_string()),
     }
@@ -318,10 +350,15 @@ async fn put_bucket_cors_api(
     body: web::Json<PutCorsRequest>,
 ) -> impl Responder {
     match s3_service::operations::bucket::put_bucket_cors(
-        &client, &body.bucket,
-        body.allowed_origins.clone(), body.allowed_methods.clone(),
-        body.allowed_headers.clone(), body.max_age_seconds,
-    ).await {
+        &client,
+        &body.bucket,
+        body.allowed_origins.clone(),
+        body.allowed_methods.clone(),
+        body.allowed_headers.clone(),
+        body.max_age_seconds,
+    )
+    .await
+    {
         Ok(_) => ok_msg("CORS设置成功"),
         Err(e) => err_response(&e.to_string()),
     }

@@ -143,7 +143,11 @@ impl Attachment {
     ///     "image/png"
     /// );
     /// ```
-    pub fn inline(filename: impl Into<String>, content: Vec<u8>, content_type: impl Into<String>) -> Self {
+    pub fn inline(
+        filename: impl Into<String>,
+        content: Vec<u8>,
+        content_type: impl Into<String>,
+    ) -> Self {
         Self {
             filename: filename.into(),
             content,
@@ -180,10 +184,7 @@ impl Attachment {
     /// let attachment = Attachment::from_bytes("report.pdf", vec![/* 数据 */]);
     /// assert_eq!(attachment.content_type, "application/pdf");
     /// ```
-    pub fn from_bytes(
-        filename: impl Into<String>,
-        content: Vec<u8>,
-    ) -> Self {
+    pub fn from_bytes(filename: impl Into<String>, content: Vec<u8>) -> Self {
         let filename_str = filename.into();
         let content_type = Self::detect_content_type(&content, &filename_str);
         Self::new(filename_str, content, content_type)
@@ -215,9 +216,9 @@ impl Attachment {
         filename: impl Into<String>,
         base64_content: &str,
     ) -> crate::error::EmailResult<Self> {
-        let content = BASE64_STANDARD
-            .decode(base64_content)
-            .map_err(|e| crate::error::EmailError::AttachmentError(format!("Failed to decode base64: {}", e)))?;
+        let content = BASE64_STANDARD.decode(base64_content).map_err(|e| {
+            crate::error::EmailError::AttachmentError(format!("Failed to decode base64: {}", e))
+        })?;
         Ok(Self::from_bytes(filename, content))
     }
 

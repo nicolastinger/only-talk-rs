@@ -1,6 +1,6 @@
 pub mod group_controller;
-pub mod group_service;
 pub mod group_dto;
+pub mod group_service;
 pub mod group_vo;
 
 use actix_web::web;

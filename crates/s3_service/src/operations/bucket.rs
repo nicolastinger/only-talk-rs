@@ -2,8 +2,8 @@
 //!
 //! Provides bucket creation, deletion, listing, permission configuration, etc.
 
-use aws_sdk_s3::types::Bucket;
 use aws_sdk_s3::primitives::DateTime;
+use aws_sdk_s3::types::Bucket;
 
 use crate::client::S3Client;
 use crate::error::S3Error;
@@ -32,10 +32,7 @@ use crate::error::S3Error;
 ///     create_bucket(client, "my-new-bucket").await
 /// }
 /// ```
-pub async fn create_bucket(
-    client: &S3Client,
-    bucket: &str,
-) -> Result<(), S3Error> {
+pub async fn create_bucket(client: &S3Client, bucket: &str) -> Result<(), S3Error> {
     client
         .inner
         .create_bucket()
@@ -61,10 +58,7 @@ pub async fn create_bucket(
 /// - Bucket not empty
 /// - Bucket does not exist
 /// - Insufficient permissions
-pub async fn delete_bucket(
-    client: &S3Client,
-    bucket: &str,
-) -> Result<(), S3Error> {
+pub async fn delete_bucket(client: &S3Client, bucket: &str) -> Result<(), S3Error> {
     client
         .inner
         .delete_bucket()
@@ -120,18 +114,12 @@ pub async fn list_buckets(client: &S3Client) -> Result<Vec<BucketInfo>, S3Error>
 ///
 /// - `Ok(true)`: Bucket exists
 /// - `Ok(false)`: Bucket does not exist
-pub async fn bucket_exists(
-    client: &S3Client,
-    bucket: &str,
-) -> Result<bool, S3Error> {
+pub async fn bucket_exists(client: &S3Client, bucket: &str) -> Result<bool, S3Error> {
     match client.inner.head_bucket().bucket(bucket).send().await {
         Ok(_) => Ok(true),
         Err(e) => {
             // 404 means bucket does not exist
-            if e.as_service_error()
-                .map(|se| se.is_not_found())
-                .unwrap_or(false)
-            {
+            if e.as_service_error().map(|se| se.is_not_found()).unwrap_or(false) {
                 Ok(false)
             } else {
                 Err(S3Error::AwsError(format!("Failed to check bucket: {}", e)))
@@ -240,10 +228,7 @@ pub async fn put_bucket_policy(
 /// # Returns
 ///
 /// JSON-formatted policy string
-pub async fn get_bucket_policy(
-    client: &S3Client,
-    bucket: &str,
-) -> Result<String, S3Error> {
+pub async fn get_bucket_policy(client: &S3Client, bucket: &str) -> Result<String, S3Error> {
     let result = client
         .inner
         .get_bucket_policy()

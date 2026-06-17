@@ -2,18 +2,17 @@
 //!
 //! This module defines the [`EmailAddress`] struct for representing email addresses.
 
+use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::fmt;
-use once_cell::sync::Lazy;
 
 /// Email address regex pattern
 ///
 /// Uses `once_cell::Lazy` for lazy initialization to avoid recompilation.
 static EMAIL_REGEX: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(
-        r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
-    ).unwrap_or_else(|e| panic!("email regex compilation failed: {}", e))
+    Regex::new(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$")
+        .unwrap_or_else(|e| panic!("email regex compilation failed: {}", e))
 });
 
 /// Email address
@@ -83,10 +82,7 @@ impl EmailAddress {
         if !Self::is_valid(&address) {
             return Err(crate::error::EmailError::InvalidEmailAddress(address));
         }
-        Ok(Self {
-            address,
-            name: None,
-        })
+        Ok(Self { address, name: None })
     }
 
     /// Create email address with display name
@@ -105,15 +101,15 @@ impl EmailAddress {
     /// assert_eq!(addr.to_string(), "张三 <user@example.com>");
     /// # Ok::<(), email_service::error::EmailError>(())
     /// ```
-    pub fn with_name(address: impl Into<String>, name: impl Into<String>) -> crate::error::EmailResult<Self> {
+    pub fn with_name(
+        address: impl Into<String>,
+        name: impl Into<String>,
+    ) -> crate::error::EmailResult<Self> {
         let address = address.into();
         if !Self::is_valid(&address) {
             return Err(crate::error::EmailError::InvalidEmailAddress(address));
         }
-        Ok(Self {
-            address,
-            name: Some(name.into()),
-        })
+        Ok(Self { address, name: Some(name.into()) })
     }
 
     /// Get email address

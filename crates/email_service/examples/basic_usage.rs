@@ -1,5 +1,5 @@
 use email_service::prelude::*;
-use email_service::{ProviderConfig, AliyunConfig, TencentConfig, RetryConfig};
+use email_service::{AliyunConfig, ProviderConfig, RetryConfig, TencentConfig};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -9,16 +9,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let manager = EmailManager::builder()
         .default_provider("aliyun")
-        .provider("aliyun", ProviderConfig::Aliyun(AliyunConfig {
-            enabled: true,
-            priority: 100,
-            access_key_id: "xxx".to_string(),
-            access_key_secret: "xxx".to_string(),
-            region_id: "cn-hangzhou".to_string(),
-            account_name: "xxxx".to_string(),
-            from_alias: Some("系统通知".to_string()),
-            ..Default::default()
-        }))
+        .provider(
+            "aliyun",
+            ProviderConfig::Aliyun(AliyunConfig {
+                enabled: true,
+                priority: 100,
+                access_key_id: "xxx".to_string(),
+                access_key_secret: "xxx".to_string(),
+                region_id: "cn-hangzhou".to_string(),
+                account_name: "xxxx".to_string(),
+                from_alias: Some("系统通知".to_string()),
+                ..Default::default()
+            }),
+        )
         // .provider("tencent", ProviderConfig::Tencent(TencentConfig {
         //     enabled: true,
         //     priority: 90,
@@ -46,14 +49,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .cc(EmailAddress::new("2737484812@qq.com")?)
         .subject("测试邮件 - Email Service")
         .text_body("这是一封测试邮件的纯文本内容。")
-        .html_body(r#"
+        .html_body(
+            r#"
             <html>
                 <body>
                     <h1>测试邮件</h1>
                     <p>这是一封测试邮件的HTML内容。</p>
                 </body>
             </html>
-        "#)
+        "#,
+        )
         .tag("type", "test")
         .tag("env", "development")
         .build()?;

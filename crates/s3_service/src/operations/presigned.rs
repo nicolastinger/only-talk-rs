@@ -66,35 +66,44 @@ pub async fn generate_presigned_url(
     match method {
         PresignedMethod::Get => {
             // Generate download pre-signed URL
-            let builder = client
-                .inner
-                .get_object()
-                .bucket(bucket)
-                .key(key);
-            
+            let builder = client.inner.get_object().bucket(bucket).key(key);
+
             let presigned_request = builder
-                .presigned(aws_sdk_s3::presigning::PresigningConfig::expires_in(
-                    Duration::from_secs(expires_secs as u64),
-                ).map_err(|e| S3Error::PresignError(format!("Failed to configure presigned URL: {}", e)))?)
+                .presigned(
+                    aws_sdk_s3::presigning::PresigningConfig::expires_in(Duration::from_secs(
+                        expires_secs as u64,
+                    ))
+                    .map_err(|e| {
+                        S3Error::PresignError(format!("Failed to configure presigned URL: {}", e))
+                    })?,
+                )
                 .await
-                .map_err(|e| S3Error::PresignError(format!("Failed to generate download presigned URL: {}", e)))?;
+                .map_err(|e| {
+                    S3Error::PresignError(format!(
+                        "Failed to generate download presigned URL: {}",
+                        e
+                    ))
+                })?;
 
             Ok(presigned_request.uri().to_string())
         }
         PresignedMethod::Put => {
             // Generate upload pre-signed URL
-            let builder = client
-                .inner
-                .put_object()
-                .bucket(bucket)
-                .key(key);
-            
+            let builder = client.inner.put_object().bucket(bucket).key(key);
+
             let presigned_request = builder
-                .presigned(aws_sdk_s3::presigning::PresigningConfig::expires_in(
-                    Duration::from_secs(expires_secs as u64),
-                ).map_err(|e| S3Error::PresignError(format!("Failed to configure presigned URL: {}", e)))?)
+                .presigned(
+                    aws_sdk_s3::presigning::PresigningConfig::expires_in(Duration::from_secs(
+                        expires_secs as u64,
+                    ))
+                    .map_err(|e| {
+                        S3Error::PresignError(format!("Failed to configure presigned URL: {}", e))
+                    })?,
+                )
                 .await
-                .map_err(|e| S3Error::PresignError(format!("Failed to generate upload presigned URL: {}", e)))?;
+                .map_err(|e| {
+                    S3Error::PresignError(format!("Failed to generate upload presigned URL: {}", e))
+                })?;
 
             Ok(presigned_request.uri().to_string())
         }

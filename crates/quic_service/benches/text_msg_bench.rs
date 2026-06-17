@@ -1,8 +1,8 @@
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use common::utils::message_types::MSG_TYPE_TEXT;
+use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
+use quic_service::X25;
 use quic_service::models::text_msg::HeadMsg;
 use quic_service::msg_service::text_msg_service::{generate_text_msg, get_text_msg};
-use quic_service::X25;
-use common::utils::message_types::MSG_TYPE_TEXT;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -94,20 +94,18 @@ fn bench_carryover(c: &mut Criterion) {
 
                     for i in 0..fragments {
                         let start = i * chunk_size;
-                        let end = if i == fragments - 1 {
-                            full_msg.len()
-                        } else {
-                            (i + 1) * chunk_size
-                        };
+                        let end =
+                            if i == fragments - 1 { full_msg.len() } else { (i + 1) * chunk_size };
                         let mut chunk = full_msg[start..end].to_vec();
                         let chunk_len = chunk.len();
-                        let result = rt.block_on(get_text_msg(
-                            &mut chunk,
-                            chunk_len,
-                            buf_msg.clone(),
-                            head_len,
-                        ))
-                        .unwrap();
+                        let result = rt
+                            .block_on(get_text_msg(
+                                &mut chunk,
+                                chunk_len,
+                                buf_msg.clone(),
+                                head_len,
+                            ))
+                            .unwrap();
                         total_parsed += result.len();
                     }
                     black_box(total_parsed);
@@ -124,9 +122,7 @@ fn bench_crc_overhead(c: &mut Criterion) {
         let data = vec![0xABu8; size as usize];
         group.throughput(Throughput::Bytes(size));
         group.bench_with_input(BenchmarkId::from_parameter(size), &size, |b, _| {
-            b.iter(|| {
-                black_box(X25.checksum(black_box(&data)))
-            })
+            b.iter(|| black_box(X25.checksum(black_box(&data))))
         });
     }
     group.finish();

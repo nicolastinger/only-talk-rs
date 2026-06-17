@@ -1,78 +1,14 @@
 use std::sync::Arc;
 
 use anyhow::anyhow;
-use common::utils::message_types::MSG_TYPE_TEXT;
-use common::utils::time::get_now_time_stamp_as_millis;
-use tracing::error;
-use nanoid::nanoid;
+use common::utils::text_msg::{HeadMsg, TextQuicMsg, X25};
 use tokio::sync::{Mutex, MutexGuard};
+use tracing::error;
 
-use crate::X25;
-use crate::models::text_msg::{HeadMsg, TextMsg, TextQuicMsg};
-
-// Generate text message
-pub fn generate_text_msg(
-    text_type: u16,
-    raw: Vec<u8>,
-    recv_user: String,
-    send_user: String,
-) -> anyhow::Result<Vec<u8>> {
-    let now = get_now_time_stamp_as_millis().unwrap_or(-99999999999);
-    let text_quic_msg =
-        TextQuicMsg { nano_id: nanoid!(), text_type, raw, recv_user, send_user, timestamp: now };
-    build_text(text_quic_msg)
-}
-
-// Generate text message
-pub fn generate_text_msg_with_id(
-    nano_id: String,
-    text_type: u16,
-    raw: Vec<u8>,
-    recv_user: String,
-    send_user: String,
-) -> anyhow::Result<Vec<u8>> {
-    let now = get_now_time_stamp_as_millis().unwrap_or(-99999999999);
-    let text_quic_msg =
-        TextQuicMsg { nano_id, text_type, raw, recv_user, send_user, timestamp: now };
-    build_text(text_quic_msg)
-}
-
-// Generate text message
-pub fn generate_text_msg_with_time(
-    nano_id: String,
-    text_type: u16,
-    raw: Vec<u8>,
-    recv_user: String,
-    send_user: String,
-    timestamp: i64,
-) -> anyhow::Result<Vec<u8>> {
-    let text_quic_msg = TextQuicMsg { nano_id, text_type, raw, recv_user, send_user, timestamp };
-    build_text(text_quic_msg)
-}
-
-fn build_text(text_quic_msg: TextQuicMsg) -> anyhow::Result<Vec<u8>> {
-    let meta_data = text_quic_msg.get_bytes()?;
-    let crc = X25.checksum(&meta_data);
-    let head_msg = HeadMsg {
-        version: 1,
-        crc,
-        body_len: meta_data.len() as u32, // Message body length
-        message_type: MSG_TYPE_TEXT,      // Message type
-    };
-
-    build_text_msg(&head_msg, &text_quic_msg)
-}
-
-// Assemble header + message body
-pub fn build_text_msg<H: TextMsg, G: TextMsg>(
-    text_head: &H,
-    text_msg: &G,
-) -> anyhow::Result<Vec<u8>> {
-    let mut head_byte = text_head.get_bytes()?;
-    let mut msg_byte = text_msg.get_bytes()?;
-    head_byte.append(&mut msg_byte);
-    Ok(head_byte)
-}
+// Re-export from common (moved to shared crate)
+pub use common::utils::text_msg::{
+    build_text_msg, generate_text_msg, generate_text_msg_with_id, generate_text_msg_with_time,
+};
 
 // Parse text message
 pub async fn get_text_msg(
@@ -149,11 +85,10 @@ pub async fn get_text_msg(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use common::utils::text_msg::{HeadMsg, X25};
+    use common::utils::message_types::MSG_TYPE_TEXT;
     use std::sync::Arc;
     use tokio::sync::Mutex;
-    use common::utils::message_types::MSG_TYPE_TEXT;
-    use crate::models::text_msg::HeadMsg;
-    use crate::X25;
 
     fn head_size() -> usize {
         let head = HeadMsg { version: 1, crc: 0, body_len: 0, message_type: MSG_TYPE_TEXT };
@@ -161,7 +96,8 @@ mod tests {
     }
 
     fn make_msg(text_type: u16, raw: &[u8], recv_user: &str, send_user: &str) -> Vec<u8> {
-        generate_text_msg(text_type, raw.to_vec(), recv_user.to_string(), send_user.to_string()).unwrap()
+        generate_text_msg(text_type, raw.to_vec(), recv_user.to_string(), send_user.to_string())
+            .unwrap()
     }
 
     fn new_buffer_msg() -> Arc<Mutex<Vec<u8>>> {
@@ -248,7 +184,8 @@ mod tests {
         let total_len = combined.len();
         let buf_msg = new_buffer_msg();
 
-        let result = get_text_msg(&mut combined, total_len, buf_msg.clone(), head_len).await.unwrap();
+        let result =
+            get_text_msg(&mut combined, total_len, buf_msg.clone(), head_len).await.unwrap();
 
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].raw, b"complete");
@@ -270,7 +207,8 @@ mod tests {
         let total_len = combined.len();
         let buf_msg = new_buffer_msg();
 
-        let result = get_text_msg(&mut combined, total_len, buf_msg.clone(), head_len).await.unwrap();
+        let result =
+            get_text_msg(&mut combined, total_len, buf_msg.clone(), head_len).await.unwrap();
 
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].raw, b"payload");
@@ -292,7 +230,8 @@ mod tests {
         let first_len = first_buf.len();
         let buf_msg = new_buffer_msg();
 
-        let result1 = get_text_msg(&mut first_buf, first_len, buf_msg.clone(), head_len).await.unwrap();
+        let result1 =
+            get_text_msg(&mut first_buf, first_len, buf_msg.clone(), head_len).await.unwrap();
         assert!(result1.is_empty(), "Incomplete message should not be parsed");
 
         // Second call: remaining body arrives, should拼接 with buffer_msg to complete
@@ -484,12 +423,8 @@ mod tests {
         let buf_msg = new_buffer_msg();
 
         let fake_body_len: u32 = 50;
-        let head = HeadMsg {
-            version: 1,
-            crc: 0,
-            body_len: fake_body_len,
-            message_type: MSG_TYPE_TEXT,
-        };
+        let head =
+            HeadMsg { version: 1, crc: 0, body_len: fake_body_len, message_type: MSG_TYPE_TEXT };
         let mut buf = bincode::serialize(&head).unwrap();
         buf.extend_from_slice(&vec![0xFF; fake_body_len as usize]);
         let len = buf.len();
@@ -507,12 +442,7 @@ mod tests {
         let buf_msg = new_buffer_msg();
 
         // 头部声称 body 很大，但实际缓冲区不够
-        let head = HeadMsg {
-            version: 1,
-            crc: 0,
-            body_len: 99999,
-            message_type: MSG_TYPE_TEXT,
-        };
+        let head = HeadMsg { version: 1, crc: 0, body_len: 99999, message_type: MSG_TYPE_TEXT };
         let mut buf = bincode::serialize(&head).unwrap();
         buf.extend_from_slice(b"short");
         let len = buf.len();
@@ -605,7 +535,8 @@ mod tests {
         let total_len = combined.len();
         let buf_msg = new_buffer_msg();
 
-        let result = get_text_msg(&mut combined, total_len, buf_msg.clone(), head_len).await.unwrap();
+        let result =
+            get_text_msg(&mut combined, total_len, buf_msg.clone(), head_len).await.unwrap();
 
         // 应该只解析出第 1 条，第 2 条（假装不完整）和第 3 条一起被保存到 buffer_msg
         assert_eq!(result.len(), 1);
@@ -671,7 +602,8 @@ mod tests {
     #[tokio::test]
     async fn test_sticky_different_message_types() {
         let msg_text = make_msg(MSG_TYPE_TEXT, b"text", "user_b", "user_a");
-        let msg_ping = make_msg(common::utils::message_types::MSG_TYPE_PING, b"ping", "system", "user_a");
+        let msg_ping =
+            make_msg(common::utils::message_types::MSG_TYPE_PING, b"ping", "system", "user_a");
         let head_len = head_size();
         let buf_msg = new_buffer_msg();
 

@@ -29,10 +29,7 @@ impl ServiceState {
             *self = target;
             Ok(())
         } else {
-            Err(ServiceError::InvalidStateTransition {
-                from: *self,
-                to: target,
-            })
+            Err(ServiceError::InvalidStateTransition { from: *self, to: target })
         }
     }
 }

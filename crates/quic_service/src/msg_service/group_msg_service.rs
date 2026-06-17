@@ -11,19 +11,20 @@ use quinn::Connection;
 use rbatis::rbdc::{Bytes, Uuid};
 use tracing::{debug, error, info, warn};
 
-use common::config_str::{MOBILE_PLATFORM, PC_PLATFORM, REDIS_INTERNAL_QUIC_SERVERS, REDIS_QUIC_SERVERS, REDIS_SPLIT};
+use common::REDIS_CLIENT;
+use common::config_str::{
+    MOBILE_PLATFORM, PC_PLATFORM, REDIS_INTERNAL_QUIC_SERVERS, REDIS_QUIC_SERVERS, REDIS_SPLIT,
+};
 use common::utils::group_msg::{
     BroadcastType, GroupQuicMsg, InternalGroupBroadcast, InternalGroupBroadcastResponse,
 };
 use common::utils::internal_quic_client::make_internal_client_config;
 use common::utils::time::get_now_time_stamp_as_millis;
-use common::REDIS_CLIENT;
 use entity::models::group_entity::group_message_record::GroupMessageRecord;
 
 use crate::models::quic_connection::ConnectionType;
-use crate::models::text_msg::{HeadMsg, TextQuicMsg};
-use crate::msg_service::text_msg_service::build_text_msg;
-use crate::{ConnectionsMap, X25};
+use common::utils::text_msg::{HeadMsg, TextQuicMsg, X25, build_text_msg};
+use crate::ConnectionsMap;
 
 static DEDUP: Lazy<BroadcastDedup> = Lazy::new(BroadcastDedup::new);
 
@@ -115,17 +116,12 @@ async fn fetch_group_members_from_db(group_uuid: &str) -> Result<Vec<String>> {
     use entity::models::group_entity::group_member::GroupMember;
 
     let rb = RBATIS_DATABASE.read().await;
-    let rb = rb
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("Database connection failed"))?;
+    let rb = rb.as_ref().ok_or_else(|| anyhow::anyhow!("Database connection failed"))?;
 
     let uuid = group_uuid.parse::<Uuid>()?;
     let members: Vec<GroupMember> = GroupMember::select_members_by_group(rb, &uuid).await?;
 
-    Ok(members
-        .into_iter()
-        .filter_map(|m| m.user_uuid.map(|u: Uuid| u.to_string()))
-        .collect())
+    Ok(members.into_iter().filter_map(|m| m.user_uuid.map(|u: Uuid| u.to_string())).collect())
 }
 
 pub async fn invalidate_group_member_cache(group_uuid: &str) -> Result<()> {
@@ -150,13 +146,10 @@ pub async fn handle_group_msg_from_client(
     let all_members = get_group_members_cached(&group_msg.group_uuid).await?;
     debug!("[group chat] members cache: {:?}", all_members);
 
-    let sender_uuid: Uuid = group_msg
-        .send_user
-        .parse()
-        .map_err(|_| anyhow::anyhow!("Invalid sender UUID"))?;
-    let sender_in_group = all_members
-        .iter()
-        .any(|m| m.parse::<Uuid>().ok().as_ref() == Some(&sender_uuid));
+    let sender_uuid: Uuid =
+        group_msg.send_user.parse().map_err(|_| anyhow::anyhow!("Invalid sender UUID"))?;
+    let sender_in_group =
+        all_members.iter().any(|m| m.parse::<Uuid>().ok().as_ref() == Some(&sender_uuid));
     if !sender_in_group {
         return Err(anyhow::anyhow!(
             "Sender not in group members list sender={} group={} members={:?}",
@@ -182,16 +175,15 @@ pub async fn handle_group_msg_from_client(
         timestamp: group_msg_clone.timestamp,
         broadcast_id: group_msg_clone.nano_id,
     };
-    
+
     let broadcast_clone = broadcast.clone();
     let connections_clone = connections.clone();
-    
+
     tokio::spawn(async move {
         if let Err(e) = process_group_broadcast_local(&broadcast_clone, &connections_clone).await {
             error!("[group chat] failed to process broadcast local: {}", e);
         }
     });
-
 
     tokio::spawn(async move {
         match get_all_internal_node_addresses().await {
@@ -211,7 +203,7 @@ pub async fn handle_group_msg_from_client(
             Err(e) => error!("[group chat] failed to get node address: {}", e),
         }
     });
-    
+
     Ok(())
 }
 
@@ -230,9 +222,7 @@ async fn get_all_internal_node_addresses() -> Result<Vec<(u32, std::net::SocketA
     }
 
     let redis = REDIS_CLIENT.read().await;
-    let redis = redis
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("Redis not initialized"))?;
+    let redis = redis.as_ref().ok_or_else(|| anyhow::anyhow!("Redis not initialized"))?;
     let mut conn = redis.get().await?;
 
     let pattern = format!("{}*", REDIS_INTERNAL_QUIC_SERVERS);
@@ -356,10 +346,7 @@ pub async fn process_group_broadcast(
     Ok(())
 }
 
-pub fn find_online_connection(
-    user_uuid: &str,
-    connections: &ConnectionsMap,
-) -> Option<Connection> {
+pub fn find_online_connection(user_uuid: &str, connections: &ConnectionsMap) -> Option<Connection> {
     for platform in [PC_PLATFORM, MOBILE_PLATFORM] {
         let key = format!(
             "{}:{}{}{}{}",
@@ -382,9 +369,7 @@ async fn save_group_message_to_db(group_msg: &GroupQuicMsg) -> Result<()> {
     use common::RBATIS_DATABASE;
 
     let rb = RBATIS_DATABASE.read().await;
-    let rb = rb
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("Database connection failed"))?;
+    let rb = rb.as_ref().ok_or_else(|| anyhow::anyhow!("Database connection failed"))?;
 
     let record = GroupMessageRecord {
         id: None,
@@ -411,9 +396,7 @@ pub async fn sync_offline_group_messages(
     use entity::models::group_entity::group_member::GroupMember;
 
     let rb = RBATIS_DATABASE.read().await;
-    let rb = rb
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("Database connection failed"))?;
+    let rb = rb.as_ref().ok_or_else(|| anyhow::anyhow!("Database connection failed"))?;
 
     let uuid = user_uuid.parse::<Uuid>()?;
     let groups: Vec<GroupMember> = GroupMember::select_groups_by_user(rb, &uuid).await?;
@@ -422,7 +405,8 @@ pub async fn sync_offline_group_messages(
         if let (Some(g_uuid), Some(last_read_msg_id)) =
             (group_member.group_uuid, group_member.last_read_msg_id)
         {
-            let unread: Vec<GroupMessageRecord> = GroupMessageRecord::select_unread(rb, &g_uuid, last_read_msg_id).await?;
+            let unread: Vec<GroupMessageRecord> =
+                GroupMessageRecord::select_unread(rb, &g_uuid, last_read_msg_id).await?;
 
             for msg in unread {
                 if let (Some(nano_id), Some(send_user), Some(timestamp), Some(msg_type)) =
@@ -461,13 +445,7 @@ pub fn generate_group_msg(
     send_user: String,
 ) -> Result<Vec<u8>> {
     let now = get_now_time_stamp_as_millis()?;
-    let group_quic_msg = GroupQuicMsg {
-        nano_id: nanoid!(),
-        msg_type,
-        group_uuid,
-        send_user,
-        raw,
-        timestamp: now,
-    };
+    let group_quic_msg =
+        GroupQuicMsg { nano_id: nanoid!(), msg_type, group_uuid, send_user, raw, timestamp: now };
     serialize_group_msg(&group_quic_msg)
 }

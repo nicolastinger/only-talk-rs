@@ -28,21 +28,14 @@ pub async fn download_object(
     bucket: &str,
     key: &str,
 ) -> Result<Vec<u8>, S3Error> {
-    let result = client
-        .inner
-        .get_object()
-        .bucket(bucket)
-        .key(key)
-        .send()
-        .await
-        .map_err(|e| {
-            // Handle object not found error
-            if e.as_service_error().map(|se| se.is_no_such_key()).unwrap_or(false) {
-                S3Error::ObjectNotFound(key.to_string())
-            } else {
-                S3Error::AwsError(format!("Failed to download object: {}", e))
-            }
-        })?;
+    let result = client.inner.get_object().bucket(bucket).key(key).send().await.map_err(|e| {
+        // Handle object not found error
+        if e.as_service_error().map(|se| se.is_no_such_key()).unwrap_or(false) {
+            S3Error::ObjectNotFound(key.to_string())
+        } else {
+            S3Error::AwsError(format!("Failed to download object: {}", e))
+        }
+    })?;
 
     // Collect response stream data
     let data = result
