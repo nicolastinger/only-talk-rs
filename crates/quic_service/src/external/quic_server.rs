@@ -8,8 +8,11 @@ use crate::msg_service::process_msg_service::process_rec_msg;
 use anyhow::{Result, anyhow};
 use common::REDIS_CLIENT;
 use common::config_str::USER_READ_MSG;
-use common::models::chat_entity::chat_message_read::ChatMessageRecordRead;
+use common::models::chat_entity::add_read_chat_record::AddReadChatRecordDTO;
+use common::models::chat_entity::chat_message_read::{ChatMessageRecordRead};
 use common::models::chat_entity::chat_message_record::ChatMessageRecord;
+use common::models::group_entity::group_member::GroupMember;
+use common::models::group_entity::group_message_record::GroupMessageRecord;
 use common::utils::jwt_util::{Claims, verify_token};
 use common::utils::redis_utils::get_redis_conn;
 use common::utils::sql_utils::get_sql_client;
@@ -21,6 +24,7 @@ use rbatis::dark_std::err;
 use rbs::value;
 use tokio::sync::{Mutex, watch};
 use tracing::{error, info, warn};
+use entity::models::chat_entity::chat_message_read::CHAT_TYPE_GROUP;
 
 /// Start and run the QUIC server, continuously listening for new connections
 pub(crate) async fn run_server(
@@ -431,13 +435,72 @@ async fn user_offline(uuid: String) -> std::result::Result<(), anyhow::Error> {
     let read_key = format!("{}{}", USER_READ_MSG, uuid);
     let read_record: String = redis.get(&read_key).await?;
     info!("read messages, source: {}", read_record);
-    let last_chat_message_read: Vec<ChatMessageRecordRead> = serde_json::from_str(&read_record)?;
+    let last_chat_message_read: Vec<AddReadChatRecordDTO> = serde_json::from_str(&read_record)?;
     info!("read messages, converted: {:?}", last_chat_message_read);
     // TODO: Validate read message effectiveness
 
     for item in last_chat_message_read.into_iter() {
+        // 群聊已读消息：校验群消息与群成员，更新群成员已读游标
+        if item.chat_type == Some(CHAT_TYPE_GROUP) {
+            let group_msg = match GroupMessageRecord::select_by_nano_id(
+                &rb,
+                item.nano_id.as_deref().unwrap_or(""),
+            )
+            .await
+            {
+                Ok(Some(msg)) => msg,
+                _ => {
+                    err!("群已读消息无效 {:?}", item);
+                    continue;
+                }
+            };
+            let group_uuid = match group_msg.group_uuid {
+                Some(u) => u,
+                None => {
+                    err!("群已读消息缺少群UUID {:?}", item);
+                    continue;
+                }
+            };
+            // 读者必须是群成员，且已读游标只推进不回退
+            let mut member = match GroupMember::select_by_group_and_user(
+                &rb,
+                &group_uuid,
+                &item.recv_user,
+            )
+            .await?
+            {
+                Some(m) => m,
+                None => {
+                    err!("群已读消息无效，用户不在群中 {:?}", item);
+                    continue;
+                }
+            };
+            let msg_id = group_msg.id.unwrap_or(0);
+            if member.last_read_msg_id.unwrap_or(0) < msg_id {
+                member.last_read_msg_id = Some(msg_id);
+                GroupMember::update_by_group_and_user(
+                    &rb,
+                    &member,
+                    &group_uuid,
+                    &item.recv_user,
+                )
+                .await?;
+                info!("群已读消息更新成功 {:?}", item);
+            }
+            continue;
+        }
+
+        // 单聊已读消息：校验后写入 chat_message_record_read 表
+        let record = ChatMessageRecordRead {
+            id: None,
+            nano_id: item.nano_id.clone(),
+            timestamp: item.timestamp,
+            send_user: item.send_user,
+            recv_user: item.recv_user,
+        };
+
         let is_exist =
-            ChatMessageRecord::select_by_map(&rb, value! {"nano_id": &item.nano_id}).await?;
+            ChatMessageRecord::select_by_map(&rb, value! {"nano_id": &record.nano_id}).await?;
         if is_exist.is_empty() || is_exist.len() > 1 {
             continue;
         }
@@ -448,14 +511,14 @@ async fn user_offline(uuid: String) -> std::result::Result<(), anyhow::Error> {
                 continue;
             }
         };
-        if exit_item.recv_user.to_string() != item.recv_user.to_string()
-            && exit_item.send_user.to_string() != item.recv_user.to_string()
+        if exit_item.recv_user.to_string() != record.recv_user.to_string()
+            && exit_item.send_user.to_string() != record.recv_user.to_string()
         {
-            err!("已读消息无效 {:?}", item);
+            err!("已读消息无效 {:?}", record);
             continue;
         }
 
-        let insert_item = async |e| match ChatMessageRecordRead::insert(&rb, &item).await {
+        let insert_item = async |e| match ChatMessageRecordRead::insert(&rb, &record).await {
             Ok(_) => {}
             Err(x) => {
                 err!("更新已读消息失败 {} {}", e, x);
@@ -463,8 +526,8 @@ async fn user_offline(uuid: String) -> std::result::Result<(), anyhow::Error> {
         };
         match ChatMessageRecordRead::update_by_map(
             &rb,
-            &item,
-            value! {"send_user": &item.send_user, "recv_user": &item.recv_user},
+            &record,
+            value! {"send_user": &record.send_user, "recv_user": &record.recv_user},
         )
         .await
         {

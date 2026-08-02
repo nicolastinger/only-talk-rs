@@ -1,5 +1,5 @@
 use actix_web::{HttpRequest, Responder, post, web};
-use common::models::chat_entity::chat_message_read::ChatMessageRecordRead;
+use common::models::chat_entity::add_read_chat_record::AddReadChatRecordDTO;
 use rbatis::RBatis;
 
 use crate::common::dto::base_dto::AuthAccount;
@@ -51,7 +51,7 @@ pub async fn get_unread_chat_record_api(
 #[post("/add_read_chat_record")]
 pub async fn add_read_chat_record_api(
     req: HttpRequest,
-    chat_message_read: web::Json<Vec<ChatMessageRecordRead>>,
+    chat_message_read: web::Json<Vec<AddReadChatRecordDTO>>,
 ) -> impl Responder {
     let uuid = get_uuid_from_header!(req);
     respond_json_any!(add_user_chat_read(uuid, chat_message_read.into_inner()).await)

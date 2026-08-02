@@ -648,11 +648,15 @@ pub async fn get_group_message_history_service(
         return Ok(Vec::new());
     }
 
-    let start = dto.start.unwrap_or(0);
-    let size = dto.size.unwrap_or(20);
-
-    let messages: Vec<GroupMessageRecord> =
-        GroupMessageRecord::select_by_group(rb, &group_uuid, start, size).await?;
+    // 游标模式：按群成员已读游标拉取未读消息（id > last_read_msg_id）
+    let messages: Vec<GroupMessageRecord> = match dto.last_read_msg_id {
+        Some(cursor) => GroupMessageRecord::select_unread(rb, &group_uuid, cursor).await?,
+        None => {
+            let start = dto.start.unwrap_or(0);
+            let size = dto.size.unwrap_or(20);
+            GroupMessageRecord::select_by_group(rb, &group_uuid, start, size).await?
+        }
+    };
 
     Ok(messages
         .into_iter()
@@ -686,6 +690,7 @@ pub async fn get_unread_group_messages_service(
                 result.push(UnreadCountVO {
                     group_uuid: g_uuid.to_string(),
                     unread_count: unread.len() as i64,
+                    last_read_msg_id,
                 });
             }
         }

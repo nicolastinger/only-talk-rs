@@ -1,5 +1,6 @@
 use anyhow::anyhow;
 use common::config_str::USER_READ_MSG;
+use common::models::chat_entity::add_read_chat_record::AddReadChatRecordDTO;
 use common::models::chat_entity::chat_message_read::ChatMessageRecordRead;
 use common::models::chat_entity::chat_message_record::ChatMessageRecord;
 use common::utils::redis_utils::get_redis_conn;
@@ -104,7 +105,7 @@ pub async fn get_unread_chat_record(
 // 用户新增已读消息
 pub async fn add_user_chat_read(
     uuid: Option<String>,
-    chat_message_read: Vec<ChatMessageRecordRead>,
+    chat_message_read: Vec<AddReadChatRecordDTO>,
 ) -> Result<String, anyhow::Error> {
     let uuid = uuid.ok_or(anyhow!("账号获取失败"))?;
     let chat_message_read_str = serde_json::to_string(&chat_message_read)?;
@@ -116,13 +117,15 @@ pub async fn add_user_chat_read(
     if res.is_err() {
         let _: () = redis.set_ex(&key, chat_message_read_str, 60 * 60 * 24).await?;
     } else {
-        let mut last_chat_message_read: Vec<ChatMessageRecordRead> = serde_json::from_str(&res?)?;
+        let mut last_chat_message_read: Vec<AddReadChatRecordDTO> =
+            serde_json::from_str(&res?)?;
         for item in chat_message_read.into_iter() {
             let new_item =
                 last_chat_message_read.iter_mut().find(|x| x.send_user == item.send_user);
             if let Some(new_item) = new_item {
                 new_item.timestamp = item.timestamp;
                 new_item.nano_id = item.nano_id.clone();
+                new_item.chat_type = item.chat_type;
                 info!("update last_chat_message_read: {:?}", new_item);
             } else {
                 last_chat_message_read.push(item)

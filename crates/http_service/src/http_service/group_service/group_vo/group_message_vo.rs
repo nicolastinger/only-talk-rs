@@ -15,4 +15,6 @@ pub struct GroupMessageVO {
 pub struct UnreadCountVO {
     pub group_uuid: String,
     pub unread_count: i64,
+    /// 群成员已读游标，用于按游标拉取未读消息
+    pub last_read_msg_id: i64,
 }
