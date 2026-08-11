@@ -4,13 +4,11 @@ use crate::http_service::file_service::service::file_service::{
     download_chat_file_by_id, download_link_chat_biz, download_link_pub_biz,
     download_pub_file_by_id,
 };
+use crate::state::AppState;
 use crate::utils::http_response::CommonResponseNoDataRef;
 use crate::{get_uuid_from_header, respond_json_any};
 use actix_multipart::Multipart;
 use actix_web::{HttpRequest, HttpResponse, Responder, get, post, web};
-use rbatis::RBatis;
-use s3_service::S3Client;
-use std::sync::Arc;
 use tracing::error;
 
 pub fn file_service(cfg: &mut web::ServiceConfig) {
@@ -27,15 +25,14 @@ pub fn file_service(cfg: &mut web::ServiceConfig) {
  */
 #[post("/download_link/pub_biz/{biz_id}")]
 async fn download_pub_biz_api(
-    state: web::Data<RBatis>,
-    s3_client: web::Data<Arc<S3Client>>,
+    state: web::Data<AppState>,
     biz_id: web::Path<String>,
 ) -> impl Responder {
     let biz_id = biz_id.into_inner();
     let is_preview_bool = true;
-    let s3_client = (*s3_client.into_inner()).clone();
+    let s3_client = state.s3.clone();
 
-    let res = download_link_pub_biz(state.as_ref(), Some(s3_client), biz_id, is_preview_bool).await;
+    let res = download_link_pub_biz(state.db(), s3_client, biz_id, is_preview_bool).await;
     respond_json_any!(res)
 }
 
@@ -44,13 +41,12 @@ async fn download_pub_biz_api(
  */
 #[get("/download_pub_file/{biz_id}/{file_id}")]
 pub async fn download_pub_file_id_api(
-    state: web::Data<RBatis>,
-    s3_client: web::Data<Arc<S3Client>>,
+    state: web::Data<AppState>,
     params: web::Path<(String, String)>,
 ) -> impl Responder {
     let (biz_id, file_id) = params.into_inner();
-    let s3_client = (*s3_client.into_inner()).clone();
-    let res = download_pub_file_by_id(state.as_ref(), Some(s3_client), biz_id, file_id).await;
+    let s3_client = state.s3.clone();
+    let res = download_pub_file_by_id(state.db(), s3_client, biz_id, file_id).await;
     match res {
         Ok(res) => res,
         Err(t) => {
@@ -66,8 +62,7 @@ pub async fn download_pub_file_id_api(
 #[post("/download_link/chat_biz/{biz_id}/{is_preview}")]
 async fn download_chat_biz_api(
     req: HttpRequest,
-    state: web::Data<RBatis>,
-    s3_client: web::Data<Arc<S3Client>>,
+    state: web::Data<AppState>,
     biz_id: web::Path<(String, String)>,
 ) -> impl Responder {
     let (biz_id, is_preview) = biz_id.into_inner();
@@ -76,10 +71,8 @@ async fn download_chat_biz_api(
         "1" => true,
         _ => false,
     };
-    let s3_client = (*s3_client.into_inner()).clone();
-    let res =
-        download_link_chat_biz(state.as_ref(), Some(s3_client), uuid, biz_id, is_preview_bool)
-            .await;
+    let s3_client = state.s3.clone();
+    let res = download_link_chat_biz(state.db(), s3_client, uuid, biz_id, is_preview_bool).await;
     respond_json_any!(res)
 }
 
@@ -89,15 +82,13 @@ async fn download_chat_biz_api(
 #[get("/download_chat_file/{biz_id}/{file_id}")]
 pub async fn download_chat_file_api(
     req: HttpRequest,
-    state: web::Data<RBatis>,
-    s3_client: web::Data<Arc<S3Client>>,
+    state: web::Data<AppState>,
     params: web::Path<(String, String)>,
 ) -> impl Responder {
     let uuid = get_uuid_from_header!(req);
     let (biz_id, file_id) = params.into_inner();
-    let s3_client = (*s3_client.into_inner()).clone();
-    let res =
-        download_chat_file_by_id(state.as_ref(), Some(s3_client), uuid, biz_id, file_id).await;
+    let s3_client = state.s3.clone();
+    let res = download_chat_file_by_id(state.db(), s3_client, uuid, biz_id, file_id).await;
 
     match res {
         Ok(res) => res,
@@ -125,8 +116,7 @@ pub async fn download_private_file_api(_params: web::Path<(String, String)>) -> 
  */
 #[post("/upload/origin_file")]
 async fn upload_origin_file_by_biz_api(
-    state: web::Data<RBatis>,
-    s3_client: web::Data<Arc<S3Client>>,
+    state: web::Data<AppState>,
     biz_id: web::Query<String>,
     biz_record_type: web::Query<String>,
     preview_id: web::Query<String>,
@@ -137,10 +127,10 @@ async fn upload_origin_file_by_biz_api(
     let biz_record_type = biz_record_type.into_inner();
     let preview_id = preview_id.into_inner();
     let uuid = get_uuid_from_header!(req);
-    let s3_client = (*s3_client.into_inner()).clone();
+    let s3_client = state.s3.clone();
     let res = upload_original_file_by_biz_id(
-        state.as_ref(),
-        Some(s3_client),
+        state.db(),
+        s3_client,
         uuid,
         biz_id,
         biz_record_type,

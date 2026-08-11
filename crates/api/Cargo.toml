@@ -8,6 +8,7 @@ http_service = { path = "../http_service" }
 quic_service = { path = "../quic_service" }
 common = { path = "../common" }
 s3_service = { path = "../s3_service" }
+email_service = { path = "../email_service" }
 serde = { workspace = true }
 rbatis = { workspace = true }
 validator = { workspace = true }

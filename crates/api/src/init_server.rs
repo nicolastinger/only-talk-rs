@@ -147,25 +147,24 @@ pub async fn start_server() -> anyhow::Result<()> {
     // Initialize S3 client
     let s3_client = init_s3_client().await;
 
-    let address = read_global_config!("server", "address");
+    // Initialize email manager (empty config placeholder, providers wired later)
+    let email = Arc::new(email_service::manager::EmailManager::new(
+        email_service::config::EmailServiceConfig::default(),
+    )?);
 
-    let s3_data = match s3_client {
-        Some(client) => web::Data::new(client),
-        None => {
-            warn!("S3 client not initialized, S3-related features unavailable");
-            // Create a placeholder that won't be actually used
-            let config = S3Config::default_minio();
-            web::Data::new(Arc::new(s3_service::S3Client::new(config).await?))
-        }
+    let state = http_service::state::AppState {
+        core: common::state::CoreState { db: pool, redis: redis_pool },
+        s3: s3_client,
+        email,
     };
+
+    let address = read_global_config!("server", "address");
 
     HttpServer::new(move || {
         App::new()
             .wrap(TraceIdMiddleware)
             .wrap(from_fn(error_record_middleware))
-            .app_data(web::Data::new(redis_pool.clone()))
-            .app_data(web::Data::new(pool.clone()))
-            .app_data(s3_data.clone())
+            .app_data(web::Data::new(state.clone()))
             .wrap(middleware::Logger::default())
             .configure(http_service::http_service::configure_routes)
             .configure(configure_api_routes)
