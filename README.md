@@ -293,10 +293,23 @@ cargo bench -p quic_service
 
 ## 文档
 
+### 设计文档
+
 - [启动部署指南](docs/启动部署指南.md)
 - [集群路由方案](docs/集群路由方案.md)
 - [群聊广播方案](docs/群聊广播方案.md)
 - [Entity 核心拆分方案](docs/entity-core拆分方案.md)
+
+### Crate 职责说明
+
+- [entity](docs/crate-entity.md) — 数据访问层（rbatis 实体模型 + DDL）
+- [common](docs/crate-common.md) — 基础设施（配置、连接池、JWT、tracing、协议、集群）
+- [http_service](docs/crate-http_service.md) — HTTP REST 业务层（用户/好友/群聊/消息/文件/通知）
+- [quic_service](docs/crate-quic_service.md) — QUIC 实时通信、NAT 打洞、P2P、集群转发
+- [s3_service](docs/crate-s3_service.md) — 对象存储抽象（MinIO/OSS/AWS）
+- [email_service](docs/crate-email_service.md) — 邮件发送库（多服务商，暂未接入业务）
+- [api](docs/crate-api.md) — 应用组装层（TLS、AppState 装配、集成服务）
+- [only_talk_rs](docs/crate-root.md) — 单体进程入口
 
 ## License
 
