@@ -157,7 +157,10 @@ pub async fn process_friend_with_notify(
 }
 
 /// Get external QUIC node address assigned to current user (hash modulo)
-pub async fn get_quic_server_for_user(uuid: &str) -> Result<String, anyhow::Error> {
+pub async fn get_quic_server_for_user(
+    redis: &deadpool_redis::Pool,
+    uuid: &str,
+) -> Result<String, anyhow::Error> {
     use common::config_str::REDIS_EXTERNAL_QUIC_SERVERS;
     use common::utils::server_count_sync::get_server_count;
     use deadpool_redis::redis::AsyncCommands;
@@ -175,8 +178,6 @@ pub async fn get_quic_server_for_user(uuid: &str) -> Result<String, anyhow::Erro
     let index = compute_preferred_index(uuid);
     info!("QUIC node assigned: server_count={} uuid={} index={}", sc, uuid, index);
 
-    let redis = common::REDIS_CLIENT.read().await;
-    let redis = redis.as_ref().ok_or(anyhow!("Redis not initialized"))?;
     let mut conn = redis.get().await?;
 
     let key = format!("{}{}", REDIS_EXTERNAL_QUIC_SERVERS, index);

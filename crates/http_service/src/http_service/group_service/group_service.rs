@@ -10,7 +10,6 @@ use common::read_global_config;
 use common::utils::internal_quic_client::send_internal_quic_msg;
 use common::utils::internal_quic_msg::{InternalQuicRequest, RequestSource};
 use common::utils::message_types::NOTIFY_TYPE_MSG;
-use common::utils::redis_utils::try_get_redis_conn;
 use common::utils::server_count_sync::compute_preferred_index;
 use common::utils::time::get_now_time_stamp_as_millis;
 use entity::models::group_entity::{
@@ -74,6 +73,7 @@ async fn push_notification_via_quic(notification: SystemNotification) -> Result<
 
 pub async fn create_group_service(
     rb: &RBatis,
+    redis: &deadpool_redis::Pool,
     owner_uuid: &str,
     dto: CreateGroupDTO,
 ) -> Result<GroupInfoVO> {
@@ -111,7 +111,7 @@ pub async fn create_group_service(
     GroupMember::insert(rb, &group_member).await?;
 
     // Sync group members to Redis cache
-    sync_group_members_to_redis(rb, &group_uuid.to_string()).await?;
+    sync_group_members_to_redis(rb, redis, &group_uuid.to_string()).await?;
 
     info!("[group chat] created successfully group_uuid={} owner={}", group_uuid, owner_uuid);
 
@@ -244,6 +244,7 @@ pub async fn get_my_groups_service(rb: &RBatis, user_uuid: &str) -> Result<Vec<G
 
 pub async fn get_group_members_service(
     rb: &RBatis,
+    redis: &deadpool_redis::Pool,
     group_uuid: &str,
 ) -> Result<Vec<GroupMemberVO>> {
     use deadpool_redis::redis::AsyncCommands;
@@ -251,7 +252,7 @@ pub async fn get_group_members_service(
     let cache_key = format!("group:members:{}", group_uuid);
 
     // Preferentially read UUID list from Redis cache
-    let cache_hit = if let Some(mut conn) = try_get_redis_conn().await {
+    let cache_hit = if let Ok(mut conn) = redis.get().await {
         let cached: Option<String> = conn.get(&cache_key).await.unwrap_or(None);
         cached.and_then(|json| serde_json::from_str::<Vec<String>>(&json).ok())
     } else {
@@ -260,7 +261,7 @@ pub async fn get_group_members_service(
 
     // Sync from DB if cache miss
     if cache_hit.is_none() {
-        sync_group_members_to_redis(rb, group_uuid).await?;
+        sync_group_members_to_redis(rb, redis, group_uuid).await?;
     }
 
     // Query full member info from DB
@@ -369,6 +370,7 @@ pub async fn invite_group_members_service(
 
 pub async fn accept_group_invitation_service(
     rb: &RBatis,
+    redis: &deadpool_redis::Pool,
     user_uuid: &str,
     dto: HandleInvitationDTO,
 ) -> Result<bool> {
@@ -402,7 +404,7 @@ pub async fn accept_group_invitation_service(
             };
             GroupMember::insert(rb, &member).await?;
 
-            sync_group_members_to_redis(rb, &dto.group_uuid).await?;
+            sync_group_members_to_redis(rb, redis, &dto.group_uuid).await?;
 
             // Notify the inviter
             let group = GroupInfo::select_by_group_uuid(rb, &group_uuid).await?;
@@ -525,6 +527,7 @@ pub async fn get_sent_invitations_service(
 
 pub async fn remove_group_member_service(
     rb: &RBatis,
+    redis: &deadpool_redis::Pool,
     operator_uuid: &str,
     group_uuid: &str,
     target_uuid: &str,
@@ -554,7 +557,7 @@ pub async fn remove_group_member_service(
                     let user_uuid =
                         t.user_uuid.clone().ok_or_else(|| anyhow!("Member missing user_uuid"))?;
                     GroupMember::update_by_group_and_user(rb, &t, &g_uuid, &user_uuid).await?;
-                    sync_group_members_to_redis(rb, group_uuid).await?;
+                    sync_group_members_to_redis(rb, redis, group_uuid).await?;
                     info!(
                         "[group chat] member removed successfully group_uuid={} target={}",
                         group_uuid, target_uuid
@@ -568,7 +571,12 @@ pub async fn remove_group_member_service(
     }
 }
 
-pub async fn quit_group_service(rb: &RBatis, user_uuid: &str, group_uuid: &str) -> Result<bool> {
+pub async fn quit_group_service(
+    rb: &RBatis,
+    redis: &deadpool_redis::Pool,
+    user_uuid: &str,
+    group_uuid: &str,
+) -> Result<bool> {
     let g_uuid = group_uuid.parse::<Uuid>()?;
     let u_uuid = user_uuid.parse::<Uuid>()?;
     let member: Option<GroupMember> =
@@ -583,7 +591,7 @@ pub async fn quit_group_service(rb: &RBatis, user_uuid: &str, group_uuid: &str) 
             let user_uuid_val =
                 m.user_uuid.clone().ok_or_else(|| anyhow!("Member missing user_uuid"))?;
             GroupMember::update_by_group_and_user(rb, &m, &g_uuid, &user_uuid_val).await?;
-            sync_group_members_to_redis(rb, group_uuid).await?;
+            sync_group_members_to_redis(rb, redis, group_uuid).await?;
             info!(
                 "[group chat] member quit successfully group_uuid={} user={}",
                 group_uuid, user_uuid
@@ -699,7 +707,11 @@ pub async fn get_unread_group_messages_service(
     Ok(result)
 }
 
-async fn sync_group_members_to_redis(rb: &RBatis, group_uuid: &str) -> Result<()> {
+async fn sync_group_members_to_redis(
+    rb: &RBatis,
+    redis: &deadpool_redis::Pool,
+    group_uuid: &str,
+) -> Result<()> {
     use deadpool_redis::redis::AsyncCommands;
 
     let uuid = group_uuid.parse::<Uuid>()?;
@@ -710,7 +722,7 @@ async fn sync_group_members_to_redis(rb: &RBatis, group_uuid: &str) -> Result<()
     let cache_key = format!("group:members:{}", group_uuid);
     let json = serde_json::to_string(&uuids)?;
 
-    if let Some(mut conn) = try_get_redis_conn().await {
+    if let Ok(mut conn) = redis.get().await {
         let _: Result<(), _> = conn.set_ex(&cache_key, &json, 1800_u64).await;
         info!(
             "[group chat] synced members to Redis group_uuid={} member_count={}",

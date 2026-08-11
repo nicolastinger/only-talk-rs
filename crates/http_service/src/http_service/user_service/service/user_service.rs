@@ -5,10 +5,8 @@ use common::config_str::{MOBILE_PLATFORM, PC_PLATFORM};
 use common::models::user_entity::basic_user::BasicUser;
 use common::models::user_entity::user_info::UserInfo;
 use common::utils::jwt_util::{generate_access_token, generate_token_with_expiry};
-use common::utils::redis_utils::get_redis_conn;
 use common::utils::rsa_util::{hash_password, verify_password};
 use common::utils::time::get_now_time_stamp_as_millis;
-use common::{RBATIS_DATABASE, REDIS_CLIENT};
 use deadpool_redis::redis::{RedisResult, cmd};
 use rbatis::{RBatis, rbdc};
 use rbs::value;
@@ -108,6 +106,7 @@ pub async fn add_new_basic_user_service(
 /// 用户登录
 pub async fn user_sign_in(
     rb: &RBatis,
+    redis: &deadpool_redis::Pool,
     basic_user_dto: SignInBasicUserDTO,
 ) -> Result<String, anyhow::Error> {
     let platform =
@@ -124,7 +123,7 @@ pub async fn user_sign_in(
     let basic_user =
         BasicUser::select_by_account(rb, account_str).await?.ok_or(anyhow!("用户不存在"))?;
 
-    let mut conn = get_redis_conn().await?;
+    let mut conn = redis.get().await?;
 
     let exit_password = basic_user.password.as_ref().ok_or(anyhow!("密码为空"))?;
 
@@ -163,11 +162,10 @@ pub async fn user_sign_in(
 
 /// 通过 refresh_token 换取短效 access_token
 pub async fn refresh_access_token(
+    redis: &deadpool_redis::Pool,
     refresh_token_dto: RefreshTokenDTO,
 ) -> Result<String, anyhow::Error> {
-    let redis_client = REDIS_CLIENT.read().await;
-    let redis_conn = redis_client.as_ref().ok_or(anyhow!("redis客户端错误"))?;
-    let mut conn = redis_conn.get().await?;
+    let mut conn = redis.get().await?;
 
     let key = format!("REFRESH_TOKEN:{}", refresh_token_dto.refresh_token);
     let result: RedisResult<String> = cmd("GET").arg(&key).query_async(&mut conn).await;
@@ -213,21 +211,24 @@ pub async fn get_user_info_by_uuid(
 }
 
 /// 获取用户的uuid
-pub async fn get_user_uuid_by_account_service(account: String) -> Result<String, anyhow::Error> {
-    let result = get_user_uuid_by_account(account).await?;
+pub async fn get_user_uuid_by_account_service(
+    rb: &RBatis,
+    redis: &deadpool_redis::Pool,
+    account: String,
+) -> Result<String, anyhow::Error> {
+    let result = get_user_uuid_by_account(rb, redis, account).await?;
     Ok(CommonResponseRef::<String>::success_json(&result.to_string())?)
 }
 
 /// 获取用户的uuid
-pub async fn get_user_uuid_by_account(account: String) -> Result<Uuid, anyhow::Error> {
-    let rb = RBATIS_DATABASE.read().await;
-    let rb = rb.as_ref().ok_or(anyhow!("获取连接失败"))?;
-
+pub async fn get_user_uuid_by_account(
+    rb: &RBatis,
+    redis: &deadpool_redis::Pool,
+    account: String,
+) -> Result<Uuid, anyhow::Error> {
     let key = format!("{}{}", "USER_UUID_", account);
     let key = key.to_uppercase();
-    let redis_client = REDIS_CLIENT.read().await;
-    let redis_conn = redis_client.as_ref().ok_or(anyhow!("redis客户端错误"))?;
-    let mut conn = redis_conn.get().await?;
+    let mut conn = redis.get().await?;
 
     let result: RedisResult<String> = cmd("GET").arg(&key).query_async(&mut conn).await;
     let uuid = match result {
@@ -251,15 +252,12 @@ pub async fn get_user_uuid_by_account(account: String) -> Result<Uuid, anyhow::E
 
 /// 验证用户传递的token
 pub async fn verify_p2p_token_service(
+    redis: &deadpool_redis::Pool,
     uuid: String,
     token: String,
     me: Option<String>,
 ) -> Result<String, anyhow::Error> {
-    let mut conn = {
-        let redis_client = REDIS_CLIENT.read().await;
-        let redis_conn = redis_client.as_ref().ok_or(anyhow!("redis客户端错误"))?;
-        redis_conn.get().await?
-    };
+    let mut conn = redis.get().await?;
     let me = me.ok_or(anyhow!("获取账号失败"))?;
 
     let key = format!("P2P:USER:AUTH:{}:{}", uuid, token);
@@ -278,11 +276,12 @@ pub async fn verify_p2p_token_service(
 
 /// 添加用户验证的token
 pub async fn add_p2p_token_service(
+    redis: &deadpool_redis::Pool,
     uuid: String,
     token: String,
     me: Option<String>,
 ) -> Result<String, anyhow::Error> {
-    let mut conn = get_redis_conn().await?;
+    let mut conn = redis.get().await?;
     let me = me.ok_or(anyhow!("获取账号失败"))?;
 
     let key = format!("P2P:USER:AUTH:{}:{}", me, token);

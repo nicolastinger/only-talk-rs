@@ -3,7 +3,6 @@ use common::config_str::USER_READ_MSG;
 use common::models::chat_entity::add_read_chat_record::AddReadChatRecordDTO;
 use common::models::chat_entity::chat_message_read::ChatMessageRecordRead;
 use common::models::chat_entity::chat_message_record::ChatMessageRecord;
-use common::utils::redis_utils::get_redis_conn;
 use deadpool_redis::redis::AsyncCommands;
 use rbatis::RBatis;
 use rbatis::rbdc::Uuid;
@@ -104,6 +103,7 @@ pub async fn get_unread_chat_record(
 
 // 用户新增已读消息
 pub async fn add_user_chat_read(
+    redis: &deadpool_redis::Pool,
     uuid: Option<String>,
     chat_message_read: Vec<AddReadChatRecordDTO>,
 ) -> Result<String, anyhow::Error> {
@@ -111,7 +111,7 @@ pub async fn add_user_chat_read(
     let chat_message_read_str = serde_json::to_string(&chat_message_read)?;
     // 写入到redis
     let key = format!("{}{}", USER_READ_MSG, uuid);
-    let mut redis = get_redis_conn().await?;
+    let mut redis = redis.get().await?;
     let res: Result<String, _> = redis.get(&key).await;
 
     if res.is_err() {
