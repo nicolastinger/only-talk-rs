@@ -9,7 +9,7 @@ use anyhow::{Result, anyhow};
 use common::REDIS_CLIENT;
 use common::config_str::USER_READ_MSG;
 use common::models::chat_entity::add_read_chat_record::AddReadChatRecordDTO;
-use common::models::chat_entity::chat_message_read::{ChatMessageRecordRead};
+use common::models::chat_entity::chat_message_read::ChatMessageRecordRead;
 use common::models::chat_entity::chat_message_record::ChatMessageRecord;
 use common::models::group_entity::group_member::GroupMember;
 use common::models::group_entity::group_message_record::GroupMessageRecord;
@@ -19,12 +19,12 @@ use common::utils::sql_utils::get_sql_client;
 use common::utils::time::get_now_time_stamp_as_millis;
 use dashmap::DashMap;
 use deadpool_redis::redis::AsyncCommands;
+use entity::models::chat_entity::chat_message_read::CHAT_TYPE_GROUP;
 use quinn::{Connection, Endpoint, RecvStream, SendStream};
 use rbatis::dark_std::err;
 use rbs::value;
 use tokio::sync::{Mutex, watch};
 use tracing::{error, info, warn};
-use entity::models::chat_entity::chat_message_read::CHAT_TYPE_GROUP;
 
 /// Start and run the QUIC server, continuously listening for new connections
 pub(crate) async fn run_server(
@@ -462,29 +462,21 @@ async fn user_offline(uuid: String) -> std::result::Result<(), anyhow::Error> {
                 }
             };
             // 读者必须是群成员，且已读游标只推进不回退
-            let mut member = match GroupMember::select_by_group_and_user(
-                &rb,
-                &group_uuid,
-                &item.recv_user,
-            )
-            .await?
-            {
-                Some(m) => m,
-                None => {
-                    err!("群已读消息无效，用户不在群中 {:?}", item);
-                    continue;
-                }
-            };
+            let mut member =
+                match GroupMember::select_by_group_and_user(&rb, &group_uuid, &item.recv_user)
+                    .await?
+                {
+                    Some(m) => m,
+                    None => {
+                        err!("群已读消息无效，用户不在群中 {:?}", item);
+                        continue;
+                    }
+                };
             let msg_id = group_msg.id.unwrap_or(0);
             if member.last_read_msg_id.unwrap_or(0) < msg_id {
                 member.last_read_msg_id = Some(msg_id);
-                GroupMember::update_by_group_and_user(
-                    &rb,
-                    &member,
-                    &group_uuid,
-                    &item.recv_user,
-                )
-                .await?;
+                GroupMember::update_by_group_and_user(&rb, &member, &group_uuid, &item.recv_user)
+                    .await?;
                 info!("群已读消息更新成功 {:?}", item);
             }
             continue;

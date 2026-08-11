@@ -85,8 +85,8 @@ pub async fn get_text_msg(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::utils::text_msg::{HeadMsg, X25};
     use common::utils::message_types::MSG_TYPE_TEXT;
+    use common::utils::text_msg::{HeadMsg, X25};
     use std::sync::Arc;
     use tokio::sync::Mutex;
 

@@ -91,8 +91,14 @@ pub fn generate_text_msg(
     send_user: String,
 ) -> anyhow::Result<Vec<u8>> {
     let now = crate::utils::time::get_now_time_stamp_as_millis().unwrap_or(-99999999999);
-    let text_quic_msg =
-        TextQuicMsg { nano_id: nanoid::nanoid!(), text_type, raw, recv_user, send_user, timestamp: now };
+    let text_quic_msg = TextQuicMsg {
+        nano_id: nanoid::nanoid!(),
+        text_type,
+        raw,
+        recv_user,
+        send_user,
+        timestamp: now,
+    };
     build_text(text_quic_msg)
 }
 

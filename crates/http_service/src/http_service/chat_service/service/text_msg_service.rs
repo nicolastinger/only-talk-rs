@@ -117,8 +117,7 @@ pub async fn add_user_chat_read(
     if res.is_err() {
         let _: () = redis.set_ex(&key, chat_message_read_str, 60 * 60 * 24).await?;
     } else {
-        let mut last_chat_message_read: Vec<AddReadChatRecordDTO> =
-            serde_json::from_str(&res?)?;
+        let mut last_chat_message_read: Vec<AddReadChatRecordDTO> = serde_json::from_str(&res?)?;
         for item in chat_message_read.into_iter() {
             let new_item =
                 last_chat_message_read.iter_mut().find(|x| x.send_user == item.send_user);
