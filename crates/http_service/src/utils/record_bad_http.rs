@@ -37,11 +37,6 @@ pub async fn error_record_middleware(
         return next.call(req).await;
     }
 
-    // Check if path starts with /resources
-    if path.starts_with("/resources/") {
-        return next.call(req).await;
-    }
-
     let authorization = req.headers().clone();
     let authorization = authorization.get("Authorization");
 

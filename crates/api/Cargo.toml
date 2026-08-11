@@ -16,7 +16,6 @@ rbs = { workspace = true }
 tracing = { workspace = true }
 tracing-actix-web = { workspace = true }
 toml = { workspace = true }
-actix-files = { workspace = true }
 actix-web = { workspace = true }
 deadpool-redis = { workspace = true }
 rustls-pemfile = { workspace = true }

@@ -18,12 +18,6 @@ pub static USER_READ_MSG: &str = "USER:READ:MSG:";
 pub static USER_ADD_FRIEND: &str = "USER_ADD_FRIEND_REQUEST";
 // User processes friend request
 pub static USER_PROCESS_FRIEND: &str = "USER_PROCESS_FRIEND_REQUEST";
-// User uploaded files public directory
-pub static USER_FILE_PUBLIC_DIR: &str = "./resources/pub_file/";
-// User uploaded files public path
-pub static USER_FILE_PUBLIC: &str = "/resources";
-// Default user avatar
-pub static USER_DEFAULT_ICON: &str = "73983c6e-2f52-4fe5-95e8-f4302abc223d.jpg";
 // Default max file size (20MB)
 pub static DEFAULT_MAX_FILE_SIZE: i64 = 20 * 1024 * 1024;
 // PC platform

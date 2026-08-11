@@ -1,8 +1,7 @@
 use std::str::FromStr;
 
 use anyhow::anyhow;
-use common::config_manager;
-use common::config_str::{MOBILE_PLATFORM, PC_PLATFORM, USER_DEFAULT_ICON, USER_FILE_PUBLIC};
+use common::config_str::{MOBILE_PLATFORM, PC_PLATFORM};
 use common::models::user_entity::basic_user::BasicUser;
 use common::models::user_entity::user_info::UserInfo;
 use common::utils::jwt_util::{generate_access_token, generate_token_with_expiry};
@@ -63,10 +62,7 @@ pub async fn add_new_basic_user_service(
     let password = basic_user.password.as_ref().ok_or(anyhow!("密码为空"))?;
     let hashed_password = hash_password(password)?;
     basic_user.password = Some(hashed_password);
-    let app_domain = config_manager::get_config("app.domain")
-        .unwrap_or_else(|| "https://localhost:8443".to_string());
-    let icon_url = format!("{}{}/{}", app_domain, USER_FILE_PUBLIC, USER_DEFAULT_ICON);
-    basic_user.icon = Some(icon_url);
+    basic_user.icon = None;
     basic_user.info = Some("".to_string());
 
     let account_ref: &str = basic_user.account.as_deref().unwrap_or("");

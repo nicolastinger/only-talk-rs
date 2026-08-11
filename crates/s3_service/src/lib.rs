@@ -58,8 +58,8 @@ pub use client::S3Client;
 pub use config::S3Config;
 pub use error::S3Error;
 pub use storage::{
-    LocalStorage, ObjectInfo, ObjectMetadata, PresignedMethod, S3Storage, StorageBackend,
-    StorageError, StorageInfo, StorageType,
+    ObjectInfo, ObjectMetadata, PresignedMethod, S3Storage, StorageBackend, StorageError,
+    StorageInfo, StorageType,
 };
 
 #[cfg(test)]

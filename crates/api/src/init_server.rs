@@ -1,13 +1,10 @@
-use std::fs;
 use std::fs::File;
 use std::io::{BufReader, Seek, SeekFrom};
 use std::sync::Arc;
 
 use crate::controller::configure_api_routes;
-use actix_files::Files;
 use actix_web::middleware::from_fn;
 use actix_web::{App, HttpServer, middleware, web};
-use common::config_str::{USER_FILE_PUBLIC, USER_FILE_PUBLIC_DIR};
 use common::{init_app_config, init_redis, init_sql_pool, read_global_config, verify_redis};
 use http_service;
 use http_service::middleware::TraceIdMiddleware;
@@ -125,13 +122,6 @@ async fn init_s3_client() -> Option<Arc<s3_service::S3Client>> {
 
 /// Initialize services
 pub async fn start_server() -> anyhow::Result<()> {
-    // Create public file directory
-    let pub_file_path = USER_FILE_PUBLIC_DIR;
-    if !std::path::Path::new(pub_file_path).exists() {
-        fs::create_dir_all(pub_file_path)
-            .map_err(|e| anyhow::anyhow!("Failed to create public directory: {}", e))?;
-    }
-
     init_app_config()?;
 
     let url = read_global_config!("database", "url");
@@ -179,7 +169,6 @@ pub async fn start_server() -> anyhow::Result<()> {
             .wrap(middleware::Logger::default())
             .configure(http_service::http_service::configure_routes)
             .configure(configure_api_routes)
-            .service(Files::new(USER_FILE_PUBLIC, USER_FILE_PUBLIC_DIR).show_files_listing())
     })
     .bind_rustls_021(address, config)? // Bind to HTTPS port
     // .bind(address)?
