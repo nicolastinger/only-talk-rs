@@ -41,7 +41,7 @@ common/src/
 
 ## 注意事项
 
-- 全局连接池（`REDIS_CLIENT` / `RBATIS_DATABASE`）仍被 quic_service 直接使用；http_service 已改为通过 `CoreState` 依赖注入。
+- 全局连接池（`REDIS_CLIENT` / `RBATIS_DATABASE`）仅作为连接的单例初始化宿主与 QUIC 服务底层引用；http_service 与 quic_service 均已改为通过 `CoreState` 依赖注入。
 - `get_redis_conn()` 返回错误型，`try_get_redis_conn()` 返回 `Option`（redis 不可用时静默降级）。
 - `init_app_config` 会替换 `${VAR}`，缺失的变量会静默替换为空字符串——配置错误可能推迟到运行时才暴露。
 - `#![deny(clippy::unwrap_used)]` 生效，禁止 `.unwrap()`，用 `expect("reason")` 或错误处理。

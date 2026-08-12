@@ -17,8 +17,8 @@ OnlyTalk RS 是一个基于 Rust 构建的高性能即时通讯（IM）后端服
 | 数据库 | PostgreSQL + rbatis 4.6 | ORM 数据持久化 |
 | 缓存 | Redis + deadpool-redis | 连接池、会话管理 |
 | 对象存储 | AWS S3 SDK | 支持 MinIO / 阿里云 OSS / AWS S3 |
-| 认证 | JWT (jsonwebtoken 8.0) | 用户身份验证 |
-| 日志 | tracing + tracing-subscriber | 结构化日志、JSON 输出 |
+| 认证 | JWT (jsonwebtoken 8.0) | 用户身份验证（RS256 非对称） |
+| 日志 | tracing + tracing-subscriber | 文本日志（stdout + 文件双通道）、TraceId 全链路 |
 | 加密 | rustls 0.21 + rcgen | TLS 证书管理 |
 | Rust Edition | 2024 | 最新语言特性 |
 
@@ -28,17 +28,18 @@ OnlyTalk RS 是一个基于 Rust 构建的高性能即时通讯（IM）后端服
 only-talk-rs/
 ├── src/main.rs                  # 独立模式入口（同时启动 QUIC + HTTP）
 ├── crates/
-│   ├── api/                     # API 服务层（整合 HTTP + QUIC 路由）
-│   ├── common/                  # 公共工具：配置管理、JWT、RSA 加密、QUIC 配置、tracing
+│   ├── api/                     # 应用组装层：TLS + AppState 装配、集成服务（/integrated、/file_integrated）
+│   ├── common/                  # 基础设施：配置、连接池、CoreState、JWT、RSA、tracing、消息协议
 │   ├── entity/                  # 数据模型与数据库操作（rbatis）、DDL 脚本
-│   ├── email_service/           # 邮件服务（SMTP via reqwest，含连接池）
-│   ├── http_service/            # HTTP 端点：用户、好友、群组、聊天、通知、文件
+│   ├── email_service/           # 邮件服务库（多服务商 HTTPS API，暂未接入业务）
+│   ├── http_service/            # HTTP 端点：用户、好友、群组、聊天、通知、文件、S3 管理
 │   ├── quic_service/            # QUIC 服务：外网连接、内网通信、NAT 打洞、P2P 转发
 │   └── s3_service/              # S3 对象存储抽象层（多提供商支持）
 ├── config/
-│   ├── app_config.toml          # 应用配置（数据库、Redis、QUIC、文件、S3）
+│   ├── app_config.toml          # 应用配置（数据库、Redis、QUIC、NAT、S3）
+│   ├── jwt/                     # 自动生成的 RSA 密钥对（首次启动创建）
 │   └── ssl/                     # TLS 证书（fullchain.pem + privkey.pem）
-├── docs/                        # 技术文档
+├── docs/                        # 技术文档（含各 crate 职责说明）
 ├── .env.example                 # 环境变量模板
 ├── Cargo.toml                   # 工作区配置
 ├── clippy.toml                  # Clippy 规则
@@ -98,7 +99,7 @@ address = "0.0.0.0:4433"        # QUIC 外网监听端口
 address = "127.0.0.1:4434"      # QUIC 内网通信端口
 
 [s3]
-enabled = false                 # 是否启用 S3 存储（false 则使用本地存储）
+enabled = false                 # 是否启用 S3 存储（false 时文件上传/下载相关功能不可用）
 provider = "minio"              # minio / aliyun_oss / aws_s3
 ```
 
@@ -135,13 +136,32 @@ cargo run --release
 - **QUIC 外网服务**：`0.0.0.0:4433`
 - **QUIC 内网服务**：`127.0.0.1:4434`
 
+## 架构与依赖注入
+
+分层结构（依赖方向自上而下，单向）：
+
+```
+api ──► http_service ──► common
+  │          │
+  │          ▼
+  └──────► quic_service ──► common ──► entity
+  │
+  └──────► s3_service ──► common
+  └──────► email_service（独立，暂未接入）
+```
+
+- **`common::CoreState`**：共享连接状态（`db: RBatis` + `redis: Pool`），供 http_service 与 quic_service 复用。
+- **`http_service::AppState`**：组合 `CoreState` + `s3` + `email`，`api` 启动时构造一次并注入 `web::Data<AppState>`；controller 只引用 AppState，经 `state.db()` / `state.redis()` / `state.s3()` 取连接，service 层保持窄签名（`&RBatis` / `&Pool` / `Option<Arc<S3Client>>`）。
+- **quic_service**：同样以 `CoreState` 注入（`ChatNode` 持有），跨 `tokio::spawn` 处 clone 传递。
+- 新增依赖时只需给 `AppState` 加字段 + 在具体 service 函数使用，controller 签名无需改动。
+
 ## 部署模式
 
 | 模式 | 入口 | 端口 | 说明 |
 |------|------|------|------|
 | **独立模式** | `src/main.rs` | 8443 + 4433 + 4434 | QUIC + HTTP 同进程运行 |
 | **QUIC 网关** | `crates/quic_service/src/bin/quic_server.rs` | 4433 + 4434 | 仅 QUIC 连接管理 |
-| **API 服务** | `crates/api/src/main.rs` | 8443 | 仅 HTTP REST API |
+| **API 服务** | `crates/api/src/bin/api_server.rs` | 8443 | 仅 HTTP REST API |
 
 ### 独立模式（默认）
 
@@ -167,13 +187,14 @@ QUIC 服务与 HTTP 服务在同一进程中启动，适合中小型部署。
 | `/msg` | chat_service | 文本消息、消息查询、消息漫游 |
 | `/file` | file_service | 文件上传/下载、头像管理、S3 预签名 URL |
 | `/notify` | notify_service | 系统通知、推送通知 |
-| `/integrated` | api/controller | 综合用户服务与文件上传服务 |
+| `/integrated` | api/controller | 综合用户服务（好友+通知、QUIC 节点分配） |
+| `/file_integrated` | api/controller | 综合文件上传（头像、聊天文件） |
 
 ### QUIC 协议
 
 - **外网连接**：客户端通过 `4433` 端口建立 QUIC 长连接
 - **内网通信**：服务器节点间通过 `4434` 端口内部通信
-- **NAT 打洞**：UDP 端口 `9562-9565` 用于 P2P 穿透
+- **NAT 打洞**：UDP 端口 `19562-19565` 用于 P2P 穿透
 
 ## 特性
 
@@ -185,14 +206,14 @@ QUIC 服务与 HTTP 服务在同一进程中启动，适合中小型部署。
 
 ### P2P 连接
 
-- UDP NAT 发现（端口 9562-9565）
+- UDP NAT 发现（端口 19562-19565）
 - P2P 打洞建立直连通道
 - 打洞失败自动降级为服务器中转
 
 ### 文件存储
 
-- 支持本地存储与 S3 对象存储无缝切换
-- 图片自动压缩为 WebP 格式
+- 基于 S3 对象存储（MinIO / 阿里云 OSS / AWS S3），本地存储已移除
+- 图片上传后自动压缩为 WebP 格式
 - 分片上传（大文件支持）
 - 预签名 URL 安全访问
 
@@ -242,6 +263,12 @@ endpoint = "${S3_ENDPOINT}"
 access_key = "${S3_ACCESS_KEY}"
 secret_key = "${S3_SECRET_KEY}"
 default_bucket = "only-talk-rs"
+
+[nat_udp]
+v4_port_1 = 19562               # NAT 穿透 UDP 端口
+v6_port_1 = 19563
+v4_port_2 = 19564
+v6_port_2 = 19565
 ```
 
 ### 文件类型配置
