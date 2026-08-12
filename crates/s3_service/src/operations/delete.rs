@@ -64,7 +64,12 @@ pub async fn delete_objects(
     // Build list of objects for delete request
     let objects: Vec<aws_sdk_s3::types::ObjectIdentifier> = keys
         .iter()
-        .map(|k| aws_sdk_s3::types::ObjectIdentifier::builder().key(*k).build().unwrap())
+        .map(|k| {
+            aws_sdk_s3::types::ObjectIdentifier::builder()
+                .key(*k)
+                .build()
+                .expect("builder has required key field set")
+        })
         .collect();
 
     // Build delete request
@@ -72,7 +77,7 @@ pub async fn delete_objects(
         .set_objects(Some(objects))
         .quiet(false) // Return delete results
         .build()
-        .unwrap();
+        .expect("delete builder has all fields valid");
 
     // Execute batch delete
     let result = client

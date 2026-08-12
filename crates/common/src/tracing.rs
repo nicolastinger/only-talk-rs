@@ -1,6 +1,7 @@
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::fmt::time::LocalTime;
-use tracing_subscriber::{EnvFilter, Registry, fmt, prelude::*};
+use tracing_subscriber::prelude::*;
+use tracing_subscriber::{EnvFilter, Registry, fmt};
 
 fn read_log_level_from_config() -> String {
     std::fs::read_to_string("./config/app_config.toml")

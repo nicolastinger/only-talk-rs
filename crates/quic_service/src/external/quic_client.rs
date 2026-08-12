@@ -18,7 +18,9 @@ use crate::msg_service::text_msg_service::{generate_text_msg, get_text_msg};
 #[allow(dead_code)]
 pub async fn run_client(server_addr: SocketAddr) {
     // Create client endpoint
-    let mut endpoint = Endpoint::client("0.0.0.0:0".parse().unwrap()).unwrap();
+    let mut endpoint =
+        Endpoint::client("0.0.0.0:0".parse().expect("client bind address should be valid"))
+            .expect("failed to create quic client endpoint");
     endpoint.set_default_client_config(configure_client()); // Set default client config
 
     // Try connecting to server

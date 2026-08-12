@@ -1,16 +1,16 @@
+use std::str::FromStr;
+use std::sync::Arc;
+
 use actix_multipart::Multipart;
 use anyhow::anyhow;
+use common::models::file_entity::biz_file_link::BizFileLink;
+use common::models::user_entity::friend_link::FriendLink;
+use http_service::http_service::file_service::service::avatar_s3_service::{
+    upload_group_avatar_s3, upload_user_avatar_s3,
+};
 use http_service::http_service::file_service::service::biz_service::{
     create_avatar_biz, create_group_avatar_biz,
 };
-use std::str::FromStr;
-use std::sync::Arc;
-use tracing::info;
-
-use common::models::file_entity::biz_file_link::BizFileLink;
-use common::models::user_entity::friend_link::FriendLink;
-use http_service::http_service::file_service::service::avatar_s3_service::upload_group_avatar_s3;
-use http_service::http_service::file_service::service::avatar_s3_service::upload_user_avatar_s3;
 use http_service::http_service::file_service::service::chat_biz_service::{
     create_group_chat_biz, create_user_chat_biz,
 };
@@ -22,22 +22,17 @@ use http_service::http_service::user_service::service::user_service::update_user
 use http_service::utils::http_response::CommonResponseRef;
 use rbatis::{RBatis, rbdc};
 use s3_service::S3Client;
+use tracing::info;
 
 /// Upload user avatar
 pub async fn upload_user_avatar(
     rb: &RBatis,
     uuid: Option<String>,
     payload: Multipart,
-    s3_client: Option<Arc<S3Client>>,
+    s3_client: Arc<S3Client>,
 ) -> Result<String, anyhow::Error> {
     let uuid = uuid.ok_or(anyhow!("User ID cannot be empty"))?;
     let user_id = rbdc::Uuid::from_str(&uuid)?;
-
-    // 1. Upload avatar via S3
-    let s3_client = s3_client.ok_or(anyhow!("S3 client not initialized"))?;
-    if !s3_client.config.enabled {
-        return Err(anyhow!("S3 service not enabled"));
-    }
 
     info!("uploading avatar to S3...");
     let original_record = upload_user_avatar_s3(rb, uuid.clone(), payload, s3_client.clone())
@@ -70,7 +65,7 @@ pub async fn upload_user_chat_file(
     uuid: Option<String>,
     payload: Multipart,
     friend_uuid: String,
-    s3_client: Option<Arc<S3Client>>,
+    s3_client: Arc<S3Client>,
 ) -> Result<String, anyhow::Error> {
     let uuid = uuid.ok_or(anyhow!("User ID cannot be empty"))?;
     let user_id = rbdc::Uuid::from_str(&uuid)?;
@@ -85,11 +80,6 @@ pub async fn upload_user_chat_file(
     }
 
     // 2. Upload via S3
-    let s3_client = s3_client.ok_or(anyhow!("S3 client not initialized"))?;
-    if !s3_client.config.enabled {
-        return Err(anyhow!("S3 service not enabled"));
-    }
-
     info!("uploading chat file to S3...");
     let record = upload_chat_preview_file_s3(rb, uuid.clone(), payload, s3_client.clone())
         .await
@@ -121,18 +111,13 @@ pub async fn upload_group_chat_file(
     uuid: Option<String>,
     payload: Multipart,
     group_uuid: String,
-    s3_client: Option<Arc<S3Client>>,
+    s3_client: Arc<S3Client>,
 ) -> Result<String, anyhow::Error> {
     let uuid = uuid.ok_or(anyhow!("User ID cannot be empty"))?;
     let user_id = rbdc::Uuid::from_str(&uuid)?;
     let group_id = rbdc::Uuid::from_str(&group_uuid)?;
 
     // Upload via S3 (no friend check for group chat)
-    let s3_client = s3_client.ok_or(anyhow!("S3 client not initialized"))?;
-    if !s3_client.config.enabled {
-        return Err(anyhow!("S3 service not enabled"));
-    }
-
     info!("uploading group chat file to S3...");
     let record = upload_chat_preview_file_s3(rb, uuid.clone(), payload, s3_client.clone())
         .await
@@ -164,16 +149,11 @@ pub async fn upload_group_avatar(
     uuid: Option<String>,
     group_uuid: String,
     payload: Multipart,
-    s3_client: Option<Arc<S3Client>>,
+    s3_client: Arc<S3Client>,
 ) -> Result<String, anyhow::Error> {
     let uuid = uuid.ok_or(anyhow!("User ID cannot be empty"))?;
     let user_id = rbdc::Uuid::from_str(&uuid)?;
     let group_id = rbdc::Uuid::from_str(&group_uuid)?;
-
-    let s3_client = s3_client.ok_or(anyhow!("S3 client not initialized"))?;
-    if !s3_client.config.enabled {
-        return Err(anyhow!("S3 service not enabled"));
-    }
 
     info!("uploading group avatar to S3...");
     let original_record = upload_group_avatar_s3(rb, uuid.clone(), payload, s3_client.clone())

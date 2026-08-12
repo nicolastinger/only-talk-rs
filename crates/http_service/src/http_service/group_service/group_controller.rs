@@ -2,13 +2,13 @@ use actix_web::{HttpRequest, HttpResponse, Responder, get, post, web};
 use tracing::info;
 
 use crate::common::dto::base_dto::AuthAccount;
-use crate::http_service::group_service::group_dto::{
-    create_group_dto::CreateGroupDTO,
-    group_message_history_dto::GroupMessageHistoryDTO,
-    invite_member_dto::{HandleInvitationDTO, InviteMemberDTO},
-    set_role_dto::SetRoleDTO,
-    update_group_dto::UpdateGroupDTO,
+use crate::http_service::group_service::group_dto::create_group_dto::CreateGroupDTO;
+use crate::http_service::group_service::group_dto::group_message_history_dto::GroupMessageHistoryDTO;
+use crate::http_service::group_service::group_dto::invite_member_dto::{
+    HandleInvitationDTO, InviteMemberDTO,
 };
+use crate::http_service::group_service::group_dto::set_role_dto::SetRoleDTO;
+use crate::http_service::group_service::group_dto::update_group_dto::UpdateGroupDTO;
 use crate::http_service::group_service::group_service::{
     accept_group_invitation_service, create_group_service, decline_group_invitation_service,
     dissolve_group_service, get_group_info_service, get_group_members_service,
@@ -170,7 +170,10 @@ pub async fn decline_group_invitation(
 }
 
 #[get("/member/invite/pending")]
-pub async fn get_pending_invitations(state: web::Data<AppState>, req: HttpRequest) -> impl Responder {
+pub async fn get_pending_invitations(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+) -> impl Responder {
     let uuid = get_uuid(&req);
     let res = get_pending_invitations_service(state.db(), &uuid).await;
     respond_json(res)
@@ -191,14 +194,9 @@ pub async fn remove_group_member(
 ) -> impl Responder {
     let (group_uuid, target_uuid) = path.into_inner();
     let uuid = get_uuid(&req);
-    let res = remove_group_member_service(
-        state.db(),
-        state.redis(),
-        &uuid,
-        &group_uuid,
-        &target_uuid,
-    )
-    .await;
+    let res =
+        remove_group_member_service(state.db(), state.redis(), &uuid, &group_uuid, &target_uuid)
+            .await;
     respond_bool(res)
 }
 

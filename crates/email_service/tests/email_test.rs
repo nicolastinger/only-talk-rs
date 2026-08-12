@@ -1,3 +1,6 @@
+// 测试代码中直接使用 unwrap 作为断言失败手段是惯例,此处豁免生产代码的 unwrap 禁令
+#![allow(clippy::unwrap_used, clippy::disallowed_methods)]
+
 use email_service::{Attachment, Email, EmailAddress, EmailPriority};
 
 #[test]

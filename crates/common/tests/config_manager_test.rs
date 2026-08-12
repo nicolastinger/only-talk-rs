@@ -115,8 +115,8 @@ fn test_concurrent_operations() {
                 let key = format!("{}key_{}", prefix, i);
                 let value = format!("value_{}", i);
                 set_config(key.clone(), value.clone());
-                let result = get_config(&key);
-                result
+
+                get_config(&key)
             })
         })
         .collect();

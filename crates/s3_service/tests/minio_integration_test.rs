@@ -3,8 +3,9 @@
 //! 测试 S3 服务与 MinIO 的集成功能
 //! 运行前请确保 MinIO 服务已启动
 
-use s3_service::{S3Client, S3Config, S3Storage, StorageBackend};
 use std::sync::Arc;
+
+use s3_service::{S3Client, S3Config, S3Storage, StorageBackend};
 
 /// 创建测试用的 S3 客户端
 async fn create_test_client() -> S3Client {

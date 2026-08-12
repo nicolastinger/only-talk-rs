@@ -2,10 +2,12 @@
 //!
 //! 本模块定义了 [`Attachment`] 结构体和 [`ContentDisposition`] 枚举。
 
-use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine};
+use std::fmt;
+
+use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
+use base64::Engine;
 use mime::Mime;
 use serde::{Deserialize, Serialize};
-use std::fmt;
 
 /// 邮件附件
 ///
@@ -277,22 +279,18 @@ impl Attachment {
 /// 定义附件在邮件中的显示方式。
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum ContentDisposition {
     /// 普通附件
     ///
     /// 作为独立文件显示，需要用户点击下载或打开。
+    #[default]
     Attachment,
 
     /// 内联附件
     ///
     /// 直接嵌入邮件正文中显示，常用于 HTML 邮件中的图片。
     Inline,
-}
-
-impl Default for ContentDisposition {
-    fn default() -> Self {
-        Self::Attachment
-    }
 }
 
 impl fmt::Display for ContentDisposition {

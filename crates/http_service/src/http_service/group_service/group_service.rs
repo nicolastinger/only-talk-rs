@@ -1,10 +1,6 @@
 use std::net::SocketAddr;
 
 use anyhow::{Result, anyhow};
-use rbatis::RBatis;
-use rbatis::rbdc::Uuid;
-use tracing::{info, warn};
-
 use common::models::notify_entity::system_notification::SystemNotification;
 use common::read_global_config;
 use common::utils::internal_quic_client::send_internal_quic_msg;
@@ -12,27 +8,30 @@ use common::utils::internal_quic_msg::{InternalQuicRequest, RequestSource};
 use common::utils::message_types::NOTIFY_TYPE_MSG;
 use common::utils::server_count_sync::compute_preferred_index;
 use common::utils::time::get_now_time_stamp_as_millis;
-use entity::models::group_entity::{
-    group_info::GroupInfo,
-    group_invitation::{
-        GroupInvitation, INVITATION_ACCEPTED, INVITATION_DECLINED, INVITATION_PENDING,
-    },
-    group_member::{GroupMember, ROLE_ADMIN, ROLE_MEMBER, ROLE_OWNER, STATUS_NORMAL},
-    group_message_record::GroupMessageRecord,
+use entity::models::group_entity::group_info::GroupInfo;
+use entity::models::group_entity::group_invitation::{
+    GroupInvitation, INVITATION_ACCEPTED, INVITATION_DECLINED, INVITATION_PENDING,
 };
+use entity::models::group_entity::group_member::{
+    GroupMember, ROLE_ADMIN, ROLE_MEMBER, ROLE_OWNER, STATUS_NORMAL,
+};
+use entity::models::group_entity::group_message_record::GroupMessageRecord;
+use rbatis::RBatis;
+use rbatis::rbdc::Uuid;
+use tracing::{info, warn};
 
-use crate::http_service::group_service::group_dto::{
-    create_group_dto::CreateGroupDTO,
-    group_message_history_dto::GroupMessageHistoryDTO,
-    invite_member_dto::{HandleInvitationDTO, InviteMemberDTO},
-    set_role_dto::SetRoleDTO,
-    update_group_dto::UpdateGroupDTO,
+use crate::http_service::group_service::group_dto::create_group_dto::CreateGroupDTO;
+use crate::http_service::group_service::group_dto::group_message_history_dto::GroupMessageHistoryDTO;
+use crate::http_service::group_service::group_dto::invite_member_dto::{
+    HandleInvitationDTO, InviteMemberDTO,
 };
-use crate::http_service::group_service::group_vo::{
-    group_info_vo::{GroupInfoVO, GroupListItemVO},
-    group_invitation_vo::GroupInvitationVO,
-    group_member_vo::GroupMemberVO,
-    group_message_vo::{GroupMessageVO, UnreadCountVO},
+use crate::http_service::group_service::group_dto::set_role_dto::SetRoleDTO;
+use crate::http_service::group_service::group_dto::update_group_dto::UpdateGroupDTO;
+use crate::http_service::group_service::group_vo::group_info_vo::{GroupInfoVO, GroupListItemVO};
+use crate::http_service::group_service::group_vo::group_invitation_vo::GroupInvitationVO;
+use crate::http_service::group_service::group_vo::group_member_vo::GroupMemberVO;
+use crate::http_service::group_service::group_vo::group_message_vo::{
+    GroupMessageVO, UnreadCountVO,
 };
 use crate::http_service::notify_service::service::system_notification::{
     send_group_invite_msg, send_group_invite_result_msg,
@@ -220,22 +219,22 @@ pub async fn get_my_groups_service(rb: &RBatis, user_uuid: &str) -> Result<Vec<G
 
     let mut result = Vec::new();
     for membership in memberships {
-        if let Some(g_uuid) = membership.group_uuid {
-            if let Some(group) = GroupInfo::select_by_group_uuid(rb, &g_uuid).await? {
-                if group.status != Some(1) {
-                    continue;
-                }
-                let member_count = count_group_members(rb, &g_uuid.to_string()).await?;
-                result.push(GroupListItemVO {
-                    group_uuid: g_uuid.to_string(),
-                    group_name: group.group_name.unwrap_or_default(),
-                    avatar: group.avatar,
-                    owner_uuid: group.owner_uuid.map(|u: Uuid| u.to_string()).unwrap_or_default(),
-                    member_count,
-                    last_msg_time: None,
-                    unread_count: 0,
-                });
+        if let Some(g_uuid) = membership.group_uuid
+            && let Some(group) = GroupInfo::select_by_group_uuid(rb, &g_uuid).await?
+        {
+            if group.status != Some(1) {
+                continue;
             }
+            let member_count = count_group_members(rb, &g_uuid.to_string()).await?;
+            result.push(GroupListItemVO {
+                group_uuid: g_uuid.to_string(),
+                group_name: group.group_name.unwrap_or_default(),
+                avatar: group.avatar,
+                owner_uuid: group.owner_uuid.map(|u: Uuid| u.to_string()).unwrap_or_default(),
+                member_count,
+                last_msg_time: None,
+                unread_count: 0,
+            });
         }
     }
 

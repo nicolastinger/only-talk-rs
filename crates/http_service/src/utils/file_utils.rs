@@ -1,7 +1,8 @@
+use std::path::Path;
+
 use anyhow::{Context, anyhow};
 use image::DynamicImage;
 use rbatis::rbdc::rt::tokio;
-use std::path::Path;
 use tracing::info;
 use webp::Encoder;
 

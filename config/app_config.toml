@@ -79,7 +79,7 @@ group_avatar_bucket = "group-avatar"
 region = "us-east-1"
 # 是否启用路径风格访问（MinIO必须为true）
 force_path_style = true
-# 是否启用S3存储（false则走本地存储）
+# 是否启用S3存储（必选，关闭则服务启动失败）
 enabled = true
 # 预签名URL过期时间（秒）
 presign_expire_seconds = 3600

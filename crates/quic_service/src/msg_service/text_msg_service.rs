@@ -2,13 +2,12 @@ use std::sync::Arc;
 
 use anyhow::anyhow;
 use common::utils::text_msg::{HeadMsg, TextQuicMsg, X25};
-use tokio::sync::{Mutex, MutexGuard};
-use tracing::error;
-
 // Re-export from common (moved to shared crate)
 pub use common::utils::text_msg::{
     build_text_msg, generate_text_msg, generate_text_msg_with_id, generate_text_msg_with_time,
 };
+use tokio::sync::{Mutex, MutexGuard};
+use tracing::error;
 
 // Parse text message
 pub async fn get_text_msg(
@@ -83,12 +82,16 @@ pub async fn get_text_msg(
 }
 
 #[cfg(test)]
+// 测试代码中直接使用 unwrap 作为断言失败手段是惯例,此处豁免生产代码的 unwrap 禁令
+#[allow(clippy::unwrap_used, clippy::disallowed_methods)]
 mod tests {
-    use super::*;
+    use std::sync::Arc;
+
     use common::utils::message_types::MSG_TYPE_TEXT;
     use common::utils::text_msg::{HeadMsg, X25};
-    use std::sync::Arc;
     use tokio::sync::Mutex;
+
+    use super::*;
 
     fn head_size() -> usize {
         let head = HeadMsg { version: 1, crc: 0, body_len: 0, message_type: MSG_TYPE_TEXT };

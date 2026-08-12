@@ -2,37 +2,40 @@
 //!
 //! 测试配置解析、错误处理等不需要实际服务的功能
 
-use crate::config::S3Provider;
-use crate::error::S3Error;
+// 测试代码中直接使用 unwrap 作为断言失败手段是惯例,此处豁免生产代码的 unwrap 禁令
+#![allow(clippy::unwrap_used, clippy::disallowed_methods)]
 
-// 集成测试需要的导入
-#[cfg(feature = "integration-test")]
-use crate::S3Client;
 #[cfg(feature = "integration-test")]
 use aws_sdk_s3::error::ProvideErrorMetadata;
 #[cfg(feature = "integration-test")]
 use aws_sdk_s3::operation::RequestId;
 
+// 集成测试需要的导入
+#[cfg(feature = "integration-test")]
+use crate::S3Client;
+use crate::config::S3Provider;
+use crate::error::S3Error;
+
 /// 测试 S3Provider 解析
 #[test]
 fn test_s3_provider_from_str() {
     // 测试 MinIO
-    assert_eq!(S3Provider::from_str("minio").unwrap(), S3Provider::MinIO);
-    assert_eq!(S3Provider::from_str("MINIO").unwrap(), S3Provider::MinIO);
-    assert_eq!(S3Provider::from_str("MinIO").unwrap(), S3Provider::MinIO);
+    assert_eq!("minio".parse::<S3Provider>().unwrap(), S3Provider::MinIO);
+    assert_eq!("MINIO".parse::<S3Provider>().unwrap(), S3Provider::MinIO);
+    assert_eq!("MinIO".parse::<S3Provider>().unwrap(), S3Provider::MinIO);
 
     // 测试 AliyunOSS
-    assert_eq!(S3Provider::from_str("aliyun_oss").unwrap(), S3Provider::AliyunOSS);
-    assert_eq!(S3Provider::from_str("aliyun").unwrap(), S3Provider::AliyunOSS);
-    assert_eq!(S3Provider::from_str("oss").unwrap(), S3Provider::AliyunOSS);
+    assert_eq!("aliyun_oss".parse::<S3Provider>().unwrap(), S3Provider::AliyunOSS);
+    assert_eq!("aliyun".parse::<S3Provider>().unwrap(), S3Provider::AliyunOSS);
+    assert_eq!("oss".parse::<S3Provider>().unwrap(), S3Provider::AliyunOSS);
 
     // 测试 AwsS3
-    assert_eq!(S3Provider::from_str("aws_s3").unwrap(), S3Provider::AwsS3);
-    assert_eq!(S3Provider::from_str("aws").unwrap(), S3Provider::AwsS3);
+    assert_eq!("aws_s3".parse::<S3Provider>().unwrap(), S3Provider::AwsS3);
+    assert_eq!("aws".parse::<S3Provider>().unwrap(), S3Provider::AwsS3);
 
     // 测试无效值
-    assert!(S3Provider::from_str("invalid").is_err());
-    assert!(S3Provider::from_str("").is_err());
+    assert!("invalid".parse::<S3Provider>().is_err());
+    assert!("".parse::<S3Provider>().is_err());
 }
 
 /// 测试 S3Provider Display 实现
@@ -67,27 +70,27 @@ fn test_default_minio_config() {
 fn test_s3_error_display() {
     assert_eq!(
         format!("{}", S3Error::AwsError("test error".to_string())),
-        "AWS SDK错误: test error"
+        "AWS SDK error: test error"
     );
 
     assert_eq!(
         format!("{}", S3Error::ConfigError("invalid config".to_string())),
-        "S3配置错误: invalid config"
+        "S3 config error: invalid config"
     );
 
     assert_eq!(
         format!("{}", S3Error::BucketNotFound("my-bucket".to_string())),
-        "存储桶不存在: my-bucket"
+        "Bucket not found: my-bucket"
     );
 
     assert_eq!(
         format!("{}", S3Error::ObjectNotFound("file.txt".to_string())),
-        "对象不存在: file.txt"
+        "Object not found: file.txt"
     );
 
     assert_eq!(
         format!("{}", S3Error::PermissionDenied("access denied".to_string())),
-        "权限不足: access denied"
+        "Permission denied: access denied"
     );
 }
 
@@ -133,9 +136,10 @@ fn test_presigned_method() {
 #[cfg(feature = "integration-test")]
 #[tokio::test]
 async fn diagnose_s3_connection() {
+    use tracing::info;
+
     use crate::client::S3Client;
     use crate::config::S3Config;
-    use tracing::info;
 
     // 初始化日志
     let _ = tracing_subscriber::fmt::try_init();

@@ -2,15 +2,14 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use anyhow::Result;
-use dashmap::DashMap;
-use deadpool_redis::redis::AsyncCommands;
-use tracing::{error, info, warn};
-
 use common::config_str::{REDIS_INTERNAL_QUIC_SERVERS, REDIS_QUIC_SERVERS, REDIS_SPLIT};
 use common::state::CoreState;
 use common::utils::group_msg::{InternalGroupBroadcast, InternalGroupBroadcastResponse};
 use common::utils::internal_quic_client::send_internal_quic_msg;
 use common::utils::internal_quic_msg::{InternalQuicRequest, InternalQuicResponse};
+use dashmap::DashMap;
+use deadpool_redis::redis::AsyncCommands;
+use tracing::{error, info, warn};
 
 use crate::models::quic_connection::{ConnectionType, QuicConnection};
 use crate::msg_service::group_msg_service::process_group_broadcast;
@@ -103,23 +102,21 @@ pub async fn route_request(
         if let Some(resp) = try_deliver_local(request, connections).await? {
             return Ok(resp);
         }
-    } else {
-        if request.ttl > 0 {
-            match get_internal_addr_by_index(core, preferred_index).await {
-                Ok(target_addr) => {
-                    let mut forward_req = request.clone();
-                    forward_req.ttl -= 1;
-                    let resp = forward_to_remote(&target_addr, &forward_req).await?;
-                    if resp.delivered == Some(true) {
-                        return Ok(resp);
-                    }
+    } else if request.ttl > 0 {
+        match get_internal_addr_by_index(core, preferred_index).await {
+            Ok(target_addr) => {
+                let mut forward_req = request.clone();
+                forward_req.ttl -= 1;
+                let resp = forward_to_remote(&target_addr, &forward_req).await?;
+                if resp.delivered == Some(true) {
+                    return Ok(resp);
                 }
-                Err(e) => {
-                    warn!(
-                        "[single chat] failed to get preferred node {} address: {}, falling back to Redis",
-                        preferred_index, e
-                    );
-                }
+            }
+            Err(e) => {
+                warn!(
+                    "[single chat] failed to get preferred node {} address: {}, falling back to Redis",
+                    preferred_index, e
+                );
             }
         }
     }
@@ -128,8 +125,7 @@ pub async fn route_request(
         return Ok(InternalQuicResponse::user_offline());
     }
 
-    let actual_index =
-        get_actual_node_index(core, &request.target_user, &request.platform).await?;
+    let actual_index = get_actual_node_index(core, &request.target_user, &request.platform).await?;
     match actual_index {
         Some(idx) if idx == server_index => try_deliver_local(request, connections)
             .await

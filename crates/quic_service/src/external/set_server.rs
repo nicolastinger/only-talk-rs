@@ -94,19 +94,19 @@ fn load_private_keys(key_file: &mut BufReader<File>) -> Result<Vec<Vec<u8>>, Box
     key_file
         .seek(SeekFrom::Start(0))
         .map_err(|e| format!("Unable to reset file read position: {}", e))?;
-    if let Ok(keys) = rsa_private_keys(key_file) {
-        if !keys.is_empty() {
-            return Ok(keys);
-        }
+    if let Ok(keys) = rsa_private_keys(key_file)
+        && !keys.is_empty()
+    {
+        return Ok(keys);
     }
 
     key_file
         .seek(SeekFrom::Start(0))
         .map_err(|e| format!("Unable to reset file read position: {}", e))?;
-    if let Ok(keys) = ec_private_keys(key_file) {
-        if !keys.is_empty() {
-            return Ok(keys);
-        }
+    if let Ok(keys) = ec_private_keys(key_file)
+        && !keys.is_empty()
+    {
+        return Ok(keys);
     }
 
     key_file

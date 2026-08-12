@@ -1,11 +1,13 @@
+use std::collections::HashMap;
+use std::sync::Arc;
+
 use async_trait::async_trait;
-use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine};
+use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
+use base64::Engine;
 use chrono::Utc;
 use hmac::{Hmac, Mac};
 use reqwest::Client;
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
-use std::sync::Arc;
 
 use crate::config::TencentConfig;
 use crate::error::{EmailError, EmailResult};

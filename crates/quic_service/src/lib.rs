@@ -15,8 +15,7 @@ pub mod nat_ip;
 pub type ConnectionsMap = Arc<DashMap<String, QuicConnection>>;
 
 // Re-exports
-pub use external::{ChatNode, ChatNodeConfig, ServiceError, ServiceLifecycle, ServiceState};
-pub use internal::{InternalQuicConfig, run_internal_server};
-
 // Re-export X25 from common (moved to shared crate)
 pub use common::utils::text_msg::X25;
+pub use external::{ChatNode, ChatNodeConfig, ServiceError, ServiceLifecycle, ServiceState};
+pub use internal::{InternalQuicConfig, run_internal_server};

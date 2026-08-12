@@ -3,8 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Result;
-use common::config_str::REDIS_INTERNAL_QUIC_SERVERS;
-use common::config_str::{REDIS_QUIC_SERVERS, REDIS_SPLIT};
+use common::config_str::{REDIS_INTERNAL_QUIC_SERVERS, REDIS_QUIC_SERVERS, REDIS_SPLIT};
 use common::state::CoreState;
 use common::utils::group_msg::{InternalGroupBroadcast, InternalGroupBroadcastResponse};
 use common::utils::internal_quic_msg::{InternalQuicRequest, InternalQuicResponse};
@@ -33,8 +32,8 @@ fn generate_self_signed_cert() -> Result<(Vec<Certificate>, PrivateKey), Box<dyn
 fn make_internal_endpoint(bind_addr: SocketAddr) -> Result<Endpoint, Box<dyn std::error::Error>> {
     let (cert_chain, key) = generate_self_signed_cert()?;
     let mut server_config = ServerConfig::with_single_cert(cert_chain, key)?;
-    let transport = Arc::get_mut(&mut server_config.transport)
-        .ok_or_else(|| "Failed to get transport config")?;
+    let transport =
+        Arc::get_mut(&mut server_config.transport).ok_or("Failed to get transport config")?;
     transport.max_concurrent_uni_streams(32_u8.into());
     transport.max_concurrent_bidi_streams(32_u8.into());
     transport.max_idle_timeout(Some(Duration::from_secs(30).try_into()?));

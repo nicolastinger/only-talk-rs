@@ -1,7 +1,5 @@
-use actix_web::{
-    Error, HttpMessage,
-    dev::{Service, ServiceRequest, ServiceResponse, Transform, forward_ready},
-};
+use actix_web::dev::{Service, ServiceRequest, ServiceResponse, Transform, forward_ready};
+use actix_web::{Error, HttpMessage};
 use futures_util::future::{Ready, ok};
 use tracing::Instrument;
 use uuid::Uuid;

@@ -1,6 +1,7 @@
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use reqwest::Client;
-use std::sync::Arc;
 
 use crate::config::AwsSesConfig;
 use crate::error::{EmailError, EmailResult};
@@ -26,6 +27,8 @@ impl AwsSesEmailProvider {
         Ok(Arc::new(Self::new(config)?))
     }
 
+    // 第三方宏 serde_json::json! 内部会对 to_value 的结果调用 unwrap,并非本项目代码
+    #[allow(clippy::disallowed_methods)]
     async fn send_via_api(&self, email: &Email) -> EmailResult<SendResult> {
         let endpoint =
             format!("https://email.{}.amazonaws.com/v2/email/outbound-emails", self.config.region);

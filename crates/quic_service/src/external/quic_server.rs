@@ -1,10 +1,6 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use super::config::ChatNodeConfig;
-use crate::models::first_quic_msg::FirstQuicMsg;
-use crate::models::quic_connection::{ConnectionType, QuicConnection};
-use crate::msg_service::process_msg_service::process_rec_msg;
 use anyhow::{Result, anyhow};
 use common::config_str::USER_READ_MSG;
 use common::models::chat_entity::add_read_chat_record::AddReadChatRecordDTO;
@@ -23,6 +19,11 @@ use rbatis::dark_std::err;
 use rbs::value;
 use tokio::sync::{Mutex, watch};
 use tracing::{error, info, warn};
+
+use super::config::ChatNodeConfig;
+use crate::models::first_quic_msg::FirstQuicMsg;
+use crate::models::quic_connection::{ConnectionType, QuicConnection};
+use crate::msg_service::process_msg_service::process_rec_msg;
 
 /// Start and run the QUIC server, continuously listening for new connections
 pub(crate) async fn run_server(
@@ -90,9 +91,17 @@ async fn handle_connection(
                 let conn_handle = quic_conn.clone();
                 let core_clone = core.clone();
                 tokio::spawn(async move {
-                    handle_conn(send_stream, recv_stream, conn_handle, address, conns, cfg, core_clone)
-                        .await
-                        .unwrap_or_else(|x| error!("failed to initialize connection {}", x));
+                    handle_conn(
+                        send_stream,
+                        recv_stream,
+                        conn_handle,
+                        address,
+                        conns,
+                        cfg,
+                        core_clone,
+                    )
+                    .await
+                    .unwrap_or_else(|x| error!("failed to initialize connection {}", x));
                 });
             }
             Err(e) => {
@@ -196,6 +205,7 @@ async fn verify_max_client(
 }
 
 /// Record connection info
+#[allow(clippy::too_many_arguments)]
 async fn set_conn_info(
     core: &CoreState,
     uuid: String,
@@ -452,7 +462,8 @@ async fn user_offline(core: &CoreState, uuid: String) -> std::result::Result<(),
             };
             // 读者必须是群成员，且已读游标只推进不回退
             let mut member =
-                match GroupMember::select_by_group_and_user(rb, &group_uuid, &item.recv_user).await?
+                match GroupMember::select_by_group_and_user(rb, &group_uuid, &item.recv_user)
+                    .await?
                 {
                     Some(m) => m,
                     None => {
@@ -479,8 +490,8 @@ async fn user_offline(core: &CoreState, uuid: String) -> std::result::Result<(),
             recv_user: item.recv_user,
         };
 
-        let is_exist = ChatMessageRecord::select_by_map(rb, value! {"nano_id": &record.nano_id})
-            .await?;
+        let is_exist =
+            ChatMessageRecord::select_by_map(rb, value! {"nano_id": &record.nano_id}).await?;
         if is_exist.is_empty() || is_exist.len() > 1 {
             continue;
         }

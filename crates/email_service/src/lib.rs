@@ -75,11 +75,11 @@
 //!
 //! ## 模块说明
 //!
-//! - [`error`]: 错误类型定义
-//! - [`config`]: 配置结构体
-//! - [`models`]: 邮件模型（Email、Attachment 等）
-//! - [`providers`]: 邮件服务商实现
-//! - [`manager`]: 邮件管理器和连接池
+//! - [`error`][]: 错误类型定义
+//! - [`config`][]: 配置结构体
+//! - [`models`][]: 邮件模型（Email、Attachment 等）
+//! - [`providers`][]: 邮件服务商实现
+//! - [`manager`][]: 邮件管理器和连接池
 
 pub mod config;
 pub mod error;

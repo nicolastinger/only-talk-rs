@@ -1,3 +1,7 @@
+use actix_multipart::Multipart;
+use actix_web::{HttpRequest, HttpResponse, Responder, get, post, web};
+use tracing::error;
+
 use crate::common::dto::base_dto::AuthAccount;
 use crate::http_service::file_service::service::biz_service::upload_original_file_by_biz_id;
 use crate::http_service::file_service::service::file_service::{
@@ -7,9 +11,6 @@ use crate::http_service::file_service::service::file_service::{
 use crate::state::AppState;
 use crate::utils::http_response::CommonResponseNoDataRef;
 use crate::{get_uuid_from_header, respond_json_any};
-use actix_multipart::Multipart;
-use actix_web::{HttpRequest, HttpResponse, Responder, get, post, web};
-use tracing::error;
 
 pub fn file_service(cfg: &mut web::ServiceConfig) {
     cfg.service(download_pub_file_id_api)
@@ -67,10 +68,7 @@ async fn download_chat_biz_api(
 ) -> impl Responder {
     let (biz_id, is_preview) = biz_id.into_inner();
     let uuid = get_uuid_from_header!(req);
-    let is_preview_bool = match is_preview.as_str() {
-        "1" => true,
-        _ => false,
-    };
+    let is_preview_bool = is_preview.as_str() == "1";
     let s3_client = state.s3.clone();
     let res = download_link_chat_biz(state.db(), s3_client, uuid, biz_id, is_preview_bool).await;
     respond_json_any!(res)

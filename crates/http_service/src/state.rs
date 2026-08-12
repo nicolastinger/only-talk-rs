@@ -8,7 +8,7 @@ use s3_service::S3Client;
 #[derive(Clone)]
 pub struct AppState {
     pub core: CoreState,
-    pub s3: Option<Arc<S3Client>>,
+    pub s3: Arc<S3Client>,
     pub email: Arc<EmailManager>,
 }
 
@@ -21,7 +21,7 @@ impl AppState {
         &self.core.redis
     }
 
-    pub fn s3(&self) -> Option<&Arc<S3Client>> {
-        self.s3.as_ref()
+    pub fn s3(&self) -> &Arc<S3Client> {
+        &self.s3
     }
 }

@@ -1,7 +1,6 @@
 use anyhow::anyhow;
-use deadpool_redis::Connection;
 use deadpool_redis::redis::cmd;
-use deadpool_redis::{Config as RedisConfig, Pool, Runtime};
+use deadpool_redis::{Config as RedisConfig, Connection, Pool, Runtime};
 use tracing::{error, info, warn};
 use uuid::Uuid;
 

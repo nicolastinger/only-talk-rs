@@ -18,7 +18,7 @@ pub async fn get_connection_by_uuid(
     connections: &Arc<DashMap<String, QuicConnection>>,
 ) -> Result<Connection, anyhow::Error> {
     let connection_key =
-        format!("{}{}{}{}{}", PC_PLATFORM.to_string(), ":QUIC:SERVER:", uuid, ":", connection_type);
+        format!("{}{}{}{}{}", PC_PLATFORM, ":QUIC:SERVER:", uuid, ":", connection_type);
     let connection_key = connection_key.to_uppercase();
     let entry = connections.get(&connection_key).ok_or(anyhow!("Connection unavailable"))?;
     Ok(entry.conn.clone())

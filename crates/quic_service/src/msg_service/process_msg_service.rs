@@ -1,11 +1,5 @@
 use std::sync::Arc;
 
-use crate::models::quic_connection::{ConnectionType, QuicConnection};
-use crate::models::text_msg::TextQuicMsg;
-use crate::msg_service::group_msg_service::handle_group_msg_from_client;
-use crate::msg_service::text_msg_service::{
-    generate_text_msg, generate_text_msg_with_time, get_text_msg,
-};
 use common::config_str::{
     MOBILE_PLATFORM, PC_PLATFORM, PONG, REDIS_INTERNAL_QUIC_SERVERS, REDIS_QUIC_SERVERS,
     REDIS_SPLIT, SYSTEM,
@@ -26,6 +20,14 @@ use rbatis::rbdc::{Bytes, Uuid};
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
 
+use crate::models::quic_connection::{ConnectionType, QuicConnection};
+use crate::models::text_msg::TextQuicMsg;
+use crate::msg_service::group_msg_service::handle_group_msg_from_client;
+use crate::msg_service::text_msg_service::{
+    generate_text_msg, generate_text_msg_with_time, get_text_msg,
+};
+
+#[allow(clippy::too_many_arguments)]
 pub async fn process_rec_msg(
     core: &CoreState,
     buffer: &mut Vec<u8>,
@@ -226,7 +228,7 @@ async fn send_msg_to_user(
 
 async fn send_msg_to_user_by_platform(
     core: &CoreState,
-    res: &Vec<u8>,
+    res: &[u8],
     platform: &str,
     target_user: &str,
     connections: &Arc<DashMap<String, QuicConnection>>,
@@ -378,4 +380,3 @@ pub async fn add_user_chat_record(
     ChatMessageRecord::insert(rb, &chat_msg).await?;
     Ok(())
 }
-

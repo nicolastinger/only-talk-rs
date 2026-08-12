@@ -1,11 +1,6 @@
 use std::str::FromStr;
 use std::sync::Arc;
 
-use crate::http_service::file_service::model::file_type_config::get_file_type_config;
-use crate::http_service::file_service::service::biz_service::get_pub_file_record_by_biz_id;
-use crate::http_service::file_service::service::chat_biz_service::get_chat_file_record_by_biz_id;
-use crate::http_service::file_service::service::chat_s3_service::download_chat_file_s3;
-use crate::utils::http_response::CommonResponseRef;
 use actix_web::HttpResponse;
 use anyhow::anyhow;
 use common::models::file_entity::biz_file_link::BizFileLink;
@@ -16,6 +11,12 @@ use rbs::value;
 use s3_service::S3Client;
 use s3_service::storage::StorageBackend;
 use tracing::info;
+
+use crate::http_service::file_service::model::file_type_config::get_file_type_config;
+use crate::http_service::file_service::service::biz_service::get_pub_file_record_by_biz_id;
+use crate::http_service::file_service::service::chat_biz_service::get_chat_file_record_by_biz_id;
+use crate::http_service::file_service::service::chat_s3_service::download_chat_file_s3;
+use crate::utils::http_response::CommonResponseRef;
 
 /**
  * 验证文件是否为有效的文件类型
@@ -103,7 +104,7 @@ pub async fn get_file_record_by_id(
 /// 单个文件下载
 pub async fn download_pub_file_by_id(
     rb: &RBatis,
-    s3_client: Option<Arc<S3Client>>,
+    s3_client: Arc<S3Client>,
     biz_id: String,
     file_id: String,
 ) -> Result<HttpResponse, anyhow::Error> {
@@ -123,16 +124,16 @@ pub async fn download_pub_file_by_id(
 
     let mut flag = false;
 
-    if let Some(preview_file_id) = preview_file_id {
-        if preview_file_id.to_string() == file_id {
-            flag = true;
-        }
+    if let Some(preview_file_id) = preview_file_id
+        && preview_file_id.to_string() == file_id
+    {
+        flag = true;
     }
 
-    if let Some(origin_file_id) = origin_file_id {
-        if origin_file_id.to_string() == file_id {
-            flag = true;
-        }
+    if let Some(origin_file_id) = origin_file_id
+        && origin_file_id.to_string() == file_id
+    {
+        flag = true;
     }
     if !flag {
         return Err(anyhow!("文件不存在"));
@@ -142,7 +143,6 @@ pub async fn download_pub_file_by_id(
     let file_record = get_file_record_by_id(rb, &file_id).await?;
 
     // 3. 从S3下载
-    let s3_client = s3_client.ok_or(anyhow!("S3客户端未初始化"))?;
     if file_record.is_oss.unwrap_or(0) != 1 {
         return Err(anyhow!("文件不是S3存储，无法下载"));
     }
@@ -181,7 +181,7 @@ pub async fn download_pub_file_by_id(
 /// 公开业务文件下载link
 pub async fn download_link_pub_biz(
     rb: &RBatis,
-    s3_client: Option<Arc<S3Client>>,
+    s3_client: Arc<S3Client>,
     biz_id: String,
     is_preview: bool,
 ) -> Result<String, anyhow::Error> {
@@ -204,7 +204,6 @@ pub async fn download_link_pub_biz(
     }
 
     // 2. 组建下载链接 - 公开桶返回直接URL，其他桶返回预签名URL
-    let s3_client = s3_client.ok_or(anyhow!("S3客户端未初始化"))?;
     let mut download_link_vec: Vec<String> = vec![];
 
     for file_id in file_ids.iter() {
@@ -266,7 +265,7 @@ pub async fn download_link_pub_biz(
 /// 聊天业务文件下载link
 pub async fn download_link_chat_biz(
     rb: &RBatis,
-    s3_client: Option<Arc<S3Client>>,
+    s3_client: Arc<S3Client>,
     uuid: Option<String>,
     biz_id: String,
     is_preview: bool,
@@ -279,7 +278,7 @@ pub async fn download_link_chat_biz(
     let created_by = chat_biz_record.created_by.ok_or(anyhow!("创建者ID为空"))?;
     let recv_user_id = chat_biz_record.receiver.ok_or(anyhow!("接收者ID为空"))?;
     let biz_type = chat_biz_record.biz_type.unwrap_or_default();
-    if biz_type != "group_chat".to_string() && created_by != user_id && recv_user_id != user_id {
+    if biz_type != "group_chat" && created_by != user_id && recv_user_id != user_id {
         return Err(anyhow!("无权限访问"));
     }
 
@@ -302,7 +301,6 @@ pub async fn download_link_chat_biz(
     }
 
     // 3. 组建下载链接 - S3 文件返回预签名 URL
-    let s3_client = s3_client.ok_or(anyhow!("S3客户端未初始化"))?;
     let mut download_link_vec: Vec<String> = vec![];
 
     for file_id in file_ids.iter() {
@@ -350,7 +348,7 @@ pub async fn download_link_chat_biz(
 /// 聊天业务文件下载
 pub async fn download_chat_file_by_id(
     rb: &RBatis,
-    s3_client: Option<Arc<S3Client>>,
+    s3_client: Arc<S3Client>,
     uuid: Option<String>,
     biz_id: String,
     file_id: String,
@@ -377,16 +375,16 @@ pub async fn download_chat_file_by_id(
     let origin_file_id = biz_file_link.origin_file_id;
     let mut flag = false;
 
-    if let Some(preview_file_id) = preview_file_id {
-        if preview_file_id.to_string() == file_id {
-            flag = true;
-        }
+    if let Some(preview_file_id) = preview_file_id
+        && preview_file_id.to_string() == file_id
+    {
+        flag = true;
     }
 
-    if let Some(origin_file_id) = origin_file_id {
-        if origin_file_id.to_string() == file_id {
-            flag = true;
-        }
+    if let Some(origin_file_id) = origin_file_id
+        && origin_file_id.to_string() == file_id
+    {
+        flag = true;
     }
     if !flag {
         return Err(anyhow!("文件不存在"));
@@ -396,7 +394,6 @@ pub async fn download_chat_file_by_id(
     let file_record = get_file_record_by_id(rb, &file_id).await?;
 
     // 5. 从S3下载
-    let s3_client = s3_client.ok_or(anyhow!("S3客户端未初始化"))?;
     if file_record.is_oss.unwrap_or(0) != 1 {
         return Err(anyhow!("文件不是S3存储，无法下载"));
     }

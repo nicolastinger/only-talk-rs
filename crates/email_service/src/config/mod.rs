@@ -2,11 +2,11 @@
 //!
 //! 本模块定义了邮件服务的所有配置项，包括：
 //!
-//! - [`EmailServiceConfig`]: 服务总配置
-//! - [`RetryConfig`]: 重试策略配置
-//! - [`PoolConfig`]: 连接池配置
-//! - [`RateLimitConfig`]: 速率限制配置
-//! - [`ProviderConfig`]: 服务商配置（见 [`provider_config`] 模块）
+//! - [`EmailServiceConfig`][]: 服务总配置
+//! - [`RetryConfig`][]: 重试策略配置
+//! - [`PoolConfig`][]: 连接池配置
+//! - [`RateLimitConfig`][]: 速率限制配置
+//! - [`ProviderConfig`][]: 服务商配置（见 [`provider_config`] 模块）
 //!
 //! # 配置示例
 //!
@@ -26,10 +26,10 @@
 
 mod provider_config;
 
-pub use provider_config::*;
-
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+pub use provider_config::*;
+use serde::{Deserialize, Serialize};
 
 /// 邮件服务总配置
 ///
@@ -53,7 +53,7 @@ use std::collections::HashMap;
 /// // 使用默认配置
 /// let config = EmailServiceConfig::default();
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct EmailServiceConfig {
     /// 默认服务商名称
     ///
@@ -75,18 +75,6 @@ pub struct EmailServiceConfig {
 
     /// 速率限制配置
     pub rate_limit: RateLimitConfig,
-}
-
-impl Default for EmailServiceConfig {
-    fn default() -> Self {
-        Self {
-            default_provider: None,
-            providers: HashMap::new(),
-            retry: RetryConfig::default(),
-            pool: PoolConfig::default(),
-            rate_limit: RateLimitConfig::default(),
-        }
-    }
 }
 
 /// 重试策略配置

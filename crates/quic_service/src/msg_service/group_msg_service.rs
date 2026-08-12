@@ -1,16 +1,7 @@
-use std::sync::Arc;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
-use dashmap::DashSet;
-use deadpool_redis::redis::AsyncCommands;
-use nanoid::nanoid;
-use once_cell::sync::Lazy;
-use quinn::Connection;
-use rbatis::rbdc::{Bytes, Uuid};
-use tracing::{debug, error, info, warn};
-
 use common::config_str::{
     MOBILE_PLATFORM, PC_PLATFORM, REDIS_INTERNAL_QUIC_SERVERS, REDIS_QUIC_SERVERS, REDIS_SPLIT,
 };
@@ -19,12 +10,19 @@ use common::utils::group_msg::{
     BroadcastType, GroupQuicMsg, InternalGroupBroadcast, InternalGroupBroadcastResponse,
 };
 use common::utils::internal_quic_client::make_internal_client_config;
+use common::utils::text_msg::{HeadMsg, TextQuicMsg, X25, build_text_msg};
 use common::utils::time::get_now_time_stamp_as_millis;
+use dashmap::DashSet;
+use deadpool_redis::redis::AsyncCommands;
 use entity::models::group_entity::group_message_record::GroupMessageRecord;
+use nanoid::nanoid;
+use once_cell::sync::Lazy;
+use quinn::Connection;
+use rbatis::rbdc::{Bytes, Uuid};
+use tracing::{debug, error, info, warn};
 
 use crate::ConnectionsMap;
 use crate::models::quic_connection::ConnectionType;
-use common::utils::text_msg::{HeadMsg, TextQuicMsg, X25, build_text_msg};
 
 static DEDUP: Lazy<BroadcastDedup> = Lazy::new(BroadcastDedup::new);
 
@@ -90,10 +88,10 @@ pub async fn get_group_members_cached(core: &CoreState, group_uuid: &str) -> Res
 
     let mut conn = core.redis.get().await?;
     let json: Option<String> = conn.get(&cache_key).await?;
-    if let Some(json) = json {
-        if let Ok(members) = serde_json::from_str(&json) {
-            return Ok(members);
-        }
+    if let Some(json) = json
+        && let Ok(members) = serde_json::from_str(&json)
+    {
+        return Ok(members);
     }
 
     let members = fetch_group_members_from_db(&core.db, group_uuid).await?;
@@ -198,17 +196,19 @@ pub async fn handle_group_msg_from_client(
     Ok(())
 }
 
-async fn get_all_internal_node_addresses(core: &CoreState) -> Result<Vec<(u32, std::net::SocketAddr)>> {
+async fn get_all_internal_node_addresses(
+    core: &CoreState,
+) -> Result<Vec<(u32, std::net::SocketAddr)>> {
     // Return from cache if available
     {
         let cache_read = NODE_CACHE.lock().unwrap_or_else(|e| {
             error!("NODE_CACHE lock poisoned: {}", e);
             std::process::exit(1);
         });
-        if let Some((ts, nodes)) = cache_read.as_ref() {
-            if ts.elapsed() < Duration::from_secs(5) {
-                return Ok(nodes.clone());
-            }
+        if let Some((ts, nodes)) = cache_read.as_ref()
+            && ts.elapsed() < Duration::from_secs(5)
+        {
+            return Ok(nodes.clone());
         }
     }
 
@@ -234,14 +234,12 @@ async fn get_all_internal_node_addresses(core: &CoreState) -> Result<Vec<(u32, s
     let mut nodes = Vec::new();
     for key in keys {
         let addr_str: Option<String> = conn.get(&key).await?;
-        if let Some(addr_str) = addr_str {
-            if let Ok(addr) = addr_str.parse::<std::net::SocketAddr>() {
-                if let Some(index_str) = key.strip_prefix(REDIS_INTERNAL_QUIC_SERVERS) {
-                    if let Ok(index) = index_str.parse::<u32>() {
-                        nodes.push((index, addr));
-                    }
-                }
-            }
+        if let Some(addr_str) = addr_str
+            && let Ok(addr) = addr_str.parse::<std::net::SocketAddr>()
+            && let Some(index_str) = key.strip_prefix(REDIS_INTERNAL_QUIC_SERVERS)
+            && let Ok(index) = index_str.parse::<u32>()
+        {
+            nodes.push((index, addr));
         }
     }
 
@@ -403,14 +401,12 @@ pub async fn sync_offline_group_messages(
                         timestamp,
                     };
 
-                    if let Ok(msg_bytes) = serialize_group_msg(&group_msg) {
-                        if let Some(conn) = find_online_connection(user_uuid, connections) {
-                            if let Ok(mut send) = conn.open_uni().await {
-                                if send.write_all(&msg_bytes).await.is_ok() {
-                                    let _ = send.finish().await;
-                                }
-                            }
-                        }
+                    if let Ok(msg_bytes) = serialize_group_msg(&group_msg)
+                        && let Some(conn) = find_online_connection(user_uuid, connections)
+                        && let Ok(mut send) = conn.open_uni().await
+                        && send.write_all(&msg_bytes).await.is_ok()
+                    {
+                        let _ = send.finish().await;
                     }
                 }
             }

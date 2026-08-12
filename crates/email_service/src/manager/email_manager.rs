@@ -340,13 +340,13 @@ impl EmailManager {
                 }
                 Err(e) => {
                     self.pool.mark_unhealthy(&provider_name, &e.to_string());
-                    last_error = Some(e);
                     tracing::warn!(
                         email_id = %email.id,
                         provider = %provider_name,
-                        error = %last_error.as_ref().unwrap(),
+                        error = %e,
                         "Provider failed, trying next"
                     );
+                    last_error = Some(e);
                 }
             }
         }

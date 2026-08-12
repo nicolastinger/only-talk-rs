@@ -157,8 +157,12 @@ pub async fn put_object_tagging(
     tags: std::collections::HashMap<String, String>,
 ) -> Result<(), S3Error> {
     // Build tag list
-    let tag_set: Vec<Tag> =
-        tags.into_iter().map(|(k, v)| Tag::builder().key(k).value(v).build().unwrap()).collect();
+    let tag_set: Vec<Tag> = tags
+        .into_iter()
+        .map(|(k, v)| {
+            Tag::builder().key(k).value(v).build().expect("tag builder has key and value")
+        })
+        .collect();
 
     // Build tag configuration
     let tagging = aws_sdk_s3::types::Tagging::builder()

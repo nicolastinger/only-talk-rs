@@ -2,7 +2,6 @@ use std::fs::File;
 use std::io::{BufReader, Seek, SeekFrom};
 use std::sync::Arc;
 
-use crate::controller::configure_api_routes;
 use actix_web::middleware::from_fn;
 use actix_web::{App, HttpServer, middleware, web};
 use common::{init_app_config, init_redis, init_sql_pool, read_global_config, verify_redis};
@@ -13,7 +12,9 @@ use rustls::{Certificate, PrivateKey, ServerConfig};
 use rustls_pemfile::{certs, ec_private_keys, pkcs8_private_keys, rsa_private_keys};
 use s3_service::client::GlobalS3Client;
 use s3_service::config::S3Config;
-use tracing::{error, info, warn};
+use tracing::{error, info};
+
+use crate::controller::configure_api_routes;
 
 fn read_key_file(path: &str, label: &str) -> anyhow::Result<File> {
     File::open(path).map_err(|e| anyhow::anyhow!("{} not found: {}", label, e))
@@ -86,38 +87,30 @@ fn init_cert_file() -> anyhow::Result<(Vec<Certificate>, PrivateKey)> {
     Ok((cert_chain, key))
 }
 
-/// Initialize S3 client
-async fn init_s3_client() -> Option<Arc<s3_service::S3Client>> {
-    // Try reading S3 config
+/// Initialize S3 client.
+///
+/// S3 storage is mandatory: startup fails if it is not enabled or cannot be initialized.
+async fn init_s3_client() -> anyhow::Result<Arc<s3_service::S3Client>> {
     let enabled = common::config_manager::get_config("s3.enabled")
         .unwrap_or_else(|| "false".to_string())
         .parse::<bool>()
         .unwrap_or(false);
 
     if !enabled {
-        info!("S3 storage not enabled, using local storage");
-        return None;
+        return Err(anyhow::anyhow!(
+            "S3 storage is required but s3.enabled is false, refusing to start"
+        ));
     }
 
-    match S3Config::from_global_config() {
-        Ok(config) => {
-            info!("initializing S3 client - Provider: {}", config.provider);
-            match GlobalS3Client::init(config).await {
-                Ok(client) => {
-                    info!("S3 client initialized successfully");
-                    Some(client)
-                }
-                Err(e) => {
-                    error!("S3 client initialization failed: {}, falling back to local storage", e);
-                    None
-                }
-            }
-        }
-        Err(e) => {
-            warn!("failed to read S3 config: {}, using local storage", e);
-            None
-        }
-    }
+    let config = S3Config::from_global_config()
+        .map_err(|e| anyhow::anyhow!("failed to read S3 config: {}", e))?;
+
+    info!("initializing S3 client - Provider: {}", config.provider);
+    let client = GlobalS3Client::init(config)
+        .await
+        .map_err(|e| anyhow::anyhow!("S3 client initialization failed: {}", e))?;
+    info!("S3 client initialized successfully");
+    Ok(client)
 }
 
 /// Initialize services
@@ -144,8 +137,8 @@ pub async fn start_server() -> anyhow::Result<()> {
     let redis_pool = init_redis(&redis_url)?;
     verify_redis(&redis_pool).await;
 
-    // Initialize S3 client
-    let s3_client = init_s3_client().await;
+    // Initialize S3 client (mandatory)
+    let s3_client = init_s3_client().await?;
 
     // Initialize email manager (empty config placeholder, providers wired later)
     let email = Arc::new(email_service::manager::EmailManager::new(

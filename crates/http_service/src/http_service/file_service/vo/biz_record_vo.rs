@@ -1,8 +1,9 @@
-use crate::http_service::file_service::vo::biz_file_link_vo::BizFileLinkVO;
 use common::models::file_entity::biz_record::BizRecord;
 use common::models::file_entity::chat_biz_record::ChatBizRecord;
 use rbatis::rbdc::Uuid;
 use serde::{Deserialize, Serialize};
+
+use crate::http_service::file_service::vo::biz_file_link_vo::BizFileLinkVO;
 
 /// 文件上传业务表
 #[derive(Clone, Debug, Serialize, Deserialize)]

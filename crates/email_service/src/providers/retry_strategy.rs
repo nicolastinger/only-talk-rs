@@ -2,12 +2,12 @@
 //!
 //! 本模块提供了多种重试策略和熔断器实现：
 //!
-//! - [`RetryStrategy`]: 重试策略枚举
-//! - [`ExponentialBackoff`]: 指数退避策略
-//! - [`FixedInterval`]: 固定间隔策略
-//! - [`NoRetry`]: 不重试策略
-//! - [`AdaptiveRetry`]: 自适应重试策略（带熔断器）
-//! - [`CircuitBreaker`]: 熔断器
+//! - [`RetryStrategy`][]: 重试策略枚举
+//! - [`ExponentialBackoff`][]: 指数退避策略
+//! - [`FixedInterval`][]: 固定间隔策略
+//! - [`NoRetry`][]: 不重试策略
+//! - [`AdaptiveRetry`][]: 自适应重试策略（带熔断器）
+//! - [`CircuitBreaker`][]: 熔断器
 //!
 //! # 重试策略选择
 //!
@@ -37,8 +37,9 @@
 //! let strategy = RetryStrategy::adaptive(5);
 //! ```
 
-use rand::Rng;
 use std::time::Duration;
+
+use rand::Rng;
 use tokio::time::sleep;
 
 use crate::error::{EmailError, EmailResult};

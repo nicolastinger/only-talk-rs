@@ -3,6 +3,9 @@ use std::sync::Arc;
 
 use actix_multipart::Multipart;
 use anyhow::anyhow;
+use common::config_str::{DEFAULT_MAX_FILE_SIZE, OSS_TYPE_ALIYUN, OSS_TYPE_AWS, OSS_TYPE_MINIO};
+use common::models::file_entity::file_upload_record::FileUploadRecord;
+use common::utils::time::get_now_time_stamp_as_millis;
 use futures_util::{StreamExt, TryStreamExt};
 use rbatis::{RBatis, rbdc};
 use s3_service::S3Client;
@@ -10,10 +13,6 @@ use s3_service::storage::{S3Storage, StorageBackend};
 use sha2::{Digest, Sha256};
 use tracing::{error, info, warn};
 use uuid::Uuid;
-
-use common::config_str::{DEFAULT_MAX_FILE_SIZE, OSS_TYPE_ALIYUN, OSS_TYPE_AWS, OSS_TYPE_MINIO};
-use common::models::file_entity::file_upload_record::FileUploadRecord;
-use common::utils::time::get_now_time_stamp_as_millis;
 
 use crate::http_service::file_service::service::file_service::validate_file_type;
 

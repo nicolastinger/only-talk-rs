@@ -1,8 +1,12 @@
-use email_service::error::EmailError;
-use email_service::{RetryConfig, RetryStrategy};
+// 测试代码中直接使用 unwrap 作为断言失败手段是惯例,此处豁免生产代码的 unwrap 禁令
+#![allow(clippy::unwrap_used, clippy::disallowed_methods)]
+
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
+
+use email_service::error::EmailError;
+use email_service::{RetryConfig, RetryStrategy};
 
 #[tokio::test]
 async fn test_retry_strategy_exponential_backoff() {

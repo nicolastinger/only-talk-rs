@@ -27,13 +27,8 @@ pub async fn get_chat_record_api(
     let uuid = get_uuid_from_header!(req);
     let uuid_clone = uuid.clone();
     respond_json_any!(
-        get_chat_by_limit(
-            state.db(),
-            uuid_clone,
-            friend_uuid.into_inner(),
-            base_page.into_inner()
-        )
-        .await
+        get_chat_by_limit(state.db(), uuid_clone, friend_uuid.into_inner(), base_page.into_inner())
+            .await
     )
 }
 

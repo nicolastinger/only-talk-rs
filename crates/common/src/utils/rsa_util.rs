@@ -1,4 +1,5 @@
-use crate::config_manager::{get_config, set_config};
+use std::fs;
+
 use anyhow::anyhow;
 use argon2::password_hash::PasswordHash;
 use argon2::password_hash::rand_core::OsRng;
@@ -9,7 +10,8 @@ use rbatis::rbatis_codegen::ops::AsProxy;
 use rsa::pkcs1::EncodeRsaPublicKey;
 use rsa::pkcs8::{DecodePrivateKey, EncodePrivateKey};
 use rsa::{RsaPrivateKey, RsaPublicKey};
-use std::fs;
+
+use crate::config_manager::{get_config, set_config};
 
 /// Get RSA keys with three-level caching strategy:
 /// 1. First try to get from memory (config manager)

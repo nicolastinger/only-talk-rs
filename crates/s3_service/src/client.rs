@@ -262,11 +262,11 @@ impl GlobalS3Client {
         let client = S3Client::new(config).await?;
 
         // If S3 service is enabled, ensure default bucket exists
-        if client.config.enabled {
-            if let Err(e) = client.ensure_default_bucket().await {
-                // Bucket creation failure only logs warning, service still starts
-                tracing::warn!("failed to ensure default bucket: {}, service still starts", e);
-            }
+        if client.config.enabled
+            && let Err(e) = client.ensure_default_bucket().await
+        {
+            // Bucket creation failure only logs warning, service still starts
+            tracing::warn!("failed to ensure default bucket: {}, service still starts", e);
         }
 
         // Return Arc-wrapped client, supports multi-threading sharing

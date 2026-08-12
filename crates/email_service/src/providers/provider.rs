@@ -2,8 +2,9 @@
 //!
 //! 本模块定义了 [`EmailProvider`] Trait，所有邮件服务商都需要实现此 Trait。
 
-use async_trait::async_trait;
 use std::sync::Arc;
+
+use async_trait::async_trait;
 
 use crate::config::ProviderConfig;
 use crate::error::EmailResult;
@@ -34,14 +35,14 @@ pub type BoxedEmailProvider = Arc<dyn EmailProvider + Send + Sync>;
 ///
 /// 以下方法用于声明服务商支持的功能，默认实现适用于大多数服务商：
 ///
-/// - [`max_recipients_per_email`]: 单封邮件最大收件人数
-/// - [`max_attachments_per_email`]: 单封邮件最大附件数
-/// - [`max_attachment_size`]: 单个附件最大大小
-/// - [`supports_html`]: 是否支持 HTML 正文
-/// - [`supports_attachments`]: 是否支持附件
-/// - [`supports_templates`]: 是否支持模板
-/// - [`supports_scheduling`]: 是否支持定时发送
-/// - [`supports_batch`]: 是否支持批量发送
+/// - [`max_recipients_per_email`][]: 单封邮件最大收件人数
+/// - [`max_attachments_per_email`][]: 单封邮件最大附件数
+/// - [`max_attachment_size`][]: 单个附件最大大小
+/// - [`supports_html`][]: 是否支持 HTML 正文
+/// - [`supports_attachments`][]: 是否支持附件
+/// - [`supports_templates`][]: 是否支持模板
+/// - [`supports_scheduling`][]: 是否支持定时发送
+/// - [`supports_batch`][]: 是否支持批量发送
 ///
 /// # 示例
 ///
