@@ -1,6 +1,7 @@
 use std::net::SocketAddr;
 
 use anyhow::{Result, anyhow};
+use common::config_str::GROUP_MEMBERS_CACHE;
 use common::models::notify_entity::system_notification::SystemNotification;
 use common::read_global_config;
 use common::utils::internal_quic_client::send_internal_quic_msg;
@@ -248,7 +249,7 @@ pub async fn get_group_members_service(
 ) -> Result<Vec<GroupMemberVO>> {
     use deadpool_redis::redis::AsyncCommands;
 
-    let cache_key = format!("group:members:{}", group_uuid);
+    let cache_key = format!("{}{}", GROUP_MEMBERS_CACHE, group_uuid);
 
     // Preferentially read UUID list from Redis cache
     let cache_hit = if let Ok(mut conn) = redis.get().await {
@@ -718,7 +719,7 @@ async fn sync_group_members_to_redis(
     let uuids: Vec<String> =
         members.into_iter().filter_map(|m| m.user_uuid.map(|u: Uuid| u.to_string())).collect();
 
-    let cache_key = format!("group:members:{}", group_uuid);
+    let cache_key = format!("{}{}", GROUP_MEMBERS_CACHE, group_uuid);
     let json = serde_json::to_string(&uuids)?;
 
     if let Ok(mut conn) = redis.get().await {

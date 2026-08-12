@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use common::config_str::SYSTEM;
+use common::config_str::{SYSTEM, USER_UDP_ADDRESS, USER_UDP_ADDRESS_LOCK};
 use common::read_global_config;
 use common::state::CoreState;
 use common::utils::jwt_util::verify_token;
@@ -49,7 +49,7 @@ pub async fn run_udp_server(
                 )
                 .await
                 {
-                    error!("{} UDP socket error: {}", addr_1, e);
+                    error!("{} UDP 套接字错误: {}", addr_1, e);
                 }
             })
         };
@@ -68,7 +68,7 @@ pub async fn run_udp_server(
                 )
                 .await
                 {
-                    error!("{} UDP socket error: {}", addr_2, e);
+                    error!("{} UDP 套接字错误: {}", addr_2, e);
                 }
             })
         };
@@ -87,7 +87,7 @@ pub async fn run_udp_server(
                 )
                 .await
                 {
-                    error!("{} UDP socket error: {}", addr_3, e);
+                    error!("{} UDP 套接字错误: {}", addr_3, e);
                 }
             })
         };
@@ -106,15 +106,15 @@ pub async fn run_udp_server(
                 )
                 .await
                 {
-                    error!("{} UDP socket error: {}", addr_4, e);
+                    error!("{} UDP 套接字错误: {}", addr_4, e);
                 }
             })
         };
 
         if let Err(e) = signal::ctrl_c().await {
-            error!("failed to register Ctrl+C handler: {}", e);
+            error!("注册 Ctrl+C 处理器失败: {}", e);
         }
-        info!("received Ctrl+C signal, shutting down...");
+        info!("收到 Ctrl+C 信号，正在关闭...");
 
         shutdown_flag.store(true, Ordering::Relaxed);
 
@@ -131,21 +131,18 @@ pub async fn get_p2p_udp_socket_with_shutdown(
     core: CoreState,
 ) -> anyhow::Result<()> {
     let socket = UdpSocket::bind(address).await?;
-    info!(
-        "NAT discovery + client P2P request forwarding service started, listening on {}",
-        address
-    );
+    info!("NAT 发现与客户端 P2P 请求转发服务已启动，正在监听 {}", address);
 
     let mut buf = [0u8; 1024];
 
     loop {
         tokio::select! {
             _ = signal::ctrl_c() => {
-                info!("received Ctrl+C signal, shutting down {} service...", address);
+                info!("收到 Ctrl+C 信号，正在关闭 {} 服务...", address);
                 return Ok(());
             }
             _ = tokio::time::sleep(tokio::time::Duration::from_millis(100)), if shutdown.load(Ordering::Relaxed) => {
-                info!("received shutdown signal, shutting down {} service...", address);
+                info!("收到关闭信号，正在关闭 {} 服务...", address);
                 return Ok(());
             }
             result = socket.recv_from(&mut buf) => {
@@ -155,7 +152,7 @@ pub async fn get_p2p_udp_socket_with_shutdown(
                         let client_port = src.port();
 
                         let udp_addr = format!("{}:{}", client_ip, client_port);
-                        info!("received message from {}:{} size={}", client_ip, client_port, size);
+                        info!("从 {}:{} 收到消息 size={}", client_ip, client_port, size);
 
                         let res = serde_json::from_slice::<UserAddressInfo>(&buf[..size]);
                         match res {
@@ -164,18 +161,18 @@ pub async fn get_p2p_udp_socket_with_shutdown(
                               let ip = ip_type.clone();
                               let core = core.clone();
                               process_p2p_user_info(udp_addr, ip, msg, conns, &core).await.unwrap_or_else(|err| {
-                                error!("failed to process NAT discovery / P2P request forwarding: {}", err);
+                                error!("处理 NAT 发现 / P2P 请求转发失败: {}", err);
                             })
                            },
                            Err(e) => {
-                            error!("failed to serialize NAT address info, source {}:{},{}", client_ip, client_port, e);
+                            error!("NAT 地址信息解析失败，来源 {}:{},{}", client_ip, client_port, e);
                             buf[..size].fill(0);
                             continue;
                            }
                         };
                         buf[..size].fill(0);
                     }
-                    Err(e) => error!("recv error: {}", e),
+                    Err(e) => error!("接收错误: {}", e),
                 }
             }
         }
@@ -189,17 +186,14 @@ pub async fn get_p2p_udp_socket(
     core: CoreState,
 ) -> anyhow::Result<()> {
     let socket = UdpSocket::bind(address).await?;
-    info!(
-        "NAT discovery + client P2P request forwarding service started, listening on {}",
-        address
-    );
+    info!("NAT 发现与客户端 P2P 请求转发服务已启动，正在监听 {}", address);
 
     let mut buf = [0u8; 1024];
 
     loop {
         tokio::select! {
             _ = signal::ctrl_c() => {
-                info!("received Ctrl+C signal, shutting down {} service...", address);
+                info!("收到 Ctrl+C 信号，正在关闭 {} 服务...", address);
                 return Ok(());
             }
             result = socket.recv_from(&mut buf) => {
@@ -216,18 +210,18 @@ pub async fn get_p2p_udp_socket(
                               let ip = ip_type.clone();
                               let core = core.clone();
                               process_p2p_user_info(udp_addr, ip, msg, conns, &core).await.unwrap_or_else(|err| {
-                                error!("failed to process NAT discovery / P2P request forwarding: {}", err);
+                                error!("处理 NAT 发现 / P2P 请求转发失败: {}", err);
                             })
                            },
                            Err(e) => {
-                            error!("failed to serialize NAT address info, source {}:{},{}", client_ip, client_port, e);
+                            error!("NAT 地址信息解析失败，来源 {}:{},{}", client_ip, client_port, e);
                             buf[..size].fill(0);
                             continue;
                            }
                         };
                         buf[..size].fill(0);
                     }
-                    Err(e) => error!("recv error: {}", e),
+                    Err(e) => error!("接收错误: {}", e),
                 }
             }
         }
@@ -244,9 +238,9 @@ async fn process_p2p_user_info(
     match verify_token(user_address_info.token.as_ref()) {
         Ok(claims) => {
             let uuid = claims.uuid;
-            info!("received message from {}, user uuid: {}", udp_addr, uuid);
-            let key = format!("{}{}_{}", "USER_UDP_ADDRESS_", ip_type, uuid);
-            let lock_key = format!("{}{}_{}", "USER_UDP_ADDRESS_LOCK_", ip_type, uuid);
+            info!("从 {} 收到消息，用户 uuid: {}", udp_addr, uuid);
+            let key = format!("{}{}_{}", USER_UDP_ADDRESS, ip_type, uuid);
+            let lock_key = format!("{}{}_{}", USER_UDP_ADDRESS_LOCK, ip_type, uuid);
             let lock_key = lock_key.to_uppercase();
             let key = key.to_uppercase();
             let mut acquire_flag = false;
@@ -264,12 +258,12 @@ async fn process_p2p_user_info(
             }
 
             if !acquire_flag {
-                info!("entered redis lock");
+                info!("已进入 redis 锁处理分支");
                 let mut conn = core.redis.get().await?;
                 let result: String = conn.get(&lock_key).await?;
                 let user_addr = result.split('_').skip(1).collect::<Vec<&str>>().join("");
 
-                info!("self value: {:?}, value2: {:?}", user_addr, user_address_info);
+                info!("自身地址: {:?}, 完整信息: {:?}", user_addr, user_address_info);
                 if user_addr == user_address_info.address {
                     user_address_info.nat_type = 3;
                 } else {
@@ -284,14 +278,14 @@ async fn process_p2p_user_info(
             match get_target_user_address_info(core, &user_address_info.target_uuid, &ip_type).await
             {
                 Ok(mut target_user_address_info) => {
-                    info!("matching server and connection endpoint");
+                    info!("正在匹配服务端与连接端点");
                     if target_user_address_info.is_lock && !acquire_flag {
                         {
                             let mut conn = core.redis.get().await?;
                             conn.del::<_, ()>(&key).await?;
                             let target_key = format!(
                                 "{}{}_{}",
-                                "USER_UDP_ADDRESS_", ip_type, target_user_address_info.uuid
+                                USER_UDP_ADDRESS, ip_type, target_user_address_info.uuid
                             );
                             let target_key = target_key.to_uppercase();
                             conn.del::<_, ()>(&target_key).await?;
@@ -299,7 +293,7 @@ async fn process_p2p_user_info(
                         match (user_address_info.nat_type, target_user_address_info.nat_type) {
                             (4, 4) => {
                                 error!(
-                                    "Both parties are behind symmetric NAT, connection not possible! Stopping processing {},{}",
+                                    "双方均处于对称 NAT 之后，无法建立连接！停止处理 {},{}",
                                     user_address_info.uuid, target_user_address_info.uuid
                                 );
                                 return Ok(());
@@ -308,7 +302,7 @@ async fn process_p2p_user_info(
                                 user_address_info.is_server = true;
                                 target_user_address_info.is_server = false;
                                 info!(
-                                    "Initiator {}, receiver {}",
+                                    "发起方 {}, 接收方 {}",
                                     user_address_info.uuid, target_user_address_info.uuid
                                 );
                             }
@@ -316,12 +310,12 @@ async fn process_p2p_user_info(
                                 target_user_address_info.is_server = true;
                                 user_address_info.is_server = false;
                                 info!(
-                                    "Receiver {}, initiator {}",
+                                    "接收方 {}, 发起方 {}",
                                     target_user_address_info.uuid, user_address_info.uuid
                                 );
                             }
                             _ => {
-                                error!("match is empty, skipping");
+                                error!("匹配为空，跳过");
                                 return Ok(());
                             }
                         }
@@ -376,19 +370,16 @@ async fn process_p2p_user_info(
                             send.finish().await?;
                         }
                     }
-                    info!("P2P connection info forwarding completed");
+                    info!("P2P 连接信息转发完成");
                     return Ok(());
                 }
                 Err(e) => {
-                    warn!(
-                        "failed to get target user info: {}, waiting for target user to upload to redis",
-                        e
-                    );
+                    warn!("获取目标用户信息失败: {}，等待目标用户上传到 redis", e);
                 }
             }
 
             {
-                info!("inserting user info to redis");
+                info!("正在将用户信息写入 redis");
                 let mut conn = core.redis.get().await?;
                 let user_address_info_json =
                     serde_json::to_string(&user_address_info).unwrap_or_default();
@@ -399,11 +390,11 @@ async fn process_p2p_user_info(
                     .arg(60)
                     .query_async(&mut conn)
                     .await
-                    .unwrap_or_else(|e| error!("failed to add user connection info: {}", e));
+                    .unwrap_or_else(|e| error!("添加用户连接信息失败: {}", e));
             }
         }
         Err(e) => {
-            error!("failed to get token: {}", e.backtrace());
+            error!("获取 token 失败: {}", e.backtrace());
         }
     };
 
@@ -416,7 +407,7 @@ async fn get_target_user_address_info(
     ip_type: &String,
 ) -> Result<UserAddressInfo, anyhow::Error> {
     let mut conn = core.redis.get().await?;
-    let key = format!("{}{}_{}", "USER_UDP_ADDRESS_", ip_type, target_uuid);
+    let key = format!("{}{}_{}", USER_UDP_ADDRESS, ip_type, target_uuid);
     let key = key.to_uppercase();
     let result: String = conn.get(&key).await?;
     let mut target_user_address_info: UserAddressInfo = serde_json::from_str(&result)?;
