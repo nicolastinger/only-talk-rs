@@ -3,7 +3,8 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use common::config_str::{
-    MOBILE_PLATFORM, PC_PLATFORM, REDIS_INTERNAL_QUIC_SERVERS, REDIS_QUIC_SERVERS, REDIS_SPLIT,
+    GROUP_MEMBERS_CACHE, MOBILE_PLATFORM, PC_PLATFORM, REDIS_INTERNAL_QUIC_SERVERS,
+    REDIS_QUIC_SERVERS, REDIS_SPLIT,
 };
 use common::state::CoreState;
 use common::utils::group_msg::{
@@ -28,7 +29,7 @@ static DEDUP: Lazy<BroadcastDedup> = Lazy::new(BroadcastDedup::new);
 
 type NodeAddressCache = Option<(Instant, Vec<(u32, std::net::SocketAddr)>)>;
 
-/// Internal node address cache (expires after 5s, avoids scanning Redis for every group message)
+/// 内部节点地址缓存(5 秒后过期,避免为每条群聊消息都扫描 Redis)
 static NODE_CACHE: Lazy<Mutex<NodeAddressCache>> = Lazy::new(|| Mutex::new(None));
 
 pub struct BroadcastDedup {
@@ -62,7 +63,7 @@ impl Default for BroadcastDedup {
 }
 
 pub fn serialize_group_msg(group_msg: &GroupQuicMsg) -> Result<Vec<u8>> {
-    // Convert to TextQuicMsg format for client to deserialize correctly
+    // 转换为 TextQuicMsg 格式,以便客户端正确反序列化
     let text_msg = TextQuicMsg {
         nano_id: group_msg.nano_id.clone(),
         text_type: group_msg.msg_type,
@@ -84,7 +85,7 @@ pub fn serialize_group_msg(group_msg: &GroupQuicMsg) -> Result<Vec<u8>> {
 }
 
 pub async fn get_group_members_cached(core: &CoreState, group_uuid: &str) -> Result<Vec<String>> {
-    let cache_key = format!("group:members:{}", group_uuid);
+    let cache_key = format!("{}{}", GROUP_MEMBERS_CACHE, group_uuid);
 
     let mut conn = core.redis.get().await?;
     let json: Option<String> = conn.get(&cache_key).await?;
@@ -114,7 +115,7 @@ async fn fetch_group_members_from_db(rb: &rbatis::RBatis, group_uuid: &str) -> R
 }
 
 pub async fn invalidate_group_member_cache(core: &CoreState, group_uuid: &str) -> Result<()> {
-    let cache_key = format!("group:members:{}", group_uuid);
+    let cache_key = format!("{}{}", GROUP_MEMBERS_CACHE, group_uuid);
 
     let mut conn = core.redis.get().await?;
     let _: Result<(), _> = conn.del(&cache_key).await;
@@ -131,7 +132,7 @@ pub async fn handle_group_msg_from_client(
     let msg_bytes = serialize_group_msg(&group_msg)?;
 
     let all_members = get_group_members_cached(core, &group_msg.group_uuid).await?;
-    debug!("[group chat] members cache: {:?}", all_members);
+    debug!("[群聊] 成员缓存: {:?}", all_members);
 
     let sender_uuid: Uuid =
         group_msg.send_user.parse().map_err(|_| anyhow::anyhow!("Invalid sender UUID"))?;
@@ -149,7 +150,7 @@ pub async fn handle_group_msg_from_client(
     let core_clone = core.clone();
     tokio::spawn(async move {
         if let Err(e) = save_group_message_to_db(&core_clone.db, &group_msg).await {
-            error!("[group chat] failed to save message to database: {}", e);
+            error!("[群聊] 保存消息到数据库失败: {}", e);
         }
     });
 
@@ -169,7 +170,7 @@ pub async fn handle_group_msg_from_client(
 
     tokio::spawn(async move {
         if let Err(e) = process_group_broadcast_local(&broadcast_clone, &connections_clone).await {
-            error!("[group chat] failed to process broadcast local: {}", e);
+            error!("[群聊] 本地广播处理失败: {}", e);
         }
     });
 
@@ -182,14 +183,11 @@ pub async fn handle_group_msg_from_client(
                         continue;
                     }
                     if let Err(e) = send_internal_group_broadcast(*addr, &broadcast).await {
-                        error!(
-                            "[group chat] failed to send broadcast to node {} ({}): {}",
-                            node_index, addr, e
-                        );
+                        error!("[群聊] 向节点 {} ({}) 发送广播失败: {}", node_index, addr, e);
                     }
                 }
             }
-            Err(e) => error!("[group chat] failed to get node address: {}", e),
+            Err(e) => error!("[群聊] 获取节点地址失败: {}", e),
         }
     });
 
@@ -199,10 +197,10 @@ pub async fn handle_group_msg_from_client(
 async fn get_all_internal_node_addresses(
     core: &CoreState,
 ) -> Result<Vec<(u32, std::net::SocketAddr)>> {
-    // Return from cache if available
+    // 若缓存可用则直接返回
     {
         let cache_read = NODE_CACHE.lock().unwrap_or_else(|e| {
-            error!("NODE_CACHE lock poisoned: {}", e);
+            error!("NODE_CACHE 锁中毒: {}", e);
             std::process::exit(1);
         });
         if let Some((ts, nodes)) = cache_read.as_ref()
@@ -244,7 +242,7 @@ async fn get_all_internal_node_addresses(
     }
 
     let mut cache_write = NODE_CACHE.lock().unwrap_or_else(|e| {
-        error!("NODE_CACHE write lock poisoned: {}", e);
+        error!("NODE_CACHE 写锁中毒: {}", e);
         std::process::exit(1);
     });
     *cache_write = Some((Instant::now(), nodes.clone()));
@@ -260,7 +258,7 @@ async fn send_internal_group_broadcast(
     let mut endpoint = quinn::Endpoint::client(std::net::SocketAddr::from(([0, 0, 0, 0], 0)))?;
     endpoint.set_default_client_config(client_config);
 
-    info!("[group chat] send broadcast to {}, broadcast={:?}", addr, broadcast);
+    info!("[群聊] 向 {} 发送广播,广播内容={:?}", addr, broadcast);
     let conn = endpoint.connect(addr, "localhost")?.await?;
 
     let (mut send, mut recv) = conn.open_bi().await?;
@@ -293,15 +291,15 @@ pub async fn process_group_broadcast_local(
             match conn.open_uni().await {
                 Ok(mut send) => {
                     if let Err(e) = send.write_all(&broadcast.msg_bytes).await {
-                        warn!("[group chat] delivery failed member={} error={}", member, e);
+                        warn!("[群聊] 消息投递失败 member={} error={}", member, e);
                     } else if let Err(e) = send.finish().await {
-                        warn!("[group chat] finish failed member={} error={}", member, e);
+                        warn!("[群聊] 结束发送失败 member={} error={}", member, e);
                     } else {
-                        info!("[group chat] delivery successful member={}", member);
+                        info!("[群聊] 消息投递成功 member={}", member);
                     }
                 }
                 Err(e) => {
-                    warn!("[group chat] failed to open uni stream member={} error={}", member, e);
+                    warn!("[群聊] 打开 uni 流失败 member={} error={}", member, e);
                 }
             }
         }
@@ -365,7 +363,7 @@ async fn save_group_message_to_db(rb: &rbatis::RBatis, group_msg: &GroupQuicMsg)
     };
 
     GroupMessageRecord::insert(rb, &record).await?;
-    info!("[group chat] message persisted nano_id={}", group_msg.nano_id);
+    info!("[群聊] 消息已持久化 nano_id={}", group_msg.nano_id);
 
     Ok(())
 }
@@ -426,4 +424,107 @@ pub fn generate_group_msg(
     let group_quic_msg =
         GroupQuicMsg { nano_id: nanoid!(), msg_type, group_uuid, send_user, raw, timestamp: now };
     serialize_group_msg(&group_quic_msg)
+}
+
+#[cfg(test)]
+// 测试代码中直接使用 unwrap 作为断言失败手段是惯例,此处豁免生产代码的 unwrap 禁令
+#[allow(clippy::unwrap_used, clippy::disallowed_methods)]
+mod tests {
+    use common::utils::group_msg::GroupQuicMsg;
+    use common::utils::text_msg::{HeadMsg, TextQuicMsg, X25};
+
+    use super::*;
+
+    fn head_size() -> usize {
+        let head = HeadMsg { version: 1, crc: 0, body_len: 0, message_type: 0 };
+        bincode::serialize(&head).unwrap().len()
+    }
+
+    fn make_group_msg() -> GroupQuicMsg {
+        GroupQuicMsg {
+            nano_id: "test-nano-1".to_string(),
+            msg_type: 10, // GroupText
+            group_uuid: "group-uuid-1".to_string(),
+            send_user: "sender-uuid".to_string(),
+            raw: b"hello group".to_vec(),
+            timestamp: 1_700_000_000_000,
+        }
+    }
+
+    #[test]
+    fn test_serialize_group_msg_round_trip() {
+        let group_msg = make_group_msg();
+        let bytes = serialize_group_msg(&group_msg).unwrap();
+
+        // 解析出头部并校验 CRC(与 get_text_msg 相同的粘包协议)
+        let head_len = head_size();
+        let head: HeadMsg = bincode::deserialize(&bytes[..head_len]).unwrap();
+        let body: TextQuicMsg = bincode::deserialize(&bytes[head_len..]).unwrap();
+
+        assert_eq!(head.version, 1);
+        assert_eq!(head.body_len as usize, bytes.len() - head_len);
+        assert_eq!(head.message_type, group_msg.msg_type);
+        assert_eq!(X25.checksum(&bytes[head_len..]), head.crc);
+
+        // 业务字段完整保留
+        assert_eq!(body.nano_id, group_msg.nano_id);
+        assert_eq!(body.text_type, group_msg.msg_type);
+        assert_eq!(body.raw, group_msg.raw);
+        assert_eq!(body.recv_user, group_msg.group_uuid);
+        assert_eq!(body.send_user, group_msg.send_user);
+        assert_eq!(body.timestamp, group_msg.timestamp);
+    }
+
+    #[test]
+    fn test_serialize_group_msg_crc_detects_corruption() {
+        let group_msg = make_group_msg();
+        let mut bytes = serialize_group_msg(&group_msg).unwrap();
+        let head_len = head_size();
+
+        let original_crc = X25.checksum(&bytes[head_len..]);
+        let head: HeadMsg = bincode::deserialize(&bytes[..head_len]).unwrap();
+        assert_eq!(head.crc, original_crc);
+
+        // 篡改正文,CRC 应能检测到
+        let last = bytes.len() - 1;
+        bytes[last] ^= 0xFF;
+        assert_ne!(X25.checksum(&bytes[head_len..]), original_crc);
+    }
+
+    #[test]
+    fn test_generate_group_msg_produces_parseable_output() {
+        let bytes = generate_group_msg(
+            10,
+            b"raw payload".to_vec(),
+            "g-uuid".to_string(),
+            "s-uuid".to_string(),
+        )
+        .unwrap();
+
+        let head_len = head_size();
+        let head: HeadMsg = bincode::deserialize(&bytes[..head_len]).unwrap();
+        let body: TextQuicMsg = bincode::deserialize(&bytes[head_len..]).unwrap();
+
+        assert_eq!(head.message_type, 10);
+        assert_eq!(head.crc, X25.checksum(&bytes[head_len..]));
+        assert!(!body.nano_id.is_empty());
+        assert_eq!(body.raw, b"raw payload");
+        assert_eq!(body.recv_user, "g-uuid");
+        assert_eq!(body.send_user, "s-uuid");
+    }
+
+    #[tokio::test]
+    async fn test_broadcast_dedup() {
+        let dedup = BroadcastDedup::new();
+        assert!(dedup.try_process("broadcast-1"));
+        assert!(!dedup.try_process("broadcast-1"));
+        assert!(dedup.try_process("broadcast-2"));
+        assert!(!dedup.try_process("broadcast-2"));
+    }
+
+    #[test]
+    fn test_find_online_connection_empty_map() {
+        let connections = ConnectionsMap::default();
+        assert!(find_online_connection("some-user", &connections).is_none());
+    }
 }

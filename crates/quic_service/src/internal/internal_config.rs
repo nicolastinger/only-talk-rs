@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 
 use crate::external::state::ServiceError;
 
-/// Internal QUIC service configuration (no TLS cert required)
+/// 内部 QUIC 服务配置(无需 TLS 证书)
 #[derive(Debug, Clone)]
 pub struct InternalQuicConfig {
     pub bind_address: SocketAddr,
@@ -12,14 +12,14 @@ pub struct InternalQuicConfig {
 }
 
 impl InternalQuicConfig {
-    /// Read internal_quic_server section from TOML config file
+    /// 从 TOML 配置文件中读取 internal_quic_server 配置段
     pub fn from_toml(path: &str) -> Result<Self, ServiceError> {
         let content = std::fs::read_to_string(path)
             .map_err(|e| ServiceError::Config(format!("Failed to read config file: {}", e)))?;
         Self::from_toml_str(&content)
     }
 
-    /// Parse config from TOML string (caller must complete env var substitution first)
+    /// 从 TOML 字符串解析配置(调用方必须先完成环境变量替换)
     pub fn from_toml_str(content: &str) -> Result<Self, ServiceError> {
         let config_map: toml::Value = toml::from_str(content)
             .map_err(|e| ServiceError::Config(format!("Failed to parse TOML config: {}", e)))?;
@@ -53,5 +53,56 @@ impl InternalQuicConfig {
             .unwrap_or(0) as u32;
 
         Ok(Self { bind_address, server_name, server_index, node_address })
+    }
+}
+
+#[cfg(test)]
+// 测试代码中直接使用 unwrap 作为断言失败手段是惯例,此处豁免生产代码的 unwrap 禁令
+#[allow(clippy::unwrap_used, clippy::disallowed_methods)]
+mod tests {
+    use super::*;
+
+    fn valid_toml() -> &'static str {
+        r#"
+[cluster]
+server_index = 2
+
+[internal_quic_server]
+address = "127.0.0.1:4434"
+server_name = "INTERNAL_1"
+node_address = "10.0.0.2:4434"
+"#
+    }
+
+    #[test]
+    fn test_from_toml_str_full() {
+        let config = InternalQuicConfig::from_toml_str(valid_toml()).unwrap();
+        assert_eq!(config.bind_address, "127.0.0.1:4434".parse().unwrap());
+        assert_eq!(config.server_name, "INTERNAL_1");
+        assert_eq!(config.node_address, "10.0.0.2:4434");
+        assert_eq!(config.server_index, 2);
+    }
+
+    #[test]
+    fn test_from_toml_str_optional_fields_default() {
+        let toml = "[internal_quic_server]\naddress = \"127.0.0.1:9444\"\n";
+        let config = InternalQuicConfig::from_toml_str(toml).unwrap();
+        assert_eq!(config.bind_address, "127.0.0.1:9444".parse().unwrap());
+        assert_eq!(config.server_name, "INTERNAL_SERVER_1");
+        assert_eq!(config.node_address, "127.0.0.1:4434");
+        assert_eq!(config.server_index, 0);
+    }
+
+    #[test]
+    fn test_from_toml_str_missing_section() {
+        let err = InternalQuicConfig::from_toml_str("[x]\n").unwrap_err();
+        assert!(matches!(err, ServiceError::Config(_)));
+    }
+
+    #[test]
+    fn test_from_toml_str_invalid_address() {
+        let toml = "[internal_quic_server]\naddress = \"bad\"\n";
+        let err = InternalQuicConfig::from_toml_str(toml).unwrap_err();
+        assert!(matches!(err, ServiceError::Config(_)));
     }
 }

@@ -48,43 +48,37 @@ async fn handle_internal_request(
     connections: Arc<DashMap<String, QuicConnection>>,
     server_index: u32,
 ) -> Result<()> {
-    info!(
-        "[internal QUIC server] received new request, server_index={}, reading data...",
-        server_index
-    );
+    info!("[内部 QUIC 服务器] 收到新请求,server_index={},正在读取数据...", server_index);
 
     let mut buf = vec![0u8; 1024 * 64];
     match recv_stream.read(&mut buf).await? {
         Some(len) => {
-            info!("[internal QUIC server] read request size={} bytes", len);
+            info!("[内部 QUIC 服务器] 读取到请求,大小={} 字节", len);
 
-            // Try parse as group chat broadcast
+            // 尝试解析为群聊广播
             if let Ok(group_req) = bincode::deserialize::<InternalGroupBroadcast>(&buf[..len]) {
                 info!(
-                    "[internal QUIC server] [group chat] received broadcast group_uuid={} sender={}",
+                    "[内部 QUIC 服务器] [群聊] 收到广播 group_uuid={} sender={}",
                     group_req.group_uuid, group_req.sender
                 );
-                // Group chat broadcast processing
+                // 群聊广播处理
                 let resp = match process_group_broadcast(&group_req, &connections).await {
                     Ok(_) => bincode::serialize(&InternalGroupBroadcastResponse::ok())?,
                     Err(e) => {
-                        error!(
-                            "[internal QUIC server] [group chat] failed to process broadcast: {}",
-                            e
-                        );
+                        error!("[内部 QUIC 服务器] [群聊] 处理广播失败: {}", e);
                         bincode::serialize(&InternalGroupBroadcastResponse::error(e.to_string()))?
                     }
                 };
                 send_stream.write_all(&resp).await?;
                 send_stream.finish().await?;
-                info!("[internal QUIC server] [group chat] broadcast response sent");
+                info!("[内部 QUIC 服务器] [群聊] 广播响应已发送");
                 return Ok(());
             }
 
-            // Try parse as text message request (direct local delivery, no cross-node routing)
+            // 尝试解析为文本消息请求(直接本地投递,不跨节点路由)
             if let Ok(request) = bincode::deserialize::<InternalQuicRequest>(&buf[..len]) {
                 info!(
-                    "[internal QUIC server] [single chat] received request target_user={} msg_type={} platform={} preferred_index={} ttl={} source={:?}",
+                    "[内部 QUIC 服务器] [单聊] 收到请求 target_user={} msg_type={} platform={} preferred_index={} ttl={} source={:?}",
                     request.target_user,
                     request.msg_type,
                     request.platform,
@@ -93,7 +87,7 @@ async fn handle_internal_request(
                     request.source
                 );
 
-                // Construct connection key, look up target user locally
+                // 构造连接 key,在本机查找目标用户
                 let connection_key = format!(
                     "{}:{}{}{}{}",
                     request.platform,
@@ -103,25 +97,22 @@ async fn handle_internal_request(
                     ConnectionType::Text
                 );
                 let connection_key = connection_key.to_uppercase();
-                debug!(
-                    "[internal QUIC server] [single chat] looking up local connection key={}",
-                    connection_key
-                );
+                debug!("[内部 QUIC 服务器] [单聊] 正在查找本地连接 key={}", connection_key);
 
                 let response = match connections.get(&connection_key) {
                     Some(entry) => {
                         info!(
-                            "[internal QUIC server] [single chat] found target user {} locally, delivering...",
+                            "[内部 QUIC 服务器] [单聊] 在本机找到目标用户 {},正在投递...",
                             request.target_user
                         );
                         let conn = entry.conn.clone();
 
                         if let Err(e) = deliver_to_local_conn(conn, &request).await {
-                            error!("[internal QUIC server] [single chat] delivery failed: {}", e);
+                            error!("[内部 QUIC 服务器] [单聊] 投递失败: {}", e);
                             InternalQuicResponse::error(format!("Delivery failed: {}", e))
                         } else {
                             info!(
-                                "[internal QUIC server] [single chat] delivery successful target={}",
+                                "[内部 QUIC 服务器] [单聊] 投递成功 target={}",
                                 request.target_user
                             );
                             InternalQuicResponse::ok()
@@ -129,7 +120,7 @@ async fn handle_internal_request(
                     }
                     None => {
                         warn!(
-                            "[internal QUIC server] [single chat] target user not found locally key={} (user offline)",
+                            "[内部 QUIC 服务器] [单聊] 本机未找到目标用户 key={}(用户离线)",
                             connection_key
                         );
                         InternalQuicResponse::user_offline()
@@ -138,51 +129,48 @@ async fn handle_internal_request(
 
                 let resp_bytes = bincode::serialize(&response)?;
                 info!(
-                    "[internal QUIC server] [single chat] response status={} delivered={:?} message={:?}",
+                    "[内部 QUIC 服务器] [单聊] 响应 status={} delivered={:?} message={:?}",
                     response.status, response.delivered, response.message
                 );
 
                 send_stream.write_all(&resp_bytes).await?;
                 send_stream.finish().await?;
-                info!("[internal QUIC server] [single chat] response sent, processing complete");
+                info!("[内部 QUIC 服务器] [单聊] 响应已发送,处理完成");
                 return Ok(());
             }
 
-            warn!("[internal QUIC server] unrecognized request format size={} bytes", len);
+            warn!("[内部 QUIC 服务器] 无法识别的请求格式,大小={} 字节", len);
             let resp = InternalQuicResponse::error("Unrecognized request format");
             send_stream.write_all(&bincode::serialize(&resp)?).await?;
             send_stream.finish().await?;
         }
         None => {
-            warn!("[internal QUIC server] client closed stream, no data sent");
+            warn!("[内部 QUIC 服务器] 客户端已关闭流,未发送数据");
             send_stream.finish().await?;
         }
     }
     Ok(())
 }
 
-/// Deliver message to local connection (direct passthrough, payload is already TextQuicMsg binary)
+/// 将消息投递给本地连接(直接透传,payload 已是 TextQuicMsg 二进制)
 async fn deliver_to_local_conn(
     conn: quinn::Connection,
     request: &InternalQuicRequest,
 ) -> Result<()> {
     info!(
-        "[internal QUIC server] [single chat] starting delivery msg_type={} target_user={} payload_len={}",
+        "[内部 QUIC 服务器] [单聊] 开始投递 msg_type={} target_user={} payload_len={}",
         request.msg_type,
         request.target_user,
         request.payload.len()
     );
 
     let mut send = conn.open_uni().await?;
-    debug!("[internal QUIC server] [single chat] uni stream opened");
+    debug!("[内部 QUIC 服务器] [单聊] 单向流已打开");
 
     // payload 已经是 bincode 序列化的 TextQuicMsg 二进制，直接透传给客户端
     send.write_all(&request.payload).await?;
     send.finish().await?;
-    info!(
-        "[internal QUIC server] [single chat] delivery complete, passthrough {} bytes",
-        request.payload.len()
-    );
+    info!("[内部 QUIC 服务器] [单聊] 投递完成,透传 {} 字节", request.payload.len());
     Ok(())
 }
 
@@ -191,7 +179,7 @@ async fn register_to_redis(core: &CoreState, config: &InternalQuicConfig) -> Res
     let key = format!("{}{}", REDIS_INTERNAL_QUIC_SERVERS, config.server_index);
     let value = config.node_address.clone();
     conn.set_ex::<&str, &str, ()>(&key, &value, 7200).await?;
-    info!("[internal QUIC server] registered to Redis key={} value={} (TTL=7200s)", key, value);
+    info!("[内部 QUIC 服务器] 已注册到 Redis key={} value={} (TTL=7200s)", key, value);
     Ok(())
 }
 
@@ -199,7 +187,7 @@ async fn unregister_from_redis(core: &CoreState, config: &InternalQuicConfig) {
     if let Ok(mut conn) = core.redis.get().await {
         let key = format!("{}{}", REDIS_INTERNAL_QUIC_SERVERS, config.server_index);
         let _: Result<(), _> = conn.del(&key).await;
-        info!("[internal QUIC server] unregistered from Redis key={}", key);
+        info!("[内部 QUIC 服务器] 已从 Redis 注销 key={}", key);
     }
 }
 
@@ -210,43 +198,40 @@ pub async fn run_internal_server(
     mut shutdown_rx: watch::Receiver<bool>,
 ) {
     info!(
-        "[internal QUIC server] initializing... bind_address={} server_index={} node_address={}",
+        "[内部 QUIC 服务器] 正在初始化... bind_address={} server_index={} node_address={}",
         config.bind_address, config.server_index, config.node_address
     );
 
     let endpoint = match make_internal_endpoint(config.bind_address) {
         Ok(ep) => ep,
         Err(e) => {
-            error!("[internal QUIC server] failed to create endpoint: {}", e);
+            error!("[内部 QUIC 服务器] 创建 endpoint 失败: {}", e);
             return;
         }
     };
 
     if let Err(e) = register_to_redis(&core, &config).await {
-        warn!("[internal QUIC server] failed to register to Redis (non-fatal): {}", e);
+        warn!("[内部 QUIC 服务器] 注册到 Redis 失败(非致命): {}", e);
     }
 
     let server_index = config.server_index;
-    info!(
-        "[internal QUIC server] service started, listening on: {}, index: {}",
-        config.bind_address, server_index
-    );
+    info!("[内部 QUIC 服务器] 服务已启动,监听地址: {},索引: {}", config.bind_address, server_index);
 
     loop {
         let incoming_conn = {
             tokio::select! {
                 _ = shutdown_rx.changed() => {
-                    info!("[internal QUIC server] received shutdown signal");
+                    info!("[内部 QUIC 服务器] 收到关闭信号");
                     break;
                 }
                 result = endpoint.accept() => {
                     match result {
                         Some(conn) => {
-                            debug!("[internal QUIC server] received new connection");
+                            debug!("[内部 QUIC 服务器] 收到新连接");
                             conn
                         }
                         None => {
-                            error!("[internal QUIC server] endpoint closed");
+                            error!("[内部 QUIC 服务器] endpoint 已关闭");
                             break;
                         }
                     }
@@ -256,14 +241,11 @@ pub async fn run_internal_server(
 
         let conn = match incoming_conn.await {
             Ok(c) => {
-                info!(
-                    "[internal QUIC server] new connection established remote_addr={}",
-                    c.remote_address()
-                );
+                info!("[内部 QUIC 服务器] 新连接已建立 remote_addr={}", c.remote_address());
                 c
             }
             Err(e) => {
-                error!("[internal QUIC server] failed to establish connection: {}", e);
+                error!("[内部 QUIC 服务器] 建立连接失败: {}", e);
                 continue;
             }
         };
@@ -273,7 +255,7 @@ pub async fn run_internal_server(
         tokio::spawn(async move {
             match conn.accept_bi().await {
                 Ok((send_stream, recv_stream)) => {
-                    info!("[internal QUIC server] bi-directional stream opened");
+                    info!("[内部 QUIC 服务器] 双向流已打开");
                     if let Err(e) = handle_internal_request(
                         &core_clone,
                         send_stream,
@@ -283,16 +265,16 @@ pub async fn run_internal_server(
                     )
                     .await
                     {
-                        error!("[internal QUIC server] request processing exception: {}", e);
+                        error!("[内部 QUIC 服务器] 请求处理异常: {}", e);
                     }
                 }
                 Err(e) => {
-                    error!("[internal QUIC server] failed to open bi-directional stream: {}", e);
+                    error!("[内部 QUIC 服务器] 打开双向流失败: {}", e);
                 }
             }
         });
     }
 
     unregister_from_redis(&core, &config).await;
-    info!("[internal QUIC server] service shutdown");
+    info!("[内部 QUIC 服务器] 服务已关闭");
 }

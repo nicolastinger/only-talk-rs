@@ -24,7 +24,7 @@ impl fmt::Display for ConnectionType {
     }
 }
 
-// QUIC server
+// QUIC 服务端
 #[derive(Debug, Clone)]
 pub struct QuicConnection {
     pub is_online: bool,

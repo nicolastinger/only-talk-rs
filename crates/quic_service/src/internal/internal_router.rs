@@ -59,21 +59,18 @@ async fn try_deliver_local(
     match conn {
         Some(conn) => {
             info!(
-                "[single chat] local delivery successful target={} platform={} msg_type={}",
+                "[单聊] 本地投递成功 target={} platform={} msg_type={}",
                 request.target_user, request.platform, request.msg_type
             );
             let mut send = conn.open_uni().await?;
 
-            // payload is already TextQuicMsg binary, direct passthrough
+            // payload 已是 TextQuicMsg 二进制,直接透传
             send.write_all(&request.payload).await?;
             send.finish().await?;
             Ok(Some(InternalQuicResponse::ok()))
         }
         None => {
-            info!(
-                "[single chat] not found locally target={} platform={}",
-                request.target_user, request.platform
-            );
+            info!("[单聊] 本机未找到 target={} platform={}", request.target_user, request.platform);
             Ok(None)
         }
     }
@@ -84,7 +81,7 @@ async fn forward_to_remote(
     request: &InternalQuicRequest,
 ) -> Result<InternalQuicResponse> {
     info!(
-        "[single chat] forwarding to remote node {} target={} preferred_index={} ttl={}",
+        "[单聊] 转发到远程节点 {} target={} preferred_index={} ttl={}",
         addr, request.target_user, request.preferred_index, request.ttl
     );
     send_internal_quic_msg(*addr, request.clone()).await
@@ -113,10 +110,7 @@ pub async fn route_request(
                 }
             }
             Err(e) => {
-                warn!(
-                    "[single chat] failed to get preferred node {} address: {}, falling back to Redis",
-                    preferred_index, e
-                );
+                warn!("[单聊] 获取优先节点 {} 的地址失败: {},回退到 Redis", preferred_index, e);
             }
         }
     }
@@ -137,15 +131,12 @@ pub async fn route_request(
                 forward_to_remote(&target_addr, &forward_req).await
             }
             Err(e) => {
-                error!("[single chat] Redis fallback failed to get node {} address: {}", idx, e);
+                error!("[单聊] Redis 回退获取节点 {} 的地址失败: {}", idx, e);
                 Ok(InternalQuicResponse::user_offline())
             }
         },
         None => {
-            info!(
-                "[single chat] user offline target={} platform={}",
-                request.target_user, request.platform
-            );
+            info!("[单聊] 用户离线 target={} platform={}", request.target_user, request.platform);
             Ok(InternalQuicResponse::user_offline())
         }
     }
@@ -159,7 +150,7 @@ pub async fn route_internal_request(
 ) -> Result<Vec<u8>> {
     if let Ok(broadcast) = bincode::deserialize::<InternalGroupBroadcast>(request) {
         info!(
-            "[group chat] received broadcast group_uuid={} sender={} members_count={}",
+            "[群聊] 收到广播 group_uuid={} sender={} members_count={}",
             broadcast.group_uuid,
             broadcast.sender,
             broadcast.all_members.len()

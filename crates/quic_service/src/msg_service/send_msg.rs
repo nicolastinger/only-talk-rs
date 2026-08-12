@@ -12,7 +12,7 @@ use tracing::warn;
 use crate::models::quic_connection::{ConnectionType, QuicConnection};
 use crate::msg_service::text_msg_service::generate_text_msg;
 
-/// Send system message to user (routed via internal QUIC)
+/// 向用户发送系统消息(通过内部 QUIC 路由)
 pub async fn send_quic_system_msg(
     core: &CoreState,
     current_user: String,
@@ -20,7 +20,7 @@ pub async fn send_quic_system_msg(
     text: String,
     connections: &Arc<DashMap<String, QuicConnection>>,
 ) -> anyhow::Result<()> {
-    // 1. First try local delivery (for both PC / MOBILE platforms)
+    // 1. 首先尝试本地投递(PC / MOBILE 两个平台都尝试)
     let preferred_index = compute_preferred_index(&current_user);
 
     for platform in [common::config_str::PC_PLATFORM, common::config_str::MOBILE_PLATFORM] {
@@ -48,13 +48,13 @@ pub async fn send_quic_system_msg(
                 return Ok(());
             }
             None => {
-                warn!("current user not on local machine: {} (platform={})", user_key, platform);
+                warn!("当前用户不在本机: {} (platform={})", user_key, platform);
             }
         }
     }
 
-    // 2. Not found locally -> forward to internal QUIC
-    // First wrap as TextQuicMsg binary, then passthrough via internal network
+    // 2. 本地未找到 -> 转发到内部 QUIC
+    // 先封装为 TextQuicMsg 二进制,再通过内网透传
     let msg_bytes = generate_text_msg(
         msg_type,
         text.as_bytes().to_vec(),
@@ -71,7 +71,7 @@ pub async fn send_quic_system_msg(
         ttl: 3,
     };
 
-    // Get target node's internal QUIC address from Redis based on preferred_index
+    // 根据 preferred_index 从 Redis 获取目标节点的内部 QUIC 地址
     let mut conn = core.redis.get().await?;
     let key = format!("{}{}", REDIS_INTERNAL_QUIC_SERVERS, preferred_index);
     let addr_str: Option<String> = conn.get(&key).await?;
@@ -79,7 +79,7 @@ pub async fn send_quic_system_msg(
         let internal_addr: std::net::SocketAddr = addr_str.parse()?;
         send_internal_quic_msg(internal_addr, request).await?;
     } else {
-        warn!("internal QUIC address not found for node {}", preferred_index);
+        warn!("未找到节点 {} 的内部 QUIC 地址", preferred_index);
     }
     Ok(())
 }

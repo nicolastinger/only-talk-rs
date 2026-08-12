@@ -38,12 +38,12 @@ impl ChatNode {
         }
     }
 
-    /// Get a reference to the connection map, for passing to other services
+    /// 获取连接映射的引用，用于传递给其他服务
     pub fn connections(&self) -> Arc<DashMap<String, QuicConnection>> {
         self.connections.clone()
     }
 
-    /// Get a read-only reference to the config
+    /// 获取配置的只读引用
     pub fn config(&self) -> &ChatNodeConfig {
         &self.config
     }
@@ -66,7 +66,7 @@ impl ServiceLifecycle for ChatNode {
             }
         }
         self.state.write().await.transition_to(ServiceState::Initializing)?;
-        info!("[{}] initializing...", self.name());
+        info!("[{}] 正在初始化...", self.name());
 
         let (endpoint, _server_cert) = make_server_endpoint(
             self.config.bind_address,
@@ -78,11 +78,7 @@ impl ServiceLifecycle for ChatNode {
         *self.endpoint.write().await = Some(endpoint);
 
         self.state.write().await.transition_to(ServiceState::Running)?;
-        info!(
-            "[{}] Initialization complete, listening on: {}",
-            self.name(),
-            self.config.bind_address
-        );
+        info!("[{}] 初始化完成，监听地址: {}", self.name(), self.config.bind_address);
         Ok(())
     }
 
@@ -97,7 +93,7 @@ impl ServiceLifecycle for ChatNode {
             }
         }
 
-        info!("[{}] starting...", self.name());
+        info!("[{}] 正在启动...", self.name());
 
         let endpoint = {
             let ep = self.endpoint.read().await;
@@ -106,14 +102,14 @@ impl ServiceLifecycle for ChatNode {
         };
         let endpoint = Arc::new(endpoint);
 
-        // Create shutdown channel
+        // 创建关闭通知通道
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
         {
             let mut tx = self.shutdown_tx.lock().await;
             *tx = Some(shutdown_tx);
         }
 
-        // Start TLS cert monitoring
+        // 启动 TLS 证书监控
         start_tls_monitor(
             endpoint.clone(),
             shutdown_rx.clone(),
@@ -124,7 +120,7 @@ impl ServiceLifecycle for ChatNode {
             self.config.cert_expiry_check_interval_secs,
         );
 
-        // Start accept loop
+        // 启动连接接受循环
         let connections = self.connections.clone();
         let config = self.config.clone();
         let core = self.core.clone();
@@ -132,7 +128,7 @@ impl ServiceLifecycle for ChatNode {
             run_server(endpoint, connections, config, core, shutdown_rx).await;
         });
 
-        info!("[{}] service started", self.name());
+        info!("[{}] 服务已启动", self.name());
         Ok(())
     }
 
@@ -147,9 +143,9 @@ impl ServiceLifecycle for ChatNode {
             }
         }
         self.state.write().await.transition_to(ServiceState::Stopping)?;
-        info!("[{}] shutting down gracefully...", self.name());
+        info!("[{}] 正在优雅关闭...", self.name());
 
-        // Send shutdown signal
+        // 发送关闭信号
         {
             let mut tx = self.shutdown_tx.lock().await;
             if let Some(tx) = tx.take() {
@@ -157,7 +153,7 @@ impl ServiceLifecycle for ChatNode {
             }
         }
 
-        // Close endpoint, let accept loop exit
+        // 关闭 endpoint，让接受循环退出
         {
             let mut ep = self.endpoint.write().await;
             if let Some(endpoint) = ep.take() {
@@ -165,11 +161,11 @@ impl ServiceLifecycle for ChatNode {
             }
         }
 
-        // Wait briefly for accept loop to exit
+        // 短暂等待，让接受循环退出
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
         self.state.write().await.transition_to(ServiceState::Stopped)?;
-        info!("[{}] closed", self.name());
+        info!("[{}] 已关闭", self.name());
         Ok(())
     }
 

@@ -17,42 +17,42 @@ use crate::msg_service::text_msg_service::{generate_text_msg, get_text_msg};
 
 #[allow(dead_code)]
 pub async fn run_client(server_addr: SocketAddr) {
-    // Create client endpoint
+    // 创建客户端端点
     let mut endpoint =
         Endpoint::client("0.0.0.0:0".parse().expect("client bind address should be valid"))
             .expect("failed to create quic client endpoint");
-    endpoint.set_default_client_config(configure_client()); // Set default client config
+    endpoint.set_default_client_config(configure_client()); // 设置默认客户端配置
 
-    // Try connecting to server
+    // 尝试连接服务器
     let connection = match endpoint.connect(server_addr, "onlytalk.cn") {
         Ok(conn) => match conn.await {
             Ok(c) => c,
             Err(e) => {
-                error!("failed to connect to server: {}", e);
+                error!("连接服务器失败: {}", e);
                 return;
             }
         },
         Err(e) => {
-            error!("failed to create connection: {}", e);
+            error!("创建连接失败: {}", e);
             return;
         }
     };
-    info!("[client] connected: addr={}", connection.remote_address()); // Print connected server address
+    info!("[客户端] 已连接: addr={}", connection.remote_address()); // 打印已连接的服务器地址
 
-    // Open a bi-directional stream for init and receiving
+    // 打开双向流用于初始化和接收
     let (mut send_stream, mut _recv_stream) = match connection.open_bi().await {
         Ok(stream) => stream,
         Err(e) => {
-            error!("failed to open bi-directional stream: {}", e);
+            error!("打开双向流失败: {}", e);
             return;
         }
     };
     if let Err(e) = send_stream.set_priority(0) {
-        error!("failed to set priority: {}", e);
+        error!("设置优先级失败: {}", e);
     }
     let head_length = 9;
     let buffer_msg: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
-    // bidi recv loop (init stream receive)
+    // 双向流接收循环(初始流接收)
     tokio::spawn(async move {
         let mut buffer = vec![0u8; 1024 * 8];
         loop {
@@ -69,23 +69,23 @@ pub async fn run_client(server_addr: SocketAddr) {
                     {
                         Ok(_) => {}
                         Err(e) => {
-                            error!("[client] Failed to process_rec_msg {}", e);
+                            error!("[客户端] process_rec_msg 处理失败: {}", e);
                         }
                     };
                 }
                 Ok(None) => {
-                    info!("[client] no data received");
+                    info!("[客户端] 未收到数据");
                     break;
                 }
                 Err(e) => {
-                    error!("[client] read error: {}", e);
+                    error!("[客户端] 读取错误: {}", e);
                     break;
                 }
             }
         }
     });
 
-    // uni stream receive loop (server pushes messages via open_uni)
+    // 单向流接收循环(服务器通过 open_uni 推送消息)
     {
         let conn_for_uni = connection.clone();
         tokio::spawn(async move {
@@ -107,12 +107,12 @@ pub async fn run_client(server_addr: SocketAddr) {
                             }
                             Ok(None) => {}
                             Err(e) => {
-                                error!("[client] uni stream read error: {}", e);
+                                error!("[客户端] 单向流读取错误: {}", e);
                             }
                         }
                     }
                     Err(e) => {
-                        error!("[client] uni accept error: {}, continuing to wait", e);
+                        error!("[客户端] 单向流 accept 错误: {},继续等待", e);
                         tokio::time::sleep(Duration::from_secs(1)).await;
                     }
                 }
@@ -122,14 +122,14 @@ pub async fn run_client(server_addr: SocketAddr) {
 
     match init_send_msg(&mut send_stream, connection).await {
         Ok(_) => {
-            info!("client init connection successful")
+            info!("客户端初始化连接成功")
         }
         Err(_) => {
-            error!("client init connection failed")
+            error!("客户端初始化连接失败")
         }
     }
 
-    // Keep bidi send half alive, prevent server from going offline when it sees stream closed
+    // 保持双向流发送端存活,防止服务器看到流关闭后判定客户端离线
     tokio::spawn(async move {
         let _keep = send_stream;
         std::future::pending::<()>().await;
@@ -140,7 +140,7 @@ async fn init_send_msg(
     send_stream: &mut SendStream,
     conn: Connection,
 ) -> Result<(), anyhow::Error> {
-    // Send message to server
+    // 向服务器发送消息
     let uuid = "01965d95-0ffc-7d23-911e-1111485fb9be".to_string();
     let mut first_quic_msg = FirstQuicMsg::new();
     first_quic_msg.dyn_header_size = 9;
@@ -152,14 +152,14 @@ async fn init_send_msg(
     first_quic_msg.token = token;
 
     let first_msg_json = serde_json::to_string(&first_quic_msg)?;
-    info!("[client] preparing to send init message: {}", first_msg_json);
+    info!("[客户端] 准备发送初始化消息: {}", first_msg_json);
 
     send_stream.write_all(first_msg_json.as_bytes()).await?;
-    send_stream.flush().await?; // Ensure data is sent immediately
+    send_stream.flush().await?; // 确保数据立即发送
 
-    info!("[client] init message sent, waiting for server response");
+    info!("[客户端] 初始化消息已发送,等待服务器响应");
 
-    tokio::time::sleep(Duration::from_secs(1)).await; // Init delay 1 second, prevent sending metadata repeatedly
+    tokio::time::sleep(Duration::from_secs(1)).await; // 初始化延迟 1 秒,防止重复发送元数据
 
     let test_msg = generate_text_msg(
         message_types::MSG_TYPE_TEXT,
@@ -175,14 +175,14 @@ async fn init_send_msg(
         uuid.clone(),
     )?;
 
-    // Send test messages via on-demand streams
+    // 通过按需流发送测试消息
     send_via_new_stream(&conn, &test_msg).await?;
     send_via_new_stream(&conn, &test_msg2).await?;
     send_via_new_stream(&conn, &test_msg2).await?;
     send_via_new_stream(&conn, &test_msg2).await?;
     send_via_new_stream(&conn, &test_msg2).await?;
 
-    // Heartbeat loop - open stream on demand
+    // 心跳循环 - 按需打开流
     tokio::spawn(async move {
         loop {
             tokio::time::sleep(Duration::from_secs(10)).await;
@@ -194,16 +194,16 @@ async fn init_send_msg(
             ) {
                 Ok(m) => m,
                 Err(e) => {
-                    error!("failed to generate heartbeat message: {}", e);
+                    error!("生成心跳消息失败: {}", e);
                     continue;
                 }
             };
             match send_via_new_stream(&conn, &ping_msg).await {
                 Ok(_) => {
-                    info!("sent successfully");
+                    info!("发送成功");
                 }
                 Err(e) => {
-                    error!("failed to send heartbeat: {}", e);
+                    error!("发送心跳失败: {}", e);
                 }
             };
         }
@@ -211,7 +211,7 @@ async fn init_send_msg(
     Ok(())
 }
 
-/// Send data via on-demand stream
+/// 通过按需流发送数据
 async fn send_via_new_stream(conn: &Connection, data: &[u8]) -> Result<(), anyhow::Error> {
     let mut send = conn.open_uni().await?;
     send.write_all(data).await?;
@@ -229,7 +229,7 @@ async fn process_rec_msg(
     match msg_type {
         ConnectionType::Text => {
             let text_vec = get_text_msg(buffer, length, buffer_msg, head_length).await?;
-            info!("server response: {:?}", text_vec);
+            info!("服务器响应: {:?}", text_vec);
         }
         ConnectionType::Img => {}
         ConnectionType::Video => {}

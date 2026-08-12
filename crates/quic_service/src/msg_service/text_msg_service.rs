@@ -2,14 +2,14 @@ use std::sync::Arc;
 
 use anyhow::anyhow;
 use common::utils::text_msg::{HeadMsg, TextQuicMsg, X25};
-// Re-export from common (moved to shared crate)
+// 从 common 重新导出(已迁移到共享 crate)
 pub use common::utils::text_msg::{
     build_text_msg, generate_text_msg, generate_text_msg_with_id, generate_text_msg_with_time,
 };
 use tokio::sync::{Mutex, MutexGuard};
 use tracing::error;
 
-// Parse text message
+// 解析文本消息
 pub async fn get_text_msg(
     buffer: &mut Vec<u8>,
     mut length: usize,
@@ -18,19 +18,19 @@ pub async fn get_text_msg(
 ) -> anyhow::Result<Vec<TextQuicMsg>> {
     let mut result_vec: Vec<TextQuicMsg> = Vec::new();
     {
-        // Get lock and access data in Arc
+        // 获取锁并访问 Arc 中的数据
         let mut buffer_vec: MutexGuard<Vec<u8>> = buffer_msg.lock().await;
 
-        // If buffer_vec has data, merge it with buffer
+        // 如果 buffer_vec 有数据,则与 buffer 合并
         if !buffer_vec.is_empty() {
-            // Create a new Vec<u8>, merge buffer_vec and buffer data
-            let mut combined_buffer = buffer_vec.clone(); // Copy buffer_vec data
+            // 创建新的 Vec<u8>,合并 buffer_vec 与 buffer 中的数据
+            let mut combined_buffer = buffer_vec.clone(); // 复制 buffer_vec 数据
             length += combined_buffer.len();
-            combined_buffer.extend_from_slice(buffer); // Append buffer data to combined_buffer
-            *buffer = combined_buffer; // Assign merged data back to buffer
+            combined_buffer.extend_from_slice(buffer); // 将 buffer 数据追加到 combined_buffer
+            *buffer = combined_buffer; // 将合并后的数据写回 buffer
             buffer_vec.clear();
         }
-    } // buffer_vec goes out of scope, lock is released
+    } // buffer_vec 离开作用域,锁被释放
 
     let mut i = 0;
     for j in 0..length {
@@ -48,7 +48,7 @@ pub async fn get_text_msg(
         let head_msg: HeadMsg = match bincode::deserialize(head_msg_vec) {
             Ok(msg) => msg,
             Err(error) => {
-                error!("failed to serialize sticky packet data! {}", error);
+                error!("粘包数据解析失败! {}", error);
                 buffer_msg.lock().await.append(&mut buffer[round..length].to_vec());
                 return Ok(result_vec);
             }
@@ -65,7 +65,7 @@ pub async fn get_text_msg(
         let body_msg: TextQuicMsg = match bincode::deserialize(body_msg_vec) {
             Ok(msg) => msg,
             Err(error) => {
-                error!("failed to serialize sticky packet data! {}", error);
+                error!("粘包数据解析失败! {}", error);
                 buffer_msg.lock().await.append(&mut buffer[round..length].to_vec());
                 return Ok(result_vec);
             }
@@ -107,7 +107,7 @@ mod tests {
         Arc::new(Mutex::new(Vec::new()))
     }
 
-    // ========== Single message ==========
+    // ========== 单条消息 ==========
 
     #[tokio::test]
     async fn test_single_complete_message() {
@@ -125,7 +125,7 @@ mod tests {
         assert_eq!(result[0].text_type, MSG_TYPE_TEXT);
     }
 
-    // ========== Sticky packets: multiple complete messages ==========
+    // ========== 粘包:多条完整消息 ==========
 
     #[tokio::test]
     async fn test_two_sticky_messages() {
@@ -172,7 +172,7 @@ mod tests {
         }
     }
 
-    // ========== Sticky + incomplete tail ==========
+    // ========== 粘包 + 不完整尾部 ==========
 
     #[tokio::test]
     async fn test_complete_plus_incomplete_body() {
@@ -182,7 +182,7 @@ mod tests {
         let head_len = head_size();
 
         let mut combined = complete.clone();
-        // Append second message header + 5 bytes body after complete message, simulating incomplete sticky packet
+        // 在完整消息后追加第二条消息的头部 + 5 字节正文,模拟不完整粘包
         combined.extend_from_slice(&incomplete_full[..head_len + 5]);
         let total_len = combined.len();
         let buf_msg = new_buffer_msg();
@@ -204,7 +204,7 @@ mod tests {
         let incomplete = make_msg(MSG_TYPE_TEXT, b"big_payload_here", "user_c", "user_a");
         let head_len = head_size();
 
-        // Complete message + header only (body completely missing)
+        // 完整消息 + 仅有头部(正文完全缺失)
         let mut combined = complete.clone();
         combined.extend_from_slice(&incomplete[..head_len]);
         let total_len = combined.len();
@@ -220,7 +220,7 @@ mod tests {
         assert_eq!(saved.len(), head_len, "Header-only data should be saved to buffer_msg");
     }
 
-    // ========== Cross-call recovery (buffer_msg sticky) ==========
+    // ========== 跨调用恢复(buffer_msg 粘包) ==========
 
     #[tokio::test]
     async fn test_carryover_completes_in_next_call() {
@@ -228,7 +228,7 @@ mod tests {
         let head_len = head_size();
         let split_at = head_len + 5;
 
-        // First call: header + partial body
+        // 第一次调用:头部 + 部分正文
         let mut first_buf = full_msg[..split_at].to_vec();
         let first_len = first_buf.len();
         let buf_msg = new_buffer_msg();
@@ -237,7 +237,7 @@ mod tests {
             get_text_msg(&mut first_buf, first_len, buf_msg.clone(), head_len).await.unwrap();
         assert!(result1.is_empty(), "Incomplete message should not be parsed");
 
-        // Second call: remaining body arrives, should拼接 with buffer_msg to complete
+        // 第二次调用:剩余正文到达,应与 buffer_msg 拼接以完成
         let mut second_buf = full_msg[split_at..].to_vec();
         let second_len = second_buf.len();
 
@@ -253,7 +253,7 @@ mod tests {
         let full_msg = make_msg(MSG_TYPE_TEXT, b"multi_fragment_payload", "user_b", "user_a");
         let head_len = head_size();
 
-        // Arrive in three parts: header / partial body / remaining body
+        // 分三次到达:头部 / 部分正文 / 剩余正文
         let split1 = head_len;
         let split2 = head_len + 7;
         let buf_msg = new_buffer_msg();
@@ -284,13 +284,13 @@ mod tests {
 
         let buf_msg = new_buffer_msg();
 
-        // Store incomplete data first
+        // 先存入不完整数据
         let mut buf1 = partial_full[..split_at].to_vec();
         let len1 = buf1.len();
         let r1 = get_text_msg(&mut buf1, len1, buf_msg.clone(), head_len).await.unwrap();
         assert!(r1.is_empty());
 
-        // Remaining part + one complete new message (sticky + recovery)
+        // 剩余部分 + 一条完整新消息(粘包 + 恢复)
         let mut buf2 = partial_full[split_at..].to_vec();
         buf2.extend_from_slice(&new_complete);
         let len2 = buf2.len();
@@ -301,7 +301,7 @@ mod tests {
         assert_eq!(r2[1].raw, b"new_complete");
     }
 
-    // ========== Boundary conditions ==========
+    // ========== 边界条件 ==========
 
     #[tokio::test]
     async fn test_empty_buffer() {
@@ -332,7 +332,7 @@ mod tests {
         let head_len = head_size();
         let buf_msg = new_buffer_msg();
 
-        // Exact header size -- but body_len > 0, body incomplete
+        // 恰好是头部大小 -- 但 body_len > 0,正文不完整
         let len = head_len;
         let mut buf = msg[..head_len].to_vec();
         let result = get_text_msg(&mut buf, len, buf_msg.clone(), head_len).await.unwrap();
@@ -370,14 +370,14 @@ mod tests {
         assert!(buf_msg.lock().await.is_empty());
     }
 
-    // ========== CRC check failure ==========
+    // ========== CRC 校验失败 ==========
 
     #[tokio::test]
     async fn test_crc_mismatch_should_error() {
         let head_len = head_size();
         let buf_msg = new_buffer_msg();
 
-        // Construct a valid body
+        // 构造一个合法的 body
         let body = TextQuicMsg {
             nano_id: "crc_test".to_string(),
             text_type: MSG_TYPE_TEXT,
@@ -388,10 +388,10 @@ mod tests {
         };
         let body_bytes = bincode::serialize(&body).unwrap();
 
-        // Header uses wrong CRC, body remains valid
+        // 头部使用错误的 CRC,正文保持合法
         let head = HeadMsg {
             version: 1,
-            crc: 0, // Intentionally wrong CRC
+            crc: 0, // 故意使用错误的 CRC
             body_len: body_bytes.len() as u32,
             message_type: MSG_TYPE_TEXT,
         };
@@ -403,13 +403,13 @@ mod tests {
         assert!(result.is_err(), "CRC mismatch should return error");
     }
 
-    // ========== Corrupted data: header/body deserialization failure ==========
+    // ========== 数据损坏:头部/正文反序列化失败 ==========
 
     #[tokio::test]
     async fn test_garbage_head_deserialization_fails() {
         let head_len = head_size();
         let buf_msg = new_buffer_msg();
-        // All 0xFF data cannot be deserialized as HeadMsg
+        // 全 0xFF 的数据无法反序列化为 HeadMsg
         let len = head_len + 10;
         let mut garbage: Vec<u8> = vec![0xFF; len];
 

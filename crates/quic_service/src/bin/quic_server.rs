@@ -1,6 +1,6 @@
-//! QUIC service independent entry point
+//! QUIC 服务独立入口
 //!
-//! Starts only QUIC ChatNode + NAT UDP + internal QUIC service, no HTTP.
+//! 仅启动 QUIC ChatNode + NAT UDP + 内部 QUIC 服务，不包含 HTTP。
 
 use std::sync::Arc;
 
@@ -13,27 +13,27 @@ use tracing::{error, info};
 #[tokio::main]
 async fn main() {
     if let Err(e) = dotenvy::dotenv() {
-        eprintln!("Failed to load .env file: {}", e);
+        eprintln!("加载 .env 文件失败: {}", e);
     }
 
     let _guard = init_tracing();
-    info!("starting QUIC service (standalone mode)");
+    info!("正在启动 QUIC 服务（独立模式）");
 
     let chat_node: Arc<ChatNode> = match start_server().await {
         Ok(node) => node,
-        Err(e) => fatal_panic_async(&format!("failed to start QUIC service: {:?}", e)).await,
+        Err(e) => fatal_panic_async(&format!("QUIC 服务启动失败: {:?}", e)).await,
     };
 
-    info!("QUIC service ready, press Ctrl+C to stop");
+    info!("QUIC 服务已就绪，按 Ctrl+C 停止");
 
-    // Wait for exit signal
+    // 等待退出信号
     tokio::signal::ctrl_c().await.unwrap_or_else(|e| {
-        error!("failed to register Ctrl+C handler: {}", e);
+        error!("注册 Ctrl+C 处理器失败: {}", e);
     });
 
-    info!("received shutdown signal, shutting down gracefully...");
+    info!("收到关闭信号，正在优雅关闭...");
     if let Err(e) = chat_node.stop().await {
-        error!("failed to shutdown QUIC service: {:?}", e);
+        error!("QUIC 服务关闭失败: {:?}", e);
     }
-    info!("QUIC service stopped");
+    info!("QUIC 服务已停止");
 }
