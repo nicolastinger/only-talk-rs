@@ -25,9 +25,10 @@ jobs:
             command: cargo +nightly fmt --all --check
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@${{ matrix.toolchain }}
-        with:
-          components: ${{ matrix.components }}
+      - name: Install toolchain
+        run: rustup toolchain install ${{ matrix.toolchain }} --profile minimal --component ${{ matrix.components }}
       - uses: Swatinem/rust-cache@v2
+        with:
+          toolchain: ${{ matrix.toolchain }}
       - name: ${{ matrix.name }}
         run: ${{ matrix.command }}
