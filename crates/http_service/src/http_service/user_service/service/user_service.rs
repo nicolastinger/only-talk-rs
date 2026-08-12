@@ -1,13 +1,18 @@
 use std::str::FromStr;
 
 use anyhow::anyhow;
-use common::config_str::{MOBILE_PLATFORM, PC_PLATFORM};
+use common::config_str::{
+    EMAIL_VERIFY_CODE, MOBILE_PLATFORM, PC_PLATFORM, REFRESH_TOKEN, REFRESH_TOKEN_PLATFORM,
+};
 use common::models::user_entity::basic_user::BasicUser;
 use common::models::user_entity::user_info::UserInfo;
 use common::utils::jwt_util::{generate_access_token, generate_token_with_expiry};
 use common::utils::rsa_util::{hash_password, verify_password};
 use common::utils::time::get_now_time_stamp_as_millis;
-use deadpool_redis::redis::{RedisResult, cmd};
+use deadpool_redis::redis::{AsyncCommands, RedisResult, cmd};
+use email_service::manager::EmailManager;
+use email_service::{Email, EmailAddress};
+use rand::Rng;
 use rbatis::{RBatis, rbdc};
 use rbs::value;
 use tracing::{error, info};
@@ -51,10 +56,71 @@ pub async fn get_exit_user(rb: &RBatis, account: &str) -> bool {
     }
 }
 
+/// 发送注册邮箱验证码到指定邮箱,验证码写入 Redis 5 分钟有效
+pub async fn send_verify_code_service(
+    rb: &RBatis,
+    redis: &deadpool_redis::Pool,
+    email_manager: &EmailManager,
+    email: &str,
+) -> Result<String, anyhow::Error> {
+    // 1. 邮箱唯一性检查
+    if BasicUser::select_by_email(rb, email).await?.is_some() {
+        return Err(anyhow!("该邮箱已被注册"));
+    }
+
+    // 2. 生成 6 位数字验证码
+    let code = format!("{:06}", rand::thread_rng().gen_range(0..1_000_000));
+
+    // 3. 写入 Redis,5 分钟(300 秒)过期
+    let mut conn = redis.get().await?;
+    let key = format!("{}{}", EMAIL_VERIFY_CODE, email);
+    conn.set_ex::<&str, &str, ()>(&key, &code, 300).await?;
+    info!("verification code stored for email: {}", email);
+
+    // 4. 通过阿里云邮件发送验证码
+    let account_name = common::config_manager::get_config("email.account_name").unwrap_or_default();
+    let mail = Email::builder()
+        .from(EmailAddress::new(&account_name).map_err(|e| anyhow!("发件人配置错误: {}", e))?)
+        .to(EmailAddress::new(email).map_err(|e| anyhow!("收件人邮箱格式错误: {}", e))?)
+        .subject("OnlyTalk 注册验证码")
+        .text_body(format!("您的注册验证码是: {},5 分钟内有效,请勿泄露给他人。", code))
+        .build()
+        .map_err(|e| anyhow!("构建邮件失败: {}", e))?;
+
+    let result = email_manager.send(&mail).await.map_err(|e| anyhow!("邮件发送失败: {}", e))?;
+    if !result.is_success() {
+        let reason = result.error.as_ref().map(|e| e.message.clone()).unwrap_or_default();
+        return Err(anyhow!("邮件发送失败: {}", reason));
+    }
+
+    Ok(CommonResponseNoDataRef::success_empty())
+}
+
 pub async fn add_new_basic_user_service(
     rb: &RBatis,
+    redis: &deadpool_redis::Pool,
     basic_user: SignUpBasicUserDTO,
 ) -> Result<String, anyhow::Error> {
+    // 1. 邮箱唯一性检查
+    let email = basic_user.email.as_ref().ok_or(anyhow!("邮箱为空"))?;
+    if BasicUser::select_by_email(rb, email).await?.is_some() {
+        return Err(anyhow!("该邮箱已被注册"));
+    }
+
+    // 2. 校验注册验证码(与 Redis 中的一致,校验通过后删除)
+    let code = basic_user.verification_code.as_ref().ok_or(anyhow!("验证码为空"))?;
+    let mut conn = redis.get().await?;
+    let code_key = format!("{}{}", EMAIL_VERIFY_CODE, email);
+    let stored: Option<String> = conn.get(&code_key).await?;
+    match stored {
+        Some(stored) if stored == *code => {
+            let _: Result<(), _> = conn.del(&code_key).await;
+        }
+        _ => {
+            return Err(anyhow!("验证码错误或已过期"));
+        }
+    }
+
     let mut basic_user = SignUpBasicUserDTO::to_basic_user(basic_user);
     basic_user.uuid = Some(Uuid::now_v7().to_string().parse()?);
     let password = basic_user.password.as_ref().ok_or(anyhow!("密码为空"))?;
@@ -136,7 +202,7 @@ pub async fn user_sign_in(
             generate_token_with_expiry(uuid.clone(), platform.clone(), 3600 * 24 * 30)?;
 
         // 存储 refresh_token 到 Redis (30 天过期)
-        let rt_key = format!("REFRESH_TOKEN:{}", refresh_token);
+        let rt_key = format!("{}{}", REFRESH_TOKEN, refresh_token);
         let _: () = cmd("SET")
             .arg(&rt_key)
             .arg(&uuid)
@@ -144,7 +210,7 @@ pub async fn user_sign_in(
             .arg(3600 * 24 * 30)
             .query_async(&mut conn)
             .await?;
-        let rt_platform_key = format!("REFRESH_TOKEN:PLATFORM:{}", refresh_token);
+        let rt_platform_key = format!("{}{}", REFRESH_TOKEN_PLATFORM, refresh_token);
         let _: () = cmd("SET")
             .arg(&rt_platform_key)
             .arg(&platform)
@@ -167,11 +233,11 @@ pub async fn refresh_access_token(
 ) -> Result<String, anyhow::Error> {
     let mut conn = redis.get().await?;
 
-    let key = format!("REFRESH_TOKEN:{}", refresh_token_dto.refresh_token);
+    let key = format!("{}{}", REFRESH_TOKEN, refresh_token_dto.refresh_token);
     let result: RedisResult<String> = cmd("GET").arg(&key).query_async(&mut conn).await;
     let uuid = result.map_err(|_| anyhow!("refresh_token 无效或已过期"))?;
 
-    let platform_key = format!("REFRESH_TOKEN:PLATFORM:{}", refresh_token_dto.refresh_token);
+    let platform_key = format!("{}{}", REFRESH_TOKEN_PLATFORM, refresh_token_dto.refresh_token);
     let platform: RedisResult<String> = cmd("GET").arg(&platform_key).query_async(&mut conn).await;
     let platform = platform.map_err(|_| anyhow!("无法获取平台信息"))?;
 

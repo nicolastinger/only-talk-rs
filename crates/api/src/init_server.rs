@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufReader, Seek, SeekFrom};
 use std::sync::Arc;
@@ -5,6 +6,7 @@ use std::sync::Arc;
 use actix_web::middleware::from_fn;
 use actix_web::{App, HttpServer, middleware, web};
 use common::{init_app_config, init_redis, init_sql_pool, read_global_config, verify_redis};
+use email_service::config::{AliyunConfig, EmailServiceConfig, ProviderConfig};
 use http_service;
 use http_service::middleware::TraceIdMiddleware;
 use http_service::utils::record_bad_http::error_record_middleware;
@@ -113,6 +115,42 @@ async fn init_s3_client() -> anyhow::Result<Arc<s3_service::S3Client>> {
     Ok(client)
 }
 
+/// Initialize email manager with Aliyun provider loaded from config.
+///
+/// If email is disabled in config, an empty manager is created (sending will fail).
+fn init_email_manager() -> anyhow::Result<Arc<email_service::EmailManager>> {
+    let enabled = common::config_manager::get_config("email.enabled")
+        .unwrap_or_else(|| "false".to_string())
+        .parse::<bool>()
+        .unwrap_or(false);
+
+    if !enabled {
+        info!("email service not enabled, verification codes will not be sent");
+        return Ok(Arc::new(email_service::EmailManager::new(EmailServiceConfig::default())?));
+    }
+
+    let aliyun = AliyunConfig {
+        enabled: true,
+        priority: 100,
+        access_key_id: read_global_config!("email", "access_key_id"),
+        access_key_secret: read_global_config!("email", "access_key_secret"),
+        region_id: read_global_config!("email", "region_id"),
+        account_name: read_global_config!("email", "account_name"),
+        from_alias: Some("OnlyTalk".to_string()),
+        ..Default::default()
+    };
+    let mut providers = HashMap::new();
+    providers.insert("aliyun".to_string(), ProviderConfig::Aliyun(aliyun));
+
+    let config = EmailServiceConfig {
+        default_provider: Some("aliyun".to_string()),
+        providers,
+        ..Default::default()
+    };
+    info!("initializing email manager with aliyun provider");
+    Ok(Arc::new(email_service::EmailManager::new(config)?))
+}
+
 /// Initialize services
 pub async fn start_server() -> anyhow::Result<()> {
     init_app_config()?;
@@ -140,10 +178,8 @@ pub async fn start_server() -> anyhow::Result<()> {
     // Initialize S3 client (mandatory)
     let s3_client = init_s3_client().await?;
 
-    // Initialize email manager (empty config placeholder, providers wired later)
-    let email = Arc::new(email_service::manager::EmailManager::new(
-        email_service::config::EmailServiceConfig::default(),
-    )?);
+    // Initialize email manager (Aliyun provider for registration verification codes)
+    let email = init_email_manager()?;
 
     let state = http_service::state::AppState {
         core: common::state::CoreState { db: pool, redis: redis_pool },

@@ -17,6 +17,7 @@ lazy_static! {
         m.insert("/user/sign_up".to_string());
         m.insert("/user/sign_in".to_string());
         m.insert("/user/refresh_token".to_string());
+        m.insert("/user/send_verify_code".to_string());
         RwLock::new(m)
     };
 }

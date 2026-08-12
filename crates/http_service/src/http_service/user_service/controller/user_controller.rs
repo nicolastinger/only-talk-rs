@@ -4,11 +4,13 @@ use tracing::info;
 use crate::common::dto::base_dto::AuthAccount;
 use crate::http_service::user_service::dto::basic_user_dto::SignInBasicUserDTO;
 use crate::http_service::user_service::dto::refresh_token_dto::RefreshTokenDTO;
+use crate::http_service::user_service::dto::send_verify_code_dto::SendVerifyCodeDTO;
 use crate::http_service::user_service::dto::sign_up_basic_user_dto::SignUpBasicUserDTO;
 use crate::http_service::user_service::dto::update_user_dto::UpdateUserDTO;
 use crate::http_service::user_service::service::user_service::{
     add_new_basic_user_service, get_exit_user, get_user_info_by_account, get_user_info_by_uuid,
-    get_user_uuid_by_account_service, refresh_access_token, update_user_info_service, user_sign_in,
+    get_user_uuid_by_account_service, refresh_access_token, send_verify_code_service,
+    update_user_info_service, user_sign_in,
 };
 use crate::state::AppState;
 use crate::utils::http_response::{CommonResponse, CommonResponseNoDataRef};
@@ -18,6 +20,7 @@ pub fn user_service(cfg: &mut web::ServiceConfig) {
     cfg.service(get_exit_user_flag)
         .service(sign_in)
         .service(sign_up)
+        .service(send_verify_code)
         .service(refresh_token)
         .service(me_api)
         .service(query_user_api)
@@ -39,7 +42,18 @@ pub async fn sign_up(
     basic_user: web::Json<SignUpBasicUserDTO>,
 ) -> impl Responder {
     let basic_user = validate_and_respond!(basic_user);
-    let res = add_new_basic_user_service(state.db(), basic_user).await;
+    let res = add_new_basic_user_service(state.db(), state.redis(), basic_user).await;
+    respond_json_any!(res)
+}
+
+#[post("/send_verify_code")]
+pub async fn send_verify_code(
+    state: web::Data<AppState>,
+    dto: web::Json<SendVerifyCodeDTO>,
+) -> impl Responder {
+    let dto = validate_and_respond!(dto);
+    let email = dto.email.unwrap_or_default();
+    let res = send_verify_code_service(state.db(), state.redis(), &state.email, &email).await;
     respond_json_any!(res)
 }
 

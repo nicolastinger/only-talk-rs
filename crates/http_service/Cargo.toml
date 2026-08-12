@@ -34,3 +34,4 @@ futures-util = "0.3"
 image = "0.25"
 webp = "0.3"
 tokio = { workspace = true }
+rand = { workspace = true }

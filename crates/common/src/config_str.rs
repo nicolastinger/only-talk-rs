@@ -18,6 +18,18 @@ pub static USER_READ_MSG: &str = "USER:READ:MSG:";
 pub static USER_ADD_FRIEND: &str = "USER_ADD_FRIEND_REQUEST";
 // User processes friend request
 pub static USER_PROCESS_FRIEND: &str = "USER_PROCESS_FRIEND_REQUEST";
+// NAT UDP user address info
+pub static USER_UDP_ADDRESS: &str = "USER_UDP_ADDRESS_";
+// NAT UDP user address lock
+pub static USER_UDP_ADDRESS_LOCK: &str = "USER_UDP_ADDRESS_LOCK_";
+// Group member list cache
+pub static GROUP_MEMBERS_CACHE: &str = "group:members:";
+// Refresh token mapping
+pub static REFRESH_TOKEN: &str = "REFRESH_TOKEN:";
+// Refresh token platform mapping
+pub static REFRESH_TOKEN_PLATFORM: &str = "REFRESH_TOKEN:PLATFORM:";
+// Email registration verification code
+pub static EMAIL_VERIFY_CODE: &str = "EMAIL:VERIFY:CODE:";
 // Default max file size (20MB)
 pub static DEFAULT_MAX_FILE_SIZE: i64 = 20 * 1024 * 1024;
 // PC platform

@@ -89,3 +89,12 @@ multipart_threshold = 10485760
 multipart_chunk_size = 5242880
 # 最大并发上传数
 max_concurrent_uploads = 10
+
+[email]
+# 邮件服务开关（注册邮箱验证码依赖此服务）
+enabled = "${EMAIL_ENABLED}"
+# 阿里云邮件推送
+access_key_id = "${EMAIL_ACCESS_KEY_ID}"
+access_key_secret = "${EMAIL_ACCESS_KEY_SECRET}"
+region_id = "cn-hangzhou"
+account_name = "${EMAIL_ACCOUNT_NAME}"
