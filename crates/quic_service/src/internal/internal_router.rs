@@ -6,8 +6,8 @@ use dashmap::DashMap;
 use deadpool_redis::redis::AsyncCommands;
 use tracing::{error, info, warn};
 
-use common::REDIS_CLIENT;
 use common::config_str::{REDIS_INTERNAL_QUIC_SERVERS, REDIS_QUIC_SERVERS, REDIS_SPLIT};
+use common::state::CoreState;
 use common::utils::group_msg::{InternalGroupBroadcast, InternalGroupBroadcastResponse};
 use common::utils::internal_quic_client::send_internal_quic_msg;
 use common::utils::internal_quic_msg::{InternalQuicRequest, InternalQuicResponse};
@@ -15,19 +15,19 @@ use common::utils::internal_quic_msg::{InternalQuicRequest, InternalQuicResponse
 use crate::models::quic_connection::{ConnectionType, QuicConnection};
 use crate::msg_service::group_msg_service::process_group_broadcast;
 
-async fn get_internal_addr_by_index(index: u32) -> Result<SocketAddr> {
-    let redis = REDIS_CLIENT.read().await;
-    let redis = redis.as_ref().ok_or_else(|| anyhow::anyhow!("Redis not initialized"))?;
-    let mut conn = redis.get().await?;
+async fn get_internal_addr_by_index(core: &CoreState, index: u32) -> Result<SocketAddr> {
+    let mut conn = core.redis.get().await?;
     let key = format!("{}{}", REDIS_INTERNAL_QUIC_SERVERS, index);
     let addr_str: String = conn.get(&key).await?;
     addr_str.parse().map_err(|e| anyhow::anyhow!("Failed to parse internal address: {}", e))
 }
 
-async fn get_actual_node_index(uuid: &str, platform: &str) -> Result<Option<u32>> {
-    let redis = REDIS_CLIENT.read().await;
-    let redis = redis.as_ref().ok_or_else(|| anyhow::anyhow!("Redis not initialized"))?;
-    let mut conn = redis.get().await?;
+async fn get_actual_node_index(
+    core: &CoreState,
+    uuid: &str,
+    platform: &str,
+) -> Result<Option<u32>> {
+    let mut conn = core.redis.get().await?;
     let key = format!(
         "{}:{}{}{}{}",
         platform,
@@ -92,6 +92,7 @@ async fn forward_to_remote(
 }
 
 pub async fn route_request(
+    core: &CoreState,
     request: &InternalQuicRequest,
     connections: &Arc<DashMap<String, QuicConnection>>,
     server_index: u32,
@@ -104,7 +105,7 @@ pub async fn route_request(
         }
     } else {
         if request.ttl > 0 {
-            match get_internal_addr_by_index(preferred_index).await {
+            match get_internal_addr_by_index(core, preferred_index).await {
                 Ok(target_addr) => {
                     let mut forward_req = request.clone();
                     forward_req.ttl -= 1;
@@ -127,12 +128,13 @@ pub async fn route_request(
         return Ok(InternalQuicResponse::user_offline());
     }
 
-    let actual_index = get_actual_node_index(&request.target_user, &request.platform).await?;
+    let actual_index =
+        get_actual_node_index(core, &request.target_user, &request.platform).await?;
     match actual_index {
         Some(idx) if idx == server_index => try_deliver_local(request, connections)
             .await
             .map(|r| r.unwrap_or_else(InternalQuicResponse::user_offline)),
-        Some(idx) => match get_internal_addr_by_index(idx).await {
+        Some(idx) => match get_internal_addr_by_index(core, idx).await {
             Ok(target_addr) => {
                 let mut forward_req = request.clone();
                 forward_req.ttl -= 1;
@@ -154,6 +156,7 @@ pub async fn route_request(
 }
 
 pub async fn route_internal_request(
+    core: &CoreState,
     request: &[u8],
     connections: &Arc<DashMap<String, QuicConnection>>,
     server_index: u32,
@@ -170,7 +173,7 @@ pub async fn route_internal_request(
     }
 
     if let Ok(msg) = bincode::deserialize::<InternalQuicRequest>(request) {
-        let resp = route_request(&msg, connections, server_index).await?;
+        let resp = route_request(core, &msg, connections, server_index).await?;
         return Ok(bincode::serialize(&resp)?);
     }
 

@@ -3,9 +3,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Result;
-use common::REDIS_CLIENT;
 use common::config_str::REDIS_INTERNAL_QUIC_SERVERS;
 use common::config_str::{REDIS_QUIC_SERVERS, REDIS_SPLIT};
+use common::state::CoreState;
 use common::utils::group_msg::{InternalGroupBroadcast, InternalGroupBroadcastResponse};
 use common::utils::internal_quic_msg::{InternalQuicRequest, InternalQuicResponse};
 use dashmap::DashMap;
@@ -43,6 +43,7 @@ fn make_internal_endpoint(bind_addr: SocketAddr) -> Result<Endpoint, Box<dyn std
 }
 
 async fn handle_internal_request(
+    _core: &CoreState,
     mut send_stream: SendStream,
     mut recv_stream: RecvStream,
     connections: Arc<DashMap<String, QuicConnection>>,
@@ -186,11 +187,8 @@ async fn deliver_to_local_conn(
     Ok(())
 }
 
-async fn register_to_redis(config: &InternalQuicConfig) -> Result<()> {
-    let redis = REDIS_CLIENT.read().await;
-    let redis =
-        redis.as_ref().ok_or_else(|| anyhow::anyhow!("failed to get Redis connection pool"))?;
-    let mut conn = redis.get().await?;
+async fn register_to_redis(core: &CoreState, config: &InternalQuicConfig) -> Result<()> {
+    let mut conn = core.redis.get().await?;
     let key = format!("{}{}", REDIS_INTERNAL_QUIC_SERVERS, config.server_index);
     let value = config.node_address.clone();
     conn.set_ex::<&str, &str, ()>(&key, &value, 7200).await?;
@@ -198,19 +196,16 @@ async fn register_to_redis(config: &InternalQuicConfig) -> Result<()> {
     Ok(())
 }
 
-async fn unregister_from_redis(config: &InternalQuicConfig) {
-    if let Ok(redis) = REDIS_CLIENT.try_read() {
-        if let Some(redis) = redis.as_ref() {
-            if let Ok(mut conn) = redis.get().await {
-                let key = format!("{}{}", REDIS_INTERNAL_QUIC_SERVERS, config.server_index);
-                let _: Result<(), _> = conn.del(&key).await;
-                info!("[internal QUIC server] unregistered from Redis key={}", key);
-            }
-        }
+async fn unregister_from_redis(core: &CoreState, config: &InternalQuicConfig) {
+    if let Ok(mut conn) = core.redis.get().await {
+        let key = format!("{}{}", REDIS_INTERNAL_QUIC_SERVERS, config.server_index);
+        let _: Result<(), _> = conn.del(&key).await;
+        info!("[internal QUIC server] unregistered from Redis key={}", key);
     }
 }
 
 pub async fn run_internal_server(
+    core: CoreState,
     config: InternalQuicConfig,
     connections: Arc<DashMap<String, QuicConnection>>,
     mut shutdown_rx: watch::Receiver<bool>,
@@ -228,7 +223,7 @@ pub async fn run_internal_server(
         }
     };
 
-    if let Err(e) = register_to_redis(&config).await {
+    if let Err(e) = register_to_redis(&core, &config).await {
         warn!("[internal QUIC server] failed to register to Redis (non-fatal): {}", e);
     }
 
@@ -275,12 +270,19 @@ pub async fn run_internal_server(
         };
 
         let conns = connections.clone();
+        let core_clone = core.clone();
         tokio::spawn(async move {
             match conn.accept_bi().await {
                 Ok((send_stream, recv_stream)) => {
                     info!("[internal QUIC server] bi-directional stream opened");
-                    if let Err(e) =
-                        handle_internal_request(send_stream, recv_stream, conns, server_index).await
+                    if let Err(e) = handle_internal_request(
+                        &core_clone,
+                        send_stream,
+                        recv_stream,
+                        conns,
+                        server_index,
+                    )
+                    .await
                     {
                         error!("[internal QUIC server] request processing exception: {}", e);
                     }
@@ -292,6 +294,6 @@ pub async fn run_internal_server(
         });
     }
 
-    unregister_from_redis(&config).await;
+    unregister_from_redis(&core, &config).await;
     info!("[internal QUIC server] service shutdown");
 }

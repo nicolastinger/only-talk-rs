@@ -11,10 +11,10 @@ use quinn::Connection;
 use rbatis::rbdc::{Bytes, Uuid};
 use tracing::{debug, error, info, warn};
 
-use common::REDIS_CLIENT;
 use common::config_str::{
     MOBILE_PLATFORM, PC_PLATFORM, REDIS_INTERNAL_QUIC_SERVERS, REDIS_QUIC_SERVERS, REDIS_SPLIT,
 };
+use common::state::CoreState;
 use common::utils::group_msg::{
     BroadcastType, GroupQuicMsg, InternalGroupBroadcast, InternalGroupBroadcastResponse,
 };
@@ -85,38 +85,29 @@ pub fn serialize_group_msg(group_msg: &GroupQuicMsg) -> Result<Vec<u8>> {
     build_text_msg(&head_msg, &text_msg)
 }
 
-pub async fn get_group_members_cached(group_uuid: &str) -> Result<Vec<String>> {
+pub async fn get_group_members_cached(core: &CoreState, group_uuid: &str) -> Result<Vec<String>> {
     let cache_key = format!("group:members:{}", group_uuid);
 
-    let redis = REDIS_CLIENT.read().await;
-    if let Some(redis) = redis.as_ref() {
-        let mut conn = redis.get().await?;
-        let json: Option<String> = conn.get(&cache_key).await?;
-        if let Some(json) = json {
-            if let Ok(members) = serde_json::from_str(&json) {
-                return Ok(members);
-            }
+    let mut conn = core.redis.get().await?;
+    let json: Option<String> = conn.get(&cache_key).await?;
+    if let Some(json) = json {
+        if let Ok(members) = serde_json::from_str(&json) {
+            return Ok(members);
         }
     }
 
-    let members = fetch_group_members_from_db(group_uuid).await?;
+    let members = fetch_group_members_from_db(&core.db, group_uuid).await?;
 
-    if let Some(redis) = REDIS_CLIENT.read().await.as_ref() {
-        if let Ok(mut conn) = redis.get().await {
-            let json = serde_json::to_string(&members)?;
-            let _: Result<(), _> = conn.set(&cache_key, &json).await;
-        }
+    if let Ok(mut conn) = core.redis.get().await {
+        let json = serde_json::to_string(&members)?;
+        let _: Result<(), _> = conn.set(&cache_key, &json).await;
     }
 
     Ok(members)
 }
 
-async fn fetch_group_members_from_db(group_uuid: &str) -> Result<Vec<String>> {
-    use common::RBATIS_DATABASE;
+async fn fetch_group_members_from_db(rb: &rbatis::RBatis, group_uuid: &str) -> Result<Vec<String>> {
     use entity::models::group_entity::group_member::GroupMember;
-
-    let rb = RBATIS_DATABASE.read().await;
-    let rb = rb.as_ref().ok_or_else(|| anyhow::anyhow!("Database connection failed"))?;
 
     let uuid = group_uuid.parse::<Uuid>()?;
     let members: Vec<GroupMember> = GroupMember::select_members_by_group(rb, &uuid).await?;
@@ -124,26 +115,24 @@ async fn fetch_group_members_from_db(group_uuid: &str) -> Result<Vec<String>> {
     Ok(members.into_iter().filter_map(|m| m.user_uuid.map(|u: Uuid| u.to_string())).collect())
 }
 
-pub async fn invalidate_group_member_cache(group_uuid: &str) -> Result<()> {
+pub async fn invalidate_group_member_cache(core: &CoreState, group_uuid: &str) -> Result<()> {
     let cache_key = format!("group:members:{}", group_uuid);
 
-    let redis = REDIS_CLIENT.read().await;
-    if let Some(redis) = redis.as_ref() {
-        let mut conn = redis.get().await?;
-        let _: Result<(), _> = conn.del(&cache_key).await;
-    }
+    let mut conn = core.redis.get().await?;
+    let _: Result<(), _> = conn.del(&cache_key).await;
 
     Ok(())
 }
 
 pub async fn handle_group_msg_from_client(
+    core: &CoreState,
     group_msg: GroupQuicMsg,
     server_index: u32,
     connections: &ConnectionsMap,
 ) -> Result<()> {
     let msg_bytes = serialize_group_msg(&group_msg)?;
 
-    let all_members = get_group_members_cached(&group_msg.group_uuid).await?;
+    let all_members = get_group_members_cached(core, &group_msg.group_uuid).await?;
     debug!("[group chat] members cache: {:?}", all_members);
 
     let sender_uuid: Uuid =
@@ -159,8 +148,9 @@ pub async fn handle_group_msg_from_client(
         ));
     }
     let group_msg_clone = group_msg.clone();
+    let core_clone = core.clone();
     tokio::spawn(async move {
-        if let Err(e) = save_group_message_to_db(&group_msg).await {
+        if let Err(e) = save_group_message_to_db(&core_clone.db, &group_msg).await {
             error!("[group chat] failed to save message to database: {}", e);
         }
     });
@@ -185,8 +175,9 @@ pub async fn handle_group_msg_from_client(
         }
     });
 
+    let core_clone = core.clone();
     tokio::spawn(async move {
-        match get_all_internal_node_addresses().await {
+        match get_all_internal_node_addresses(&core_clone).await {
             Ok(nodes) => {
                 for (node_index, addr) in &nodes {
                     if *node_index == server_index {
@@ -207,7 +198,7 @@ pub async fn handle_group_msg_from_client(
     Ok(())
 }
 
-async fn get_all_internal_node_addresses() -> Result<Vec<(u32, std::net::SocketAddr)>> {
+async fn get_all_internal_node_addresses(core: &CoreState) -> Result<Vec<(u32, std::net::SocketAddr)>> {
     // Return from cache if available
     {
         let cache_read = NODE_CACHE.lock().unwrap_or_else(|e| {
@@ -221,9 +212,7 @@ async fn get_all_internal_node_addresses() -> Result<Vec<(u32, std::net::SocketA
         }
     }
 
-    let redis = REDIS_CLIENT.read().await;
-    let redis = redis.as_ref().ok_or_else(|| anyhow::anyhow!("Redis not initialized"))?;
-    let mut conn = redis.get().await?;
+    let mut conn = core.redis.get().await?;
 
     let pattern = format!("{}*", REDIS_INTERNAL_QUIC_SERVERS);
     let mut cursor: u64 = 0;
@@ -365,12 +354,7 @@ pub fn find_online_connection(user_uuid: &str, connections: &ConnectionsMap) -> 
     None
 }
 
-async fn save_group_message_to_db(group_msg: &GroupQuicMsg) -> Result<()> {
-    use common::RBATIS_DATABASE;
-
-    let rb = RBATIS_DATABASE.read().await;
-    let rb = rb.as_ref().ok_or_else(|| anyhow::anyhow!("Database connection failed"))?;
-
+async fn save_group_message_to_db(rb: &rbatis::RBatis, group_msg: &GroupQuicMsg) -> Result<()> {
     let record = GroupMessageRecord {
         id: None,
         nano_id: Some(group_msg.nano_id.clone()),
@@ -389,14 +373,12 @@ async fn save_group_message_to_db(group_msg: &GroupQuicMsg) -> Result<()> {
 }
 
 pub async fn sync_offline_group_messages(
+    core: &CoreState,
     user_uuid: &str,
     connections: &ConnectionsMap,
 ) -> Result<()> {
-    use common::RBATIS_DATABASE;
+    let rb = &core.db;
     use entity::models::group_entity::group_member::GroupMember;
-
-    let rb = RBATIS_DATABASE.read().await;
-    let rb = rb.as_ref().ok_or_else(|| anyhow::anyhow!("Database connection failed"))?;
 
     let uuid = user_uuid.parse::<Uuid>()?;
     let groups: Vec<GroupMember> = GroupMember::select_groups_by_user(rb, &uuid).await?;

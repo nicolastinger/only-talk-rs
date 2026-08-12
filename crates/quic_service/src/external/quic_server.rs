@@ -6,16 +6,14 @@ use crate::models::first_quic_msg::FirstQuicMsg;
 use crate::models::quic_connection::{ConnectionType, QuicConnection};
 use crate::msg_service::process_msg_service::process_rec_msg;
 use anyhow::{Result, anyhow};
-use common::REDIS_CLIENT;
 use common::config_str::USER_READ_MSG;
 use common::models::chat_entity::add_read_chat_record::AddReadChatRecordDTO;
 use common::models::chat_entity::chat_message_read::ChatMessageRecordRead;
 use common::models::chat_entity::chat_message_record::ChatMessageRecord;
 use common::models::group_entity::group_member::GroupMember;
 use common::models::group_entity::group_message_record::GroupMessageRecord;
+use common::state::CoreState;
 use common::utils::jwt_util::{Claims, verify_token};
-use common::utils::redis_utils::get_redis_conn;
-use common::utils::sql_utils::get_sql_client;
 use common::utils::time::get_now_time_stamp_as_millis;
 use dashmap::DashMap;
 use deadpool_redis::redis::AsyncCommands;
@@ -31,6 +29,7 @@ pub(crate) async fn run_server(
     endpoint: Arc<Endpoint>,
     connections: Arc<DashMap<String, QuicConnection>>,
     config: ChatNodeConfig,
+    core: CoreState,
     mut shutdown_rx: watch::Receiver<bool>,
 ) {
     info!("QUIC server started successfully, address: {}", config.bind_address);
@@ -65,8 +64,9 @@ pub(crate) async fn run_server(
         info!("[server] Connection accepted: address={}", conn.remote_address());
         let conns = connections.clone();
         let cfg = config.clone();
+        let core_clone = core.clone();
         tokio::spawn(async move {
-            if let Err(e) = handle_connection(conn, conns, cfg).await {
+            if let Err(e) = handle_connection(conn, conns, cfg, core_clone).await {
                 error!("failed to open bi-directional stream: {}", e);
             }
         });
@@ -77,6 +77,7 @@ async fn handle_connection(
     quic_conn: Connection,
     connections: Arc<DashMap<String, QuicConnection>>,
     config: ChatNodeConfig,
+    core: CoreState,
 ) -> Result<(), anyhow::Error> {
     info!("new connection source: {:?}", quic_conn.remote_address());
 
@@ -87,8 +88,9 @@ async fn handle_connection(
                 let conns = connections.clone();
                 let cfg = config.clone();
                 let conn_handle = quic_conn.clone();
+                let core_clone = core.clone();
                 tokio::spawn(async move {
-                    handle_conn(send_stream, recv_stream, conn_handle, address, conns, cfg)
+                    handle_conn(send_stream, recv_stream, conn_handle, address, conns, cfg, core_clone)
                         .await
                         .unwrap_or_else(|x| error!("failed to initialize connection {}", x));
                 });
@@ -195,6 +197,7 @@ async fn verify_max_client(
 
 /// Record connection info
 async fn set_conn_info(
+    core: &CoreState,
     uuid: String,
     conn: Connection,
     connection_key: &str,
@@ -218,10 +221,7 @@ async fn set_conn_info(
         connections.insert(connection_key.to_owned(), new_connection);
     }
     {
-        let redis = REDIS_CLIENT.read().await;
-        let redis = redis.as_ref().ok_or(anyhow!("Failed to acquire connection"))?;
-
-        let mut conn = redis.get().await?;
+        let mut conn = core.redis.get().await?;
         let index_str = server_index.to_string();
         conn.set_ex::<&str, &str, ()>(connection_key, &index_str, 7200).await?;
     }
@@ -238,6 +238,7 @@ async fn handle_conn(
     address: String,
     connections: Arc<DashMap<String, QuicConnection>>,
     config: ChatNodeConfig,
+    core: CoreState,
 ) -> Result<(), anyhow::Error> {
     info!("[server] processing new connection, client address: {}", address);
 
@@ -260,6 +261,7 @@ async fn handle_conn(
 
     let now = get_now_time_stamp_as_millis().unwrap_or(0);
     set_conn_info(
+        &core,
         uuid,
         conn.clone(),
         &connection_key,
@@ -279,6 +281,7 @@ async fn handle_conn(
         let platform_clone = platform.clone();
         let conns = connections.clone();
         let current_uid = current_uuid.clone();
+        let core_clone = core.clone();
         tokio::spawn(async move {
             let uni_buffer_msg: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
             loop {
@@ -292,6 +295,7 @@ async fn handle_conn(
                         match recv.read(&mut buf).await {
                             Ok(Some(length)) => {
                                 let _ = process_rec_msg(
+                                    &core_clone,
                                     &mut buf,
                                     current_uid.clone(),
                                     length,
@@ -335,6 +339,7 @@ async fn handle_conn(
         match recv_stream.read(change_buffer).await {
             Ok(Some(length)) => {
                 match process_rec_msg(
+                    &core,
                     change_buffer,
                     current_uuid.clone(),
                     length,
@@ -368,12 +373,13 @@ async fn handle_conn(
 
     uni_shutdown.store(true, Ordering::Relaxed);
 
-    end_server(&connection_key, &connection_key, now, &connections).await?;
+    end_server(&core, &connection_key, &connection_key, now, &connections).await?;
     Ok(())
 }
 
 /// User offline
 async fn end_server(
+    core: &CoreState,
     close_key: &str,
     connection_key: &str,
     close_now: i64,
@@ -388,24 +394,7 @@ async fn end_server(
                 uuid = book.uuid.clone();
                 drop(book);
                 connections.remove(close_key);
-                let redis = REDIS_CLIENT.read().await;
-                let redis = match redis.as_ref() {
-                    Some(r) => r,
-                    None => {
-                        error!("FATAL: failed to get redis connection");
-                        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-                        panic!("failed to get redis connection");
-                    }
-                };
-
-                let mut conn = match redis.get().await {
-                    Ok(c) => c,
-                    Err(e) => {
-                        error!("FATAL: failed to open redis connection: {}", e);
-                        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-                        panic!("failed to open redis connection: {}", e);
-                    }
-                };
+                let mut conn = core.redis.get().await?;
                 if let Err(e) = conn.del::<&str, ()>(connection_key).await {
                     error!("failed to delete connection info: {}", e);
                 }
@@ -419,16 +408,16 @@ async fn end_server(
         connections.len()
     );
 
-    user_offline(uuid).await?;
+    user_offline(core, uuid).await?;
 
     Ok(())
 }
 
 /// User offline
-async fn user_offline(uuid: String) -> std::result::Result<(), anyhow::Error> {
+async fn user_offline(core: &CoreState, uuid: String) -> std::result::Result<(), anyhow::Error> {
     // TODO
-    let mut redis = get_redis_conn().await?;
-    let rb = get_sql_client().await?;
+    let mut redis = core.redis.get().await?;
+    let rb = &core.db;
     // 1. Set Redis distributed lock to prevent rapid offline/online transitions
     // 2. Sync all Redis cache to database, record user operations
     // Persist read messages from Redis to database
@@ -443,7 +432,7 @@ async fn user_offline(uuid: String) -> std::result::Result<(), anyhow::Error> {
         // 群聊已读消息：校验群消息与群成员，更新群成员已读游标
         if item.chat_type == Some(CHAT_TYPE_GROUP) {
             let group_msg = match GroupMessageRecord::select_by_nano_id(
-                &rb,
+                rb,
                 item.nano_id.as_deref().unwrap_or(""),
             )
             .await
@@ -463,8 +452,7 @@ async fn user_offline(uuid: String) -> std::result::Result<(), anyhow::Error> {
             };
             // 读者必须是群成员，且已读游标只推进不回退
             let mut member =
-                match GroupMember::select_by_group_and_user(&rb, &group_uuid, &item.recv_user)
-                    .await?
+                match GroupMember::select_by_group_and_user(rb, &group_uuid, &item.recv_user).await?
                 {
                     Some(m) => m,
                     None => {
@@ -475,7 +463,7 @@ async fn user_offline(uuid: String) -> std::result::Result<(), anyhow::Error> {
             let msg_id = group_msg.id.unwrap_or(0);
             if member.last_read_msg_id.unwrap_or(0) < msg_id {
                 member.last_read_msg_id = Some(msg_id);
-                GroupMember::update_by_group_and_user(&rb, &member, &group_uuid, &item.recv_user)
+                GroupMember::update_by_group_and_user(rb, &member, &group_uuid, &item.recv_user)
                     .await?;
                 info!("群已读消息更新成功 {:?}", item);
             }
@@ -491,8 +479,8 @@ async fn user_offline(uuid: String) -> std::result::Result<(), anyhow::Error> {
             recv_user: item.recv_user,
         };
 
-        let is_exist =
-            ChatMessageRecord::select_by_map(&rb, value! {"nano_id": &record.nano_id}).await?;
+        let is_exist = ChatMessageRecord::select_by_map(rb, value! {"nano_id": &record.nano_id})
+            .await?;
         if is_exist.is_empty() || is_exist.len() > 1 {
             continue;
         }
@@ -510,14 +498,14 @@ async fn user_offline(uuid: String) -> std::result::Result<(), anyhow::Error> {
             continue;
         }
 
-        let insert_item = async |e| match ChatMessageRecordRead::insert(&rb, &record).await {
+        let insert_item = async |e| match ChatMessageRecordRead::insert(rb, &record).await {
             Ok(_) => {}
             Err(x) => {
                 err!("更新已读消息失败 {} {}", e, x);
             }
         };
         match ChatMessageRecordRead::update_by_map(
-            &rb,
+            rb,
             &record,
             value! {"send_user": &record.send_user, "recv_user": &record.recv_user},
         )
@@ -542,7 +530,7 @@ async fn user_offline(uuid: String) -> std::result::Result<(), anyhow::Error> {
 async fn user_online(uuid: &str, _platform: &str) -> std::result::Result<(), anyhow::Error> {
     info!("user online: {}", uuid);
     // TODO
-    // 1. Set Redis distributed lock to prevent rapid online/offline transitions
+    // 1. Set Redis distributed lock to prevent rapid offline/online transitions
     // 2. Sync all database to Redis cache
     // 3. Clean up Redis lock
     Ok(())

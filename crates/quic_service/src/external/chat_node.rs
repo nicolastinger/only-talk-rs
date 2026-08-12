@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use common::state::CoreState;
 use dashmap::DashMap;
 use quinn::Endpoint;
 use tokio::sync::{Mutex, RwLock, watch};
@@ -16,6 +17,7 @@ use crate::models::quic_connection::QuicConnection;
 
 pub struct ChatNode {
     config: ChatNodeConfig,
+    core: CoreState,
     state: RwLock<ServiceState>,
     endpoint: RwLock<Option<Endpoint>>,
     connections: Arc<DashMap<String, QuicConnection>>,
@@ -24,10 +26,11 @@ pub struct ChatNode {
 }
 
 impl ChatNode {
-    pub fn new(config: ChatNodeConfig) -> Self {
+    pub fn new(config: ChatNodeConfig, core: CoreState) -> Self {
         Self {
             name: config.server_name.clone(),
             config,
+            core,
             state: RwLock::new(ServiceState::Uninitialized),
             endpoint: RwLock::new(None),
             connections: Arc::new(DashMap::new()),
@@ -124,8 +127,9 @@ impl ServiceLifecycle for ChatNode {
         // Start accept loop
         let connections = self.connections.clone();
         let config = self.config.clone();
+        let core = self.core.clone();
         tokio::spawn(async move {
-            run_server(endpoint, connections, config, shutdown_rx).await;
+            run_server(endpoint, connections, config, core, shutdown_rx).await;
         });
 
         info!("[{}] service started", self.name());

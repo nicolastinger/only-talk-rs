@@ -6,9 +6,10 @@ use crate::msg_service::get_connection_by_uuid;
 use crate::msg_service::text_msg_service::generate_text_msg;
 use common::config_str::SYSTEM;
 use common::read_global_config;
+use common::state::CoreState;
 use common::utils::jwt_util::verify_token;
 use common::utils::message_types;
-use common::utils::redis_utils::{acquire_lock, get_redis_conn, release_lock};
+use common::utils::redis_utils::{acquire_lock, release_lock};
 use dashmap::DashMap;
 use deadpool_redis::redis::{AsyncCommands, cmd};
 use tokio::net::UdpSocket;
@@ -18,6 +19,7 @@ use tracing::{error, info, warn};
 use crate::nat_ip::model::UserAddressInfo;
 
 pub async fn run_udp_server(
+    core: CoreState,
     connections: Arc<DashMap<String, QuicConnection>>,
 ) -> Result<(), anyhow::Error> {
     let v4_port_1: u16 = read_global_config!("nat_udp", "v4_port_1").parse()?;
@@ -36,10 +38,16 @@ pub async fn run_udp_server(
         let handle1 = {
             let shutdown = shutdown_flag.clone();
             let conns = connections.clone();
+            let core = core.clone();
             tokio::spawn(async move {
-                if let Err(e) =
-                    get_p2p_udp_socket_with_shutdown(&addr_1, "V4".to_string(), shutdown, conns)
-                        .await
+                if let Err(e) = get_p2p_udp_socket_with_shutdown(
+                    &addr_1,
+                    "V4".to_string(),
+                    shutdown,
+                    conns,
+                    core,
+                )
+                .await
                 {
                     error!("{} UDP socket error: {}", addr_1, e);
                 }
@@ -49,10 +57,16 @@ pub async fn run_udp_server(
         let handle2 = {
             let shutdown = shutdown_flag.clone();
             let conns = connections.clone();
+            let core = core.clone();
             tokio::spawn(async move {
-                if let Err(e) =
-                    get_p2p_udp_socket_with_shutdown(&addr_2, "V6".to_string(), shutdown, conns)
-                        .await
+                if let Err(e) = get_p2p_udp_socket_with_shutdown(
+                    &addr_2,
+                    "V6".to_string(),
+                    shutdown,
+                    conns,
+                    core,
+                )
+                .await
                 {
                     error!("{} UDP socket error: {}", addr_2, e);
                 }
@@ -62,10 +76,16 @@ pub async fn run_udp_server(
         let handle3 = {
             let shutdown = shutdown_flag.clone();
             let conns = connections.clone();
+            let core = core.clone();
             tokio::spawn(async move {
-                if let Err(e) =
-                    get_p2p_udp_socket_with_shutdown(&addr_3, "V4".to_string(), shutdown, conns)
-                        .await
+                if let Err(e) = get_p2p_udp_socket_with_shutdown(
+                    &addr_3,
+                    "V4".to_string(),
+                    shutdown,
+                    conns,
+                    core,
+                )
+                .await
                 {
                     error!("{} UDP socket error: {}", addr_3, e);
                 }
@@ -75,10 +95,16 @@ pub async fn run_udp_server(
         let handle4 = {
             let shutdown = shutdown_flag.clone();
             let conns = connections.clone();
+            let core = core.clone();
             tokio::spawn(async move {
-                if let Err(e) =
-                    get_p2p_udp_socket_with_shutdown(&addr_4, "V6".to_string(), shutdown, conns)
-                        .await
+                if let Err(e) = get_p2p_udp_socket_with_shutdown(
+                    &addr_4,
+                    "V6".to_string(),
+                    shutdown,
+                    conns,
+                    core,
+                )
+                .await
                 {
                     error!("{} UDP socket error: {}", addr_4, e);
                 }
@@ -102,6 +128,7 @@ pub async fn get_p2p_udp_socket_with_shutdown(
     ip_type: String,
     shutdown: Arc<AtomicBool>,
     connections: Arc<DashMap<String, QuicConnection>>,
+    core: CoreState,
 ) -> anyhow::Result<()> {
     let socket = UdpSocket::bind(address).await?;
     info!(
@@ -135,7 +162,8 @@ pub async fn get_p2p_udp_socket_with_shutdown(
                            Ok(msg) => {
                               let conns = connections.clone();
                               let ip = ip_type.clone();
-                              process_p2p_user_info(udp_addr, ip, msg, conns).await.unwrap_or_else(|err| {
+                              let core = core.clone();
+                              process_p2p_user_info(udp_addr, ip, msg, conns, &core).await.unwrap_or_else(|err| {
                                 error!("failed to process NAT discovery / P2P request forwarding: {}", err);
                             })
                            },
@@ -158,6 +186,7 @@ pub async fn get_p2p_udp_socket(
     address: &str,
     ip_type: String,
     connections: Arc<DashMap<String, QuicConnection>>,
+    core: CoreState,
 ) -> anyhow::Result<()> {
     let socket = UdpSocket::bind(address).await?;
     info!(
@@ -185,7 +214,8 @@ pub async fn get_p2p_udp_socket(
                            Ok(msg) => {
                               let conns = connections.clone();
                               let ip = ip_type.clone();
-                              process_p2p_user_info(udp_addr, ip, msg, conns).await.unwrap_or_else(|err| {
+                              let core = core.clone();
+                              process_p2p_user_info(udp_addr, ip, msg, conns, &core).await.unwrap_or_else(|err| {
                                 error!("failed to process NAT discovery / P2P request forwarding: {}", err);
                             })
                            },
@@ -209,6 +239,7 @@ async fn process_p2p_user_info(
     ip_type: String,
     mut user_address_info: UserAddressInfo,
     connections: Arc<DashMap<String, QuicConnection>>,
+    core: &CoreState,
 ) -> Result<(), anyhow::Error> {
     match verify_token(user_address_info.token.as_ref()) {
         Ok(claims) => {
@@ -222,7 +253,7 @@ async fn process_p2p_user_info(
             user_address_info.address = udp_addr;
 
             {
-                let mut conn = get_redis_conn().await?;
+                let mut conn = core.redis.get().await?;
                 let lock_id =
                     acquire_lock(&mut conn, &lock_key, 30, user_address_info.address.clone())
                         .await?;
@@ -234,7 +265,7 @@ async fn process_p2p_user_info(
 
             if !acquire_flag {
                 info!("entered redis lock");
-                let mut conn = get_redis_conn().await?;
+                let mut conn = core.redis.get().await?;
                 let result: String = conn.get(&lock_key).await?;
                 let user_addr = result.split('_').skip(1).collect::<Vec<&str>>().join("");
 
@@ -244,18 +275,19 @@ async fn process_p2p_user_info(
                 } else {
                     user_address_info.nat_type = 4;
                 }
-                let mut conn = get_redis_conn().await?;
+                let mut conn = core.redis.get().await?;
                 release_lock(&mut conn, &lock_key, &result).await?;
                 user_address_info.is_lock = true;
                 user_address_info.token = "".to_string();
             }
 
-            match get_target_user_address_info(&user_address_info.target_uuid, &ip_type).await {
+            match get_target_user_address_info(core, &user_address_info.target_uuid, &ip_type).await
+            {
                 Ok(mut target_user_address_info) => {
                     info!("matching server and connection endpoint");
                     if target_user_address_info.is_lock && !acquire_flag {
                         {
-                            let mut conn = get_redis_conn().await?;
+                            let mut conn = core.redis.get().await?;
                             conn.del::<_, ()>(&key).await?;
                             let target_key = format!(
                                 "{}{}_{}",
@@ -357,7 +389,7 @@ async fn process_p2p_user_info(
 
             {
                 info!("inserting user info to redis");
-                let mut conn = get_redis_conn().await?;
+                let mut conn = core.redis.get().await?;
                 let user_address_info_json =
                     serde_json::to_string(&user_address_info).unwrap_or_default();
                 let _: () = cmd("SET")
@@ -379,10 +411,11 @@ async fn process_p2p_user_info(
 }
 
 async fn get_target_user_address_info(
+    core: &CoreState,
     target_uuid: &String,
     ip_type: &String,
 ) -> Result<UserAddressInfo, anyhow::Error> {
-    let mut conn = get_redis_conn().await?;
+    let mut conn = core.redis.get().await?;
     let key = format!("{}{}_{}", "USER_UDP_ADDRESS_", ip_type, target_uuid);
     let key = key.to_uppercase();
     let result: String = conn.get(&key).await?;

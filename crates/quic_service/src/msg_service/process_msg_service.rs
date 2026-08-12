@@ -6,14 +6,12 @@ use crate::msg_service::group_msg_service::handle_group_msg_from_client;
 use crate::msg_service::text_msg_service::{
     generate_text_msg, generate_text_msg_with_time, get_text_msg,
 };
-use anyhow::anyhow;
-use common::RBATIS_DATABASE;
-use common::REDIS_CLIENT;
 use common::config_str::{
     MOBILE_PLATFORM, PC_PLATFORM, PONG, REDIS_INTERNAL_QUIC_SERVERS, REDIS_QUIC_SERVERS,
     REDIS_SPLIT, SYSTEM,
 };
 use common::models::chat_entity::chat_message_record::ChatMessageRecord;
+use common::state::CoreState;
 use common::utils::group_msg::GroupQuicMsg;
 use common::utils::internal_quic_client::send_internal_quic_msg;
 use common::utils::internal_quic_msg::{InternalQuicRequest, RequestSource};
@@ -29,6 +27,7 @@ use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
 
 pub async fn process_rec_msg(
+    core: &CoreState,
     buffer: &mut Vec<u8>,
     uuid: String,
     length: usize,
@@ -41,12 +40,14 @@ pub async fn process_rec_msg(
 ) -> anyhow::Result<()> {
     let text_vec = get_text_msg(buffer, length, buffer_msg, head_length).await?;
     info!("[single chat] received client message {:?}", text_vec);
-    process_text_msg(text_vec, uuid, platform, connection_key, &connections, server_index).await?;
+    process_text_msg(core, text_vec, uuid, platform, connection_key, &connections, server_index)
+        .await?;
 
     Ok(())
 }
 
 async fn process_text_msg(
+    core: &CoreState,
     text_quic_msg: Vec<TextQuicMsg>,
     uuid: String,
     platform: &str,
@@ -96,12 +97,14 @@ async fn process_text_msg(
             let conns = connections.clone();
             let conn_key = connection_key.to_string();
             let current_user = text_msg.send_user.clone();
+            let core_clone = core.clone();
             tokio::spawn(async move {
                 debug!(
                     "[group chat] processing group message nano_id={} group={} sender={}",
                     nano_id, group_msg.group_uuid, group_msg.send_user
                 );
-                if let Err(e) = handle_group_msg_from_client(group_msg, server_index, &conns).await
+                if let Err(e) =
+                    handle_group_msg_from_client(&core_clone, group_msg, server_index, &conns).await
                 {
                     error!("[group chat] failed to process group message: {}", e);
                     return;
@@ -134,9 +137,10 @@ async fn process_text_msg(
         let text_msg_clone = text_msg.clone();
         let conn_key = connection_key.to_string();
         let conns = connections.clone();
+        let core_clone = core.clone();
         tokio::spawn(async move {
             let current_user = text_msg_clone.send_user.clone();
-            if let Err(e) = add_user_chat_record(text_msg_clone).await {
+            if let Err(e) = add_user_chat_record(&core_clone, text_msg_clone).await {
                 error!("[single chat] failed to insert message: {}", e);
             }
             // Send ACK message
@@ -154,7 +158,7 @@ async fn process_text_msg(
                 error!("[single chat] failed to send ACK: {}", e);
             }
         });
-        send_msg_to_user(text_msg, platform, connections).await?;
+        send_msg_to_user(core, text_msg, platform, connections).await?;
     }
 
     info!("[single chat] processing complete");
@@ -162,6 +166,7 @@ async fn process_text_msg(
 }
 
 async fn send_msg_to_user(
+    core: &CoreState,
     text_msg: TextQuicMsg,
     platform: &str,
     connections: &Arc<DashMap<String, QuicConnection>>,
@@ -183,6 +188,7 @@ async fn send_msg_to_user(
 
     for target_platform in [PC_PLATFORM, MOBILE_PLATFORM] {
         send_msg_to_user_by_platform(
+            core,
             &res,
             target_platform,
             &recv_user,
@@ -195,16 +201,31 @@ async fn send_msg_to_user(
     // Sync to own other device
     let own_preferred = compute_preferred_index(&send_user);
     if platform == PC_PLATFORM {
-        send_msg_to_user_by_platform(&res, MOBILE_PLATFORM, &send_user, connections, own_preferred)
-            .await?;
+        send_msg_to_user_by_platform(
+            core,
+            &res,
+            MOBILE_PLATFORM,
+            &send_user,
+            connections,
+            own_preferred,
+        )
+        .await?;
     } else {
-        send_msg_to_user_by_platform(&res, PC_PLATFORM, &send_user, connections, own_preferred)
-            .await?;
+        send_msg_to_user_by_platform(
+            core,
+            &res,
+            PC_PLATFORM,
+            &send_user,
+            connections,
+            own_preferred,
+        )
+        .await?;
     }
     Ok(())
 }
 
 async fn send_msg_to_user_by_platform(
+    core: &CoreState,
     res: &Vec<u8>,
     platform: &str,
     target_user: &str,
@@ -253,18 +274,15 @@ async fn send_msg_to_user_by_platform(
         };
 
         // 根据 preferred_index 从 Redis 获取目标节点的内网 QUIC 地址
-        let redis = REDIS_CLIENT.read().await;
-        if let Some(redis) = redis.as_ref() {
-            let mut conn = redis.get().await?;
-            let key = format!("{}{}", REDIS_INTERNAL_QUIC_SERVERS, preferred_index);
-            let addr_str: Option<String> = conn.get(&key).await?;
-            if let Some(addr_str) = addr_str {
-                let internal_addr: std::net::SocketAddr = addr_str.parse()?;
-                info!("[single chat] sending internal QUIC message to: {}", internal_addr);
-                send_internal_quic_msg(internal_addr, request).await?;
-            } else {
-                warn!("[single chat] internal QUIC address not found for node {}", preferred_index);
-            }
+        let mut conn = core.redis.get().await?;
+        let key = format!("{}{}", REDIS_INTERNAL_QUIC_SERVERS, preferred_index);
+        let addr_str: Option<String> = conn.get(&key).await?;
+        if let Some(addr_str) = addr_str {
+            let internal_addr: std::net::SocketAddr = addr_str.parse()?;
+            info!("[single chat] sending internal QUIC message to: {}", internal_addr);
+            send_internal_quic_msg(internal_addr, request).await?;
+        } else {
+            warn!("[single chat] internal QUIC address not found for node {}", preferred_index);
         }
     }
     Ok(())
@@ -342,10 +360,12 @@ async fn send_msg_record_failure(
 }
 
 /// Add user chat record
-pub async fn add_user_chat_record(text_quic_msg: TextQuicMsg) -> Result<(), anyhow::Error> {
+pub async fn add_user_chat_record(
+    core: &CoreState,
+    text_quic_msg: TextQuicMsg,
+) -> Result<(), anyhow::Error> {
     // TODO kafka转发消息ck批量写入
-    let rb = RBATIS_DATABASE.read().await;
-    let rb = rb.as_ref().ok_or(anyhow!("Failed to get database connection"))?;
+    let rb = &core.db;
     let chat_msg = ChatMessageRecord {
         id: None,
         nano_id: Some(text_quic_msg.nano_id),
@@ -358,3 +378,4 @@ pub async fn add_user_chat_record(text_quic_msg: TextQuicMsg) -> Result<(), anyh
     ChatMessageRecord::insert(rb, &chat_msg).await?;
     Ok(())
 }
+
