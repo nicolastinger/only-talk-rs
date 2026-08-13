@@ -18,3 +18,4 @@ tracing = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }
 dotenvy = "0.15"
+tracing-subscriber = { workspace = true }

@@ -6,6 +6,7 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
 use anyhow::{Context, Result, anyhow};
 use rbatis::RBatis;
@@ -22,10 +23,23 @@ pub async fn apply_all_ddl(rb: &RBatis) -> Result<()> {
 /// 递归执行目录（含子目录）下全部 `.sql` 文件，按路径字典序
 pub async fn apply_sql_dir(rb: &RBatis, dir: &Path) -> Result<()> {
     let files = collect_sql_files(dir)?;
-    info!("开始执行 DDL，目录: {}，共 {} 个文件", dir.display(), files.len());
+    let started = Instant::now();
+    let order = files
+        .iter()
+        .filter_map(|f| f.file_name())
+        .map(|n| n.to_string_lossy().into_owned())
+        .collect::<Vec<_>>()
+        .join(" -> ");
+    info!("开始执行 DDL，目录: {}，共 {} 个文件，执行顺序: {}", dir.display(), files.len(), order);
     for file in &files {
         apply_sql_file(rb, file).await?;
     }
+    info!(
+        "DDL 执行完成，目录: {}，共 {} 个文件，总耗时: {:?}",
+        dir.display(),
+        files.len(),
+        started.elapsed()
+    );
     Ok(())
 }
 
@@ -34,24 +48,40 @@ pub async fn apply_sql_file(rb: &RBatis, path: &Path) -> Result<()> {
     let sql = fs::read_to_string(path)
         .with_context(|| format!("读取 SQL 文件失败: {}", path.display()))?;
     let statements = split_sql_statements(&sql);
-    info!("执行 SQL 文件: {}（{} 条语句）", path.display(), statements.len());
+    let started = Instant::now();
+    info!("开始执行 SQL 文件: {}（共 {} 条语句）", path.display(), statements.len());
     for (idx, stmt) in statements.iter().enumerate() {
-        execute_statement(rb, stmt)
+        execute_statement(rb, stmt, idx + 1, statements.len())
             .await
             .with_context(|| format!("文件 {} 第 {} 条语句执行失败", path.display(), idx + 1))?;
     }
+    info!(
+        "SQL 文件执行完成: {}（{} 条语句，耗时: {:?}）",
+        path.display(),
+        statements.len(),
+        started.elapsed()
+    );
     Ok(())
 }
 
 /// 执行单条语句：返回结果集的（SELECT/WITH）走 `query`，其余走 `exec`
-async fn execute_statement(rb: &RBatis, stmt: &str) -> Result<()> {
+async fn execute_statement(rb: &RBatis, stmt: &str, idx: usize, total: usize) -> Result<()> {
     let first_word = stmt.split_whitespace().next().unwrap_or("");
-    if first_word.eq_ignore_ascii_case("SELECT") || first_word.eq_ignore_ascii_case("WITH") {
-        rb.query(stmt, vec![]).await.map(|_| ()).map_err(|e| anyhow!("执行查询失败: {}", e))?;
-    } else {
-        rb.exec(stmt, vec![]).await.map(|_| ()).map_err(|e| anyhow!("执行语句失败: {}", e))?;
+    let started = Instant::now();
+    info!("执行语句 [{idx}/{total}]: {stmt}");
+    let result =
+        if first_word.eq_ignore_ascii_case("SELECT") || first_word.eq_ignore_ascii_case("WITH") {
+            rb.query(stmt, vec![]).await.map(|_| ()).map_err(|e| anyhow!("执行查询失败: {}", e))
+        } else {
+            rb.exec(stmt, vec![]).await.map(|_| ()).map_err(|e| anyhow!("执行语句失败: {}", e))
+        };
+    match result {
+        Ok(()) => {
+            info!("语句执行成功 [{idx}/{total}]（耗时: {:?}）", started.elapsed());
+            Ok(())
+        }
+        Err(e) => Err(e),
     }
-    Ok(())
 }
 
 /// 递归收集目录（含子目录）下所有 `.sql` 文件，返回排序后的路径列表
