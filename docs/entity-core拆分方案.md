@@ -1,5 +1,7 @@
 # Entity / Core 职责拆分方案
 
+> 说明：方案中提及的连接池全局单例（`REDIS_CLIENT` / `RBATIS_DATABASE` / `OnceLock`）已在当前代码库中移除，连接池一律通过 `CoreState { db, redis }` 依赖注入。方案实施时**不应**在新 `core` 中恢复这些全局单例。
+
 ## 1. 目标
 
 将当前 `entity` crate 拆分为两个独立的 crate：
@@ -306,16 +308,8 @@ pub use utils::sql_utils::init_sql_pool;
 
 // Re-export entity 的 models，使外部只需依赖 core 即可访问 DB 实体
 pub use entity::models;
-
-/// 确保 Redis / SQL 只初始化一次
-static REDIS_INIT_ONCE: OnceLock<()> = OnceLock::new();
-static SQL_INIT_ONCE: OnceLock<()> = OnceLock::new();
-
-lazy_static! {
-    pub static ref REDIS_CLIENT: Arc<RwLock<Option<Pool>>> = Arc::new(RwLock::new(None));
-    pub static ref RBATIS_DATABASE: Arc<RwLock<Option<RBatis>>> = Arc::new(RwLock::new(None));
-}
 ```
+
 
 > **关键设计**：`core` 通过 `pub use entity::models;` 将 DB 实体 re-export，其他 crate 只需依赖 `core` 即可同时访问基础设施和 DB 实体，无需单独依赖 `entity`。
 

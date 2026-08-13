@@ -1,12 +1,7 @@
 use std::collections::HashMap;
 use std::fs;
-use std::sync::{Arc, OnceLock};
 
 use ::tracing::log;
-use deadpool_redis::Pool;
-use lazy_static::lazy_static;
-use rbatis::RBatis;
-use tokio::sync::RwLock;
 use toml::Value;
 
 pub mod config_manager;
@@ -24,15 +19,6 @@ pub use utils::internal_quic_client::send_internal_quic_msg;
 pub use utils::redis_utils::{init_redis, verify_redis};
 pub use utils::server_count_sync::{SERVER_COUNT, get_server_count, start_server_count_sync};
 pub use utils::sql_utils::init_sql_pool;
-
-/// Ensure Redis / SQL is initialized only once
-static REDIS_INIT_ONCE: OnceLock<()> = OnceLock::new();
-static SQL_INIT_ONCE: OnceLock<()> = OnceLock::new();
-
-lazy_static! {
-    pub static ref REDIS_CLIENT: Arc<RwLock<Option<Pool>>> = Arc::new(RwLock::new(None));
-    pub static ref RBATIS_DATABASE: Arc<RwLock<Option<RBatis>>> = Arc::new(RwLock::new(None));
-}
 
 /// Replace environment variable placeholders ${VAR_NAME} in strings
 /// Iterates up to 100 times to prevent malicious config from causing infinite loops

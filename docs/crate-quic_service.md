@@ -35,7 +35,7 @@ quic_service/src/
 ## 关键约定
 
 - 消息序列化（bincode + CRC）必须与 `only-talk-app/src-tauri` 客户端保持同步。
-- 依赖注入：入口 `start_server()` 构造 `common::CoreState { db, redis }` 一路下传；`ChatNode` 持有 `CoreState`，跨 `tokio::spawn` 处 clone 传递；服务函数以 `&CoreState` / `&RBatis` / `&Pool` 窄签名使用连接，不访问全局 `REDIS_CLIENT` / `RBATIS_DATABASE`。
+- 依赖注入：入口 `start_server()` 构造 `common::CoreState { db, redis }` 一路下传；`ChatNode` 持有 `CoreState`，跨 `tokio::spawn` 处 clone 传递；服务函数以 `&CoreState` / `&RBatis` / `&Pool` 窄签名使用连接，不访问任何全局单例。
 - 连接 key 形如 `平台:QUIC:SERVER:uuid:消息类型`（大写），Redis 中也以相同 key 记录所属节点。
 - 高吞吐路径（粘包缓冲合并）有 O(n²) 隐患；`text_msg_service` 有 25+ 单元测试覆盖帧解析。
 - 端口见 `config/app_config.toml`：4433 外部、4434 内部、19562-19565 NAT UDP。

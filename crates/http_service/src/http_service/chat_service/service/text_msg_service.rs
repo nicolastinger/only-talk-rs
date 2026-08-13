@@ -32,16 +32,6 @@ pub async fn get_chat_by_limit(
     Ok(CommonResponseRef::<Vec<ChatMessageRecord>>::success_json(&res)?)
 }
 
-// 用户新增聊天记录
-// pub async fn add_user_chat_record(text_msg: TextQuicMsg) -> Result<(), anyhow::Error> {
-//     // TODO kafka转发消息ck批量写入
-//     let rb = RBATIS_DATABASE.read().await;
-//     let rb = rb.as_ref().ok_or(anyhow!("获取连接失败"))?;
-//     let chat_msg = ChatMessageRecord::from(text_msg)?;
-//     ChatMessageRecord::insert(rb, &chat_msg).await?;
-//     Ok(())
-// }
-
 /// 获取未读消息
 pub async fn get_unread_chat_record(
     rb: &RBatis,

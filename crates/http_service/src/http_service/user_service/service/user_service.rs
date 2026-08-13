@@ -407,9 +407,3 @@ pub async fn update_user_info_service(
 
     Ok(CommonResponseNoDataRef::success_empty())
 }
-
-// pub async fn search_user_info() -> Result<String, anyhow::Error> {
-//     let rb = RBATIS_DATABASE.read().await;
-//     let rb = rb.as_ref().ok_or(anyhow!("获取连接失败"))?;
-//     // 动态构建查询条件
-//  }
