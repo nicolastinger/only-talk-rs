@@ -427,8 +427,6 @@ pub fn generate_group_msg(
 }
 
 #[cfg(test)]
-// 测试代码中直接使用 unwrap 作为断言失败手段是惯例,此处豁免生产代码的 unwrap 禁令
-#[allow(clippy::unwrap_used, clippy::disallowed_methods)]
 mod tests {
     use common::utils::group_msg::GroupQuicMsg;
     use common::utils::text_msg::{HeadMsg, TextQuicMsg, X25};
@@ -437,7 +435,7 @@ mod tests {
 
     fn head_size() -> usize {
         let head = HeadMsg { version: 1, crc: 0, body_len: 0, message_type: 0 };
-        bincode::serialize(&head).unwrap().len()
+        bincode::serialize(&head).expect("序列化 head 失败").len()
     }
 
     fn make_group_msg() -> GroupQuicMsg {
@@ -454,12 +452,12 @@ mod tests {
     #[test]
     fn test_serialize_group_msg_round_trip() {
         let group_msg = make_group_msg();
-        let bytes = serialize_group_msg(&group_msg).unwrap();
+        let bytes = serialize_group_msg(&group_msg).expect("序列化群消息失败");
 
         // 解析出头部并校验 CRC(与 get_text_msg 相同的粘包协议)
         let head_len = head_size();
-        let head: HeadMsg = bincode::deserialize(&bytes[..head_len]).unwrap();
-        let body: TextQuicMsg = bincode::deserialize(&bytes[head_len..]).unwrap();
+        let head: HeadMsg = bincode::deserialize(&bytes[..head_len]).expect("反序列化头部失败");
+        let body: TextQuicMsg = bincode::deserialize(&bytes[head_len..]).expect("反序列化正文失败");
 
         assert_eq!(head.version, 1);
         assert_eq!(head.body_len as usize, bytes.len() - head_len);
@@ -478,11 +476,11 @@ mod tests {
     #[test]
     fn test_serialize_group_msg_crc_detects_corruption() {
         let group_msg = make_group_msg();
-        let mut bytes = serialize_group_msg(&group_msg).unwrap();
+        let mut bytes = serialize_group_msg(&group_msg).expect("序列化群消息失败");
         let head_len = head_size();
 
         let original_crc = X25.checksum(&bytes[head_len..]);
-        let head: HeadMsg = bincode::deserialize(&bytes[..head_len]).unwrap();
+        let head: HeadMsg = bincode::deserialize(&bytes[..head_len]).expect("反序列化头部失败");
         assert_eq!(head.crc, original_crc);
 
         // 篡改正文,CRC 应能检测到
@@ -499,11 +497,11 @@ mod tests {
             "g-uuid".to_string(),
             "s-uuid".to_string(),
         )
-        .unwrap();
+        .expect("生成群消息失败");
 
         let head_len = head_size();
-        let head: HeadMsg = bincode::deserialize(&bytes[..head_len]).unwrap();
-        let body: TextQuicMsg = bincode::deserialize(&bytes[head_len..]).unwrap();
+        let head: HeadMsg = bincode::deserialize(&bytes[..head_len]).expect("反序列化头部失败");
+        let body: TextQuicMsg = bincode::deserialize(&bytes[head_len..]).expect("反序列化正文失败");
 
         assert_eq!(head.message_type, 10);
         assert_eq!(head.crc, X25.checksum(&bytes[head_len..]));

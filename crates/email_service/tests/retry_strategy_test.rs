@@ -1,6 +1,3 @@
-// 测试代码中直接使用 unwrap 作为断言失败手段是惯例,此处豁免生产代码的 unwrap 禁令
-#![allow(clippy::unwrap_used, clippy::disallowed_methods)]
-
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -170,6 +167,6 @@ async fn test_retry_success_immediately() {
         .await;
 
     assert!(result.is_ok());
-    assert_eq!(result.unwrap(), "immediate success");
+    assert_eq!(result.expect("重试策略执行失败"), "immediate success");
     assert_eq!(attempts.load(Ordering::SeqCst), 1);
 }

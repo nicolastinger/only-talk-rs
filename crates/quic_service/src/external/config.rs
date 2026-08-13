@@ -107,8 +107,6 @@ impl ChatNodeConfig {
 }
 
 #[cfg(test)]
-// 测试代码中直接使用 unwrap 作为断言失败手段是惯例,此处豁免生产代码的 unwrap 禁令
-#[allow(clippy::unwrap_used, clippy::disallowed_methods)]
 mod tests {
     use super::*;
 
@@ -128,8 +126,8 @@ node_address = "10.0.0.1:4433"
 
     #[test]
     fn test_new_defaults() {
-        let config = ChatNodeConfig::new("127.0.0.1:4433".parse().unwrap());
-        assert_eq!(config.bind_address, "127.0.0.1:4433".parse().unwrap());
+        let config = ChatNodeConfig::new("127.0.0.1:4433".parse().expect("解析地址失败"));
+        assert_eq!(config.bind_address, "127.0.0.1:4433".parse().expect("解析地址失败"));
         assert_eq!(config.max_connections, 1000);
         assert_eq!(config.max_buffer_length, 10 * 1024 * 1024);
         assert_eq!(config.idle_timeout_secs, 190);
@@ -144,8 +142,8 @@ node_address = "10.0.0.1:4433"
 
     #[test]
     fn test_from_toml_str_full() {
-        let config = ChatNodeConfig::from_toml_str(valid_toml()).unwrap();
-        assert_eq!(config.bind_address, "0.0.0.0:4433".parse().unwrap());
+        let config = ChatNodeConfig::from_toml_str(valid_toml()).expect("解析 TOML 配置失败");
+        assert_eq!(config.bind_address, "0.0.0.0:4433".parse().expect("解析地址失败"));
         assert_eq!(config.cert_path, "/certs/fullchain.pem");
         assert_eq!(config.key_path, "/certs/privkey.pem");
         assert_eq!(config.server_name, "node1:4433");
@@ -162,8 +160,8 @@ node_address = "10.0.0.1:4433"
 [quic_server]
 address = "0.0.0.0:8443"
 "#;
-        let config = ChatNodeConfig::from_toml_str(toml).unwrap();
-        assert_eq!(config.bind_address, "0.0.0.0:8443".parse().unwrap());
+        let config = ChatNodeConfig::from_toml_str(toml).expect("解析 TOML 配置失败");
+        assert_eq!(config.bind_address, "0.0.0.0:8443".parse().expect("解析地址失败"));
         assert_eq!(config.cert_path, "./config/ssl/fullchain.pem");
         assert_eq!(config.key_path, "./config/ssl/privkey.pem");
         assert_eq!(config.server_name, "127.0.0.1:4433");

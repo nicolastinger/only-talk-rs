@@ -2,9 +2,6 @@
 //!
 //! 测试配置解析、错误处理等不需要实际服务的功能
 
-// 测试代码中直接使用 unwrap 作为断言失败手段是惯例,此处豁免生产代码的 unwrap 禁令
-#![allow(clippy::unwrap_used, clippy::disallowed_methods)]
-
 #[cfg(feature = "integration-test")]
 use aws_sdk_s3::error::ProvideErrorMetadata;
 #[cfg(feature = "integration-test")]
@@ -20,18 +17,24 @@ use crate::error::S3Error;
 #[test]
 fn test_s3_provider_from_str() {
     // 测试 MinIO
-    assert_eq!("minio".parse::<S3Provider>().unwrap(), S3Provider::MinIO);
-    assert_eq!("MINIO".parse::<S3Provider>().unwrap(), S3Provider::MinIO);
-    assert_eq!("MinIO".parse::<S3Provider>().unwrap(), S3Provider::MinIO);
+    assert_eq!("minio".parse::<S3Provider>().expect("解析 S3Provider 失败"), S3Provider::MinIO);
+    assert_eq!("MINIO".parse::<S3Provider>().expect("解析 S3Provider 失败"), S3Provider::MinIO);
+    assert_eq!("MinIO".parse::<S3Provider>().expect("解析 S3Provider 失败"), S3Provider::MinIO);
 
     // 测试 AliyunOSS
-    assert_eq!("aliyun_oss".parse::<S3Provider>().unwrap(), S3Provider::AliyunOSS);
-    assert_eq!("aliyun".parse::<S3Provider>().unwrap(), S3Provider::AliyunOSS);
-    assert_eq!("oss".parse::<S3Provider>().unwrap(), S3Provider::AliyunOSS);
+    assert_eq!(
+        "aliyun_oss".parse::<S3Provider>().expect("解析 S3Provider 失败"),
+        S3Provider::AliyunOSS
+    );
+    assert_eq!(
+        "aliyun".parse::<S3Provider>().expect("解析 S3Provider 失败"),
+        S3Provider::AliyunOSS
+    );
+    assert_eq!("oss".parse::<S3Provider>().expect("解析 S3Provider 失败"), S3Provider::AliyunOSS);
 
     // 测试 AwsS3
-    assert_eq!("aws_s3".parse::<S3Provider>().unwrap(), S3Provider::AwsS3);
-    assert_eq!("aws".parse::<S3Provider>().unwrap(), S3Provider::AwsS3);
+    assert_eq!("aws_s3".parse::<S3Provider>().expect("解析 S3Provider 失败"), S3Provider::AwsS3);
+    assert_eq!("aws".parse::<S3Provider>().expect("解析 S3Provider 失败"), S3Provider::AwsS3);
 
     // 测试无效值
     assert!("invalid".parse::<S3Provider>().is_err());
@@ -253,7 +256,8 @@ async fn diagnose_s3_connection() {
                 .await
             {
                 Ok(result) => {
-                    let body = result.body.collect().await.unwrap().into_bytes();
+                    let body =
+                        result.body.collect().await.expect("收集下载响应体失败").into_bytes();
                     info!("✓ File downloaded successfully, size: {} bytes", body.len());
 
                     // 清理测试文件

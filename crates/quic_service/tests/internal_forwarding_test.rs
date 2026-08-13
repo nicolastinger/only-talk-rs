@@ -4,9 +4,7 @@
 //! 验证节点间互相转发消息(节点 A -> 节点 B 投递、节点 B -> 节点 A 投递)。
 //! 不依赖外部服务(Redis/DB),仅使用本地回环网络。
 
-// 测试代码中直接使用 unwrap 作为断言失败手段是惯例,此处豁免生产代码的 unwrap 禁令
-#![allow(clippy::unwrap_used, clippy::disallowed_methods)]
-
+// 测试代码中不使用 unwrap,失败时通过 expect 携带上下文
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -36,7 +34,10 @@ fn init_logging() {
 
 /// 获取一个空闲 UDP 端口(绑定后立即释放,供后续绑定)
 fn free_udp_addr() -> SocketAddr {
-    std::net::UdpSocket::bind("127.0.0.1:0").unwrap().local_addr().unwrap()
+    std::net::UdpSocket::bind("127.0.0.1:0")
+        .expect("绑定 UDP socket 失败")
+        .local_addr()
+        .expect("获取本地 UDP 地址失败")
 }
 
 /// 构造与生产代码一致的连接 key(platform + "QUIC:SERVER:" + uuid + ":" + text)
@@ -56,22 +57,25 @@ fn conn_key(platform: &str, user_uuid: &str) -> String {
 fn make_core() -> CoreState {
     let redis_pool = deadpool_redis::Config::from_url("redis://127.0.0.1:1")
         .create_pool(Some(deadpool_redis::Runtime::Tokio1))
-        .unwrap();
+        .expect("创建 Redis 连接池失败");
     CoreState { db: rbatis::RBatis::new(), redis: redis_pool }
 }
 
 /// 创建自签名证书的 QUIC 服务端点(与内部服务器相同的证书策略)
 fn make_device_endpoint() -> Endpoint {
-    let key_pair = KeyPair::generate().unwrap();
-    let params = rcgen::CertificateParams::new(vec!["localhost".to_string()]).unwrap();
-    let cert = params.self_signed(&key_pair).unwrap();
+    let key_pair = KeyPair::generate().expect("生成密钥对失败");
+    let params =
+        rcgen::CertificateParams::new(vec!["localhost".to_string()]).expect("构建证书参数失败");
+    let cert = params.self_signed(&key_pair).expect("生成自签名证书失败");
     let cert_chain = vec![Certificate(cert.der().to_vec())];
     let key = PrivateKey(key_pair.serialize_der());
 
-    let mut server_config = ServerConfig::with_single_cert(cert_chain, key).unwrap();
-    let transport = Arc::get_mut(&mut server_config.transport).unwrap();
-    transport.max_idle_timeout(Some(Duration::from_secs(30).try_into().unwrap()));
-    Endpoint::server(server_config, "127.0.0.1:0".parse().unwrap()).unwrap()
+    let mut server_config =
+        ServerConfig::with_single_cert(cert_chain, key).expect("构建服务器 TLS 配置失败");
+    let transport = Arc::get_mut(&mut server_config.transport).expect("获取传输配置失败");
+    transport.max_idle_timeout(Some(Duration::from_secs(30).try_into().expect("转换空闲超时失败")));
+    Endpoint::server(server_config, "127.0.0.1:0".parse().expect("解析监听地址失败"))
+        .expect("启动 QUIC 服务端点失败")
 }
 
 /// 模拟用户设备:接受节点的连接,持续读取节点推送过来的单向上行流
@@ -107,9 +111,16 @@ async fn device_reader(endpoint: Endpoint, tx: mpsc::Sender<Vec<u8>>) {
 
 /// 节点作为 QUIC 客户端连接到用户设备,返回服务端持有的连接(模拟用户上线)
 async fn node_to_device(device_addr: SocketAddr) -> Connection {
-    let mut endpoint = Endpoint::client("0.0.0.0:0".parse().unwrap()).unwrap();
-    endpoint.set_default_client_config(make_internal_client_config().unwrap());
-    endpoint.connect(device_addr, "localhost").unwrap().await.unwrap()
+    let mut endpoint = Endpoint::client("0.0.0.0:0".parse().expect("解析客户端地址失败"))
+        .expect("创建 QUIC 客户端端点失败");
+    endpoint.set_default_client_config(
+        make_internal_client_config().expect("构建 QUIC 客户端配置失败"),
+    );
+    endpoint
+        .connect(device_addr, "localhost")
+        .expect("发起 QUIC 连接失败")
+        .await
+        .expect("QUIC 连接握手失败")
 }
 
 fn make_quic_connection(conn: Connection, user_uuid: &str) -> QuicConnection {
@@ -175,8 +186,8 @@ async fn two_internal_nodes_forward_messages_bidirectionally() {
     // 用户设备端点:user-a 挂在节点 A,user-b 挂在节点 B
     let device_a = make_device_endpoint();
     let device_b = make_device_endpoint();
-    let device_a_addr = device_a.local_addr().unwrap();
-    let device_b_addr = device_b.local_addr().unwrap();
+    let device_a_addr = device_a.local_addr().expect("获取 device_a 地址失败");
+    let device_b_addr = device_b.local_addr().expect("获取 device_b 地址失败");
     info!("device_a listening on {}, device_b listening on {}", device_a_addr, device_b_addr);
 
     let (msg_tx_a, mut msg_rx_a) = mpsc::channel(16);
@@ -214,7 +225,7 @@ async fn two_internal_nodes_forward_messages_bidirectionally() {
         send_user: "user-a".to_string(),
         timestamp: 1_700_000_000_000,
     })
-    .unwrap();
+    .expect("序列化 TextQuicMsg 失败");
     info!("payload size = {} bytes, forwarding A -> B...", payload.len());
 
     // 1) 节点 A -> 节点 B:请求发往 B,由 B 投递给本机 user-b
@@ -223,8 +234,10 @@ async fn two_internal_nodes_forward_messages_bidirectionally() {
     assert_eq!(resp.status, "ok");
     assert_eq!(resp.delivered, Some(true));
 
-    let received_b =
-        tokio::time::timeout(Duration::from_secs(3), msg_rx_b.recv()).await.unwrap().unwrap();
+    let received_b = tokio::time::timeout(Duration::from_secs(3), msg_rx_b.recv())
+        .await
+        .expect("等待 device_b 接收消息超时")
+        .expect("device_b 消息通道已关闭");
     info!("device_b received {} bytes", received_b.len());
     assert_eq!(received_b, payload);
 
@@ -235,8 +248,10 @@ async fn two_internal_nodes_forward_messages_bidirectionally() {
     assert_eq!(resp.status, "ok");
     assert_eq!(resp.delivered, Some(true));
 
-    let received_a =
-        tokio::time::timeout(Duration::from_secs(3), msg_rx_a.recv()).await.unwrap().unwrap();
+    let received_a = tokio::time::timeout(Duration::from_secs(3), msg_rx_a.recv())
+        .await
+        .expect("等待 device_a 接收消息超时")
+        .expect("device_a 消息通道已关闭");
     info!("device_a received {} bytes", received_a.len());
     assert_eq!(received_a, payload);
 

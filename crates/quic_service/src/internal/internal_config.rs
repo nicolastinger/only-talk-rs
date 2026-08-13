@@ -57,8 +57,6 @@ impl InternalQuicConfig {
 }
 
 #[cfg(test)]
-// 测试代码中直接使用 unwrap 作为断言失败手段是惯例,此处豁免生产代码的 unwrap 禁令
-#[allow(clippy::unwrap_used, clippy::disallowed_methods)]
 mod tests {
     use super::*;
 
@@ -76,8 +74,8 @@ node_address = "10.0.0.2:4434"
 
     #[test]
     fn test_from_toml_str_full() {
-        let config = InternalQuicConfig::from_toml_str(valid_toml()).unwrap();
-        assert_eq!(config.bind_address, "127.0.0.1:4434".parse().unwrap());
+        let config = InternalQuicConfig::from_toml_str(valid_toml()).expect("解析 TOML 配置失败");
+        assert_eq!(config.bind_address, "127.0.0.1:4434".parse().expect("解析地址失败"));
         assert_eq!(config.server_name, "INTERNAL_1");
         assert_eq!(config.node_address, "10.0.0.2:4434");
         assert_eq!(config.server_index, 2);
@@ -86,8 +84,8 @@ node_address = "10.0.0.2:4434"
     #[test]
     fn test_from_toml_str_optional_fields_default() {
         let toml = "[internal_quic_server]\naddress = \"127.0.0.1:9444\"\n";
-        let config = InternalQuicConfig::from_toml_str(toml).unwrap();
-        assert_eq!(config.bind_address, "127.0.0.1:9444".parse().unwrap());
+        let config = InternalQuicConfig::from_toml_str(toml).expect("解析 TOML 配置失败");
+        assert_eq!(config.bind_address, "127.0.0.1:9444".parse().expect("解析地址失败"));
         assert_eq!(config.server_name, "INTERNAL_SERVER_1");
         assert_eq!(config.node_address, "127.0.0.1:4434");
         assert_eq!(config.server_index, 0);

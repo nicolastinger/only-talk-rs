@@ -82,8 +82,6 @@ pub async fn get_text_msg(
 }
 
 #[cfg(test)]
-// 测试代码中直接使用 unwrap 作为断言失败手段是惯例,此处豁免生产代码的 unwrap 禁令
-#[allow(clippy::unwrap_used, clippy::disallowed_methods)]
 mod tests {
     use std::sync::Arc;
 
@@ -95,12 +93,12 @@ mod tests {
 
     fn head_size() -> usize {
         let head = HeadMsg { version: 1, crc: 0, body_len: 0, message_type: MSG_TYPE_TEXT };
-        bincode::serialize(&head).unwrap().len()
+        bincode::serialize(&head).expect("序列化 head 失败").len()
     }
 
     fn make_msg(text_type: u16, raw: &[u8], recv_user: &str, send_user: &str) -> Vec<u8> {
         generate_text_msg(text_type, raw.to_vec(), recv_user.to_string(), send_user.to_string())
-            .unwrap()
+            .expect("生成文本消息失败")
     }
 
     fn new_buffer_msg() -> Arc<Mutex<Vec<u8>>> {
@@ -116,7 +114,8 @@ mod tests {
         let head_len = head_size();
         let buf_msg = new_buffer_msg();
 
-        let result = get_text_msg(&mut msg.clone(), len, buf_msg, head_len).await.unwrap();
+        let result =
+            get_text_msg(&mut msg.clone(), len, buf_msg, head_len).await.expect("解析文本消息失败");
 
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].raw, b"hello");
@@ -138,7 +137,9 @@ mod tests {
         let head_len = head_size();
         let buf_msg = new_buffer_msg();
 
-        let result = get_text_msg(&mut combined, total_len, buf_msg, head_len).await.unwrap();
+        let result = get_text_msg(&mut combined, total_len, buf_msg, head_len)
+            .await
+            .expect("解析文本消息失败");
 
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].raw, b"msg1");
@@ -164,7 +165,9 @@ mod tests {
         let head_len = head_size();
         let buf_msg = new_buffer_msg();
 
-        let result = get_text_msg(&mut combined, total_len, buf_msg, head_len).await.unwrap();
+        let result = get_text_msg(&mut combined, total_len, buf_msg, head_len)
+            .await
+            .expect("解析文本消息失败");
 
         assert_eq!(result.len(), N);
         for (i, msg) in result.iter().enumerate() {
@@ -187,8 +190,9 @@ mod tests {
         let total_len = combined.len();
         let buf_msg = new_buffer_msg();
 
-        let result =
-            get_text_msg(&mut combined, total_len, buf_msg.clone(), head_len).await.unwrap();
+        let result = get_text_msg(&mut combined, total_len, buf_msg.clone(), head_len)
+            .await
+            .expect("解析文本消息失败");
 
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].raw, b"complete");
@@ -210,8 +214,9 @@ mod tests {
         let total_len = combined.len();
         let buf_msg = new_buffer_msg();
 
-        let result =
-            get_text_msg(&mut combined, total_len, buf_msg.clone(), head_len).await.unwrap();
+        let result = get_text_msg(&mut combined, total_len, buf_msg.clone(), head_len)
+            .await
+            .expect("解析文本消息失败");
 
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].raw, b"payload");
@@ -233,15 +238,18 @@ mod tests {
         let first_len = first_buf.len();
         let buf_msg = new_buffer_msg();
 
-        let result1 =
-            get_text_msg(&mut first_buf, first_len, buf_msg.clone(), head_len).await.unwrap();
+        let result1 = get_text_msg(&mut first_buf, first_len, buf_msg.clone(), head_len)
+            .await
+            .expect("解析文本消息失败");
         assert!(result1.is_empty(), "Incomplete message should not be parsed");
 
         // 第二次调用:剩余正文到达,应与 buffer_msg 拼接以完成
         let mut second_buf = full_msg[split_at..].to_vec();
         let second_len = second_buf.len();
 
-        let result2 = get_text_msg(&mut second_buf, second_len, buf_msg, head_len).await.unwrap();
+        let result2 = get_text_msg(&mut second_buf, second_len, buf_msg, head_len)
+            .await
+            .expect("解析文本消息失败");
         assert_eq!(result2.len(), 1);
         assert_eq!(result2[0].raw, b"carryover_test_data");
         assert_eq!(result2[0].send_user, "user_a");
@@ -260,17 +268,23 @@ mod tests {
 
         let mut buf1 = full_msg[..split1].to_vec();
         let len1 = buf1.len();
-        let r1 = get_text_msg(&mut buf1, len1, buf_msg.clone(), head_len).await.unwrap();
+        let r1 = get_text_msg(&mut buf1, len1, buf_msg.clone(), head_len)
+            .await
+            .expect("解析文本消息失败");
         assert!(r1.is_empty());
 
         let mut buf2 = full_msg[split1..split2].to_vec();
         let len2 = buf2.len();
-        let r2 = get_text_msg(&mut buf2, len2, buf_msg.clone(), head_len).await.unwrap();
+        let r2 = get_text_msg(&mut buf2, len2, buf_msg.clone(), head_len)
+            .await
+            .expect("解析文本消息失败");
         assert!(r2.is_empty());
 
         let mut buf3 = full_msg[split2..].to_vec();
         let len3 = buf3.len();
-        let r3 = get_text_msg(&mut buf3, len3, buf_msg.clone(), head_len).await.unwrap();
+        let r3 = get_text_msg(&mut buf3, len3, buf_msg.clone(), head_len)
+            .await
+            .expect("解析文本消息失败");
         assert_eq!(r3.len(), 1);
         assert_eq!(r3[0].raw, b"multi_fragment_payload");
     }
@@ -287,7 +301,9 @@ mod tests {
         // 先存入不完整数据
         let mut buf1 = partial_full[..split_at].to_vec();
         let len1 = buf1.len();
-        let r1 = get_text_msg(&mut buf1, len1, buf_msg.clone(), head_len).await.unwrap();
+        let r1 = get_text_msg(&mut buf1, len1, buf_msg.clone(), head_len)
+            .await
+            .expect("解析文本消息失败");
         assert!(r1.is_empty());
 
         // 剩余部分 + 一条完整新消息(粘包 + 恢复)
@@ -295,7 +311,9 @@ mod tests {
         buf2.extend_from_slice(&new_complete);
         let len2 = buf2.len();
 
-        let r2 = get_text_msg(&mut buf2, len2, buf_msg.clone(), head_len).await.unwrap();
+        let r2 = get_text_msg(&mut buf2, len2, buf_msg.clone(), head_len)
+            .await
+            .expect("解析文本消息失败");
         assert_eq!(r2.len(), 2);
         assert_eq!(r2[0].raw, b"partial_message_xxxxx");
         assert_eq!(r2[1].raw, b"new_complete");
@@ -308,7 +326,8 @@ mod tests {
         let head_len = head_size();
         let buf_msg = new_buffer_msg();
 
-        let result = get_text_msg(&mut vec![], 0, buf_msg, head_len).await.unwrap();
+        let result =
+            get_text_msg(&mut vec![], 0, buf_msg, head_len).await.expect("解析文本消息失败");
         assert!(result.is_empty());
     }
 
@@ -319,7 +338,8 @@ mod tests {
         let len = head_len - 1;
         let mut buf = vec![0u8; len];
 
-        let result = get_text_msg(&mut buf, len, buf_msg.clone(), head_len).await.unwrap();
+        let result =
+            get_text_msg(&mut buf, len, buf_msg.clone(), head_len).await.expect("解析文本消息失败");
         assert!(result.is_empty());
 
         let saved = buf_msg.lock().await;
@@ -335,7 +355,8 @@ mod tests {
         // 恰好是头部大小 -- 但 body_len > 0,正文不完整
         let len = head_len;
         let mut buf = msg[..head_len].to_vec();
-        let result = get_text_msg(&mut buf, len, buf_msg.clone(), head_len).await.unwrap();
+        let result =
+            get_text_msg(&mut buf, len, buf_msg.clone(), head_len).await.expect("解析文本消息失败");
         assert!(result.is_empty());
         assert!(!buf_msg.lock().await.is_empty());
     }
@@ -348,7 +369,8 @@ mod tests {
         let buf_msg = new_buffer_msg();
 
         let mut buf = msg.clone();
-        let result = get_text_msg(&mut buf, len, buf_msg.clone(), head_len).await.unwrap();
+        let result =
+            get_text_msg(&mut buf, len, buf_msg.clone(), head_len).await.expect("解析文本消息失败");
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].raw, b"exact_fit");
         assert!(buf_msg.lock().await.is_empty());
@@ -365,7 +387,9 @@ mod tests {
         combined.extend_from_slice(&msg2);
         let total = combined.len();
 
-        let result = get_text_msg(&mut combined, total, buf_msg.clone(), head_len).await.unwrap();
+        let result = get_text_msg(&mut combined, total, buf_msg.clone(), head_len)
+            .await
+            .expect("解析文本消息失败");
         assert_eq!(result.len(), 2);
         assert!(buf_msg.lock().await.is_empty());
     }
@@ -386,7 +410,7 @@ mod tests {
             send_user: "user_a".to_string(),
             timestamp: 123456789,
         };
-        let body_bytes = bincode::serialize(&body).unwrap();
+        let body_bytes = bincode::serialize(&body).expect("序列化 body 失败");
 
         // 头部使用错误的 CRC,正文保持合法
         let head = HeadMsg {
@@ -395,7 +419,7 @@ mod tests {
             body_len: body_bytes.len() as u32,
             message_type: MSG_TYPE_TEXT,
         };
-        let mut buf = bincode::serialize(&head).unwrap();
+        let mut buf = bincode::serialize(&head).expect("序列化 head 失败");
         buf.extend_from_slice(&body_bytes);
         let len = buf.len();
 
@@ -413,7 +437,9 @@ mod tests {
         let len = head_len + 10;
         let mut garbage: Vec<u8> = vec![0xFF; len];
 
-        let result = get_text_msg(&mut garbage, len, buf_msg.clone(), head_len).await.unwrap();
+        let result = get_text_msg(&mut garbage, len, buf_msg.clone(), head_len)
+            .await
+            .expect("解析文本消息失败");
         assert!(result.is_empty());
 
         let saved = buf_msg.lock().await;
@@ -428,11 +454,12 @@ mod tests {
         let fake_body_len: u32 = 50;
         let head =
             HeadMsg { version: 1, crc: 0, body_len: fake_body_len, message_type: MSG_TYPE_TEXT };
-        let mut buf = bincode::serialize(&head).unwrap();
+        let mut buf = bincode::serialize(&head).expect("序列化 head 失败");
         buf.extend_from_slice(&vec![0xFF; fake_body_len as usize]);
         let len = buf.len();
 
-        let result = get_text_msg(&mut buf, len, buf_msg.clone(), head_len).await.unwrap();
+        let result =
+            get_text_msg(&mut buf, len, buf_msg.clone(), head_len).await.expect("解析文本消息失败");
         assert!(result.is_empty(), "body 反序列化失败应返回空");
         assert!(!buf_msg.lock().await.is_empty());
     }
@@ -446,11 +473,12 @@ mod tests {
 
         // 头部声称 body 很大，但实际缓冲区不够
         let head = HeadMsg { version: 1, crc: 0, body_len: 99999, message_type: MSG_TYPE_TEXT };
-        let mut buf = bincode::serialize(&head).unwrap();
+        let mut buf = bincode::serialize(&head).expect("序列化 head 失败");
         buf.extend_from_slice(b"short");
         let len = buf.len();
 
-        let result = get_text_msg(&mut buf, len, buf_msg.clone(), head_len).await.unwrap();
+        let result =
+            get_text_msg(&mut buf, len, buf_msg.clone(), head_len).await.expect("解析文本消息失败");
         assert!(result.is_empty());
         assert!(!buf_msg.lock().await.is_empty());
     }
@@ -468,7 +496,7 @@ mod tests {
             send_user: "user_a".to_string(),
             timestamp: 0,
         };
-        let body_bytes = bincode::serialize(&body).unwrap();
+        let body_bytes = bincode::serialize(&body).expect("序列化 body 失败");
         let crc = X25.checksum(&body_bytes);
 
         let head = HeadMsg {
@@ -477,12 +505,13 @@ mod tests {
             body_len: body_bytes.len() as u32,
             message_type: MSG_TYPE_TEXT,
         };
-        let mut buf = bincode::serialize(&head).unwrap();
+        let mut buf = bincode::serialize(&head).expect("序列化 head 失败");
         buf.extend_from_slice(&body_bytes);
         let len = buf.len();
         let buf_msg = new_buffer_msg();
 
-        let result = get_text_msg(&mut buf, len, buf_msg, head_len).await.unwrap();
+        let result =
+            get_text_msg(&mut buf, len, buf_msg, head_len).await.expect("解析文本消息失败");
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].raw.len(), 0);
         assert_eq!(result[0].nano_id, "test_id");
@@ -507,7 +536,9 @@ mod tests {
         let mut new_data = msg[split_at..].to_vec();
         let new_len = new_data.len();
 
-        let result = get_text_msg(&mut new_data, new_len, buf_msg.clone(), head_len).await.unwrap();
+        let result = get_text_msg(&mut new_data, new_len, buf_msg.clone(), head_len)
+            .await
+            .expect("解析文本消息失败");
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].raw, b"buffered");
         assert!(buf_msg.lock().await.is_empty());
@@ -528,7 +559,7 @@ mod tests {
             body_len: 99999, // 比整个 buffer 还大
             message_type: MSG_TYPE_TEXT,
         };
-        let fake_head_bytes = bincode::serialize(&fake_head).unwrap();
+        let fake_head_bytes = bincode::serialize(&fake_head).expect("序列化 fake_head 失败");
         let partial_body_fragment: &[u8] = b"xx"; // 仅 2 字节假 body
 
         let mut combined = complete1.clone();
@@ -538,8 +569,9 @@ mod tests {
         let total_len = combined.len();
         let buf_msg = new_buffer_msg();
 
-        let result =
-            get_text_msg(&mut combined, total_len, buf_msg.clone(), head_len).await.unwrap();
+        let result = get_text_msg(&mut combined, total_len, buf_msg.clone(), head_len)
+            .await
+            .expect("解析文本消息失败");
 
         // 应该只解析出第 1 条，第 2 条（假装不完整）和第 3 条一起被保存到 buffer_msg
         assert_eq!(result.len(), 1);
@@ -565,7 +597,8 @@ mod tests {
         buf.extend_from_slice(b"extra_garbage");
         let len = msg.len();
 
-        let result = get_text_msg(&mut buf, len, buf_msg.clone(), head_len).await.unwrap();
+        let result =
+            get_text_msg(&mut buf, len, buf_msg.clone(), head_len).await.expect("解析文本消息失败");
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].raw, b"test");
     }
@@ -579,7 +612,8 @@ mod tests {
         let head_len = head_size();
         let buf_msg = new_buffer_msg();
 
-        let result = get_text_msg(&mut msg.clone(), len, buf_msg, head_len).await.unwrap();
+        let result =
+            get_text_msg(&mut msg.clone(), len, buf_msg, head_len).await.expect("解析文本消息失败");
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].raw, b"");
         assert_eq!(result[0].send_user, "user_a");
@@ -595,7 +629,8 @@ mod tests {
         let head_len = head_size();
         let buf_msg = new_buffer_msg();
 
-        let result = get_text_msg(&mut msg.clone(), len, buf_msg, head_len).await.unwrap();
+        let result =
+            get_text_msg(&mut msg.clone(), len, buf_msg, head_len).await.expect("解析文本消息失败");
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].raw.len(), 65535);
     }
@@ -614,7 +649,8 @@ mod tests {
         combined.extend_from_slice(&msg_ping);
         let total = combined.len();
 
-        let result = get_text_msg(&mut combined, total, buf_msg, head_len).await.unwrap();
+        let result =
+            get_text_msg(&mut combined, total, buf_msg, head_len).await.expect("解析文本消息失败");
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].text_type, MSG_TYPE_TEXT);
         assert_eq!(result[1].text_type, common::utils::message_types::MSG_TYPE_PING);
@@ -635,7 +671,9 @@ mod tests {
             let end = ((i + 1) * chunk_size).min(full_msg.len());
             let mut chunk = full_msg[start..end].to_vec();
             let chunk_len = chunk.len();
-            let r = get_text_msg(&mut chunk, chunk_len, buf_msg.clone(), head_len).await.unwrap();
+            let r = get_text_msg(&mut chunk, chunk_len, buf_msg.clone(), head_len)
+                .await
+                .expect("解析文本消息失败");
             assert!(r.is_empty(), "第 {i} 次不应有完整消息");
         }
 
@@ -643,7 +681,9 @@ mod tests {
         let start = 4 * chunk_size;
         let mut last_chunk = full_msg[start..].to_vec();
         let last_len = last_chunk.len();
-        let r = get_text_msg(&mut last_chunk, last_len, buf_msg.clone(), head_len).await.unwrap();
+        let r = get_text_msg(&mut last_chunk, last_len, buf_msg.clone(), head_len)
+            .await
+            .expect("解析文本消息失败");
         assert_eq!(r.len(), 1);
         assert_eq!(r[0].raw, b"accumulated_payload");
     }
@@ -660,12 +700,16 @@ mod tests {
         // 不完整
         let mut buf1 = msg[..split_at].to_vec();
         let len1 = buf1.len();
-        let _ = get_text_msg(&mut buf1, len1, buf_msg.clone(), head_len).await.unwrap();
+        let _ = get_text_msg(&mut buf1, len1, buf_msg.clone(), head_len)
+            .await
+            .expect("解析文本消息失败");
 
         // 完成
         let mut buf2 = msg[split_at..].to_vec();
         let len2 = buf2.len();
-        let _ = get_text_msg(&mut buf2, len2, buf_msg.clone(), head_len).await.unwrap();
+        let _ = get_text_msg(&mut buf2, len2, buf_msg.clone(), head_len)
+            .await
+            .expect("解析文本消息失败");
 
         assert!(buf_msg.lock().await.is_empty());
     }

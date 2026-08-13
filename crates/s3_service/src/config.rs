@@ -18,7 +18,7 @@ use crate::error::S3Error;
 /// ```rust
 /// use s3_service::config::S3Provider;
 ///
-/// let provider: S3Provider = "minio".parse().unwrap();
+/// let provider: S3Provider = "minio".parse().expect("解析 S3Provider 失败");
 /// assert_eq!(provider, S3Provider::MinIO);
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
