@@ -1,7 +1,9 @@
 //! MinIO 集成测试
 //!
 //! 测试 S3 服务与 MinIO 的集成功能
-//! 运行前请确保 MinIO 服务已启动
+//! 运行前请确保 MinIO 服务已启动,并通过 `--features integration-test` 启用本测试
+
+#![cfg(feature = "integration-test")]
 
 use std::sync::Arc;
 
