@@ -34,11 +34,11 @@ http_service/src/
 
 ## 关键约定
 
-- **依赖注入**：controller 只引用 `web::Data<AppState>`，经 `state.db()` / `state.redis()` / `state.s3()` 取连接；**禁止在 service 层访问全局 `REDIS_CLIENT` / `RBATIS_DATABASE`**。
+- **依赖注入**：controller 只引用 `web::Data<AppState>`，经 `state.db()` / `state.redis()` / `state.s3()` 取连接；service 层一律通过窄签名（`rb: &RBatis` / `redis: &Pool`）使用基础设施，不访问任何全局单例（连接池全局单例已移除）。
 - 鉴权：除 `sign_up`/`sign_in`/`refresh_token` 外所有端点经中间件校验 Bearer JWT，用户 UUID 注入 `AuthAccount` 扩展。
 - service 函数统一返回 `Result<String, anyhow::Error>`（已是 JSON 字符串），controller 用 `respond_json_any!` 宏包装。
 - `s3_controller`（`/s3/*`）是通用 S3 管理端点；S3 未启用时 `state.s3` 为 `None`，这些端点返回"未初始化"错误。
-- 无单元测试；验证依赖 `api` 层集成与编译。
+- 集成测试：`tests/http_service_integration_test.rs`（`#[ignore]`，需本地 PG/Redis，见 [http_service 集成测试说明](./http_service_integration_test.md)）。
 
 ## 部署形态
 

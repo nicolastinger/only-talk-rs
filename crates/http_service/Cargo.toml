@@ -35,3 +35,8 @@ image = "0.25"
 webp = "0.3"
 tokio = { workspace = true }
 rand = { workspace = true }
+
+[dev-dependencies]
+actix-http = "3"
+dotenvy = "0.15"
+tracing-subscriber = { workspace = true }

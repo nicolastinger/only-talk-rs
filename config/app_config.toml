@@ -3,6 +3,8 @@ url = "${DATABASE_URL}"
 
 [redis]
 url = "${REDIS_URL}"
+# 测试用 Redis（http_service 集成测试使用，建议指向独立的 DB index/实例，测试结束会清空所有 key）
+test_url = "${TEST_REDIS_URL}"
 
 [cluster]
 server_index = 0
