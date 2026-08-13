@@ -49,6 +49,9 @@ rcgen = { workspace = true }
 rustls = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+rsa = { workspace = true }
+rand = { workspace = true }
+uuid = { workspace = true }
 
 [[bench]]
 name = "text_msg_bench"

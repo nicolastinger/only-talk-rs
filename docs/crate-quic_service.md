@@ -40,6 +40,14 @@ quic_service/src/
 - 高吞吐路径（粘包缓冲合并）有 O(n²) 隐患；`text_msg_service` 有 25+ 单元测试覆盖帧解析。
 - 端口见 `config/app_config.toml`：4433 外部、4434 内部、19562-19565 NAT UDP。
 
+## 测试
+
+- **单元测试**：`text_msg_service`（帧解析/粘包/半包/CRC）、`ChatNodeConfig`、`ServiceState` 等。
+- **集成测试**（`tests/`，`#[ignore]`，需本地依赖）：
+  - `internal_forwarding_test.rs`：内部 QUIC 双节点消息双向转发 + 离线用户返回 false（仅本地回环，无外部依赖）。
+  - `external_server_integration_test.rs`：外部 ChatNode 连接/鉴权/注册（内存 + Redis）、心跳 PING/PONG、非法 token 拒绝、断开后清理。依赖本地 Redis（`TEST_REDIS_URL`，建议独立 DB index）与仓库根目录 `.env`，不依赖 PostgreSQL。
+  - 运行：`cargo test -p quic_service --test <test_name> -- --ignored`
+
 ## 部署形态
 
 - 单体模式：由 `src/main.rs` 调用 `start_server()`
