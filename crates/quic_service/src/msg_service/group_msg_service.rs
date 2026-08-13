@@ -85,7 +85,7 @@ pub fn serialize_group_msg(group_msg: &GroupQuicMsg) -> Result<Vec<u8>> {
 }
 
 pub async fn get_group_members_cached(core: &CoreState, group_uuid: &str) -> Result<Vec<String>> {
-    let cache_key = format!("{}{}", GROUP_MEMBERS_CACHE, group_uuid);
+    let cache_key = format!("{}{}", GROUP_MEMBERS_CACHE, group_uuid).to_uppercase();
 
     let mut conn = core.redis.get().await?;
     let json: Option<String> = conn.get(&cache_key).await?;
@@ -115,7 +115,7 @@ async fn fetch_group_members_from_db(rb: &rbatis::RBatis, group_uuid: &str) -> R
 }
 
 pub async fn invalidate_group_member_cache(core: &CoreState, group_uuid: &str) -> Result<()> {
-    let cache_key = format!("{}{}", GROUP_MEMBERS_CACHE, group_uuid);
+    let cache_key = format!("{}{}", GROUP_MEMBERS_CACHE, group_uuid).to_uppercase();
 
     let mut conn = core.redis.get().await?;
     let _: Result<(), _> = conn.del(&cache_key).await;

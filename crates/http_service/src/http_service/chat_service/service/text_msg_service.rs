@@ -110,7 +110,7 @@ pub async fn add_user_chat_read(
     let uuid = uuid.ok_or(anyhow!("账号获取失败"))?;
     let chat_message_read_str = serde_json::to_string(&chat_message_read)?;
     // 写入到redis
-    let key = format!("{}{}", USER_READ_MSG, uuid);
+    let key = format!("{}{}", USER_READ_MSG, uuid).to_uppercase();
     let mut redis = redis.get().await?;
     let res: Result<String, _> = redis.get(&key).await;
 

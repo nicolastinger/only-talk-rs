@@ -73,7 +73,7 @@ pub async fn send_verify_code_service(
 
     // 3. 写入 Redis,5 分钟(300 秒)过期
     let mut conn = redis.get().await?;
-    let key = format!("{}{}", EMAIL_VERIFY_CODE, email);
+    let key = format!("{}{}", EMAIL_VERIFY_CODE, email).to_uppercase();
     conn.set_ex::<&str, &str, ()>(&key, &code, 300).await?;
     info!("verification code stored for email: {}", email);
 
@@ -110,7 +110,7 @@ pub async fn add_new_basic_user_service(
     // 2. 校验注册验证码(与 Redis 中的一致,校验通过后删除)
     let code = basic_user.verification_code.as_ref().ok_or(anyhow!("验证码为空"))?;
     let mut conn = redis.get().await?;
-    let code_key = format!("{}{}", EMAIL_VERIFY_CODE, email);
+    let code_key = format!("{}{}", EMAIL_VERIFY_CODE, email).to_uppercase();
     let stored: Option<String> = conn.get(&code_key).await?;
     match stored {
         Some(stored) if stored == *code => {
@@ -202,7 +202,7 @@ pub async fn user_sign_in(
             generate_token_with_expiry(uuid.clone(), platform.clone(), 3600 * 24 * 30)?;
 
         // 存储 refresh_token 到 Redis (30 天过期)
-        let rt_key = format!("{}{}", REFRESH_TOKEN, refresh_token);
+        let rt_key = format!("{}{}", REFRESH_TOKEN, refresh_token).to_uppercase();
         let _: () = cmd("SET")
             .arg(&rt_key)
             .arg(&uuid)
@@ -210,7 +210,7 @@ pub async fn user_sign_in(
             .arg(3600 * 24 * 30)
             .query_async(&mut conn)
             .await?;
-        let rt_platform_key = format!("{}{}", REFRESH_TOKEN_PLATFORM, refresh_token);
+        let rt_platform_key = format!("{}{}", REFRESH_TOKEN_PLATFORM, refresh_token).to_uppercase();
         let _: () = cmd("SET")
             .arg(&rt_platform_key)
             .arg(&platform)
@@ -233,11 +233,12 @@ pub async fn refresh_access_token(
 ) -> Result<String, anyhow::Error> {
     let mut conn = redis.get().await?;
 
-    let key = format!("{}{}", REFRESH_TOKEN, refresh_token_dto.refresh_token);
+    let key = format!("{}{}", REFRESH_TOKEN, refresh_token_dto.refresh_token).to_uppercase();
     let result: RedisResult<String> = cmd("GET").arg(&key).query_async(&mut conn).await;
     let uuid = result.map_err(|_| anyhow!("refresh_token 无效或已过期"))?;
 
-    let platform_key = format!("{}{}", REFRESH_TOKEN_PLATFORM, refresh_token_dto.refresh_token);
+    let platform_key =
+        format!("{}{}", REFRESH_TOKEN_PLATFORM, refresh_token_dto.refresh_token).to_uppercase();
     let platform: RedisResult<String> = cmd("GET").arg(&platform_key).query_async(&mut conn).await;
     let platform = platform.map_err(|_| anyhow!("无法获取平台信息"))?;
 
@@ -326,13 +327,13 @@ pub async fn verify_p2p_token_service(
     let mut conn = redis.get().await?;
     let me = me.ok_or(anyhow!("获取账号失败"))?;
 
-    let key = format!("P2P:USER:AUTH:{}:{}", uuid, token);
+    let key = format!("P2P:USER:AUTH:{}:{}", uuid, token).to_uppercase();
     let result: RedisResult<String> = cmd("GET").arg(&key).query_async(&mut conn).await;
     let res = result?;
     info!("result: {} {}", uuid, res);
     match res == me {
         true => {
-            let key = format!("{}{}", "USER_UDP_ADDRESS_", uuid);
+            let key = format!("{}{}", "USER_UDP_ADDRESS_", uuid).to_uppercase();
             let result: RedisResult<String> = cmd("GET").arg(&key).query_async(&mut conn).await;
             Ok(CommonResponseRef::<String>::success_json(&result?)?)
         }
@@ -350,7 +351,7 @@ pub async fn add_p2p_token_service(
     let mut conn = redis.get().await?;
     let me = me.ok_or(anyhow!("获取账号失败"))?;
 
-    let key = format!("P2P:USER:AUTH:{}:{}", me, token);
+    let key = format!("P2P:USER:AUTH:{}:{}", me, token).to_uppercase();
     let _: () = cmd("SET")
         .arg(&key)
         .arg(uuid.to_string())

@@ -23,7 +23,7 @@ pub static USER_UDP_ADDRESS: &str = "USER_UDP_ADDRESS_";
 // NAT UDP user address lock
 pub static USER_UDP_ADDRESS_LOCK: &str = "USER_UDP_ADDRESS_LOCK_";
 // Group member list cache
-pub static GROUP_MEMBERS_CACHE: &str = "group:members:";
+pub static GROUP_MEMBERS_CACHE: &str = "GROUP:MEMBERS:";
 // Refresh token mapping
 pub static REFRESH_TOKEN: &str = "REFRESH_TOKEN:";
 // Refresh token platform mapping

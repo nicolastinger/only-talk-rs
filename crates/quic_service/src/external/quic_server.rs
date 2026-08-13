@@ -420,7 +420,7 @@ async fn user_offline(core: &CoreState, uuid: String) -> std::result::Result<(),
     // 1. 设置 Redis 分布式锁，防止用户频繁上下线切换
     // 2. 将 Redis 缓存同步到数据库，记录用户操作
     // 将已读消息从 Redis 持久化到数据库
-    let read_key = format!("{}{}", USER_READ_MSG, uuid);
+    let read_key = format!("{}{}", USER_READ_MSG, uuid).to_uppercase();
     let read_record: String = redis.get(&read_key).await?;
     info!("读取已读消息，来源: {}", read_record);
     let last_chat_message_read: Vec<AddReadChatRecordDTO> = serde_json::from_str(&read_record)?;
