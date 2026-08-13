@@ -12,3 +12,6 @@ validator = { workspace = true }
 anyhow = { workspace = true }
 rbs = { workspace = true }
 uuid = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

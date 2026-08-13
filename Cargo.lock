@@ -1879,6 +1879,7 @@ dependencies = [
  "rbdc-pool-fast",
  "rbs",
  "serde",
+ "serde_json",
  "uuid",
  "validator",
 ]
