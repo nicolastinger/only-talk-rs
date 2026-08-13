@@ -32,9 +32,9 @@ COMMENT ON COLUMN biz_record.biz_type IS '业务类型(头像、用户背景、�
 COMMENT ON COLUMN biz_record.remark IS '备注信息';
 
 -- 创建索引以提高查询性能
-CREATE INDEX idx_biz_record_uuid ON biz_record (uuid);
-CREATE INDEX idx_biz_record_created_by ON biz_record (created_by);
-CREATE INDEX idx_biz_record_created_at ON biz_record (created_at);
-CREATE INDEX idx_biz_record_status ON biz_record (status);
-CREATE INDEX idx_biz_record_approve_status ON biz_record (approve_status);
-CREATE INDEX idx_biz_record_biz_type ON biz_record (biz_type);
+CREATE INDEX IF NOT EXISTS idx_biz_record_uuid ON biz_record (uuid);
+CREATE INDEX IF NOT EXISTS idx_biz_record_created_by ON biz_record (created_by);
+CREATE INDEX IF NOT EXISTS idx_biz_record_created_at ON biz_record (created_at);
+CREATE INDEX IF NOT EXISTS idx_biz_record_status ON biz_record (status);
+CREATE INDEX IF NOT EXISTS idx_biz_record_approve_status ON biz_record (approve_status);
+CREATE INDEX IF NOT EXISTS idx_biz_record_biz_type ON biz_record (biz_type);

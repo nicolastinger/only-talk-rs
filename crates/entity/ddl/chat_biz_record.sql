@@ -40,10 +40,10 @@ COMMENT ON COLUMN public.chat_biz_record.biz_type IS '业务类型(私聊、群�
 COMMENT ON COLUMN public.chat_biz_record.remark IS '备注信息';
 
 -- Indexes
-CREATE INDEX idx_chat_biz_record_uuid ON public.chat_biz_record USING btree (uuid);
-CREATE INDEX idx_chat_biz_record_created_by ON public.chat_biz_record USING btree (created_by);
-CREATE INDEX idx_chat_biz_record_receiver ON public.chat_biz_record USING btree (receiver);
-CREATE INDEX idx_chat_biz_record_created_at ON public.chat_biz_record USING btree (created_at);
-CREATE INDEX idx_chat_biz_record_status ON public.chat_biz_record USING btree (status);
-CREATE INDEX idx_chat_biz_record_approve_status ON public.chat_biz_record USING btree (approve_status);
-CREATE INDEX idx_chat_biz_record_biz_type ON public.chat_biz_record USING btree (biz_type);
+CREATE INDEX IF NOT EXISTS idx_chat_biz_record_uuid ON public.chat_biz_record USING btree (uuid);
+CREATE INDEX IF NOT EXISTS idx_chat_biz_record_created_by ON public.chat_biz_record USING btree (created_by);
+CREATE INDEX IF NOT EXISTS idx_chat_biz_record_receiver ON public.chat_biz_record USING btree (receiver);
+CREATE INDEX IF NOT EXISTS idx_chat_biz_record_created_at ON public.chat_biz_record USING btree (created_at);
+CREATE INDEX IF NOT EXISTS idx_chat_biz_record_status ON public.chat_biz_record USING btree (status);
+CREATE INDEX IF NOT EXISTS idx_chat_biz_record_approve_status ON public.chat_biz_record USING btree (approve_status);
+CREATE INDEX IF NOT EXISTS idx_chat_biz_record_biz_type ON public.chat_biz_record USING btree (biz_type);

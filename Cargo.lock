@@ -1874,12 +1874,15 @@ name = "entity"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "dotenvy",
  "rbatis",
  "rbdc-pg",
  "rbdc-pool-fast",
  "rbs",
  "serde",
  "serde_json",
+ "tokio",
+ "tracing",
  "uuid",
  "validator",
 ]

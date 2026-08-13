@@ -21,8 +21,8 @@ CREATE TABLE IF NOT EXISTS system_notification (
 );
 
 -- Indexes
-CREATE INDEX idx_system_notification_is_read ON public.system_notification USING btree (is_read);
-CREATE INDEX idx_system_notification_user_id_created_at ON public.system_notification USING btree (user_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_system_notification_is_read ON public.system_notification USING btree (is_read);
+CREATE INDEX IF NOT EXISTS idx_system_notification_user_id_created_at ON public.system_notification USING btree (user_id, created_at);
 
 -- Table comment
 COMMENT ON TABLE public.system_notification IS '系统通知表';

@@ -15,8 +15,8 @@ CREATE TABLE IF NOT EXISTS chat_message_record (
 );
 
 -- Indexes
-CREATE INDEX chat_message_record_create_at_idx ON public.chat_message_record USING btree ("timestamp");
-CREATE INDEX chat_message_record_send_user_idx ON public.chat_message_record USING btree (send_user, recv_user, "timestamp");
+CREATE INDEX IF NOT EXISTS chat_message_record_create_at_idx ON public.chat_message_record USING btree ("timestamp");
+CREATE INDEX IF NOT EXISTS chat_message_record_send_user_idx ON public.chat_message_record USING btree (send_user, recv_user, "timestamp");
 
 -- Table comment
 COMMENT ON TABLE public.chat_message_record IS '单对单聊天列表';

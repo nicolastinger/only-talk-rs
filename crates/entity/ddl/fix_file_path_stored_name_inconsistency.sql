@@ -10,19 +10,18 @@ SELECT
     stored_name,
     bucket,
     is_oss,
-    created_at
+    upload_time
 FROM file_upload_record
 WHERE is_oss = 1 
   AND file_path IS NOT NULL 
   AND stored_name IS NOT NULL
   AND file_path != stored_name
-ORDER BY created_at DESC;
+ORDER BY upload_time DESC;
 
 -- 修复不一致的记录（使用 stored_name 作为正确的 S3 key）
 -- 注意：执行前请先备份数据库！
 UPDATE file_upload_record
-SET file_path = stored_name,
-    updated_at = NOW()
+SET file_path = stored_name
 WHERE is_oss = 1 
   AND file_path IS NOT NULL 
   AND stored_name IS NOT NULL

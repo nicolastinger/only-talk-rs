@@ -25,9 +25,9 @@ CREATE TABLE IF NOT EXISTS file_upload_record (
 );
 
 -- Indexes
-CREATE INDEX idx_file_upload_record_uuid ON public.file_upload_record USING btree (uuid);
-CREATE INDEX idx_file_upload_record_user_uuid ON public.file_upload_record USING btree (upload_user_uuid);
-CREATE INDEX idx_file_upload_record_upload_time ON public.file_upload_record USING btree (upload_time);
+CREATE INDEX IF NOT EXISTS idx_file_upload_record_uuid ON public.file_upload_record USING btree (uuid);
+CREATE INDEX IF NOT EXISTS idx_file_upload_record_user_uuid ON public.file_upload_record USING btree (upload_user_uuid);
+CREATE INDEX IF NOT EXISTS idx_file_upload_record_upload_time ON public.file_upload_record USING btree (upload_time);
 
 -- Table comment
 COMMENT ON TABLE public.file_upload_record IS '文件上传记录表';

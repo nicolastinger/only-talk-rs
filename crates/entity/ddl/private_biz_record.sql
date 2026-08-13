@@ -40,9 +40,9 @@ COMMENT ON COLUMN public.private_biz_record.biz_type IS '业务类型(朋友圈�
 COMMENT ON COLUMN public.private_biz_record.remark IS '备注信息';
 
 -- Indexes
-CREATE INDEX idx_private_biz_record_uuid ON public.private_biz_record USING btree (uuid);
-CREATE INDEX idx_private_biz_record_created_by ON public.private_biz_record USING btree (created_by);
-CREATE INDEX idx_private_biz_record_created_at ON public.private_biz_record USING btree (created_at);
-CREATE INDEX idx_private_biz_record_status ON public.private_biz_record USING btree (status);
-CREATE INDEX idx_private_biz_record_approve_status ON public.private_biz_record USING btree (approve_status);
-CREATE INDEX idx_private_biz_record_biz_type ON public.private_biz_record USING btree (biz_type);
+CREATE INDEX IF NOT EXISTS idx_private_biz_record_uuid ON public.private_biz_record USING btree (uuid);
+CREATE INDEX IF NOT EXISTS idx_private_biz_record_created_by ON public.private_biz_record USING btree (created_by);
+CREATE INDEX IF NOT EXISTS idx_private_biz_record_created_at ON public.private_biz_record USING btree (created_at);
+CREATE INDEX IF NOT EXISTS idx_private_biz_record_status ON public.private_biz_record USING btree (status);
+CREATE INDEX IF NOT EXISTS idx_private_biz_record_approve_status ON public.private_biz_record USING btree (approve_status);
+CREATE INDEX IF NOT EXISTS idx_private_biz_record_biz_type ON public.private_biz_record USING btree (biz_type);

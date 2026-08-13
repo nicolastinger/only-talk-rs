@@ -12,6 +12,9 @@ validator = { workspace = true }
 anyhow = { workspace = true }
 rbs = { workspace = true }
 uuid = { workspace = true }
+tracing = { workspace = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }
+tokio = { workspace = true }
+dotenvy = "0.15"

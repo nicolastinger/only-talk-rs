@@ -14,8 +14,8 @@ CREATE TABLE IF NOT EXISTS biz_file_link (
 );
 
 -- Indexes
-CREATE INDEX idx_biz_file_link_biz_id ON public.biz_file_link USING btree (biz_id);
-CREATE INDEX idx_biz_file_link_file_id ON public.biz_file_link USING btree (file_id);
+CREATE INDEX IF NOT EXISTS idx_biz_file_link_biz_id ON public.biz_file_link USING btree (biz_id);
+CREATE INDEX IF NOT EXISTS idx_biz_file_link_file_id ON public.biz_file_link USING btree (file_id);
 
 -- Table comment
 COMMENT ON TABLE public.biz_file_link IS '业务文件关联表';
