@@ -4,11 +4,21 @@ use std::sync::LazyLock;
 use std::sync::atomic::Ordering;
 
 use common::config_manager::set_config;
-use common::config_str::{MAX_QUIC_SERVERS, PC_PLATFORM, REDIS_SPLIT, S3_DEFAULT_BUCKET};
+use common::config_str::{
+    DEFAULT_MAX_FILE_SIZE, EMAIL_VERIFY_CODE, GROUP_MEMBERS_CACHE, MAX_QUIC_BUFFER_LEN,
+    MAX_QUIC_SERVERS, MOBILE_PLATFORM, OSS_TYPE_ALIYUN, OSS_TYPE_AWS, OSS_TYPE_MINIO,
+    OSS_TYPE_OTHER, PC_PLATFORM, PING, PONG, REDIS_EXTERNAL_QUIC_SERVERS,
+    REDIS_INTERNAL_QUIC_SERVERS, REDIS_QUIC_SERVERS, REDIS_SPLIT, REFRESH_TOKEN,
+    REFRESH_TOKEN_PLATFORM, S3_CHAT_FILE_ORIGIN_BUCKET, S3_CHAT_FILE_PREVIEW_BUCKET,
+    S3_DEFAULT_BUCKET, S3_PROVIDER_ALIYUN_OSS, S3_PROVIDER_AWS_S3, S3_PROVIDER_MINIO,
+    S3_USER_AVATAR_BUCKET, SYSTEM, USER_ADD_FRIEND, USER_PROCESS_FRIEND, USER_READ_MSG,
+    USER_UDP_ADDRESS, USER_UDP_ADDRESS_LOCK,
+};
 use common::substitute_env_vars;
 use common::utils::group_msg::{
     BroadcastType, GroupQuicMsg, InternalGroupBroadcast, InternalGroupBroadcastResponse,
 };
+use common::utils::internal_quic_client::make_internal_client_config;
 use common::utils::internal_quic_msg::{InternalQuicRequest, InternalQuicResponse, RequestSource};
 use common::utils::jwt_util::{generate_access_token, generate_token_with_expiry, verify_token};
 use common::utils::message_types::{
@@ -21,7 +31,7 @@ use common::utils::message_types::{
 use common::utils::rsa_util::{
     generate_random_string, get_rsa_keys, hash_password, verify_password,
 };
-use common::utils::server_count_sync::{SERVER_COUNT, compute_preferred_index};
+use common::utils::server_count_sync::{SERVER_COUNT, compute_preferred_index, get_server_count};
 use common::utils::text_msg::{
     HeadMsg, MessageType, TextMsg, TextQuicMsg, X25, build_text_msg, generate_text_msg_with_id,
     generate_text_msg_with_time,
@@ -126,6 +136,46 @@ mod config_str {
         assert_eq!(MAX_QUIC_SERVERS, 1000);
         assert_eq!(PC_PLATFORM, "PC");
         assert_eq!(S3_DEFAULT_BUCKET, "only-talk-rs");
+    }
+
+    #[test]
+    fn redis_key_prefixes() {
+        assert_eq!(REDIS_QUIC_SERVERS, "QUIC:SERVER:");
+        assert_eq!(REDIS_EXTERNAL_QUIC_SERVERS, "QUIC:SERVER:EXTERNAL:");
+        assert_eq!(REDIS_INTERNAL_QUIC_SERVERS, "INTERNAL:QUIC:SERVER:");
+        assert_eq!(USER_READ_MSG, "USER:READ:MSG:");
+        assert_eq!(USER_ADD_FRIEND, "USER_ADD_FRIEND_REQUEST");
+        assert_eq!(USER_PROCESS_FRIEND, "USER_PROCESS_FRIEND_REQUEST");
+        assert_eq!(USER_UDP_ADDRESS, "USER_UDP_ADDRESS_");
+        assert_eq!(USER_UDP_ADDRESS_LOCK, "USER_UDP_ADDRESS_LOCK_");
+        assert_eq!(GROUP_MEMBERS_CACHE, "GROUP:MEMBERS:");
+        assert_eq!(REFRESH_TOKEN, "REFRESH_TOKEN:");
+        assert_eq!(REFRESH_TOKEN_PLATFORM, "REFRESH_TOKEN:PLATFORM:");
+        assert_eq!(EMAIL_VERIFY_CODE, "EMAIL:VERIFY:CODE:");
+    }
+
+    #[test]
+    fn service_and_platform_constants() {
+        assert_eq!(SYSTEM, "system");
+        assert_eq!(PING, "ping");
+        assert_eq!(PONG, "pong");
+        assert_eq!(MOBILE_PLATFORM, "MOBILE");
+    }
+
+    #[test]
+    fn limits_and_s3_constants() {
+        assert_eq!(MAX_QUIC_BUFFER_LEN, 1024 * 1024 * 10);
+        assert_eq!(DEFAULT_MAX_FILE_SIZE, 20 * 1024 * 1024);
+        assert_eq!(OSS_TYPE_MINIO, 0);
+        assert_eq!(OSS_TYPE_ALIYUN, 1);
+        assert_eq!(OSS_TYPE_AWS, 2);
+        assert_eq!(OSS_TYPE_OTHER, 3);
+        assert_eq!(S3_CHAT_FILE_PREVIEW_BUCKET, "chat-file-preview");
+        assert_eq!(S3_CHAT_FILE_ORIGIN_BUCKET, "chat-file-origin");
+        assert_eq!(S3_USER_AVATAR_BUCKET, "user-avatar");
+        assert_eq!(S3_PROVIDER_MINIO, "minio");
+        assert_eq!(S3_PROVIDER_ALIYUN_OSS, "aliyun_oss");
+        assert_eq!(S3_PROVIDER_AWS_S3, "aws_s3");
     }
 }
 
@@ -562,11 +612,61 @@ mod jwt_util {
         }
         assert!(verify_token(&tampered_mid.into_iter().collect::<String>()).is_err());
     }
+
+    #[test]
+    fn verify_token_rejects_malformed_token() {
+        install_test_jwt_keys();
+        assert!(verify_token("").is_err());
+        assert!(verify_token("not-a-jwt").is_err());
+        assert!(verify_token("a.b.c").is_err());
+    }
+
+    #[test]
+    fn expired_token_is_rejected() {
+        install_test_jwt_keys();
+        let token = generate_token_with_expiry("user-123".to_string(), "PC".to_string(), -3600)
+            .expect("签发已过期 token 失败");
+        assert!(verify_token(&token).is_err());
+    }
+
+    #[test]
+    fn access_token_expiry_is_about_24h() {
+        install_test_jwt_keys();
+        let now = get_now_time_stamp_as_secs().expect("获取当前秒级时间戳失败");
+        let token = generate_access_token("user-123".to_string(), "PC".to_string())
+            .expect("签发 access token 失败");
+        let claims = verify_token(&token).expect("校验 token 失败");
+        assert!(claims.exp > now + 3600 * 23, "exp 应约为 24h 后,实际 {}", claims.exp);
+        assert!(claims.exp <= now + 3600 * 24 + 60, "exp 应不超过 24h 后,实际 {}", claims.exp);
+    }
+
+    #[test]
+    fn token_with_custom_expiry_matches_requested_seconds() {
+        install_test_jwt_keys();
+        let now = get_now_time_stamp_as_secs().expect("获取当前秒级时间戳失败");
+        let token = generate_token_with_expiry("user-123".to_string(), "MOBILE".to_string(), 600)
+            .expect("签发带过期时间的 token 失败");
+        let claims = verify_token(&token).expect("校验 token 失败");
+        assert!(claims.exp > now + 500, "自定义过期时间应约为 600s,实际 {}", claims.exp);
+        assert!(claims.exp <= now + 600 + 60, "自定义过期时间应不超过 600s,实际 {}", claims.exp);
+    }
 }
 
 /// utils::server_count_sync 集群节点数 / 哈希取模
 mod server_count_sync {
     use super::*;
+
+    #[test]
+    fn get_server_count_reflects_global() {
+        SERVER_COUNT.store(1, Ordering::Relaxed);
+        assert_eq!(get_server_count(), 1);
+
+        SERVER_COUNT.store(7, Ordering::Relaxed);
+        assert_eq!(get_server_count(), 7);
+
+        SERVER_COUNT.store(1, Ordering::Relaxed);
+        assert_eq!(get_server_count(), 1);
+    }
 
     #[test]
     fn compute_preferred_index_is_deterministic_and_bounded() {
@@ -585,5 +685,19 @@ mod server_count_sync {
 
         // 恢复默认
         SERVER_COUNT.store(1, Ordering::Relaxed);
+    }
+}
+
+/// utils::internal_quic_client 内部 QUIC 客户端配置(跳过证书校验)
+mod internal_quic_client {
+    use super::*;
+
+    #[tokio::test]
+    async fn make_client_config_succeeds() {
+        let config = make_internal_client_config().expect("构建内部 QUIC 客户端配置失败");
+        // 配置可用:可挂载到 QUIC 客户端端点(仅绑定本地临时 UDP 端口,不发起网络连接)
+        let mut endpoint = quinn::Endpoint::client("0.0.0.0:0".parse().expect("解析本地地址失败"))
+            .expect("创建 QUIC 客户端端点失败");
+        endpoint.set_default_client_config(config);
     }
 }
