@@ -50,3 +50,67 @@ pub fn get_file_type_config() -> Result<FileTypeConfig> {
         },
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Mutex;
+
+    use common::config_manager::{remove_config, set_array_config};
+
+    use super::*;
+
+    // GLOBAL_CONFIG 为进程内共享,串行化两个读写同一组 key 的测试避免竞态
+    static CONFIG_LOCK: Mutex<()> = Mutex::new(());
+
+    fn install_file_types_config() {
+        let groups = [
+            ("image", vec!["png", "jpg"], vec!["image/png", "image/jpeg"]),
+            ("document", vec!["pdf"], vec!["application/pdf"]),
+            ("archive", vec!["zip", "rar"], vec!["application/zip"]),
+            ("audio", vec!["mp3"], vec!["audio/mpeg"]),
+            ("video", vec!["mp4"], vec!["video/mp4"]),
+        ];
+        for (group, extensions, mime_types) in groups {
+            set_array_config(
+                format!("file_types.{}.extensions", group),
+                extensions.into_iter().map(|s| s.to_string()).collect(),
+            );
+            set_array_config(
+                format!("file_types.{}.mime_types", group),
+                mime_types.into_iter().map(|s| s.to_string()).collect(),
+            );
+        }
+    }
+
+    fn remove_file_types_config() {
+        for group in ["image", "document", "archive", "audio", "video"] {
+            remove_config(&format!("file_types.{}.extensions", group));
+            remove_config(&format!("file_types.{}.mime_types", group));
+        }
+    }
+
+    #[test]
+    fn reads_all_groups_from_config() {
+        let _guard = CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        install_file_types_config();
+        let config = get_file_type_config().expect("读取文件类型配置失败");
+
+        assert_eq!(config.image.extensions, vec!["png", "jpg"]);
+        assert_eq!(config.image.mime_types, vec!["image/png", "image/jpeg"]);
+        assert_eq!(config.document.extensions, vec!["pdf"]);
+        assert_eq!(config.document.mime_types, vec!["application/pdf"]);
+        assert_eq!(config.archive.extensions, vec!["zip", "rar"]);
+        assert_eq!(config.audio.extensions, vec!["mp3"]);
+        assert_eq!(config.video.extensions, vec!["mp4"]);
+        assert_eq!(config.video.mime_types, vec!["video/mp4"]);
+
+        remove_file_types_config();
+    }
+
+    #[test]
+    fn missing_config_returns_error() {
+        let _guard = CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        remove_file_types_config();
+        assert!(get_file_type_config().is_err());
+    }
+}
