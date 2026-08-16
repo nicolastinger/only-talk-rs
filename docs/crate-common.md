@@ -26,7 +26,7 @@ common/src/
 ├── config_manager.rs    # 全局配置 DashMap 读写
 ├── config_str.rs        # 字符串常量（Redis key 前缀、消息类型、平台等）
 ├── state.rs             # CoreState（db + redis 共享状态）
-├── marcos/              # read_global_config! 等宏
+├── macros/              # read_global_config! 等宏
 ├── tracing.rs           # 日志初始化
 └── utils/
     ├── jwt_util.rs      # JWT 签发/校验（RS256）

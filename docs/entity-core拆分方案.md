@@ -39,7 +39,7 @@ entity/src/
 ├── config_manager.rs          # GLOBAL_CONFIG DashMap
 ├── config_str.rs              # 字符串常量
 ├── tracing.rs                 # tracing 初始化
-├── marcos/
+├── macros/
 │   ├── mod.rs
 │   └── read_config.rs         # init_global_config!, read_global_config! 宏
 ├── models/
@@ -120,7 +120,7 @@ core/src/
 ├── config_manager.rs          # GLOBAL_CONFIG DashMap
 ├── config_str.rs              # 所有字符串常量
 ├── tracing.rs                 # init_tracing
-├── marcos/
+├── macros/
 │   ├── mod.rs
 │   └── read_config.rs         # 宏
 ├── models/
@@ -296,7 +296,7 @@ use tokio::sync::RwLock;
 
 pub mod config_str;
 pub mod config_manager;
-pub mod marcos;
+pub mod macros;
 pub mod models;
 pub mod tracing;
 pub mod utils;
@@ -358,7 +358,7 @@ pub mod models;
 
 4. 从 `entity/src/utils/` 迁移全部文件到 `core/src/utils/`
 5. 从 `entity/src/` 迁移 `config_manager.rs`、`config_str.rs`、`tracing.rs` 到 `core/src/`
-6. 从 `entity/src/marcos/` 迁移全部文件到 `core/src/marcos/`
+6. 从 `entity/src/macros/` 迁移全部文件到 `core/src/macros/`
 7. 从 `entity/src/models/internal_quic_msg.rs` 迁移到 `core/src/models/`
 8. 更新 `core` 内部各文件的 `crate::` 引用
 
@@ -442,8 +442,8 @@ pub mod models;
 | `crates/core/src/utils/sql_utils.rs` | 从 entity 迁移 |
 | `crates/core/src/utils/time.rs` | 从 entity 迁移 |
 | `crates/core/src/utils/validators.rs` | 从 entity 迁移 |
-| `crates/core/src/marcos/mod.rs` | 从 entity 迁移 |
-| `crates/core/src/marcos/read_config.rs` | 从 entity 迁移 |
+| `crates/core/src/macros/mod.rs` | 从 entity 迁移 |
+| `crates/core/src/macros/read_config.rs` | 从 entity 迁移 |
 
 ### 12.2 修改文件
 
@@ -468,5 +468,5 @@ pub mod models;
 | `crates/entity/src/config_manager.rs` | 迁移到 core |
 | `crates/entity/src/config_str.rs` | 迁移到 core |
 | `crates/entity/src/tracing.rs` | 迁移到 core |
-| `crates/entity/src/marcos/` | 全部迁移到 core |
+| `crates/entity/src/macros/` | 全部迁移到 core |
 | `crates/entity/src/models/internal_quic_msg.rs` | 迁移到 core |

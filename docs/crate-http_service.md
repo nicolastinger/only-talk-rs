@@ -22,7 +22,7 @@ http_service/src/
 ├── lib.rs                # pub mod 声明（common / http_service / middleware / state / utils）
 ├── state.rs              # AppState（core + s3 + email）及 db()/redis()/s3() 访问器
 ├── middleware/           # trace_id.rs（TraceId）、record_bad_http.rs（JWT 鉴权）
-├── utils/                # http_response.rs（统一响应）、http_marcos.rs（validate/respond 宏）、file_utils.rs
+├── utils/                # http_response.rs（统一响应）、http_macros.rs（validate/respond 宏）、file_utils.rs
 ├── common/dto/           # 跨模块 DTO（AuthAccount、BasePageDTO、ReqList）
 └── http_service/
     ├── user_service/     # 用户：注册/登录/token/资料；好友：申请/列表/删除
