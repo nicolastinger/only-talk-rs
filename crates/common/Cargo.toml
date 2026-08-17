@@ -25,10 +25,10 @@ jsonwebtoken = { workspace = true }
 rsa = { workspace = true }
 uuid = { workspace = true }
 rand = { workspace = true }
-argon2 = "0.5"
+argon2 = { workspace = true }
 once_cell = { workspace = true }
 regex = { workspace = true }
-dashmap = "6.1"
+dashmap = { workspace = true }
 toml = { workspace = true }
 crc = { workspace = true }
 crc-catalog = { workspace = true }

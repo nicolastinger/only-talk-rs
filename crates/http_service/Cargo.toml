@@ -29,14 +29,14 @@ lazy_static = { workspace = true }
 regex = { workspace = true }
 uuid = { workspace = true }
 sha2 = { workspace = true }
-actix-multipart = "0.6"
-futures-util = "0.3"
-image = "0.25"
-webp = "0.3"
+actix-multipart = { workspace = true }
+futures-util = { workspace = true }
+image = { workspace = true }
+webp = { workspace = true }
 tokio = { workspace = true }
 rand = { workspace = true }
 
 [dev-dependencies]
-actix-http = "3"
-dotenvy = "0.15"
+actix-http = { workspace = true }
+dotenvy = { workspace = true }
 tracing-subscriber = { workspace = true }

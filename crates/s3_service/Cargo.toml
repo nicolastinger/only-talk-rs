@@ -9,9 +9,9 @@ integration-test = []
 
 [dependencies]
 common = { path = "../common" }
-aws-sdk-s3 = "1"
-aws-config = "1"
-aws-credential-types = "1"
+aws-sdk-s3 = { workspace = true }
+aws-config = { workspace = true }
+aws-credential-types = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -19,10 +19,10 @@ anyhow = { workspace = true }
 tracing = { workspace = true }
 async-trait = { workspace = true }
 uuid = { workspace = true }
-futures-util = "0.3"
-bytes = "1"
+futures-util = { workspace = true }
+bytes = { workspace = true }
 
 [dev-dependencies]
-tokio-test = "0.4"
-reqwest = { version = "0.11", features = ["json"] }
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tokio-test = { workspace = true }
+reqwest = { workspace = true, features = ["json"] }
+tracing-subscriber = { workspace = true }
