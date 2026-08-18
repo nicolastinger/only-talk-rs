@@ -65,7 +65,7 @@ pub async fn add_user_with_notify(
         json_str.len()
     );
 
-    // Wrap as TextQuicMsg binary (consistent with other message paths)
+    // 包装为 TextQuicMsg 二进制(与其他消息路径保持一致)
     let payload = common::utils::text_msg::generate_text_msg(
         NOTIFY_TYPE_MSG,
         json_str.into_bytes(),
@@ -108,7 +108,7 @@ pub async fn add_user_with_notify(
     Ok(CommonResponseNoDataRef::success_empty())
 }
 
-/// Process friend request
+/// 处理好友请求
 pub async fn process_friend_with_notify(
     rb: &RBatis,
     friend_request_info_dto: FriendRequestInfoDTO,
@@ -130,7 +130,7 @@ pub async fn process_friend_with_notify(
     let target_id_str =
         quic_msg.user_id.ok_or(anyhow!("Notification missing target user ID"))?.to_string();
 
-    // Wrap as TextQuicMsg binary (consistent with other message paths)
+    // 包装为 TextQuicMsg 二进制(与其他消息路径保持一致)
     let payload = common::utils::text_msg::generate_text_msg(
         NOTIFY_TYPE_MSG,
         json_str.into_bytes(),
@@ -156,7 +156,7 @@ pub async fn process_friend_with_notify(
     Ok(CommonResponseNoDataRef::success_empty())
 }
 
-/// Get external QUIC node address assigned to current user (hash modulo)
+/// 获取分配给当前用户的外网 QUIC 节点地址(哈希取模)
 pub async fn get_quic_server_for_user(
     redis: &deadpool_redis::Pool,
     uuid: &str,

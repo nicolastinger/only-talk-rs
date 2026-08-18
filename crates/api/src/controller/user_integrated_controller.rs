@@ -15,7 +15,7 @@ pub fn user_integrated_service(cfg: &mut web::ServiceConfig) {
         .service(get_quic_server_for_user_api);
 }
 
-/// Add friend and send notification
+/// 添加好友并发送通知
 #[post("/add_friend_with_notify")]
 pub async fn add_user_with_notify_api(
     req: HttpRequest,
@@ -29,7 +29,7 @@ pub async fn add_user_with_notify_api(
     respond_json_any!(add_user_with_notify(state.db(), friend).await)
 }
 
-/// Process friend request and send notification
+/// 处理好友请求并发送通知
 #[post("/process_friend_with_notify")]
 pub async fn process_friend_with_notify_api(
     req: HttpRequest,
@@ -43,7 +43,7 @@ pub async fn process_friend_with_notify_api(
     respond_json_any!(res)
 }
 
-/// Get external QUIC node address assigned to current user (hash modulo, single node)
+/// 获取分配给当前用户的外网 QUIC 节点地址(哈希取模,单节点)
 #[get("/quic_servers")]
 pub async fn get_quic_server_for_user_api(
     state: web::Data<AppState>,

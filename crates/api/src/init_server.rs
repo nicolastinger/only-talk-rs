@@ -40,7 +40,7 @@ fn init_cert_file() -> anyhow::Result<(Vec<Certificate>, PrivateKey)> {
         .collect::<Vec<_>>();
     info!("loaded {} certificates", cert_chain.len());
 
-    // Try reading private keys of different types
+    // 尝试读取不同类型的私钥
     let mut keys = {
         reset_file(key_file)?;
         if let Ok(keys) = rsa_private_keys(key_file) {
@@ -89,9 +89,9 @@ fn init_cert_file() -> anyhow::Result<(Vec<Certificate>, PrivateKey)> {
     Ok((cert_chain, key))
 }
 
-/// Initialize S3 client.
+/// 初始化 S3 客户端。
 ///
-/// S3 storage is mandatory: startup fails if it is not enabled or cannot be initialized.
+/// S3 存储为必选项: 未启用或初始化失败时启动报错。
 async fn init_s3_client() -> anyhow::Result<Arc<s3_service::S3Client>> {
     let enabled = common::config_manager::get_config("s3.enabled")
         .unwrap_or_else(|| "false".to_string())
@@ -115,9 +115,9 @@ async fn init_s3_client() -> anyhow::Result<Arc<s3_service::S3Client>> {
     Ok(client)
 }
 
-/// Initialize email manager with Aliyun provider loaded from config.
+/// 初始化邮件管理器,从配置加载阿里云提供商。
 ///
-/// If email is disabled in config, an empty manager is created (sending will fail).
+/// 配置中禁用邮件时创建空管理器(发送将失败)。
 fn init_email_manager() -> anyhow::Result<Arc<email_service::EmailManager>> {
     let enabled = common::config_manager::get_config("email.enabled")
         .unwrap_or_else(|| "false".to_string())
@@ -151,7 +151,7 @@ fn init_email_manager() -> anyhow::Result<Arc<email_service::EmailManager>> {
     Ok(Arc::new(email_service::EmailManager::new(config)?))
 }
 
-/// Initialize services
+/// 初始化服务
 pub async fn start_server() -> anyhow::Result<()> {
     init_app_config()?;
 
@@ -161,7 +161,7 @@ pub async fn start_server() -> anyhow::Result<()> {
 
     let (cert_chain, key) = init_cert_file()?;
 
-    // Configure TLS
+    // 配置 TLS
     let config = ServerConfig::builder()
         .with_safe_defaults()
         .with_no_client_auth()
@@ -175,10 +175,10 @@ pub async fn start_server() -> anyhow::Result<()> {
     let redis_pool = init_redis(&redis_url)?;
     verify_redis(&redis_pool).await;
 
-    // Initialize S3 client (mandatory)
+    // 初始化 S3 客户端(必选)
     let s3_client = init_s3_client().await?;
 
-    // Initialize email manager (Aliyun provider for registration verification codes)
+    // 初始化邮件管理器(注册验证码使用阿里云提供商)
     let email = init_email_manager()?;
 
     let state = http_service::state::AppState {
@@ -198,7 +198,7 @@ pub async fn start_server() -> anyhow::Result<()> {
             .configure(http_service::http_service::configure_routes)
             .configure(configure_api_routes)
     })
-    .bind_rustls_021(address, config)? // Bind to HTTPS port
+    .bind_rustls_021(address, config)? // 绑定 HTTPS 端口
     // .bind(address)?
     .run()
     .await?;

@@ -24,7 +24,7 @@ use rbatis::{RBatis, rbdc};
 use s3_service::S3Client;
 use tracing::info;
 
-/// Upload user avatar
+/// 上传用户头像
 pub async fn upload_user_avatar(
     rb: &RBatis,
     uuid: Option<String>,
@@ -59,7 +59,7 @@ pub async fn upload_user_avatar(
     Ok(CommonResponseRef::<String>::success_json(&biz_id)?)
 }
 
-/// Upload user chat file
+/// 上传用户聊天文件
 pub async fn upload_user_chat_file(
     rb: &RBatis,
     uuid: Option<String>,
@@ -105,7 +105,7 @@ pub async fn upload_user_chat_file(
     Ok(CommonResponseRef::<BizRecordVO>::success_json(&biz_record)?)
 }
 
-/// Upload group chat file (no friend relationship check)
+/// 上传群聊文件(不校验好友关系)
 pub async fn upload_group_chat_file(
     rb: &RBatis,
     uuid: Option<String>,
@@ -117,16 +117,16 @@ pub async fn upload_group_chat_file(
     let user_id = rbdc::Uuid::from_str(&uuid)?;
     let group_id = rbdc::Uuid::from_str(&group_uuid)?;
 
-    // Upload via S3 (no friend check for group chat)
+    // 通过 S3 上传(群聊不做好友校验)
     info!("uploading group chat file to S3...");
     let record = upload_chat_preview_file_s3(rb, uuid.clone(), payload, s3_client.clone())
         .await
         .map_err(|e| anyhow!("S3 upload failed: {}", e))?;
     info!("group chat file uploaded to S3 successfully");
 
-    // Save business info (no friend check)
+    // 保存业务信息(不校验好友关系)
     let chat_biz_record = create_group_chat_biz(rb, user_id, group_id).await?;
-    // Save file association
+    // 保存文件关联
     let biz_file_link = BizFileLink {
         id: None,
         biz_id: chat_biz_record.uuid.clone(),
@@ -137,13 +137,13 @@ pub async fn upload_group_chat_file(
     BizFileLink::insert(rb, &biz_file_link).await?;
     let biz_link_vo = BizFileLinkVO::from_biz_file_link(biz_file_link);
     let biz_link_vo_vec = vec![biz_link_vo];
-    // Convert to VO
+    // 转换为 VO
     let biz_record = BizRecordVO::from_chat_biz_record(chat_biz_record, biz_link_vo_vec);
 
     Ok(CommonResponseRef::<BizRecordVO>::success_json(&biz_record)?)
 }
 
-/// Upload group avatar
+/// 上传群头像
 pub async fn upload_group_avatar(
     rb: &RBatis,
     uuid: Option<String>,
