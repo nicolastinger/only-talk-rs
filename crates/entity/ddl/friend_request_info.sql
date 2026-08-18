@@ -1,6 +1,6 @@
--- public.friend_request_info table definition
+-- public.friend_request_info 表定义
 
--- Drop table
+-- 删除表
 -- DROP TABLE friend_request_info;
 
 CREATE TABLE IF NOT EXISTS friend_request_info (
@@ -18,10 +18,10 @@ CREATE TABLE IF NOT EXISTS friend_request_info (
     CONSTRAINT friend_request_info_pk PRIMARY KEY (id)
 );
 
--- Table comment
+-- 表注释
 COMMENT ON TABLE public.friend_request_info IS '好友请求表';
 
--- Column comments
+-- 列注释
 COMMENT ON COLUMN public.friend_request_info.uuid IS '主键';
 COMMENT ON COLUMN public.friend_request_info.created_at IS '创建时间';
 COMMENT ON COLUMN public.friend_request_info.updated_at IS '更新时间';

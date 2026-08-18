@@ -1,6 +1,6 @@
--- public.chat_message_record_fail table definition
+-- public.chat_message_record_fail 表定义
 
--- Drop table
+-- 删除表
 -- DROP TABLE chat_message_record_fail;
 
 CREATE TABLE IF NOT EXISTS chat_message_record_fail (
@@ -13,10 +13,10 @@ CREATE TABLE IF NOT EXISTS chat_message_record_fail (
     CONSTRAINT chat_message_record_fail_pk PRIMARY KEY (id)
 );
 
--- Table comment
+-- 表注释
 COMMENT ON TABLE public.chat_message_record_fail IS '发送消息失败表';
 
--- Column comments
+-- 列注释
 COMMENT ON COLUMN public.chat_message_record_fail.id IS '自增主键';
 COMMENT ON COLUMN public.chat_message_record_fail.send_user IS '发送者id';
 COMMENT ON COLUMN public.chat_message_record_fail.recv_user IS '接收者id';

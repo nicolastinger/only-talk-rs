@@ -1,6 +1,6 @@
--- public.friend_list table definition
+-- public.friend_list 表定义
 
--- Drop table
+-- 删除表
 -- DROP TABLE friend_list;
 
 CREATE TABLE IF NOT EXISTS friend_list (
@@ -12,10 +12,10 @@ CREATE TABLE IF NOT EXISTS friend_list (
     CONSTRAINT friend_list_pk PRIMARY KEY (uuid)
 );
 
--- Table comment
+-- 表注释
 COMMENT ON TABLE public.friend_list IS '好友列表缓存表';
 
--- Column comments
+-- 列注释
 COMMENT ON COLUMN public.friend_list.uuid IS '用户id';
 COMMENT ON COLUMN public.friend_list.create_at IS '创建时间';
 COMMENT ON COLUMN public.friend_list.update_at IS '更新时间';

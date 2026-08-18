@@ -1,6 +1,6 @@
--- public.private_biz_record table definition
+-- public.private_biz_record 表定义
 
--- Drop table
+-- 删除表
 -- DROP TABLE private_biz_record;
 
 CREATE TABLE IF NOT EXISTS private_biz_record (
@@ -20,10 +20,10 @@ CREATE TABLE IF NOT EXISTS private_biz_record (
     remark text -- 备注信息
 );
 
--- Table comment
+-- 表注释
 COMMENT ON TABLE public.private_biz_record IS '私密文件上传业务表';
 
--- Column comments
+-- 列注释
 COMMENT ON COLUMN public.private_biz_record.id IS '主键ID';
 COMMENT ON COLUMN public.private_biz_record.uuid IS '业务唯一标识符';
 COMMENT ON COLUMN public.private_biz_record.policy_id IS '鉴权策略id';
@@ -39,7 +39,7 @@ COMMENT ON COLUMN public.private_biz_record.approve_status IS '审批状态(0-�
 COMMENT ON COLUMN public.private_biz_record.biz_type IS '业务类型(朋友圈、收藏、私密相册等)';
 COMMENT ON COLUMN public.private_biz_record.remark IS '备注信息';
 
--- Indexes
+-- 索引
 CREATE INDEX IF NOT EXISTS idx_private_biz_record_uuid ON public.private_biz_record USING btree (uuid);
 CREATE INDEX IF NOT EXISTS idx_private_biz_record_created_by ON public.private_biz_record USING btree (created_by);
 CREATE INDEX IF NOT EXISTS idx_private_biz_record_created_at ON public.private_biz_record USING btree (created_at);

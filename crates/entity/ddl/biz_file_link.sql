@@ -1,6 +1,6 @@
--- public.biz_file_link table definition
+-- public.biz_file_link 表定义
 
--- Drop table
+-- 删除表
 -- DROP TABLE biz_file_link;
 
 CREATE TABLE IF NOT EXISTS biz_file_link (
@@ -13,14 +13,14 @@ CREATE TABLE IF NOT EXISTS biz_file_link (
     CONSTRAINT biz_file_link_biz_preview_unique UNIQUE (biz_id, file_id)
 );
 
--- Indexes
+-- 索引
 CREATE INDEX IF NOT EXISTS idx_biz_file_link_biz_id ON public.biz_file_link USING btree (biz_id);
 CREATE INDEX IF NOT EXISTS idx_biz_file_link_file_id ON public.biz_file_link USING btree (file_id);
 
--- Table comment
+-- 表注释
 COMMENT ON TABLE public.biz_file_link IS '业务文件关联表';
 
--- Column comments
+-- 列注释
 COMMENT ON COLUMN public.biz_file_link.id IS '主键ID';
 COMMENT ON COLUMN public.biz_file_link.biz_id IS '业务唯一标识符';
 COMMENT ON COLUMN public.biz_file_link.origin_file_id IS '原文件唯一标识符';

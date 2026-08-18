@@ -1,6 +1,6 @@
--- public.user_cache table definition
+-- public.user_cache 表定义
 
--- Drop table
+-- 删除表
 -- DROP TABLE user_cache;
 
 CREATE TABLE IF NOT EXISTS user_cache (
@@ -12,10 +12,10 @@ CREATE TABLE IF NOT EXISTS user_cache (
     CONSTRAINT user_cache_pk PRIMARY KEY (uuid)
 );
 
--- Table comment
+-- 表注释
 COMMENT ON TABLE public.user_cache IS '用户缓存表';
 
--- Column comments
+-- 列注释
 COMMENT ON COLUMN public.user_cache.uuid IS '用户主键';
 COMMENT ON COLUMN public.user_cache.created_at IS '创建时间';
 COMMENT ON COLUMN public.user_cache.updated_at IS '更新时间';

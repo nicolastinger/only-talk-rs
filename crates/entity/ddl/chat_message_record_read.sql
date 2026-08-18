@@ -1,6 +1,6 @@
--- public.chat_message_record_read table definition
+-- public.chat_message_record_read 表定义
 
--- Drop table
+-- 删除表
 -- DROP TABLE chat_message_record_read;
 
 CREATE TABLE IF NOT EXISTS chat_message_record_read (
@@ -12,10 +12,10 @@ CREATE TABLE IF NOT EXISTS chat_message_record_read (
     CONSTRAINT chat_message_record_read_status_pk PRIMARY KEY (id)
 );
 
--- Table comment
+-- 表注释
 COMMENT ON TABLE public.chat_message_record_read IS '聊天记录已读状态表';
 
--- Column comments
+-- 列注释
 COMMENT ON COLUMN public.chat_message_record_read.id IS '自增id';
 COMMENT ON COLUMN public.chat_message_record_read.send_user IS '发送人id';
 COMMENT ON COLUMN public.chat_message_record_read.recv_user IS '接收人id';

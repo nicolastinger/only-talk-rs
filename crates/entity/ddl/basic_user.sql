@@ -1,6 +1,6 @@
--- public.basic_user table definition
+-- public.basic_user 表定义
 
--- Drop table
+-- 删除表
 -- DROP TABLE basic_user;
 
 CREATE TABLE IF NOT EXISTS basic_user (
@@ -14,10 +14,10 @@ CREATE TABLE IF NOT EXISTS basic_user (
     CONSTRAINT basic_user_pk PRIMARY KEY (uuid)
 );
 
--- Table comment
+-- 表注释
 COMMENT ON TABLE public.basic_user IS '基础用户表';
 
--- Column comments
+-- 列注释
 COMMENT ON COLUMN public.basic_user.uuid IS '主键';
 COMMENT ON COLUMN public.basic_user.username IS '用户名';
 COMMENT ON COLUMN public.basic_user.account IS '用户编码';

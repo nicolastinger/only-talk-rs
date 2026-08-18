@@ -1,4 +1,4 @@
--- Sequences for v1.0.0
+-- v1.0.0 序列
 -- 仅保留建表时通过 nextval(...) 显式引用的序列；
 -- 使用 serial4/bigserial 的表会由 PostgreSQL 自动创建同名序列，无需在此定义。
 

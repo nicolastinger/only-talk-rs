@@ -1,6 +1,6 @@
--- public.friend_link table definition
+-- public.friend_link 表定义
 
--- Drop table
+-- 删除表
 -- DROP TABLE friend_link;
 
 CREATE TABLE IF NOT EXISTS friend_link (
@@ -15,10 +15,10 @@ CREATE TABLE IF NOT EXISTS friend_link (
     CONSTRAINT friend_link_unique UNIQUE (request_user, accept_user)
 );
 
--- Table comment
+-- 表注释
 COMMENT ON TABLE public.friend_link IS '好友关系表';
 
--- Column comments
+-- 列注释
 COMMENT ON COLUMN public.friend_link.uuid IS '主键';
 COMMENT ON COLUMN public.friend_link.request_user IS '请求用户';
 COMMENT ON COLUMN public.friend_link.accept_user IS '接受用户';

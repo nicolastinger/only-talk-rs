@@ -1,6 +1,6 @@
--- public.user_info table definition
+-- public.user_info 表定义
 
--- Drop table
+-- 删除表
 -- DROP TABLE user_info;
 
 CREATE TABLE IF NOT EXISTS user_info (
@@ -18,10 +18,10 @@ CREATE TABLE IF NOT EXISTS user_info (
     CONSTRAINT user_info_pk PRIMARY KEY (uuid)
 );
 
--- Table comment
+-- 表注释
 COMMENT ON TABLE public.user_info IS '用户详细信息表';
 
--- Column comments
+-- 列注释
 COMMENT ON COLUMN public.user_info.uuid IS '主键';
 COMMENT ON COLUMN public.user_info.gender IS '性别';
 COMMENT ON COLUMN public.user_info.age IS '年龄';
