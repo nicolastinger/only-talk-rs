@@ -43,4 +43,4 @@ common/src/
 
 - 连接池不做全局单例：`init_sql_pool` / `init_redis` 每次调用都会创建新的池实例，由调用方放入 `CoreState { db, redis }` 后依赖注入（http_service 的 `AppState`、quic_service 的 `ChatNode` 均如此）。standalone 模式下 `api` 与 `quic_service` 各自持有独立连接池。
 - `init_app_config` 会替换 `${VAR}`，缺失的变量会静默替换为空字符串——配置错误可能推迟到运行时才暴露。
-- `#![deny(clippy::unwrap_used)]` 生效，禁止 `.unwrap()`，用 `expect("reason")` 或错误处理。
+- JWT 签发/校验使用进程级缓存：`EncodingKey`/`DecodingKey` 只从 RSA PEM 解析一次（`OnceCell`），避免每次调用重复解析。

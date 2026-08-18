@@ -39,4 +39,4 @@ s3_service/src/
 
 ## 部署形态
 
-仅作为库被上层使用，无独立可执行入口。S3 未启用时上层（`AppState.s3`）为 `None`。
+仅作为库被上层使用，无独立可执行入口。S3 为启动强制要求：`api::init_server` 读取 `s3.enabled`，为 false 时拒绝启动；`AppState.s3`（`Arc<S3Client>`）始终可用。

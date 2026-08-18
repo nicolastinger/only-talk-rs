@@ -6,7 +6,7 @@ HTTP REST 服务层（actix-web），实现所有面向客户端的业务 API：
 
 - 提供 actix `configure_routes` 路由注册入口（`/user` `/friend` `/group` `/msg` `/file` `/notify` 六个 scope）
 - controller 层：接收 `web::Data<AppState>` 依赖注入，解析请求 DTO/路径/Header，调用 service
-- service 层：业务逻辑，通过窄签名（`rb: &RBatis` / `redis: &Pool` / `s3: Option<Arc<S3Client>>`）使用基础设施
+- service 层：业务逻辑，通过窄签名（`rb: &RBatis` / `redis: &Pool` / `s3: Arc<S3Client>`）使用基础设施
 - 中间件：`TraceIdMiddleware`（全链路 TraceId）、`error_record_middleware`（全局 JWT 鉴权 + 错误记录）
 - 依赖注入宿主：定义 `AppState { core, s3, email }`（组合 `common::CoreState`），供 controller 统一取用
 
@@ -37,7 +37,7 @@ http_service/src/
 - **依赖注入**：controller 只引用 `web::Data<AppState>`，经 `state.db()` / `state.redis()` / `state.s3()` 取连接；service 层一律通过窄签名（`rb: &RBatis` / `redis: &Pool`）使用基础设施，不访问任何全局单例（连接池全局单例已移除）。
 - 鉴权：除 `sign_up`/`sign_in`/`refresh_token` 外所有端点经中间件校验 Bearer JWT，用户 UUID 注入 `AuthAccount` 扩展。
 - service 函数统一返回 `Result<String, anyhow::Error>`（已是 JSON 字符串），controller 用 `respond_json_any!` 宏包装。
-- `s3_controller`（`/s3/*`）是通用 S3 管理端点；S3 未启用时 `state.s3` 为 `None`，这些端点返回"未初始化"错误。
+- `s3_controller`（`/s3/*`）是通用 S3 管理端点；S3 为启动强制要求（`s3.enabled` 为 false 时 `api::init_server` 拒绝启动），`state.s3` 始终可用。
 - 集成测试：`tests/http_service_integration_test.rs`（`#[ignore]`，需本地 PG/Redis，见 [http_service 集成测试说明](./http_service_integration_test.md)）。
 
 ## 部署形态

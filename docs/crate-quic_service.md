@@ -23,8 +23,9 @@ quic_service/src/
 ├── init_server.rs        # start_server()：组装 ChatNode + NAT UDP + 内部 QUIC + 集群注册
 ├── lib.rs
 ├── bin/quic_server.rs    # 独立二进制入口（拆分部署时运行）
-├── external/             # 外部客户端接入：chat_node（生命周期）、quic_server（连接处理）、
-│                         #   quic_client、set_server（endpoint 构建）、tls_monitor（证书热更新）、config
+├── external/             # 外部客户端接入：chat_node、lifecycle（状态机）、state（连接状态）、
+│                         #   quic_server（连接处理）、quic_client、set_server（endpoint 构建）、
+│                         #   tls_monitor（证书热更新）、config
 ├── internal/             # 节点间通信：internal_quic_server、internal_router（集群路由转发）
 ├── msg_service/          # 消息业务：text_msg_service（帧解析）、process_msg_service（分发）、
 │                         #   group_msg_service（群聊扇出）、send_msg

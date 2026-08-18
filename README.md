@@ -31,7 +31,7 @@ only-talk-rs/
 │   ├── api/                     # 应用组装层：TLS + AppState 装配、集成服务（/integrated、/file_integrated）
 │   ├── common/                  # 基础设施：配置、连接池、CoreState、JWT、RSA、tracing、消息协议
 │   ├── entity/                  # 数据模型与数据库操作（rbatis）、DDL 脚本
-│   ├── email_service/           # 邮件服务库（多服务商 HTTPS API，暂未接入业务）
+│   ├── email_service/           # 邮件服务库（多服务商 HTTPS API，注册邮箱验证码已接入）
 │   ├── http_service/            # HTTP 端点：用户、好友、群组、聊天、通知、文件、S3 管理
 │   ├── quic_service/            # QUIC 服务：外网连接、内网通信、NAT 打洞、P2P 转发
 │   └── s3_service/              # S3 对象存储抽象层（多提供商支持）
@@ -50,7 +50,7 @@ only-talk-rs/
 
 ### 前置要求
 
-- **Rust**: 1.75+ (Edition 2024)
+- **Rust**: 1.85+ (Edition 2024)
 - **PostgreSQL**: 12+
 - **Redis**: 6+
 - **TLS 证书**: 自签名或正式证书（放置于 `config/ssl/` 目录）
@@ -75,9 +75,9 @@ cp .env.example .env
 DATABASE_URL=postgres://postgres:YOUR_PASSWORD@127.0.0.1:5432/postgres
 
 # Redis
-REDIS_URL=redis://:YOUR_PASSWORD@127.0.0.1:6379/
+REDIS_URL=redis://:YOUR_PASSWORD@127.0.0.1:4096/
 
-# S3 对象存储（可选）
+# S3 对象存储（必选，缺失时服务拒绝启动）
 S3_ENDPOINT=http://127.0.0.1:9000
 S3_ACCESS_KEY=your-access-key
 S3_SECRET_KEY=your-secret-key
@@ -99,7 +99,7 @@ address = "0.0.0.0:4433"        # QUIC 外网监听端口
 address = "127.0.0.1:4434"      # QUIC 内网通信端口
 
 [s3]
-enabled = false                 # 是否启用 S3 存储（false 时文件上传/下载相关功能不可用）
+enabled = true                  # S3 为必选，enabled = false 时服务拒绝启动
 provider = "minio"              # minio / aliyun_oss / aws_s3
 ```
 
@@ -112,7 +112,7 @@ config/ssl/fullchain.pem    # 证书链
 config/ssl/privkey.pem      # 私钥（支持 RSA / EC / PKCS8 格式）
 ```
 
-开发环境可使用 rcgen 自动生成自签名证书。
+内网 QUIC 服务使用 rcgen 自动生成自签名证书；对外 HTTPS 证书需自行放置于 `config/ssl/`（可使用 `config/ssl/auto_general.sh` 脚本生成）。
 
 ### 5. 初始化数据库
 
@@ -147,11 +147,11 @@ api ──► http_service ──► common
   └──────► quic_service ──► common ──► entity
   │
   └──────► s3_service ──► common
-  └──────► email_service（独立，暂未接入）
+  └──────► email_service（阿里云邮件推送已接入，注册邮箱验证码依赖）
 ```
 
 - **`common::CoreState`**：共享连接状态（`db: RBatis` + `redis: Pool`），供 http_service 与 quic_service 复用。
-- **`http_service::AppState`**：组合 `CoreState` + `s3` + `email`，`api` 启动时构造一次并注入 `web::Data<AppState>`；controller 只引用 AppState，经 `state.db()` / `state.redis()` / `state.s3()` 取连接，service 层保持窄签名（`&RBatis` / `&Pool` / `Option<Arc<S3Client>>`）。
+- **`http_service::AppState`**：组合 `CoreState` + `s3` + `email`，`api` 启动时构造一次并注入 `web::Data<AppState>`；controller 只引用 AppState，经 `state.db()` / `state.redis()` / `state.s3()` 取连接，service 层保持窄签名（`&RBatis` / `&Pool` / `Arc<S3Client>`）。
 - **quic_service**：同样以 `CoreState` 注入（`ChatNode` 持有），跨 `tokio::spawn` 处 clone 传递。
 - 新增依赖时只需给 `AppState` 加字段 + 在具体 service 函数使用，controller 签名无需改动。
 
@@ -159,8 +159,8 @@ api ──► http_service ──► common
 
 | 模式 | 入口 | 端口 | 说明 |
 |------|------|------|------|
-| **独立模式** | `src/main.rs` | 8443 + 4433 + 4434 | QUIC + HTTP 同进程运行 |
-| **QUIC 网关** | `crates/quic_service/src/bin/quic_server.rs` | 4433 + 4434 | 仅 QUIC 连接管理 |
+| **独立模式** | `src/main.rs` | 8443 + 4433 + 4434 + 19562-19565 | QUIC + HTTP 同进程运行 |
+| **QUIC 网关** | `crates/quic_service/src/bin/quic_server.rs` | 4433 + 4434 + 19562-19565 | 仅 QUIC 连接管理 |
 | **API 服务** | `crates/api/src/bin/api_server.rs` | 8443 | 仅 HTTP REST API |
 
 ### 独立模式（默认）
@@ -227,9 +227,8 @@ QUIC 服务与 HTTP 服务在同一进程中启动，适合中小型部署。
 
 ### 日志与监控
 
-- 结构化日志（tracing + JSON 输出）
+- 文本日志（tracing，stdout + 文件双通道）
 - TraceId 全链路追踪
-- 日志文件自动轮转
 - 错误请求自动记录
 
 ## 配置说明
@@ -242,6 +241,13 @@ url = "${DATABASE_URL}"         # PostgreSQL 连接字符串
 
 [redis]
 url = "${REDIS_URL}"            # Redis 连接字符串
+test_url = "${TEST_REDIS_URL}"  # 测试用 Redis（集成测试）
+
+[cluster]
+server_index = 0                # 集群节点编号
+
+[app]
+domain = "${APP_DOMAIN}"        # 应用域名
 
 [server]
 address = "0.0.0.0:8443"        # HTTPS 监听地址
@@ -252,12 +258,19 @@ log_level = "info"              # 日志级别
 address = "0.0.0.0:4433"        # QUIC 外网地址
 cert_path = "./config/ssl/fullchain.pem"
 key_path = "./config/ssl/privkey.pem"
+server_name = "127.0.0.1:4433"
+node_address = "127.0.0.1:4433"
+
+[internal_quic_server]
+address = "127.0.0.1:4434"      # QUIC 内网地址
+server_name = "INTERNAL_SERVER_1"
+node_address = "127.0.0.1:4434"
 
 [file_upload]
-max_file_size = 20971520        # 最大文件上传大小（20MB）
+max_file_size = 20485760        # 最大文件上传大小（约 20MB）
 
 [s3]
-enabled = true                  # 是否启用 S3
+enabled = true                  # S3 必选，false 时服务拒绝启动
 provider = "minio"              # 存储提供商
 endpoint = "${S3_ENDPOINT}"
 access_key = "${S3_ACCESS_KEY}"
@@ -269,7 +282,12 @@ v4_port_1 = 19562               # NAT 穿透 UDP 端口
 v6_port_1 = 19563
 v4_port_2 = 19564
 v6_port_2 = 19565
+
+[email]
+enabled = "${EMAIL_ENABLED}"    # 邮件服务开关（注册验证码）
 ```
+
+> 其余配置段（`[file_types]` 文件类型扩展名/MIME、S3 各 bucket 划分与分片参数等）详见 `config/app_config.toml`。
 
 ### 文件类型配置
 
@@ -334,7 +352,7 @@ cargo bench -p quic_service
 - [http_service](docs/crate-http_service.md) — HTTP REST 业务层（用户/好友/群聊/消息/文件/通知）
 - [quic_service](docs/crate-quic_service.md) — QUIC 实时通信、NAT 打洞、P2P、集群转发
 - [s3_service](docs/crate-s3_service.md) — 对象存储抽象（MinIO/OSS/AWS）
-- [email_service](docs/crate-email_service.md) — 邮件发送库（多服务商，暂未接入业务）
+- [email_service](docs/crate-email_service.md) — 邮件发送库（多服务商，已接入注册邮箱验证码）
 - [api](docs/crate-api.md) — 应用组装层（TLS、AppState 装配、集成服务）
 - [only_talk_rs](docs/crate-root.md) — 单体进程入口
 

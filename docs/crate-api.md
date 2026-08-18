@@ -32,7 +32,7 @@ api/src/
 - controller 与 http_service 的 controller 一样，只引用 `web::Data<AppState>`（`http_service::state::AppState`）。
 - `AppState` 在 init_server 中构造一次，`HttpServer::new` 闭包里 `.clone()` 后每个 worker 一份。
 - 单例初始化（`init_sql_pool` / `init_redis`）与 quic_service 幂等共享——两者先后调用不会重复建池。
-- `#![deny(clippy::unwrap_used)]` 生效。
+- S3 与 email 均为启动强制项：`init_s3_client` / `init_email_manager` 读取配置 `s3.enabled` / `email.enabled`，S3 未启用直接拒绝启动，email 未启用则构造空管理器（发送会失败）。
 
 ## 部署形态
 

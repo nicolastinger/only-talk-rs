@@ -31,7 +31,7 @@ only-talk-rs/
 │   ├── api/                     # App assembly layer: TLS + AppState wiring, integrated services (/integrated, /file_integrated)
 │   ├── common/                  # Infrastructure: config, connection pools, CoreState, JWT, RSA, tracing, message protocols
 │   ├── entity/                  # Data models & DB operations (rbatis), DDL scripts
-│   ├── email_service/           # Email service library (multi-provider HTTPS APIs, not yet wired into business)
+│   ├── email_service/           # Email service library (multi-provider HTTPS APIs, wired in for email verification codes)
 │   ├── http_service/            # HTTP endpoints: user, friend, group, chat, notify, file, S3 management
 │   ├── quic_service/            # QUIC service: external/internal connections, NAT hole punching, P2P forwarding
 │   └── s3_service/              # S3 object storage abstraction (multi-provider support)
@@ -50,7 +50,7 @@ only-talk-rs/
 
 ### Prerequisites
 
-- **Rust**: 1.75+ (Edition 2024)
+- **Rust**: 1.85+ (Edition 2024)
 - **PostgreSQL**: 12+
 - **Redis**: 6+
 - **TLS Certificates**: Self-signed or production certs (placed in `config/ssl/`)
@@ -75,9 +75,9 @@ Edit `.env` with your actual values:
 DATABASE_URL=postgres://postgres:YOUR_PASSWORD@127.0.0.1:5432/postgres
 
 # Redis
-REDIS_URL=redis://:YOUR_PASSWORD@127.0.0.1:6379/
+REDIS_URL=redis://:YOUR_PASSWORD@127.0.0.1:4096/
 
-# S3 Object Storage (optional)
+# S3 Object Storage (required; server refuses to start without it)
 S3_ENDPOINT=http://127.0.0.1:9000
 S3_ACCESS_KEY=your-access-key
 S3_SECRET_KEY=your-secret-key
@@ -99,7 +99,7 @@ address = "0.0.0.0:4433"        # QUIC external port
 address = "127.0.0.1:4434"      # QUIC internal communication port
 
 [s3]
-enabled = false                 # Enable S3 storage (file upload/download features unavailable when false)
+enabled = true                  # S3 is required; server refuses to start when false
 provider = "minio"              # minio / aliyun_oss / aws_s3
 ```
 
@@ -112,7 +112,7 @@ config/ssl/fullchain.pem    # Certificate chain
 config/ssl/privkey.pem      # Private key (RSA / EC / PKCS8 supported)
 ```
 
-For development, you can use rcgen to auto-generate self-signed certificates.
+The internal QUIC service auto-generates its self-signed certificates with rcgen; for the public HTTPS certificates, place them in `config/ssl/` yourself (or use the `config/ssl/auto_general.sh` script).
 
 ### 5. Initialize the Database
 
@@ -147,11 +147,11 @@ api ──► http_service ──► common
   └──────► quic_service ──► common ──► entity
   │
   └──────► s3_service ──► common
-  └──────► email_service (standalone, not yet wired)
+  └──────► email_service (Aliyun DirectMail wired in, powers email verification codes)
 ```
 
 - **`common::CoreState`**: Shared connection state (`db: RBatis` + `redis: Pool`), reused by http_service and quic_service.
-- **`http_service::AppState`**: Composes `CoreState` + `s3` + `email`; `api` constructs it once at startup and injects it via `web::Data<AppState>`. Controllers only reference AppState, fetching connections through `state.db()` / `state.redis()` / `state.s3()`. Service layer keeps narrow signatures (`&RBatis` / `&Pool` / `Option<Arc<S3Client>>`).
+- **`http_service::AppState`**: Composes `CoreState` + `s3` + `email`; `api` constructs it once at startup and injects it via `web::Data<AppState>`. Controllers only reference AppState, fetching connections through `state.db()` / `state.redis()` / `state.s3()`. Service layer keeps narrow signatures (`&RBatis` / `&Pool` / `Arc<S3Client>`).
 - **quic_service**: Also injected with `CoreState` (held by `ChatNode`), cloned across `tokio::spawn` boundaries.
 - To add a new dependency, just add a field to `AppState` and use it in the specific service function — controller signatures don't change.
 
@@ -159,8 +159,8 @@ api ──► http_service ──► common
 
 | Mode | Entry | Ports | Description |
 |------|-------|-------|-------------|
-| **Standalone** | `src/main.rs` | 8443 + 4433 + 4434 | QUIC + HTTP in a single process |
-| **QUIC Gateway** | `crates/quic_service/src/bin/quic_server.rs` | 4433 + 4434 | QUIC connection management only |
+| **Standalone** | `src/main.rs` | 8443 + 4433 + 4434 + 19562-19565 | QUIC + HTTP in a single process |
+| **QUIC Gateway** | `crates/quic_service/src/bin/quic_server.rs` | 4433 + 4434 + 19562-19565 | QUIC connection management only |
 | **API Service** | `crates/api/src/bin/api_server.rs` | 8443 | HTTP REST API only |
 
 ### Standalone Mode (Default)
@@ -229,7 +229,6 @@ For large-scale cluster deployments, run QUIC gateway and API service as indepen
 
 - Text logging (tracing, stdout + file dual channel)
 - TraceId full-link tracing
-- Automatic log rotation
 - Bad request auto-recording
 
 ## Configuration Reference
@@ -242,6 +241,13 @@ url = "${DATABASE_URL}"         # PostgreSQL connection string
 
 [redis]
 url = "${REDIS_URL}"            # Redis connection string
+test_url = "${TEST_REDIS_URL}"  # Test Redis (integration tests)
+
+[cluster]
+server_index = 0                # Cluster node index
+
+[app]
+domain = "${APP_DOMAIN}"        # Application domain
 
 [server]
 address = "0.0.0.0:8443"        # HTTPS listen address
@@ -252,12 +258,19 @@ log_level = "info"              # Log level
 address = "0.0.0.0:4433"        # QUIC external address
 cert_path = "./config/ssl/fullchain.pem"
 key_path = "./config/ssl/privkey.pem"
+server_name = "127.0.0.1:4433"
+node_address = "127.0.0.1:4433"
+
+[internal_quic_server]
+address = "127.0.0.1:4434"      # QUIC internal address
+server_name = "INTERNAL_SERVER_1"
+node_address = "127.0.0.1:4434"
 
 [file_upload]
-max_file_size = 20971520        # Maximum file upload size (20MB)
+max_file_size = 20485760        # Maximum file upload size (~20MB)
 
 [s3]
-enabled = true                  # Enable S3 storage
+enabled = true                  # S3 is required; server refuses to start when false
 provider = "minio"              # Storage provider
 endpoint = "${S3_ENDPOINT}"
 access_key = "${S3_ACCESS_KEY}"
@@ -269,7 +282,12 @@ v4_port_1 = 19562               # NAT traversal UDP ports
 v6_port_1 = 19563
 v4_port_2 = 19564
 v6_port_2 = 19565
+
+[email]
+enabled = "${EMAIL_ENABLED}"    # Email service switch (verification codes)
 ```
+
+> Remaining sections (`[file_types]` extensions/MIME, S3 bucket layout and multipart params, etc.) are documented in `config/app_config.toml`.
 
 ### File Type Configuration
 
@@ -334,7 +352,7 @@ cargo bench -p quic_service
 - [http_service](docs/crate-http_service.md) — HTTP REST business layer (user/friend/group/chat/file/notify)
 - [quic_service](docs/crate-quic_service.md) — QUIC real-time communication, NAT hole punching, P2P, cluster forwarding
 - [s3_service](docs/crate-s3_service.md) — Object storage abstraction (MinIO/OSS/AWS)
-- [email_service](docs/crate-email_service.md) — Email sending library (multi-provider, not yet wired into business)
+- [email_service](docs/crate-email_service.md) — Email sending library (multi-provider, wired in for verification codes)
 - [api](docs/crate-api.md) — App assembly layer (TLS, AppState wiring, integrated services)
 - [only_talk_rs](docs/crate-root.md) — Standalone process entry
 

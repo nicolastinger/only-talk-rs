@@ -25,7 +25,7 @@ src/main.rs    # 唯一的源文件（约 30 行）
 
 - 必须在工作区根目录运行（`./config/ssl/...`、`./config/app_config.toml` 是相对 cwd 的路径）。
 - 端口：8443 HTTPS / 4433 QUIC 外部 / 4434 QUIC 内部 / 19562-19565 NAT UDP（以 `config/app_config.toml` 为准）。
-- 前置依赖：PostgreSQL、Redis、`.env`、TLS 证书。
+- 前置依赖：PostgreSQL、Redis、S3 兼容对象存储（启动必选，`api::init_server` 在 `s3.enabled=false` 时拒绝启动）、`.env`（含 `S3_*`、`APP_DOMAIN` 等变量）、TLS 证书。
 
 ## 部署形态
 

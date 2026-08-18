@@ -20,13 +20,16 @@
 entity/src/
 ├── lib.rs                 # 模块声明
 └── models/
-    ├── user_entity/       # 用户：basic_user（账号密码）、user_info（资料）、friend_link/friend_list、friend_request_info
-    ├── chat_entity/       # 单聊：chat_message_record（消息）、chat_message_record_read（已读）、add_read_chat_record
-    ├── group_entity/      # 群聊：group_info、group_member、group_invitation、group_message_record
-    ├── file_entity/       # 文件：file_upload_record、biz_file_link、biz_record
+    ├── user_entity/       # 用户：basic_user（账号密码）、user_info（资料）、friend_link（好友关系）、
+    │                      #   friend_request_info（好友请求）、user_login_log（登录记录）
+    ├── chat_entity/       # 单聊：chat_message_record（消息）、chat_message_record_read（已读）、
+    │                      #   chat_list_link（会话列表）、add_read_chat_record（上报已读 DTO）
+    ├── group_entity/      # 群聊：group_info、group_member、group_invitation、group_message_record、
+    │                      #   group_message_read（成员已读游标）
+    ├── file_entity/       # 文件：file_upload_record、biz_file_link、biz_record、chat_biz_record、private_biz_record
     └── notify_entity/     # 通知：system_notification
 
-entity/ddl/                # 22 个 .sql 建表脚本（含 migrations/ 下的增量修复脚本）
+entity/ddl/                # 24 个 .sql 建表脚本（含 migrations/ 下的增量修复脚本）
 ```
 
 ## 注意事项

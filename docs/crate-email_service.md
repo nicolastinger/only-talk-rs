@@ -30,11 +30,11 @@ email_service/src/
 
 ## 关键约定
 
-- **当前未接入业务**：没有任何 crate 依赖它用于实际发信，只有 examples（`basic_usage` / `batch_send` / `with_attachments`）。
-- 在 `http_service::AppState` 中以 `Arc<EmailManager>` 占位（空配置 `EmailServiceConfig::default()` 构建），后续接入真实提供商配置后即可在业务中调用。
+- **已接入业务**：`http_service` 与 `api` 均依赖本 crate；`api::init_server::init_email_manager` 从配置 `[email]` 段加载阿里云提供商并构造 `EmailManager`（受 `email.enabled` 开关控制）。
+- `email.enabled = false` 时构造空管理器（`EmailServiceConfig::default()`），发送调用会失败——用于本地开发或未配置邮件服务商的部署。
 - 服务商实现全部通过 HTTPS API（reqwest），非标准 SMTP 协议。
 - 有完整的单元测试（attachment、地址解析、重试策略、错误类型）。
 
 ## 部署形态
 
-仅作为库，无独立可执行入口。当前是"预留能力"，尚未被业务路径调用。
+仅作为库，无独立可执行入口。作为 `AppState.email`（`Arc<EmailManager>`）注入 HTTP 服务，供注册验证码等业务调用。

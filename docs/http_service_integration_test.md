@@ -13,7 +13,7 @@
 | 依赖 | 要求 |
 | --- | --- |
 | PostgreSQL | 本地可连接，`.env` 中 `DATABASE_URL` 指向管理员库（如 `postgres`），需有建库权限 |
-| Redis | 本地可连接，`.env` 中 `REDIS_URL` 指向主库；测试 Redis 建议使用独立 DB index 或实例 |
+| Redis | 本地可连接，测试只消费 `redis.test_url`（`TEST_REDIS_URL`）；`REDIS_URL` 对本测试非必需（仅使 `[redis].url` 替换为空串），测试 Redis 建议使用独立 DB index 或实例 |
 | `.env` | 仓库根目录存在，且为**有效 UTF-8** 编码（`dotenvy` 无法读取非 UTF-8 文件，会静默失败） |
 
 ### 相关配置项
@@ -70,7 +70,7 @@ cargo test -p http_service --test http_service_integration_test -- --ignored --n
 │  2. 校验关键表存在（basic_user / user_info / friend_link / group_info）            │
 │  3. FLUSHALL 清空测试 Redis（保证起点干净）                                        │
 │  4. 写入种子用户（BasicUser + UserInfo，密码用 Argon2 哈希，与业务一致）            │
-│  5. 构造 AppState{db, redis, s3, email}，init_service 启动测试应用                  │
+│  5. 构造 AppState{core: CoreState{db, redis}, s3, email}，init_service 启动测试应用   │
 │  6. 依次执行场景断言（见 §4）                                                       │
 └─────────────────────────────────────────────────────────────────────────────────┘
         │
@@ -94,8 +94,8 @@ cargo test -p http_service --test http_service_integration_test -- --ignored --n
 | 7 | `POST /user/get_exit_user_flag/is_exit` | 请求体为纯文本账号 | 响应体 `true` |
 | 8 | `POST /user/refresh_token` | `{refresh_token}` | 200，返回新 `access_token` |
 | 9 | `POST /user/sign_up`（新邮箱） | 先向 Redis 预置验证码，再提交注册 | 200，`code=204` 注册成功 |
-| 10 | `POST /user/sign_up`（同一邮箱重复） | 重复提交 | 400（“该邮箱已被注册”） |
-| 11 | `POST /user/sign_up`（验证码错误） | `verification_code` 与 Redis 不一致 | 400（“验证码错误或已过期”） |
+| 10 | `POST /user/sign_up`（同一邮箱重复） | 重复提交 | 400（错误消息未做断言） |
+| 11 | `POST /user/sign_up`（验证码错误） | `verification_code` 与 Redis 不一致 | 400（错误消息未做断言） |
 | 12 | `POST /user/sign_in`（新注册账号） | 新账号登录 | 200，注册链路全通 |
 
 说明：
@@ -120,7 +120,7 @@ cargo test -p http_service --test http_service_integration_test -- --ignored --n
   - 手动读取 `../../config/app_config.toml` 并调用 `common::substitute_env_vars` + `common::init_global_config!` 填充全局配置（行为与 `common::init_app_config` 一致）。
 - **不使用 `serde_json::json!` 宏**：其内部调用 `unwrap()`，违反仓库 `clippy.toml` 的 `disallowed_methods` 规范；改用自写 `json_obj` 构造 JSON。
 - **隔离性**：测试库名 `only_talk_http_test` 与 entity 集成测试的 `only_talk_test` 区分，互不干扰；测试 Redis 建议独立 DB index（如 `/15`）。
-- **`unwrap()` 禁令**：与仓库规范一致，测试内全部使用 `?` / `expect` / `context`。
+- **`unwrap()` 禁令**：与仓库规范一致，测试内使用 `?` / `context` / `unwrap_or`（如 `unwrap_or(JsonValue::Null)`，无 `.expect(` 调用）。
 - **redis 连接池**：直接用 `deadpool_redis::Config::from_url(...).create_pool()` 创建，不走 `common::init_redis`，便于测试隔离。
 
 ## 7. 故障排查
