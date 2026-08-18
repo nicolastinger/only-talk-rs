@@ -4,7 +4,7 @@ use common::state::CoreState;
 use email_service::manager::EmailManager;
 use s3_service::S3Client;
 
-/// HTTP service application state, injected once via `web::Data<AppState>`.
+/// HTTP 服务应用状态,通过 `web::Data<AppState>` 注入一次。
 #[derive(Clone)]
 pub struct AppState {
     pub core: CoreState,

@@ -76,7 +76,7 @@ pub fn validate_file_type(file_name: &str, mime_type: Option<&str>) -> Result<()
  * @param user_id: 用户id
  */
 pub async fn record_file_download() -> Result<(), anyhow::Error> {
-    // TODO
+    // TODO 待实现
     Ok(())
 }
 

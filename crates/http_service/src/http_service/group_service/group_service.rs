@@ -46,7 +46,7 @@ async fn push_notification_via_quic(notification: SystemNotification) -> Result<
         .ok_or_else(|| anyhow!("Notification missing target user ID"))?;
     let json_str = serde_json::to_string(&notification)?;
 
-    // Wrap as TextQuicMsg binary (consistent with other message paths)
+    // 包装为 TextQuicMsg 二进制(与其他消息路径保持一致)
     let payload = common::utils::text_msg::generate_text_msg(
         NOTIFY_TYPE_MSG,
         json_str.into_bytes(),
@@ -110,7 +110,7 @@ pub async fn create_group_service(
 
     GroupMember::insert(rb, &group_member).await?;
 
-    // Sync group members to Redis cache
+    // 同步群成员到 Redis 缓存
     sync_group_members_to_redis(rb, redis, &group_uuid.to_string()).await?;
 
     info!("[group chat] created successfully group_uuid={} owner={}", group_uuid, owner_uuid);
@@ -251,7 +251,7 @@ pub async fn get_group_members_service(
 
     let cache_key = format!("{}{}", GROUP_MEMBERS_CACHE, group_uuid).to_uppercase();
 
-    // Preferentially read UUID list from Redis cache
+    // 优先从 Redis 缓存读取 UUID 列表
     let cache_hit = if let Ok(mut conn) = redis.get().await {
         let cached: Option<String> = conn.get(&cache_key).await.unwrap_or(None);
         cached.and_then(|json| serde_json::from_str::<Vec<String>>(&json).ok())
@@ -259,12 +259,12 @@ pub async fn get_group_members_service(
         None
     };
 
-    // Sync from DB if cache miss
+    // 缓存未命中时从数据库同步
     if cache_hit.is_none() {
         sync_group_members_to_redis(rb, redis, group_uuid).await?;
     }
 
-    // Query full member info from DB
+    // 从数据库查询完整成员信息
     let uuid = group_uuid.parse::<Uuid>()?;
     let members: Vec<GroupMember> = GroupMember::select_members_by_group(rb, &uuid).await?;
     Ok(members
@@ -309,14 +309,14 @@ pub async fn invite_group_members_service(
             for user_uuid_str in &dto.user_uuids {
                 let user_uuid = user_uuid_str.parse::<Uuid>()?;
 
-                // Check if already an active member
+                // 检查是否已是群成员
                 let existing: Option<GroupMember> =
                     GroupMember::select_by_group_and_user(rb, &group_uuid, &user_uuid).await?;
                 if existing.is_some_and(|m| m.status == Some(STATUS_NORMAL)) {
                     continue;
                 }
 
-                // Check if there is a pending invitation
+                // 检查是否存在待处理的邀请
                 let pending: Option<GroupInvitation> =
                     GroupInvitation::select_by_group_and_invitee(rb, &group_uuid, &user_uuid)
                         .await?;
@@ -324,7 +324,7 @@ pub async fn invite_group_members_service(
                     if p.status == Some(INVITATION_PENDING) {
                         continue;
                     }
-                    // Update old invitation record to pending
+                    // 更新旧邀请记录为待处理
                     let mut updated = p.clone();
                     updated.status = Some(INVITATION_PENDING);
                     updated.updated_at = Some(now);
@@ -343,7 +343,7 @@ pub async fn invite_group_members_service(
                     GroupInvitation::insert(rb, &invitation).await?;
                 }
 
-                // Send notification
+                // 发送通知
                 let notify_msg = format!("Invited you to join group chat '{}'", group_name);
                 let notification = send_group_invite_msg(
                     rb,
@@ -384,13 +384,13 @@ pub async fn accept_group_invitation_service(
         Some(mut inv) if inv.status == Some(INVITATION_PENDING) => {
             let now = get_now_time_stamp_as_millis()?;
 
-            // Update invitation status
+            // 更新邀请状态
             inv.status = Some(INVITATION_ACCEPTED);
             inv.updated_at = Some(now);
             let inv_id = inv.id.ok_or_else(|| anyhow!("Invitation record missing ID"))?;
             GroupInvitation::update_by_id(rb, &inv, &inv_id).await?;
 
-            // Add as group member
+            // 添加为群成员
             let member = GroupMember {
                 id: None,
                 group_uuid: Some(group_uuid.clone()),
@@ -406,7 +406,7 @@ pub async fn accept_group_invitation_service(
 
             sync_group_members_to_redis(rb, redis, &dto.group_uuid).await?;
 
-            // Notify the inviter
+            // 通知邀请者
             let group = GroupInfo::select_by_group_uuid(rb, &group_uuid).await?;
             let group_name = group.and_then(|g| g.group_name).unwrap_or_default();
             let notify_msg =

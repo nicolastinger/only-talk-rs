@@ -117,7 +117,7 @@ fn err_response(msg: &str) -> HttpResponse {
     }))
 }
 
-/// S3 client is mandatory (enforced at startup), so it is always available
+/// S3 客户端为启动时强制要求,始终可用
 fn require_s3(state: &web::Data<AppState>) -> &s3_service::S3Client {
     state.s3()
 }
