@@ -9,12 +9,12 @@ use tracing::{info, warn};
 
 use crate::config_str::REDIS_EXTERNAL_QUIC_SERVERS;
 
-/// Global server_count, lock-free read (hot path)
+/// 全局 server_count,无锁读取(热点路径)
 pub static SERVER_COUNT: std::sync::LazyLock<Arc<AtomicU32>> =
     std::sync::LazyLock::new(|| Arc::new(AtomicU32::new(1)));
 
-/// Start background sync task (called once per node at startup)
-/// Also responsible for periodically refreshing this node's external QUIC registration key TTL
+/// 启动后台同步任务(每个节点启动时调用一次)
+/// 同时负责定期刷新本节点外网 QUIC 注册键的 TTL
 pub fn start_server_count_sync(redis_pool: Pool, server_index: u32, node_address: String) {
     tokio::spawn(async move {
         let mut count_interval = tokio::time::interval(Duration::from_secs(10));
@@ -45,7 +45,7 @@ pub fn start_server_count_sync(redis_pool: Pool, server_index: u32, node_address
     });
 }
 
-/// Refresh this node's external QUIC registration key TTL
+/// 刷新本节点外网 QUIC 注册键 TTL
 async fn refresh_external_node_key(pool: &Pool, server_index: u32, node_address: &str) {
     use deadpool_redis::redis::AsyncCommands;
     if let Ok(mut conn) = pool.get().await {
@@ -54,7 +54,7 @@ async fn refresh_external_node_key(pool: &Pool, server_index: u32, node_address:
     }
 }
 
-/// Compute server_count by scanning actual online external QUIC node keys in Redis
+/// 通过扫描 Redis 中实际在线的外网 QUIC 节点键来计算 server_count
 async fn get_cluster_server_count(pool: &Pool) -> Result<u32, anyhow::Error> {
     use deadpool_redis::redis::AsyncCommands;
     let mut conn = pool.get().await?;
@@ -64,12 +64,12 @@ async fn get_cluster_server_count(pool: &Pool) -> Result<u32, anyhow::Error> {
     Ok(count)
 }
 
-/// Read current server_count
+/// 读取当前 server_count
 pub fn get_server_count() -> u32 {
     SERVER_COUNT.load(Ordering::Relaxed)
 }
 
-/// Compute preferred node index via hash modulo
+/// 通过哈希取模计算首选节点索引
 pub fn compute_preferred_index(uuid: &str) -> u32 {
     let sc = get_server_count();
     if sc <= 1 {

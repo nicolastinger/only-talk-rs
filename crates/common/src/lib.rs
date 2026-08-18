@@ -11,8 +11,8 @@ pub mod state;
 pub mod tracing;
 pub mod utils;
 
-// Re-export
-// Re-export entity models so external crates only need to depend on core to access DB entities
+// 重导出
+// 重导出 entity 模型,外部 crate 只需依赖 core 即可访问数据库实体
 pub use entity::models;
 pub use utils::fatal_error::{fatal_panic, fatal_panic_async};
 pub use utils::internal_quic_client::send_internal_quic_msg;
@@ -20,8 +20,8 @@ pub use utils::redis_utils::{init_redis, verify_redis};
 pub use utils::server_count_sync::{SERVER_COUNT, get_server_count, start_server_count_sync};
 pub use utils::sql_utils::init_sql_pool;
 
-/// Replace environment variable placeholders ${VAR_NAME} in strings
-/// Iterates up to 100 times to prevent malicious config from causing infinite loops
+/// 替换字符串中的环境变量占位符 ${VAR_NAME}
+/// 最多迭代 100 次,防止恶意配置导致死循环
 pub fn substitute_env_vars(content: String) -> String {
     let mut result = content;
     let mut iterations = 0;
@@ -42,8 +42,8 @@ pub fn substitute_env_vars(content: String) -> String {
     result
 }
 
-/// Read app config: replace env vars, parse TOML, populate global DashMap
-/// Returns the substituted TOML string for callers that need custom deserialization
+/// 读取应用配置: 替换环境变量、解析 TOML、填充全局 DashMap
+/// 返回替换后的 TOML 字符串,供需要自定义反序列化的调用方使用
 pub fn init_app_config() -> anyhow::Result<String> {
     let content = fs::read_to_string("./config/app_config.toml")?;
     let content = substitute_env_vars(content);

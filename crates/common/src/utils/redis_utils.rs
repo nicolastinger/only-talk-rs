@@ -4,7 +4,7 @@ use deadpool_redis::{Config as RedisConfig, Connection, Pool, Runtime};
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
-/// Initialize Redis connection pool
+/// 初始化 Redis 连接池
 pub fn init_redis(url: &str) -> Result<Pool, anyhow::Error> {
     info!("connecting to Redis - address: {}", url);
     let config = RedisConfig::from_url(url);
@@ -38,32 +38,32 @@ pub async fn verify_redis(pool: &Pool) {
     }
 }
 
-/// Redis distributed lock acquire
+/// 获取 Redis 分布式锁
 pub async fn acquire_lock(
     conn: &mut Connection,
     key: &str,
     ttl_sec: u64,
     content: String,
 ) -> Result<Option<String>, anyhow::Error> {
-    let lock_id = Uuid::new_v4().to_string(); // Generate unique identifier
+    let lock_id = Uuid::new_v4().to_string(); // 生成唯一标识
     let lock_id = format!("{}_{}", lock_id, content);
     let result: Option<()> = cmd("SET")
         .arg(key)
         .arg(&lock_id)
-        .arg("NX") // Mutual exclusion: only set when key does not exist
-        .arg("EX") // Expiry time unit: seconds
+        .arg("NX") // 互斥: 仅当键不存在时设置
+        .arg("EX") // 过期时间单位: 秒
         .arg(ttl_sec)
         .query_async(conn)
         .await?;
 
     Ok(if result.is_some() {
-        Some(lock_id) // Return lock identifier for subsequent release
+        Some(lock_id) // 返回锁标识,供后续释放使用
     } else {
         None
     })
 }
 
-/// Redis distributed lock release
+/// 释放 Redis 分布式锁
 pub async fn release_lock(
     conn: &mut Connection,
     key: &str,
@@ -79,5 +79,5 @@ pub async fn release_lock(
     let deleted: i32 =
         cmd("EVAL").arg(script).arg(1).arg(key).arg(lock_id).query_async(conn).await?;
 
-    Ok(deleted == 1) // Whether the lock was successfully released
+    Ok(deleted == 1) // 锁是否成功释放
 }

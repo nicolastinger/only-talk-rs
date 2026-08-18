@@ -10,7 +10,7 @@ use rbdc_pg::options::PgConnectOptions;
 use rbdc_pool_fast::FastPool;
 use tracing::info;
 
-/// Initialize SQL connection pool
+/// 初始化 SQL 连接池
 pub async fn init_sql_pool(url: &str) -> Result<RBatis, anyhow::Error> {
     info!("connecting to database - address: {}", url);
     let rb = RBatis::new();

@@ -15,21 +15,21 @@ pub fn get_now_time_stamp_as_secs() -> Result<i64, io::Error> {
 }
 
 pub fn get_now_time_stamp_as_millis() -> Result<i64, io::Error> {
-    // Get current time
+    // 获取当前时间
     let start = SystemTime::now();
 
-    // Convert current time to duration since UNIX_EPOCH
+    // 将当前时间转换为距 UNIX_EPOCH 的时长
     match start.duration_since(UNIX_EPOCH) {
         Ok(duration) => {
-            // Get milliseconds
+            // 获取毫秒数
             let timestamp_ms = duration.as_millis();
-            // Convert milliseconds to i64
+            // 将毫秒数转换为 i64
             let timestamp_long: i64 = timestamp_ms as i64;
             Ok(timestamp_long)
         }
         Err(e) => {
             error!("time calculation error: {}", e);
-            // create an io::Error and return
+            // 创建 io::Error 并返回
             Err(io::Error::other(format!("time calculation error: {}", e)))
         }
     }

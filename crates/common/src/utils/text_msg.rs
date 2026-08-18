@@ -1,7 +1,7 @@
 use crc::Crc;
 use serde::{Deserialize, Serialize};
 
-// Create CRC-16/X25 calculator
+// 创建 CRC-16/X25 计算器
 pub const X25: Crc<u16> = Crc::<u16>::new(&crc::CRC_16_IBM_SDLC);
 
 pub trait TextMsg {
@@ -10,40 +10,40 @@ pub trait TextMsg {
 
 #[repr(u16)]
 pub enum MessageType {
-    Text = 1,  // Text message
-    Image = 2, // Image message
-    File = 3,  // File message
+    Text = 1,  // 文本消息
+    Image = 2, // 图片消息
+    File = 3,  // 文件消息
     P2P = 4,
     P2PVideoCall = 5,
     P2pVideoData = 6,
     P2pVideoConfig = 7,
 
-    Ping = 99,           // Ping info
-    RecallSuccess = 201, // Received and parsed successfully
-    RecallFailure = 202, // Received parse failed
+    Ping = 99,           // Ping 信息
+    RecallSuccess = 201, // 已收到且解析成功
+    RecallFailure = 202, // 已收到但解析失败
 
-    P2pUserServer = 203, // Notify as P2P server (issued by server after NAT discovery)
-    P2pUserClient = 204, // Notify as P2P client (issued by server after NAT discovery)
-    System = 10001,      // System notification
+    P2pUserServer = 203, // 通知作为 P2P 服务端(NAT 发现后由服务端下发)
+    P2pUserClient = 204, // 通知作为 P2P 客户端(NAT 发现后由服务端下发)
+    System = 10001,      // 系统通知
 }
 
-// Header message
+// 头部消息
 #[derive(Debug, Serialize, Deserialize)]
 pub struct HeadMsg {
     pub version: u8,
     pub crc: u16,
-    pub body_len: u32,     // Message body length
-    pub message_type: u16, // Message type, 1 = friend DM
+    pub body_len: u32,     // 消息体长度
+    pub message_type: u16, // 消息类型, 1 = 好友私聊
 }
 
-// Text message body
+// 文本消息体
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TextQuicMsg {
     pub nano_id: String,
-    pub text_type: u16, // Message type
+    pub text_type: u16, // 消息类型
     pub raw: Vec<u8>,
-    pub recv_user: String, // Receiving user
-    pub send_user: String, // Sending user
+    pub recv_user: String, // 接收用户
+    pub send_user: String, // 发送用户
     pub timestamp: i64,
 }
 
@@ -59,7 +59,7 @@ impl TextMsg for TextQuicMsg {
     }
 }
 
-// Assemble header + message body
+// 组装头部 + 消息体
 pub fn build_text_msg<H: TextMsg, G: TextMsg>(
     text_head: &H,
     text_msg: &G,
@@ -83,7 +83,7 @@ fn build_text(text_quic_msg: TextQuicMsg) -> anyhow::Result<Vec<u8>> {
     build_text_msg(&head_msg, &text_quic_msg)
 }
 
-// Generate text message
+// 生成文本消息
 pub fn generate_text_msg(
     text_type: u16,
     raw: Vec<u8>,
@@ -102,7 +102,7 @@ pub fn generate_text_msg(
     build_text(text_quic_msg)
 }
 
-// Generate text message
+// 生成文本消息(指定消息 ID)
 pub fn generate_text_msg_with_id(
     nano_id: String,
     text_type: u16,
@@ -116,7 +116,7 @@ pub fn generate_text_msg_with_id(
     build_text(text_quic_msg)
 }
 
-// Generate text message
+// 生成文本消息(指定时间戳)
 pub fn generate_text_msg_with_time(
     nano_id: String,
     text_type: u16,

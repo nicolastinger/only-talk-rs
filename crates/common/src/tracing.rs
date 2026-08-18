@@ -17,7 +17,7 @@ fn read_log_level_from_config() -> String {
         .unwrap_or_else(|| "info".to_string())
 }
 
-/// Initialize tracing: dual-channel (file + stdout), returns guard that must be held in main
+/// 初始化 tracing: 双通道(文件 + stdout),返回的 guard 必须在 main 中持有
 pub fn init_tracing() -> WorkerGuard {
     let file_appender = tracing_appender::rolling::never("log", "rust_im.log");
     let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);

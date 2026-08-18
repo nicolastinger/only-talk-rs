@@ -23,13 +23,13 @@ pub fn clear_config() {
     GLOBAL_CONFIG.clear();
 }
 
-/// Set array-type config, comma-separated
+/// 设置数组类型配置,逗号分隔
 pub fn set_array_config(key: String, values: Vec<String>) {
     let value = values.join(",");
     GLOBAL_CONFIG.insert(key, value);
 }
 
-/// Get array-type config
+/// 获取数组类型配置
 pub fn get_array_config(key: &str) -> Option<Vec<String>> {
     GLOBAL_CONFIG.get(key).map(|v| {
         v.value().split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
