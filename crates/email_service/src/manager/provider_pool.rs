@@ -149,7 +149,7 @@ impl ProviderPool {
             let result = match provider.health_check().await {
                 Ok(healthy) => healthy,
                 Err(e) => {
-                    tracing::warn!("Health check failed for provider '{}': {}", name, e);
+                    tracing::warn!("服务商 '{}' 健康检查失败: {}", name, e);
                     false
                 }
             };

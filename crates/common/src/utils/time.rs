@@ -8,7 +8,7 @@ pub fn get_now_time_stamp_as_secs() -> Result<i64, io::Error> {
     match start.duration_since(UNIX_EPOCH) {
         Ok(duration) => Ok(duration.as_secs() as i64),
         Err(e) => {
-            error!("time calculation error: {}", e);
+            error!("时间计算错误: {}", e);
             Err(io::Error::other(format!("time calculation error: {}", e)))
         }
     }
@@ -28,7 +28,7 @@ pub fn get_now_time_stamp_as_millis() -> Result<i64, io::Error> {
             Ok(timestamp_long)
         }
         Err(e) => {
-            error!("time calculation error: {}", e);
+            error!("时间计算错误: {}", e);
             // 创建 io::Error 并返回
             Err(io::Error::other(format!("time calculation error: {}", e)))
         }

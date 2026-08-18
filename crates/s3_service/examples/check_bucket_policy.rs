@@ -14,7 +14,7 @@ async fn main() {
     let config = S3Config::default_minio();
     let endpoint_url = config.endpoint_url.clone();
     println!("配置信息:");
-    println!("  Endpoint: {}", endpoint_url);
+    println!("  端点: {}", endpoint_url);
 
     let client = match S3Client::new(config).await {
         Ok(c) => c,

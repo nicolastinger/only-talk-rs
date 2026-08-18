@@ -115,7 +115,7 @@ impl TencentEmailProvider {
             .map_err(|e| EmailError::NetworkError(format!("Failed to read response: {}", e)))?;
 
         if !status.is_success() {
-            tracing::error!("Tencent API error: status={}, body={}", status, body);
+            tracing::error!("腾讯云 API 错误: status={}, body={}", status, body);
             return Err(EmailError::ProviderError {
                 provider: "tencent".to_string(),
                 message: format!("API error: {} - {}", status, body),

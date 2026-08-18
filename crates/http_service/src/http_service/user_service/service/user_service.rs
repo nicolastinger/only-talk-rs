@@ -30,14 +30,14 @@ pub async fn test_sql(rb: &RBatis) -> Vec<BasicUser> {
     let basic_user_all = match BasicUser::select_all(rb).await {
         Ok(v) => v,
         Err(e) => {
-            error!("select_all query error: {}", e);
+            error!("select_all 查询错误: {}", e);
             vec![]
         }
     };
     let basic_user_icon = match BasicUser::select_by_map(rb, value! { "icon": "33333" }).await {
         Ok(v) => v,
         Err(e) => {
-            error!("select_by_map query error: {}", e);
+            error!("select_by_map 查询错误: {}", e);
             vec![]
         }
     };
@@ -50,7 +50,7 @@ pub async fn get_exit_user(rb: &RBatis, account: &str) -> bool {
     match BasicUser::select_by_account(rb, account).await {
         Ok(user) => user.is_some(),
         Err(error) => {
-            error!("query user existence error: {}", error);
+            error!("查询用户是否存在失败: {}", error);
             true
         }
     }
@@ -75,7 +75,7 @@ pub async fn send_verify_code_service(
     let mut conn = redis.get().await?;
     let key = format!("{}{}", EMAIL_VERIFY_CODE, email).to_uppercase();
     conn.set_ex::<&str, &str, ()>(&key, &code, 300).await?;
-    info!("verification code stored for email: {}", email);
+    info!("验证码已存储,邮箱: {}", email);
 
     // 4. 通过阿里云邮件发送验证码
     let account_name = common::config_manager::get_config("email.account_name").unwrap_or_default();
@@ -330,7 +330,7 @@ pub async fn verify_p2p_token_service(
     let key = format!("P2P:USER:AUTH:{}:{}", uuid, token).to_uppercase();
     let result: RedisResult<String> = cmd("GET").arg(&key).query_async(&mut conn).await;
     let res = result?;
-    info!("result: {} {}", uuid, res);
+    info!("结果: {} {}", uuid, res);
     match res == me {
         true => {
             let key = format!("{}{}", "USER_UDP_ADDRESS_", uuid).to_uppercase();

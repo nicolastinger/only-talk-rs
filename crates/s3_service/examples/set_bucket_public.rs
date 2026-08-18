@@ -13,9 +13,9 @@ async fn main() {
 
     let config = S3Config::default_minio();
     println!("配置信息:");
-    println!("  Provider: {:?}", config.provider);
-    println!("  Endpoint: {}", config.endpoint_url);
-    println!("  Access Key: {}", config.access_key_id);
+    println!("  服务商: {:?}", config.provider);
+    println!("  端点: {}", config.endpoint_url);
+    println!("  访问密钥: {}", config.access_key_id);
 
     let endpoint_url = config.endpoint_url.clone();
     println!("\n正在创建 S3 客户端...");

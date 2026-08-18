@@ -32,7 +32,7 @@ pub async fn error_record_middleware(
     let method = req.method().clone();
     let path = req.path().to_string();
 
-    info!("{} path {}", method, path);
+    info!("{} 路径 {}", method, path);
     // 检查路径是否在忽略列表中
     if IGNORED_PATHS.read().map(|p| p.contains(&path)).unwrap_or(false) {
         return next.call(req).await;

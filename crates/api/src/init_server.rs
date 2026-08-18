@@ -38,7 +38,7 @@ fn init_cert_file() -> anyhow::Result<(Vec<Certificate>, PrivateKey)> {
         .into_iter()
         .map(Certificate)
         .collect::<Vec<_>>();
-    info!("loaded {} certificates", cert_chain.len());
+    info!("已加载 {} 个证书", cert_chain.len());
 
     // 尝试读取不同类型的私钥
     let mut keys = {
@@ -107,11 +107,11 @@ async fn init_s3_client() -> anyhow::Result<Arc<s3_service::S3Client>> {
     let config = S3Config::from_global_config()
         .map_err(|e| anyhow::anyhow!("failed to read S3 config: {}", e))?;
 
-    info!("initializing S3 client - Provider: {}", config.provider);
+    info!("正在初始化 S3 客户端 - Provider: {}", config.provider);
     let client = GlobalS3Client::init(config)
         .await
         .map_err(|e| anyhow::anyhow!("S3 client initialization failed: {}", e))?;
-    info!("S3 client initialized successfully");
+    info!("S3 客户端初始化成功");
     Ok(client)
 }
 
@@ -125,7 +125,7 @@ fn init_email_manager() -> anyhow::Result<Arc<email_service::EmailManager>> {
         .unwrap_or(false);
 
     if !enabled {
-        info!("email service not enabled, verification codes will not be sent");
+        info!("邮件服务未启用,将不会发送验证码");
         return Ok(Arc::new(email_service::EmailManager::new(EmailServiceConfig::default())?));
     }
 
@@ -147,7 +147,7 @@ fn init_email_manager() -> anyhow::Result<Arc<email_service::EmailManager>> {
         providers,
         ..Default::default()
     };
-    info!("initializing email manager with aliyun provider");
+    info!("正在使用阿里云提供商初始化邮件管理器");
     Ok(Arc::new(email_service::EmailManager::new(config)?))
 }
 
@@ -167,7 +167,7 @@ pub async fn start_server() -> anyhow::Result<()> {
         .with_no_client_auth()
         .with_single_cert(cert_chain, key)
         .map_err(|e| {
-            error!("failed to set certificate and private key: {}", e);
+            error!("设置证书和私钥失败: {}", e);
             std::io::Error::other("Failed to set certificate and private key")
         })?;
 

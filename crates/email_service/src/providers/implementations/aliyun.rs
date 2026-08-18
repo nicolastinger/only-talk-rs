@@ -99,7 +99,7 @@ impl AliyunEmailProvider {
             .map_err(|e| EmailError::NetworkError(format!("Failed to read response: {}", e)))?;
 
         if !status.is_success() {
-            tracing::error!("Aliyun API error: status={}, body={}", status, body);
+            tracing::error!("阿里云 API 错误: status={}, body={}", status, body);
             return Err(EmailError::ProviderError {
                 provider: "aliyun".to_string(),
                 message: format!("API error: {} - {}", status, body),
@@ -132,7 +132,7 @@ impl EmailProvider for AliyunEmailProvider {
         match self.send_request("DescAccountSummary", params).await {
             Ok(_) => Ok(true),
             Err(e) => {
-                tracing::warn!("Aliyun health check failed: {}", e);
+                tracing::warn!("阿里云健康检查失败: {}", e);
                 Ok(false)
             }
         }

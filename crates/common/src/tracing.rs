@@ -48,8 +48,8 @@ pub fn init_tracing() -> WorkerGuard {
         );
 
     tracing::subscriber::set_global_default(subscriber).unwrap_or_else(|e| {
-        let msg = format!("Failed to set global tracing subscriber: {}", e);
-        tracing::error!("FATAL: {}", msg);
+        let msg = format!("设置全局 tracing 订阅器失败: {}", e);
+        tracing::error!("致命错误: {}", msg);
         std::thread::sleep(std::time::Duration::from_secs(5));
         panic!("{}", msg);
     });

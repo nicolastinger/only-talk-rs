@@ -28,7 +28,7 @@ pub fn substitute_env_vars(content: String) -> String {
     loop {
         if iterations > 100 {
             log::warn!(
-                "env var substitution exceeded 100 iterations, possible circular reference, terminating early"
+                "环境变量替换超过 100 次迭代,可能存在循环引用,提前终止"
             );
             break;
         }

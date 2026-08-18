@@ -51,7 +51,7 @@ pub async fn download_pub_file_id_api(
     match res {
         Ok(res) => res,
         Err(t) => {
-            error!("failed to download public file: {:?}, {}", t, t.backtrace());
+            error!("下载公开文件失败: {:?}, {}", t, t.backtrace());
             HttpResponse::BadRequest().body(CommonResponseNoDataRef::error_json(&t.to_string()))
         }
     }
@@ -91,7 +91,7 @@ pub async fn download_chat_file_api(
     match res {
         Ok(res) => res,
         Err(t) => {
-            error!("failed to download chat file: {:?}, {}", t, t.backtrace());
+            error!("下载聊天文件失败: {:?}, {}", t, t.backtrace());
             HttpResponse::BadRequest().body(CommonResponseNoDataRef::error_json(&t.to_string()))
         }
     }

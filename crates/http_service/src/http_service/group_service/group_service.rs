@@ -113,7 +113,7 @@ pub async fn create_group_service(
     // 同步群成员到 Redis 缓存
     sync_group_members_to_redis(rb, redis, &group_uuid.to_string()).await?;
 
-    info!("[group chat] created successfully group_uuid={} owner={}", group_uuid, owner_uuid);
+    info!("[群聊] 创建成功 group_uuid={} owner={}", group_uuid, owner_uuid);
 
     Ok(GroupInfoVO {
         group_uuid: group_uuid.to_string(),
@@ -181,7 +181,7 @@ pub async fn update_group_service(
             update_group.updated_at = Some(now);
 
             GroupInfo::update_by_group_uuid(rb, &update_group, &group_uuid).await?;
-            info!("[group chat] updated successfully group_uuid={}", group_uuid);
+            info!("[群聊] 更新成功 group_uuid={}", group_uuid);
             Ok(true)
         }
         None => Ok(false),
@@ -207,7 +207,7 @@ pub async fn dissolve_group_service(
             g.updated_at = Some(now);
             GroupInfo::update_by_group_uuid(rb, &g, &uuid).await?;
 
-            info!("[group chat] dissolved successfully group_uuid={}", group_uuid);
+            info!("[群聊] 解散成功 group_uuid={}", group_uuid);
             Ok(true)
         }
         None => Ok(false),
@@ -358,7 +358,7 @@ pub async fn invite_group_members_service(
             }
 
             info!(
-                "[group chat] invitation sent successfully group_uuid={} count={}",
+                "[群聊] 邀请发送成功 group_uuid={} count={}",
                 group_uuid,
                 invited.len()
             );
@@ -423,7 +423,7 @@ pub async fn accept_group_invitation_service(
             }
 
             info!(
-                "[group chat] invitation accepted group_uuid={} user={}",
+                "[群聊] 邀请已接受 group_uuid={} user={}",
                 dto.group_uuid, user_uuid
             );
             Ok(true)
@@ -453,7 +453,7 @@ pub async fn decline_group_invitation_service(
             GroupInvitation::update_by_id(rb, &inv, &inv_id).await?;
 
             info!(
-                "[group chat] invitation declined group_uuid={} user={}",
+                "[群聊] 邀请已拒绝 group_uuid={} user={}",
                 dto.group_uuid, user_uuid
             );
             Ok(true)
@@ -559,7 +559,7 @@ pub async fn remove_group_member_service(
                     GroupMember::update_by_group_and_user(rb, &t, &g_uuid, &user_uuid).await?;
                     sync_group_members_to_redis(rb, redis, group_uuid).await?;
                     info!(
-                        "[group chat] member removed successfully group_uuid={} target={}",
+                        "[群聊] 成员移除成功 group_uuid={} target={}",
                         group_uuid, target_uuid
                     );
                     Ok(true)
@@ -593,7 +593,7 @@ pub async fn quit_group_service(
             GroupMember::update_by_group_and_user(rb, &m, &g_uuid, &user_uuid_val).await?;
             sync_group_members_to_redis(rb, redis, group_uuid).await?;
             info!(
-                "[group chat] member quit successfully group_uuid={} user={}",
+                "[群聊] 成员退出成功 group_uuid={} user={}",
                 group_uuid, user_uuid
             );
             Ok(true)
@@ -629,7 +629,7 @@ pub async fn set_member_role_service(
                         t.user_uuid.clone().ok_or_else(|| anyhow!("Member missing user_uuid"))?;
                     GroupMember::update_by_group_and_user(rb, &t, &group_uuid, &user_uuid).await?;
                     info!(
-                        "[group chat] role set successfully group_uuid={} user={} role={}",
+                        "[群聊] 角色设置成功 group_uuid={} user={} role={}",
                         dto.group_uuid, dto.user_uuid, dto.role
                     );
                     Ok(true)
@@ -725,13 +725,13 @@ async fn sync_group_members_to_redis(
     if let Ok(mut conn) = redis.get().await {
         let _: Result<(), _> = conn.set_ex(&cache_key, &json, 1800_u64).await;
         info!(
-            "[group chat] synced members to Redis group_uuid={} member_count={}",
+            "[群聊] 群成员已同步到 Redis group_uuid={} member_count={}",
             group_uuid,
             uuids.len()
         );
     } else {
         warn!(
-            "[group chat] failed to get Redis connection, members not synced group_uuid={}",
+            "[群聊] 获取 Redis 连接失败,成员未同步 group_uuid={}",
             group_uuid
         );
     }

@@ -21,7 +21,7 @@ pub async fn add_user_with_notify(
     friend: FriendRequestInfoDTO,
 ) -> Result<String, anyhow::Error> {
     tracing::debug!(
-        "starting add friend flow: request_user={:?}, accept_user={:?}",
+        "开始添加好友流程: request_user={:?}, accept_user={:?}",
         friend.request_user,
         friend.accept_user
     );
@@ -29,7 +29,7 @@ pub async fn add_user_with_notify(
     // 1. Add friend
     let friend_request = add_friend(rb, friend).await?;
     tracing::debug!(
-        "friend request created: uuid={:?}, request_user={:?}, accept_user={:?}",
+        "好友请求已创建: uuid={:?}, request_user={:?}, accept_user={:?}",
         friend_request.uuid,
         friend_request.request_user,
         friend_request.accept_user
@@ -40,7 +40,7 @@ pub async fn add_user_with_notify(
         .uuid
         .ok_or(anyhow!("Failed to add friend, request ID not found"))?
         .to_string();
-    tracing::debug!("target user: target_uuid={}, biz_id={}", target_uuid, biz_id);
+    tracing::debug!("目标用户: target_uuid={}, biz_id={}", target_uuid, biz_id);
 
     // 2 发送系统通知 (落库)
     let quic_msg = send_request_friend_msg(
@@ -51,7 +51,7 @@ pub async fn add_user_with_notify(
     )
     .await?;
     tracing::debug!(
-        "system notification saved to db: quic_msg.user_id={:?}, request_message={:?}",
+        "系统通知已保存到数据库: quic_msg.user_id={:?}, request_message={:?}",
         quic_msg.user_id,
         friend_request.request_message
     );
@@ -60,7 +60,7 @@ pub async fn add_user_with_notify(
     let target_id_str =
         quic_msg.user_id.ok_or(anyhow!("Notification missing target user ID"))?.to_string();
     tracing::debug!(
-        "notification JSON serialized: target_id={}, payload_length={}",
+        "通知 JSON 序列化完成: target_id={}, payload_length={}",
         target_id_str,
         json_str.len()
     );
@@ -78,7 +78,7 @@ pub async fn add_user_with_notify(
     let server_addr: SocketAddr = addr_str.parse()?;
     let preferred_index = compute_preferred_index(&target_id_str);
     tracing::debug!(
-        "QUIC service config: address={}, server_addr={}, preferred_index={}",
+        "QUIC 服务配置: address={}, server_addr={}, preferred_index={}",
         addr_str,
         server_addr,
         preferred_index
@@ -94,7 +94,7 @@ pub async fn add_user_with_notify(
         ttl: 3,
     };
     tracing::debug!(
-        "preparing to send QUIC message: msg_type={}, target_user={}, platform={}, source={:?}, ttl={}",
+        "准备发送 QUIC 消息: msg_type={}, target_user={}, platform={}, source={:?}, ttl={}",
         request.msg_type,
         request.target_user,
         request.platform,
@@ -103,7 +103,7 @@ pub async fn add_user_with_notify(
     );
 
     send_internal_quic_msg(server_addr, request).await?;
-    tracing::debug!("QUIC message sent successfully: target_user={}", target_id_str);
+    tracing::debug!("QUIC 消息发送成功: target_user={}", target_id_str);
 
     Ok(CommonResponseNoDataRef::success_empty())
 }
@@ -176,7 +176,7 @@ pub async fn get_quic_server_for_user(
 
     let sc = get_server_count();
     let index = compute_preferred_index(uuid);
-    info!("QUIC node assigned: server_count={} uuid={} index={}", sc, uuid, index);
+    info!("QUIC 节点分配完成: server_count={} uuid={} index={}", sc, uuid, index);
 
     let mut conn = redis.get().await?;
 

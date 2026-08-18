@@ -28,7 +28,7 @@ pub async fn get_chat_by_limit(
     let chat = res.first().ok_or(anyhow!("没有数据"))?;
     let vec = chat.raw.clone();
     let str = String::from_utf8(vec.into_inner())?;
-    info!("result: {}", str);
+    info!("查询结果: {}", str);
     Ok(CommonResponseRef::<Vec<ChatMessageRecord>>::success_json(&res)?)
 }
 
@@ -37,7 +37,7 @@ pub async fn get_unread_chat_record(
     rb: &RBatis,
     uuid: Option<String>,
 ) -> Result<String, anyhow::Error> {
-    info!("request received");
+    info!("收到请求");
     let uuid = uuid.ok_or(anyhow!("账号获取失败"))?.parse::<Uuid>()?;
 
     let empty_vec = CommonResponseNoDataRef::success_empty();
@@ -52,14 +52,14 @@ pub async fn get_unread_chat_record(
         // 3、返回最新消息，最大9999
         let last_read = 0;
         let unread_msg = ChatMessageRecord::select_unread_by_time(rb, &uuid, last_read).await?;
-        info!("unread_msg {}", unread_msg.len());
+        info!("未读消息数量 {}", unread_msg.len());
         return Ok(CommonResponseRef::<Vec<ChatMessageRecord>>::success_json(&unread_msg)?);
     }
     // 4、查找已读消息有没有最新消息
     let last_msg_ref = last_msg.as_ref().ok_or(anyhow!("获取最新消息失败"))?;
     let res = read_msg.iter().find(|x| x.nano_id == last_msg_ref.nano_id);
     if res.is_some() {
-        info!("request finished");
+        info!("请求处理完成");
         return Ok(empty_vec);
     }
     // 5、获取未读消息
@@ -84,10 +84,10 @@ pub async fn get_unread_chat_record(
                 x
             })
             .collect();
-        info!("request finished");
+        info!("请求处理完成");
         return Ok(CommonResponseRef::<Vec<ChatMessageRecord>>::success_json(&unread_msg)?);
     }
-    info!("request finished");
+    info!("请求处理完成");
     Ok(empty_vec)
 }
 
@@ -115,7 +115,7 @@ pub async fn add_user_chat_read(
                 new_item.timestamp = item.timestamp;
                 new_item.nano_id = item.nano_id.clone();
                 new_item.chat_type = item.chat_type;
-                info!("update last_chat_message_read: {:?}", new_item);
+                info!("更新 last_chat_message_read: {:?}", new_item);
             } else {
                 last_chat_message_read.push(item)
             }

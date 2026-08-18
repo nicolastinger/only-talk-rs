@@ -34,11 +34,11 @@ pub async fn upload_user_avatar(
     let uuid = uuid.ok_or(anyhow!("User ID cannot be empty"))?;
     let user_id = rbdc::Uuid::from_str(&uuid)?;
 
-    info!("uploading avatar to S3...");
+    info!("正在上传头像到 S3...");
     let original_record = upload_user_avatar_s3(rb, uuid.clone(), payload, s3_client.clone())
         .await
         .map_err(|e| anyhow!("S3 upload failed: {}", e))?;
-    info!("avatar uploaded to S3 successfully");
+    info!("头像上传到 S3 成功");
 
     // 2. Save business info
     let biz_record = create_avatar_biz(rb, user_id).await?;
@@ -80,11 +80,11 @@ pub async fn upload_user_chat_file(
     }
 
     // 2. Upload via S3
-    info!("uploading chat file to S3...");
+    info!("正在上传聊天文件到 S3...");
     let record = upload_chat_preview_file_s3(rb, uuid.clone(), payload, s3_client.clone())
         .await
         .map_err(|e| anyhow!("S3 upload failed: {}", e))?;
-    info!("chat file uploaded to S3 successfully");
+    info!("聊天文件上传到 S3 成功");
 
     // 3. 保存业务信息
     let chat_biz_record = create_user_chat_biz(rb, user_id, friend_uuid).await?;
@@ -118,11 +118,11 @@ pub async fn upload_group_chat_file(
     let group_id = rbdc::Uuid::from_str(&group_uuid)?;
 
     // 通过 S3 上传(群聊不做好友校验)
-    info!("uploading group chat file to S3...");
+    info!("正在上传群聊文件到 S3...");
     let record = upload_chat_preview_file_s3(rb, uuid.clone(), payload, s3_client.clone())
         .await
         .map_err(|e| anyhow!("S3 upload failed: {}", e))?;
-    info!("group chat file uploaded to S3 successfully");
+    info!("群聊文件上传到 S3 成功");
 
     // 保存业务信息(不校验好友关系)
     let chat_biz_record = create_group_chat_biz(rb, user_id, group_id).await?;
@@ -155,11 +155,11 @@ pub async fn upload_group_avatar(
     let user_id = rbdc::Uuid::from_str(&uuid)?;
     let group_id = rbdc::Uuid::from_str(&group_uuid)?;
 
-    info!("uploading group avatar to S3...");
+    info!("正在上传群头像到 S3...");
     let original_record = upload_group_avatar_s3(rb, uuid.clone(), payload, s3_client.clone())
         .await
         .map_err(|e| anyhow!("S3 upload failed: {}", e))?;
-    info!("group avatar uploaded to S3 successfully");
+    info!("群头像上传到 S3 成功");
 
     let biz_record = create_group_avatar_biz(rb, user_id, group_id).await?;
     let biz_file_link = BizFileLink {

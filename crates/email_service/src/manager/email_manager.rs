@@ -139,13 +139,13 @@ impl EmailManager {
     ) -> EmailResult<()> {
         for (name, config) in providers {
             if !config.is_enabled() {
-                tracing::info!("Provider '{}' is disabled, skipping", name);
+                tracing::info!("邮件服务商 '{}' 已禁用,跳过", name);
                 continue;
             }
 
             let provider = Self::create_provider(config)?;
             pool.register(name.clone(), provider);
-            tracing::info!("Registered email provider: {}", name);
+            tracing::info!("邮件服务商已注册: {}", name);
         }
 
         Ok(())
@@ -221,7 +221,7 @@ impl EmailManager {
                     email_id = %email.id,
                     provider = %provider_name,
                     status = ?send_result.status,
-                    "Email sent successfully"
+                    "邮件发送成功"
                 );
             }
             Err(e) => {
@@ -230,7 +230,7 @@ impl EmailManager {
                     email_id = %email.id,
                     provider = %provider_name,
                     error = %e,
-                    "Failed to send email"
+                    "邮件发送失败"
                 );
             }
         }
@@ -334,7 +334,7 @@ impl EmailManager {
                     tracing::info!(
                         email_id = %email.id,
                         provider = %provider_name,
-                        "Email sent successfully with fallback"
+                        "邮件发送成功(故障转移)"
                     );
                     return Ok(result);
                 }
@@ -344,7 +344,7 @@ impl EmailManager {
                         email_id = %email.id,
                         provider = %provider_name,
                         error = %e,
-                        "Provider failed, trying next"
+                        "服务商发送失败,尝试下一个"
                     );
                     last_error = Some(e);
                 }

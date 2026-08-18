@@ -99,7 +99,7 @@ async fn device_reader(endpoint: Endpoint, tx: mpsc::Sender<Vec<u8>>) {
                         Err(_) => return,
                     }
                 }
-                info!("device received delivered message: {} bytes", buf.len());
+                info!("设备收到投递消息: {} 字节", buf.len());
                 if tx.send(buf).await.is_err() {
                     return;
                 }
@@ -164,7 +164,7 @@ async fn send_with_retry(addr: SocketAddr, request: InternalQuicRequest) -> Inte
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
-    panic!("failed to reach internal node {}: {:?}", addr, last_err)
+    panic!("无法连接内部节点 {}: {:?}", addr, last_err)
 }
 
 fn make_request(target_user: &str, preferred_index: u32, payload: Vec<u8>) -> InternalQuicRequest {
@@ -188,7 +188,7 @@ async fn two_internal_nodes_forward_messages_bidirectionally() {
     let device_b = make_device_endpoint();
     let device_a_addr = device_a.local_addr().expect("获取 device_a 地址失败");
     let device_b_addr = device_b.local_addr().expect("获取 device_b 地址失败");
-    info!("device_a listening on {}, device_b listening on {}", device_a_addr, device_b_addr);
+    info!("device_a 正在监听 {},device_b 正在监听 {}", device_a_addr, device_b_addr);
 
     let (msg_tx_a, mut msg_rx_a) = mpsc::channel(16);
     let (msg_tx_b, mut msg_rx_b) = mpsc::channel(16);
@@ -196,7 +196,7 @@ async fn two_internal_nodes_forward_messages_bidirectionally() {
     let device_b_task = tokio::spawn(device_reader(device_b, msg_tx_b));
 
     // 节点连接各自用户设备(模拟用户上线)
-    info!("connecting user-a device / user-b device...");
+    info!("正在连接 user-a 设备 / user-b 设备...");
     let conn_a_user = node_to_device(device_a_addr).await;
     let conn_b_user = node_to_device(device_b_addr).await;
 
@@ -212,7 +212,7 @@ async fn two_internal_nodes_forward_messages_bidirectionally() {
     let (node_a_addr, shutdown_a) = start_node(core.clone(), 0, connections_a).await;
     let (node_b_addr, shutdown_b) = start_node(core.clone(), 1, connections_b).await;
     info!(
-        "internal node A (index=0) bound {}, node B (index=1) bound {}",
+        "内部节点 A (index=0) 已绑定 {},节点 B (index=1) 已绑定 {}",
         node_a_addr, node_b_addr
     );
 
@@ -226,11 +226,11 @@ async fn two_internal_nodes_forward_messages_bidirectionally() {
         timestamp: 1_700_000_000_000,
     })
     .expect("序列化 TextQuicMsg 失败");
-    info!("payload size = {} bytes, forwarding A -> B...", payload.len());
+    info!("payload 大小 = {} 字节,正在转发 A -> B...", payload.len());
 
     // 1) 节点 A -> 节点 B:请求发往 B,由 B 投递给本机 user-b
     let resp = send_with_retry(node_b_addr, make_request("user-b", 1, payload.clone())).await;
-    info!("A -> B response: status={} delivered={:?}", resp.status, resp.delivered);
+    info!("A -> B 响应: status={} delivered={:?}", resp.status, resp.delivered);
     assert_eq!(resp.status, "ok");
     assert_eq!(resp.delivered, Some(true));
 
@@ -238,13 +238,13 @@ async fn two_internal_nodes_forward_messages_bidirectionally() {
         .await
         .expect("等待 device_b 接收消息超时")
         .expect("device_b 消息通道已关闭");
-    info!("device_b received {} bytes", received_b.len());
+    info!("device_b 收到 {} 字节", received_b.len());
     assert_eq!(received_b, payload);
 
     // 2) 节点 B -> 节点 A:反向转发,由 A 投递给本机 user-a
-    info!("forwarding B -> A...");
+    info!("正在转发 B -> A...");
     let resp = send_with_retry(node_a_addr, make_request("user-a", 0, payload.clone())).await;
-    info!("B -> A response: status={} delivered={:?}", resp.status, resp.delivered);
+    info!("B -> A 响应: status={} delivered={:?}", resp.status, resp.delivered);
     assert_eq!(resp.status, "ok");
     assert_eq!(resp.delivered, Some(true));
 
@@ -252,17 +252,17 @@ async fn two_internal_nodes_forward_messages_bidirectionally() {
         .await
         .expect("等待 device_a 接收消息超时")
         .expect("device_a 消息通道已关闭");
-    info!("device_a received {} bytes", received_a.len());
+    info!("device_a 收到 {} 字节", received_a.len());
     assert_eq!(received_a, payload);
 
     // 3) 目标用户不在本机 -> 返回用户离线
     let resp = send_with_retry(node_a_addr, make_request("offline-user", 0, payload.clone())).await;
-    info!("offline target response: status={} delivered={:?}", resp.status, resp.delivered);
+    info!("离线目标响应: status={} delivered={:?}", resp.status, resp.delivered);
     assert_eq!(resp.status, "ok");
     assert_eq!(resp.delivered, Some(false));
 
     // 清理
-    info!("shutting down nodes and device endpoints");
+    info!("正在关闭节点和设备端点");
     let _ = shutdown_a.send(true);
     let _ = shutdown_b.send(true);
     device_a_task.abort();

@@ -12,7 +12,7 @@ use tracing::info;
 
 /// 初始化 SQL 连接池
 pub async fn init_sql_pool(url: &str) -> Result<RBatis, anyhow::Error> {
-    info!("connecting to database - address: {}", url);
+    info!("正在连接数据库 - 地址: {}", url);
     let rb = RBatis::new();
 
     let mut opts = PgConnectOptions::new();
@@ -30,6 +30,6 @@ pub async fn init_sql_pool(url: &str) -> Result<RBatis, anyhow::Error> {
         .map_err(|_e| Error::from("pool set fail!"))
         .map_err(|e| anyhow!("Failed to set connection pool: {}", e))?;
 
-    info!("database connection pool initialized successfully");
+    info!("数据库连接池初始化成功");
     Ok(rb)
 }

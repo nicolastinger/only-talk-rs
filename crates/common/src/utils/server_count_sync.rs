@@ -26,14 +26,14 @@ pub fn start_server_count_sync(redis_pool: Pool, server_index: u32, node_address
                         Ok(count) if count > 0 => {
                             let old =  SERVER_COUNT.swap(count, Ordering::Relaxed);
                             if old != count {
-                                info!("server_count updated: {} → {}", old, count);
+                                info!("server_count 已更新: {} → {}", old, count);
                             }
                         }
                         Ok(_) => {
-                            warn!("server_count anomaly: count is 0, ignoring");
+                            warn!("server_count 异常: 数量为 0,忽略");
                         }
                         Err(e) => {
-                            warn!("failed to sync server_count: {}", e);
+                            warn!("同步 server_count 失败: {}", e);
                         }
                     }
                 }
@@ -90,6 +90,6 @@ pub async fn register_external_node(
     let mut conn = pool.get().await?;
     let key = format!("{}{}", REDIS_EXTERNAL_QUIC_SERVERS, server_index);
     conn.set_ex::<&str, &str, ()>(&key, node_address, 120).await?;
-    info!("external QUIC node registered: key={} value={} TTL=120s", key, node_address);
+    info!("外网 QUIC 节点已注册: key={} value={} TTL=120s", key, node_address);
     Ok(())
 }

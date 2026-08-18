@@ -10,23 +10,23 @@ use tracing::{debug, error, info};
 async fn main() {
     // Load .env file
     if let Err(e) = dotenvy::dotenv() {
-        eprintln!("Failed to load .env file: {}", e);
+        eprintln!("加载 .env 文件失败: {}", e);
     }
 
     let _guard = init_tracing();
 
-    debug!("log level set to debug");
-    info!("starting application");
+    debug!("日志级别已设置为 debug");
+    info!("应用启动中");
 
     // 1. Start QUIC service (ChatNode + NAT UDP + internal QUIC, fully self-contained)
     let _chat_node = match start_server().await {
         Ok(node) => node,
-        Err(e) => fatal_panic_async(&format!("failed to start QUIC service: {:?}", e)).await,
+        Err(e) => fatal_panic_async(&format!("QUIC 服务启动失败: {:?}", e)).await,
     };
 
     // 2. Start HTTP API service
     if let Err(e) = init_server::start_server().await {
-        error!("failed to start HTTP service {}, backtrace {:?}", e, e.backtrace());
-        fatal_panic_async(&format!("failed to start HTTP service: {:?}", e)).await;
+        error!("HTTP 服务启动失败 {}, backtrace {:?}", e, e.backtrace());
+        fatal_panic_async(&format!("HTTP 服务启动失败: {:?}", e)).await;
     }
 }

@@ -17,7 +17,7 @@ async fn main() {
 
     println!("目标服务器: {}", endpoint);
     println!("目标桶: {}", bucket_name);
-    println!("Access Key: {}", access_key);
+    println!("访问密钥: {}", access_key);
 
     let config = S3Config {
         provider: S3Provider::MinIO,

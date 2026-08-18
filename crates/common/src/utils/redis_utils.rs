@@ -6,12 +6,12 @@ use uuid::Uuid;
 
 /// 初始化 Redis 连接池
 pub fn init_redis(url: &str) -> Result<Pool, anyhow::Error> {
-    info!("connecting to Redis - address: {}", url);
+    info!("正在连接 Redis - 地址: {}", url);
     let config = RedisConfig::from_url(url);
     let pool = config
         .create_pool(Some(Runtime::Tokio1))
         .map_err(|e| anyhow!("Failed to create Redis connection pool: {}", e))?;
-    info!("Redis connection pool initialized successfully");
+    info!("Redis 连接池初始化成功");
     Ok(pool)
 }
 
@@ -22,18 +22,18 @@ pub async fn verify_redis(pool: &Pool) {
                 deadpool_redis::redis::cmd("PING").query_async(&mut conn).await;
             match result {
                 Ok(ref s) if s == "PONG" => {
-                    info!("Redis connected (PING: {})", s);
+                    info!("Redis 连接成功 (PING: {})", s);
                 }
                 Ok(s) => {
-                    warn!("Redis PING returned anomaly: {}", s);
+                    warn!("Redis PING 返回异常: {}", s);
                 }
                 Err(e) => {
-                    error!("Redis connection failed: {}", e);
+                    error!("Redis 连接失败: {}", e);
                 }
             }
         }
         Err(e) => {
-            error!("Redis connection acquisition failed: {}", e);
+            error!("获取 Redis 连接失败: {}", e);
         }
     }
 }

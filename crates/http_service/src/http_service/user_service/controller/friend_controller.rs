@@ -33,8 +33,8 @@ pub async fn qry_friend_list(
         Some(acc) => acc,
         None => return HttpResponse::Unauthorized().body("Unauthorized"),
     };
-    info!("friend {:?}", friend);
-    info!("account: {:?}", account);
+    info!("好友 {:?}", friend);
+    info!("账号: {:?}", account);
     HttpResponse::Ok().body("not implemented")
 }
 

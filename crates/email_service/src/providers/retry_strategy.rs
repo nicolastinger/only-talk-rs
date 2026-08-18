@@ -322,7 +322,7 @@ impl ExponentialBackoff {
                             max_attempts = self.max_attempts,
                             delay_ms = delay.as_millis(),
                             error = %error,
-                            "Operation failed, retrying..."
+                            "操作失败,正在重试..."
                         );
                         sleep(delay).await;
                     }
@@ -393,7 +393,7 @@ impl FixedInterval {
                             max_attempts = self.max_attempts,
                             interval_ms = self.interval.as_millis(),
                             error = %error,
-                            "Operation failed, retrying..."
+                            "操作失败,正在重试..."
                         );
                         sleep(self.interval).await;
                     }

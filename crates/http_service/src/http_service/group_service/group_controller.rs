@@ -77,7 +77,7 @@ pub async fn create_group(
 ) -> impl Responder {
     let dto = validate_and_respond!(dto);
     let uuid = get_uuid(&req);
-    info!("create_group uuid={:?}", uuid);
+    info!("创建群聊 uuid={:?}", uuid);
     let res = create_group_service(state.db(), state.redis(), &uuid, dto).await;
     respond_json(res)
 }
