@@ -30,9 +30,7 @@ impl ServerCertVerifier for SkipServerVerification {
 
 /// 创建跳过服务器证书校验的 QUIC 客户端配置
 pub fn make_internal_client_config() -> Result<ClientConfig> {
-    debug!(
-        "[内部 QUIC 客户端] [单聊] 正在创建客户端配置(跳过证书校验)"
-    );
+    debug!("[内部 QUIC 客户端] [单聊] 正在创建客户端配置(跳过证书校验)");
     let crypto = rustls::ClientConfig::builder()
         .with_safe_defaults()
         .with_custom_certificate_verifier(Arc::new(SkipServerVerification))
@@ -68,10 +66,7 @@ pub async fn send_internal_quic_msg(
     // 建立连接
     info!("[内部 QUIC 客户端] [单聊] 正在连接内部节点 {}", server_addr);
     let connection = endpoint.connect(server_addr, "localhost")?.await.map_err(|e| {
-        error!(
-            "[内部 QUIC 客户端] [单聊] 连接内部节点 {} 失败: {}",
-            server_addr, e
-        );
+        error!("[内部 QUIC 客户端] [单聊] 连接内部节点 {} 失败: {}", server_addr, e);
         anyhow::anyhow!("Internal QUIC connection to {} failed: {}", server_addr, e)
     })?;
     info!("[内部 QUIC 客户端] [单聊] 已连接内部节点 {}", server_addr);
@@ -104,9 +99,7 @@ pub async fn send_internal_quic_msg(
             Ok(resp)
         }
         None => {
-            warn!(
-                "[内部 QUIC 客户端] [单聊] 服务器关闭了流,未返回响应"
-            );
+            warn!("[内部 QUIC 客户端] [单聊] 服务器关闭了流,未返回响应");
             Ok(InternalQuicResponse::error("server returned no response"))
         }
     }

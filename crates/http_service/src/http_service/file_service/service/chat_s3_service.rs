@@ -266,10 +266,7 @@ async fn upload_chat_file_to_bucket(
                 .await
                 .map_err(|e| anyhow!("S3上传失败: {}", e))?;
 
-            info!(
-                "S3 聊天文件上传成功: key={}, size={}",
-                storage_info.key, storage_info.size
-            );
+            info!("S3 聊天文件上传成功: key={}, size={}", storage_info.key, storage_info.size);
 
             let file_record = FileUploadRecord {
                 id: None,

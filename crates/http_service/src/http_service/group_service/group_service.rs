@@ -357,11 +357,7 @@ pub async fn invite_group_members_service(
                 invited.push(user_uuid_str.clone());
             }
 
-            info!(
-                "[群聊] 邀请发送成功 group_uuid={} count={}",
-                group_uuid,
-                invited.len()
-            );
+            info!("[群聊] 邀请发送成功 group_uuid={} count={}", group_uuid, invited.len());
             Ok(invited)
         }
         None => Err(anyhow!("Operator is not a group member")),
@@ -422,10 +418,7 @@ pub async fn accept_group_invitation_service(
                 let _ = push_notification_via_quic(notification).await;
             }
 
-            info!(
-                "[群聊] 邀请已接受 group_uuid={} user={}",
-                dto.group_uuid, user_uuid
-            );
+            info!("[群聊] 邀请已接受 group_uuid={} user={}", dto.group_uuid, user_uuid);
             Ok(true)
         }
         _ => Ok(false),
@@ -452,10 +445,7 @@ pub async fn decline_group_invitation_service(
             let inv_id = inv.id.ok_or_else(|| anyhow!("Invitation record missing ID"))?;
             GroupInvitation::update_by_id(rb, &inv, &inv_id).await?;
 
-            info!(
-                "[群聊] 邀请已拒绝 group_uuid={} user={}",
-                dto.group_uuid, user_uuid
-            );
+            info!("[群聊] 邀请已拒绝 group_uuid={} user={}", dto.group_uuid, user_uuid);
             Ok(true)
         }
         _ => Ok(false),
@@ -558,10 +548,7 @@ pub async fn remove_group_member_service(
                         t.user_uuid.clone().ok_or_else(|| anyhow!("Member missing user_uuid"))?;
                     GroupMember::update_by_group_and_user(rb, &t, &g_uuid, &user_uuid).await?;
                     sync_group_members_to_redis(rb, redis, group_uuid).await?;
-                    info!(
-                        "[群聊] 成员移除成功 group_uuid={} target={}",
-                        group_uuid, target_uuid
-                    );
+                    info!("[群聊] 成员移除成功 group_uuid={} target={}", group_uuid, target_uuid);
                     Ok(true)
                 }
                 None => Ok(false),
@@ -592,10 +579,7 @@ pub async fn quit_group_service(
                 m.user_uuid.clone().ok_or_else(|| anyhow!("Member missing user_uuid"))?;
             GroupMember::update_by_group_and_user(rb, &m, &g_uuid, &user_uuid_val).await?;
             sync_group_members_to_redis(rb, redis, group_uuid).await?;
-            info!(
-                "[群聊] 成员退出成功 group_uuid={} user={}",
-                group_uuid, user_uuid
-            );
+            info!("[群聊] 成员退出成功 group_uuid={} user={}", group_uuid, user_uuid);
             Ok(true)
         }
         None => Ok(false),
@@ -724,16 +708,9 @@ async fn sync_group_members_to_redis(
 
     if let Ok(mut conn) = redis.get().await {
         let _: Result<(), _> = conn.set_ex(&cache_key, &json, 1800_u64).await;
-        info!(
-            "[群聊] 群成员已同步到 Redis group_uuid={} member_count={}",
-            group_uuid,
-            uuids.len()
-        );
+        info!("[群聊] 群成员已同步到 Redis group_uuid={} member_count={}", group_uuid, uuids.len());
     } else {
-        warn!(
-            "[群聊] 获取 Redis 连接失败,成员未同步 group_uuid={}",
-            group_uuid
-        );
+        warn!("[群聊] 获取 Redis 连接失败,成员未同步 group_uuid={}", group_uuid);
     }
 
     Ok(())

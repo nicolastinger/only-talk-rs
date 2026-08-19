@@ -211,10 +211,7 @@ async fn two_internal_nodes_forward_messages_bidirectionally() {
     let core = make_core();
     let (node_a_addr, shutdown_a) = start_node(core.clone(), 0, connections_a).await;
     let (node_b_addr, shutdown_b) = start_node(core.clone(), 1, connections_b).await;
-    info!(
-        "内部节点 A (index=0) 已绑定 {},节点 B (index=1) 已绑定 {}",
-        node_a_addr, node_b_addr
-    );
+    info!("内部节点 A (index=0) 已绑定 {},节点 B (index=1) 已绑定 {}", node_a_addr, node_b_addr);
 
     // 构造消息负载(与真实流程一致的 TextQuicMsg bincode 二进制)
     let payload = bincode::serialize(&TextQuicMsg {

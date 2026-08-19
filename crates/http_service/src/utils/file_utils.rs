@@ -32,11 +32,7 @@ pub async fn compress_image(
 
     // 检查原始文件大小
     if file_data.len() <= target_size {
-        info!(
-            "文件大小 {} 小于目标大小 {},跳过压缩",
-            file_data.len(),
-            target_size
-        );
+        info!("文件大小 {} 小于目标大小 {},跳过压缩", file_data.len(), target_size);
         return Ok(file_data);
     }
 
@@ -52,10 +48,7 @@ pub async fn compress_image(
         if let Ok(compressed) =
             try_compress_by_resize_fast(&img, target_size, INITIAL_QUALITY, ENCODING_METHOD)
         {
-            info!(
-                "通过缩小尺寸压缩成功,压缩后大小: {} 字节",
-                compressed.len()
-            );
+            info!("通过缩小尺寸压缩成功,压缩后大小: {} 字节", compressed.len());
             return Ok(compressed);
         }
     }
