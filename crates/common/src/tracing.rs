@@ -1,6 +1,7 @@
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::fmt::time::LocalTime;
-use tracing_subscriber::{EnvFilter, Registry, fmt, prelude::*};
+use tracing_subscriber::prelude::*;
+use tracing_subscriber::{EnvFilter, Registry, fmt};
 
 fn read_log_level_from_config() -> String {
     std::fs::read_to_string("./config/app_config.toml")
@@ -16,7 +17,7 @@ fn read_log_level_from_config() -> String {
         .unwrap_or_else(|| "info".to_string())
 }
 
-/// Initialize tracing: dual-channel (file + stdout), returns guard that must be held in main
+/// 初始化 tracing: 双通道(文件 + stdout),返回的 guard 必须在 main 中持有
 pub fn init_tracing() -> WorkerGuard {
     let file_appender = tracing_appender::rolling::never("log", "rust_im.log");
     let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
@@ -47,8 +48,8 @@ pub fn init_tracing() -> WorkerGuard {
         );
 
     tracing::subscriber::set_global_default(subscriber).unwrap_or_else(|e| {
-        let msg = format!("Failed to set global tracing subscriber: {}", e);
-        tracing::error!("FATAL: {}", msg);
+        let msg = format!("设置全局 tracing 订阅器失败: {}", e);
+        tracing::error!("致命错误: {}", msg);
         std::thread::sleep(std::time::Duration::from_secs(5));
         panic!("{}", msg);
     });

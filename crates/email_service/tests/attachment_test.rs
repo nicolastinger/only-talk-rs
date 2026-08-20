@@ -74,7 +74,7 @@ fn test_attachment_from_base64() {
     let attachment = Attachment::from_base64("test.txt", base64_content);
 
     assert!(attachment.is_ok());
-    let attachment = attachment.unwrap();
+    let attachment = attachment.expect("从 base64 解码附件失败");
     assert_eq!(attachment.content, b"Hello World");
 }
 

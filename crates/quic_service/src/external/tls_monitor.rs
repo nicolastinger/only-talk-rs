@@ -14,7 +14,7 @@ use x509_parser::prelude::*;
 
 use super::set_server::create_server_config;
 
-/// TLS certificate status info
+/// TLS 证书状态信息
 #[derive(Debug, Clone)]
 pub struct CertStatus {
     pub not_before: SystemTime,
@@ -30,7 +30,7 @@ pub fn load_tls_certificates(
     key_path: &str,
     expiry_warning_days: i64,
 ) -> Result<(Vec<Certificate>, PrivateKey, CertStatus), Box<dyn std::error::Error>> {
-    // Load certificate
+    // 加载证书
     let mut cert_file = BufReader::new(File::open(cert_path)?);
     let cert_chain: Vec<Certificate> = certs(&mut cert_file)
         .map(|certs| certs.into_iter().map(Certificate).collect())
@@ -40,10 +40,10 @@ pub fn load_tls_certificates(
         return Err("Certificate chain is empty".into());
     }
 
-    // Parse certificate to get expiry info
+    // 解析证书以获取到期信息
     let cert_status = parse_cert_expiry(&cert_chain[0].0, expiry_warning_days)?;
 
-    // Load private key
+    // 加载私钥
     let mut key_file = BufReader::new(File::open(key_path)?);
     let mut keys = load_private_keys(&mut key_file)?;
 
@@ -56,22 +56,22 @@ pub fn load_tls_certificates(
     Ok((cert_chain, key, cert_status))
 }
 
-/// Load private key, trying different key formats
+/// 加载私钥,依次尝试不同的密钥格式
 fn load_private_keys(
     key_file: &mut BufReader<File>,
 ) -> Result<Vec<Vec<u8>>, Box<dyn std::error::Error>> {
     key_file.seek(SeekFrom::Start(0))?;
-    if let Ok(keys) = rsa_private_keys(key_file) {
-        if !keys.is_empty() {
-            return Ok(keys);
-        }
+    if let Ok(keys) = rsa_private_keys(key_file)
+        && !keys.is_empty()
+    {
+        return Ok(keys);
     }
 
     key_file.seek(SeekFrom::Start(0))?;
-    if let Ok(keys) = ec_private_keys(key_file) {
-        if !keys.is_empty() {
-            return Ok(keys);
-        }
+    if let Ok(keys) = ec_private_keys(key_file)
+        && !keys.is_empty()
+    {
+        return Ok(keys);
     }
 
     key_file.seek(SeekFrom::Start(0))?;
@@ -79,7 +79,7 @@ fn load_private_keys(
     Ok(keys)
 }
 
-/// Parse certificate expiry info
+/// 解析证书到期信息
 fn parse_cert_expiry(
     cert_der: &[u8],
     expiry_warning_days: i64,
@@ -116,7 +116,7 @@ fn parse_cert_expiry(
     })
 }
 
-/// Compute SHA256 hash of file
+/// 计算文件的 SHA256 哈希
 fn compute_file_hash(path: &str) -> Result<[u8; 32], Box<dyn std::error::Error>> {
     let mut file = BufReader::new(File::open(path)?);
     let mut hasher = sha2::Sha256::new();
@@ -133,27 +133,24 @@ fn compute_file_hash(path: &str) -> Result<[u8; 32], Box<dyn std::error::Error>>
     Ok(hasher.finalize().into())
 }
 
-/// Print certificate expiry info
+/// 打印证书到期信息
 fn log_cert_status(status: &CertStatus) {
     info!(
-        "TLS certificate info: subject={}, valid from={:?}, expires={:?}, days remaining={}",
+        "TLS 证书信息:subject={},生效时间={:?},到期时间={:?},剩余天数={}",
         status.subject, status.not_before, status.not_after, status.days_remaining
     );
 
     if status.is_expired {
-        error!("TLS certificate has expired!");
+        error!("TLS 证书已过期!");
     } else if status.is_near_expiry {
-        warn!(
-            "TLS certificate expires in {} days, please update the certificate!",
-            status.days_remaining
-        );
+        warn!("TLS 证书将在 {} 天后过期,请及时更新证书!", status.days_remaining);
     }
 }
 
-/// Start TLS certificate monitoring task
-/// - Detect certificate file updates
-/// - Print warning when remaining validity <= threshold
-/// - Use Quinn 0.10+ set_server_config() for hot reload
+/// 启动 TLS 证书监控任务
+/// - 检测证书文件更新
+/// - 剩余有效期不超过阈值时打印告警
+/// - 使用 Quinn 0.10+ 的 set_server_config() 实现热重载
 pub fn start_tls_monitor(
     endpoint: Arc<Endpoint>,
     mut shutdown_rx: watch::Receiver<bool>,
@@ -164,10 +161,10 @@ pub fn start_tls_monitor(
     expiry_check_interval_secs: u64,
 ) {
     tokio::spawn(async move {
-        info!("TLS certificate monitoring task started");
+        info!("TLS 证书监控任务已启动");
 
         let mut last_cert_hash = compute_file_hash(&cert_path).unwrap_or_else(|e| {
-            error!("failed to compute initial certificate hash: {}", e);
+            error!("计算初始证书哈希失败: {}", e);
             [0u8; 32]
         });
 
@@ -178,30 +175,30 @@ pub fn start_tls_monitor(
         loop {
             tokio::select! {
                 _ = shutdown_rx.changed() => {
-                    info!("TLS certificate monitor received shutdown signal, exiting...");
+                    info!("TLS 证书监控收到关闭信号,正在退出...");
                     return;
                 }
                 _ = interval.tick() => {
                     let current_hash = match compute_file_hash(&cert_path) {
                         Ok(h) => h,
                         Err(e) => {
-                            error!("failed to compute certificate file hash: {}", e);
+                            error!("计算证书文件哈希失败: {}", e);
                             continue;
                         }
                     };
 
                     if current_hash != last_cert_hash {
-                        info!("TLS certificate file updated, triggering quinn hot-reload...");
+                        info!("TLS 证书文件已更新,触发 quinn 热重载...");
 
                         match reload_tls_config(&endpoint, &cert_path, &key_path, expiry_warning_days) {
                             Ok(new_status) => {
-                                info!("TLS certificate hot-reload successful");
+                                info!("TLS 证书热重载成功");
                                 last_cert_hash = current_hash;
                                 log_cert_status(&new_status);
                                 last_expiry_log = SystemTime::now();
                             }
                             Err(e) => {
-                                error!("TLS certificate hot-reload failed: {}", e);
+                                error!("TLS 证书热重载失败: {}", e);
                             }
                         }
                     }
@@ -223,7 +220,7 @@ pub fn start_tls_monitor(
                             }
                         }
                         Err(e) => {
-                            error!("failed to read certificate status: {}", e);
+                            error!("读取证书状态失败: {}", e);
                         }
                     }
                 }
@@ -232,8 +229,8 @@ pub fn start_tls_monitor(
     });
 }
 
-/// Hot reload TLS config
-/// Use Quinn 0.10+ set_server_config() API
+/// 热重载 TLS 配置
+/// 使用 Quinn 0.10+ 的 set_server_config() API
 fn reload_tls_config(
     endpoint: &Arc<Endpoint>,
     cert_path: &str,
@@ -247,6 +244,6 @@ fn reload_tls_config(
 
     endpoint.set_server_config(Some(server_config));
 
-    info!("TLS config updated via set_server_config(), new connections will use new certificate");
+    info!("已通过 set_server_config() 更新 TLS 配置,新连接将使用新证书");
     Ok(cert_status)
 }

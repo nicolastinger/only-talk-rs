@@ -29,7 +29,7 @@ pub fn configure_client() -> ClientConfig {
     let mut config = ClientConfig::new(Arc::new(crypto));
     let mut time_out_config = TransportConfig::default();
     let idle_timeout =
-        Duration::from_secs(190).try_into().unwrap_or_else(|_| panic!("failed to set timeout"));
+        Duration::from_secs(60).try_into().unwrap_or_else(|_| panic!("failed to set timeout"));
     time_out_config.max_idle_timeout(Some(idle_timeout));
     time_out_config.max_concurrent_uni_streams(32_u8.into());
     config.transport_config(Arc::from(time_out_config));
@@ -84,7 +84,7 @@ pub fn create_server_config(
     let transport_config =
         Arc::get_mut(&mut server_config.transport).ok_or("Failed to get transport config")?;
     transport_config.max_concurrent_uni_streams(32_u8.into());
-    let idle_timeout = Duration::from_secs(190).try_into().map_err(|_| "Failed to set timeout")?;
+    let idle_timeout = Duration::from_secs(60).try_into().map_err(|_| "Failed to set timeout")?;
     transport_config.max_idle_timeout(Some(idle_timeout));
     transport_config.keep_alive_interval(Some(Duration::from_secs(5)));
     Ok(server_config)
@@ -94,19 +94,19 @@ fn load_private_keys(key_file: &mut BufReader<File>) -> Result<Vec<Vec<u8>>, Box
     key_file
         .seek(SeekFrom::Start(0))
         .map_err(|e| format!("Unable to reset file read position: {}", e))?;
-    if let Ok(keys) = rsa_private_keys(key_file) {
-        if !keys.is_empty() {
-            return Ok(keys);
-        }
+    if let Ok(keys) = rsa_private_keys(key_file)
+        && !keys.is_empty()
+    {
+        return Ok(keys);
     }
 
     key_file
         .seek(SeekFrom::Start(0))
         .map_err(|e| format!("Unable to reset file read position: {}", e))?;
-    if let Ok(keys) = ec_private_keys(key_file) {
-        if !keys.is_empty() {
-            return Ok(keys);
-        }
+    if let Ok(keys) = ec_private_keys(key_file)
+        && !keys.is_empty()
+    {
+        return Ok(keys);
     }
 
     key_file

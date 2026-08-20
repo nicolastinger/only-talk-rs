@@ -1,4 +1,6 @@
-use common::config_manager::{get_config, remove_config, set_config};
+use common::config_manager::{
+    get_array_config, get_config, remove_config, set_array_config, set_config,
+};
 
 #[test]
 fn test_set_and_get_config() {
@@ -115,8 +117,8 @@ fn test_concurrent_operations() {
                 let key = format!("{}key_{}", prefix, i);
                 let value = format!("value_{}", i);
                 set_config(key.clone(), value.clone());
-                let result = get_config(&key);
-                result
+
+                get_config(&key)
             })
         })
         .collect();
@@ -171,4 +173,72 @@ fn test_multiple_operations_sequence() {
     remove_config(&format!("{}a", test_prefix));
     remove_config(&format!("{}c", test_prefix));
     remove_config(&format!("{}d", test_prefix));
+}
+
+#[test]
+fn test_set_and_get_array_config() {
+    let test_prefix = "test_array_";
+
+    set_array_config(
+        format!("{}servers", test_prefix),
+        vec!["a".to_string(), "b".to_string(), "c".to_string()],
+    );
+    assert_eq!(
+        get_array_config(&format!("{}servers", test_prefix)),
+        Some(vec!["a".to_string(), "b".to_string(), "c".to_string()])
+    );
+
+    let missing = get_array_config(&format!("{}missing", test_prefix));
+    assert_eq!(missing, None);
+
+    remove_config(&format!("{}servers", test_prefix));
+    assert_eq!(get_array_config(&format!("{}servers", test_prefix)), None);
+}
+
+#[test]
+fn test_array_config_stores_comma_separated() {
+    let test_prefix = "test_array_join_";
+
+    set_array_config(
+        format!("{}list", test_prefix),
+        vec!["x".to_string(), "y".to_string(), "z".to_string()],
+    );
+    // 底层以逗号拼接存储,读取时按逗号拆分
+    assert_eq!(get_config(&format!("{}list", test_prefix)), Some("x,y,z".to_string()));
+    assert_eq!(
+        get_array_config(&format!("{}list", test_prefix)),
+        Some(vec!["x".to_string(), "y".to_string(), "z".to_string()])
+    );
+
+    remove_config(&format!("{}list", test_prefix));
+}
+
+#[test]
+fn test_array_config_trims_and_filters_empty() {
+    let test_prefix = "test_array_trim_";
+
+    set_array_config(
+        format!("{}list", test_prefix),
+        vec!["".to_string(), "  a  ".to_string(), "".to_string()],
+    );
+    assert_eq!(get_array_config(&format!("{}list", test_prefix)), Some(vec!["a".to_string()]));
+
+    // 空数组 -> 空存储值,读取返回空 Vec(而非 None)
+    set_array_config(format!("{}empty", test_prefix), vec![]);
+    assert_eq!(get_array_config(&format!("{}empty", test_prefix)), Some(vec![]));
+    assert_eq!(get_config(&format!("{}empty", test_prefix)), Some("".to_string()));
+
+    remove_config(&format!("{}list", test_prefix));
+    remove_config(&format!("{}empty", test_prefix));
+}
+
+#[test]
+fn test_array_config_overwrite() {
+    let test_prefix = "test_array_overwrite_";
+
+    set_array_config(format!("{}key", test_prefix), vec!["a".to_string(), "b".to_string()]);
+    set_array_config(format!("{}key", test_prefix), vec!["c".to_string()]);
+    assert_eq!(get_array_config(&format!("{}key", test_prefix)), Some(vec!["c".to_string()]));
+
+    remove_config(&format!("{}key", test_prefix));
 }

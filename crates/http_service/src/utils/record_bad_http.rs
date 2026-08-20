@@ -17,6 +17,7 @@ lazy_static! {
         m.insert("/user/sign_up".to_string());
         m.insert("/user/sign_in".to_string());
         m.insert("/user/refresh_token".to_string());
+        m.insert("/user/send_verify_code".to_string());
         RwLock::new(m)
     };
 }
@@ -25,20 +26,15 @@ pub async fn error_record_middleware(
     req: ServiceRequest,
     next: Next<impl MessageBody>,
 ) -> Result<ServiceResponse<impl MessageBody>, Error> {
-    // pre-processing
+    // 预处理
 
-    // Get request method and path
+    // 获取请求方法与路径
     let method = req.method().clone();
     let path = req.path().to_string();
 
-    info!("{} path {}", method, path);
-    // Check if path is in ignore list
+    info!("{} 路径 {}", method, path);
+    // 检查路径是否在忽略列表中
     if IGNORED_PATHS.read().map(|p| p.contains(&path)).unwrap_or(false) {
-        return next.call(req).await;
-    }
-
-    // Check if path starts with /resources
-    if path.starts_with("/resources/") {
         return next.call(req).await;
     }
 
@@ -52,7 +48,7 @@ pub async fn error_record_middleware(
             Err(_) => return Err(actix_web::error::ErrorUnauthorized("Invalid token")),
         },
     };
-    // Validate token
+    // 校验 token
     let account = match verify_token(&token) {
         Ok(t) => t.uuid,
         Err(_) => {

@@ -1,6 +1,6 @@
--- public.system_notification table definition
+-- public.system_notification 表定义
 
--- Drop table
+-- 删除表
 -- DROP TABLE system_notification;
 
 CREATE TABLE IF NOT EXISTS system_notification (
@@ -20,14 +20,14 @@ CREATE TABLE IF NOT EXISTS system_notification (
     CONSTRAINT system_notification_pkey PRIMARY KEY (id)
 );
 
--- Indexes
-CREATE INDEX idx_system_notification_is_read ON public.system_notification USING btree (is_read);
-CREATE INDEX idx_system_notification_user_id_created_at ON public.system_notification USING btree (user_id, created_at);
+-- 索引
+CREATE INDEX IF NOT EXISTS idx_system_notification_is_read ON public.system_notification USING btree (is_read);
+CREATE INDEX IF NOT EXISTS idx_system_notification_user_id_created_at ON public.system_notification USING btree (user_id, created_at);
 
--- Table comment
+-- 表注释
 COMMENT ON TABLE public.system_notification IS '系统通知表';
 
--- Column comments
+-- 列注释
 COMMENT ON COLUMN public.system_notification.id IS '主键ID';
 COMMENT ON COLUMN public.system_notification.title IS '通知标题';
 COMMENT ON COLUMN public.system_notification."content" IS '详细内容';

@@ -1,8 +1,8 @@
--- Migration: Add bucket column to file_upload_record table
--- Date: 2026-04-11
--- Description: 添加S3存储桶名称字段，用于记录文件实际存储的桶
+-- 迁移: 为 file_upload_record 表添加 bucket 列
+-- 日期: 2026-04-11
+-- 描述: 添加S3存储桶名称字段，用于记录文件实际存储的桶
 
--- Add bucket column if not exists
+-- 若不存在则添加 bucket 列
 DO $$
 BEGIN
     IF NOT EXISTS (

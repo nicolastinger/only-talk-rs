@@ -2,10 +2,11 @@
 //!
 //! This module defines the [`EmailAddress`] struct for representing email addresses.
 
+use std::fmt;
+
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use std::fmt;
 
 /// Email address regex pattern
 ///

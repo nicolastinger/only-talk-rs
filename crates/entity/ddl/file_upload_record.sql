@@ -1,6 +1,6 @@
--- public.file_upload_record table definition
+-- public.file_upload_record 表定义
 
--- Drop table
+-- 删除表
 -- DROP TABLE file_upload_record;
 
 CREATE TABLE IF NOT EXISTS file_upload_record (
@@ -24,15 +24,15 @@ CREATE TABLE IF NOT EXISTS file_upload_record (
     CONSTRAINT file_upload_record_pkey PRIMARY KEY (id)
 );
 
--- Indexes
-CREATE INDEX idx_file_upload_record_uuid ON public.file_upload_record USING btree (uuid);
-CREATE INDEX idx_file_upload_record_user_uuid ON public.file_upload_record USING btree (upload_user_uuid);
-CREATE INDEX idx_file_upload_record_upload_time ON public.file_upload_record USING btree (upload_time);
+-- 索引
+CREATE INDEX IF NOT EXISTS idx_file_upload_record_uuid ON public.file_upload_record USING btree (uuid);
+CREATE INDEX IF NOT EXISTS idx_file_upload_record_user_uuid ON public.file_upload_record USING btree (upload_user_uuid);
+CREATE INDEX IF NOT EXISTS idx_file_upload_record_upload_time ON public.file_upload_record USING btree (upload_time);
 
--- Table comment
+-- 表注释
 COMMENT ON TABLE public.file_upload_record IS '文件上传记录表';
 
--- Column comments
+-- 列注释
 COMMENT ON COLUMN public.file_upload_record.id IS '主键ID';
 COMMENT ON COLUMN public.file_upload_record.uuid IS '文件唯一标识符';
 COMMENT ON COLUMN public.file_upload_record.original_name IS '原始文件名';

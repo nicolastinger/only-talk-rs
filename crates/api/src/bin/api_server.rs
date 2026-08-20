@@ -1,6 +1,6 @@
-//! HTTP API service standalone entry point
+//! HTTP API 服务独立入口
 //!
-//! Starts only the actix-web HTTPS service, no QUIC services.
+//! 仅启动 actix-web HTTPS 服务,不启动 QUIC 服务。
 
 use api::init_server::start_server;
 use common::fatal_panic_async;
@@ -14,10 +14,10 @@ async fn main() {
     }
 
     let _guard = init_tracing();
-    info!("starting HTTP API service (standalone mode)");
+    info!("HTTP API 服务启动中(独立模式)");
 
     if let Err(e) = start_server().await {
-        error!("failed to start HTTP service {}, backtrace {:?}", e, e.backtrace());
-        fatal_panic_async(&format!("failed to start HTTP service: {:?}", e)).await;
+        error!("HTTP 服务启动失败 {}, backtrace {:?}", e, e.backtrace());
+        fatal_panic_async(&format!("HTTP 服务启动失败: {:?}", e)).await;
     }
 }

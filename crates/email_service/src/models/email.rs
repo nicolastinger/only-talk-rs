@@ -2,10 +2,11 @@
 //!
 //! 本模块定义了 [`Email`] 结构体及其构建器 [`EmailBuilder`]。
 
-use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
+
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::{Attachment, EmailAddress};

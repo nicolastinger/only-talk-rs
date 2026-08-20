@@ -1,3 +1,6 @@
+// 测试代码中直接使用 unwrap 作为断言失败手段是惯例,此处豁免生产代码的 unwrap 禁令
+#![allow(clippy::unwrap_used, clippy::disallowed_methods)]
+
 use email_service::prelude::*;
 use email_service::{AliyunConfig, Attachment, EmailManager, ProviderConfig};
 
@@ -82,13 +85,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  附件数量: {}", email.attachments.len());
     for attachment in &email.attachments {
         println!(
-            "  - {} ({} bytes, {})",
+            "  - {} ({} 字节, {})",
             attachment.filename,
             attachment.size(),
             attachment.content_type
         );
     }
-    println!("  总附件大小: {} bytes", email.total_attachment_size());
+    println!("  总附件大小: {} 字节", email.total_attachment_size());
 
     println!("\n发送邮件...");
     match manager.send(&email).await {

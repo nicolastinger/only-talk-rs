@@ -2,37 +2,43 @@
 //!
 //! 测试配置解析、错误处理等不需要实际服务的功能
 
-use crate::config::S3Provider;
-use crate::error::S3Error;
-
-// 集成测试需要的导入
-#[cfg(feature = "integration-test")]
-use crate::S3Client;
 #[cfg(feature = "integration-test")]
 use aws_sdk_s3::error::ProvideErrorMetadata;
 #[cfg(feature = "integration-test")]
 use aws_sdk_s3::operation::RequestId;
 
+// 集成测试需要的导入
+#[cfg(feature = "integration-test")]
+use crate::S3Client;
+use crate::config::S3Provider;
+use crate::error::S3Error;
+
 /// 测试 S3Provider 解析
 #[test]
 fn test_s3_provider_from_str() {
     // 测试 MinIO
-    assert_eq!(S3Provider::from_str("minio").unwrap(), S3Provider::MinIO);
-    assert_eq!(S3Provider::from_str("MINIO").unwrap(), S3Provider::MinIO);
-    assert_eq!(S3Provider::from_str("MinIO").unwrap(), S3Provider::MinIO);
+    assert_eq!("minio".parse::<S3Provider>().expect("解析 S3Provider 失败"), S3Provider::MinIO);
+    assert_eq!("MINIO".parse::<S3Provider>().expect("解析 S3Provider 失败"), S3Provider::MinIO);
+    assert_eq!("MinIO".parse::<S3Provider>().expect("解析 S3Provider 失败"), S3Provider::MinIO);
 
     // 测试 AliyunOSS
-    assert_eq!(S3Provider::from_str("aliyun_oss").unwrap(), S3Provider::AliyunOSS);
-    assert_eq!(S3Provider::from_str("aliyun").unwrap(), S3Provider::AliyunOSS);
-    assert_eq!(S3Provider::from_str("oss").unwrap(), S3Provider::AliyunOSS);
+    assert_eq!(
+        "aliyun_oss".parse::<S3Provider>().expect("解析 S3Provider 失败"),
+        S3Provider::AliyunOSS
+    );
+    assert_eq!(
+        "aliyun".parse::<S3Provider>().expect("解析 S3Provider 失败"),
+        S3Provider::AliyunOSS
+    );
+    assert_eq!("oss".parse::<S3Provider>().expect("解析 S3Provider 失败"), S3Provider::AliyunOSS);
 
     // 测试 AwsS3
-    assert_eq!(S3Provider::from_str("aws_s3").unwrap(), S3Provider::AwsS3);
-    assert_eq!(S3Provider::from_str("aws").unwrap(), S3Provider::AwsS3);
+    assert_eq!("aws_s3".parse::<S3Provider>().expect("解析 S3Provider 失败"), S3Provider::AwsS3);
+    assert_eq!("aws".parse::<S3Provider>().expect("解析 S3Provider 失败"), S3Provider::AwsS3);
 
     // 测试无效值
-    assert!(S3Provider::from_str("invalid").is_err());
-    assert!(S3Provider::from_str("").is_err());
+    assert!("invalid".parse::<S3Provider>().is_err());
+    assert!("".parse::<S3Provider>().is_err());
 }
 
 /// 测试 S3Provider Display 实现
@@ -67,27 +73,27 @@ fn test_default_minio_config() {
 fn test_s3_error_display() {
     assert_eq!(
         format!("{}", S3Error::AwsError("test error".to_string())),
-        "AWS SDK错误: test error"
+        "AWS SDK error: test error"
     );
 
     assert_eq!(
         format!("{}", S3Error::ConfigError("invalid config".to_string())),
-        "S3配置错误: invalid config"
+        "S3 config error: invalid config"
     );
 
     assert_eq!(
         format!("{}", S3Error::BucketNotFound("my-bucket".to_string())),
-        "存储桶不存在: my-bucket"
+        "Bucket not found: my-bucket"
     );
 
     assert_eq!(
         format!("{}", S3Error::ObjectNotFound("file.txt".to_string())),
-        "对象不存在: file.txt"
+        "Object not found: file.txt"
     );
 
     assert_eq!(
         format!("{}", S3Error::PermissionDenied("access denied".to_string())),
-        "权限不足: access denied"
+        "Permission denied: access denied"
     );
 }
 
@@ -133,96 +139,97 @@ fn test_presigned_method() {
 #[cfg(feature = "integration-test")]
 #[tokio::test]
 async fn diagnose_s3_connection() {
+    use tracing::info;
+
     use crate::client::S3Client;
     use crate::config::S3Config;
-    use tracing::info;
 
     // 初始化日志
     let _ = tracing_subscriber::fmt::try_init();
 
-    info!("====== S3 Connection Diagnostic Test ======");
+    info!("====== S3 连接诊断测试 ======");
 
     // 1. 加载配置
     let config = S3Config::default_minio();
-    info!("Configuration:");
-    info!("  Provider: {:?}", config.provider);
-    info!("  Endpoint: {}", config.endpoint_url);
-    info!("  Access Key: {}", config.access_key_id);
-    info!("  Region: {}", config.region);
-    info!("  Default Bucket: {}", config.default_bucket);
-    info!("  Force Path Style: {}", config.force_path_style);
+    info!("配置:");
+    info!("  服务商: {:?}", config.provider);
+    info!("  端点: {}", config.endpoint_url);
+    info!("  访问密钥: {}", config.access_key_id);
+    info!("  区域: {}", config.region);
+    info!("  默认桶: {}", config.default_bucket);
+    info!("  强制路径样式: {}", config.force_path_style);
 
     // 2. 创建客户端
-    info!("\nCreating S3 client...");
+    info!("\n正在创建 S3 客户端...");
     let client = match S3Client::new(config).await {
         Ok(c) => {
-            info!("✓ S3 client created successfully");
+            info!("✓ S3 客户端创建成功");
             c
         }
         Err(e) => {
-            info!("✗ S3 client creation failed: {}", e);
+            info!("✗ S3 客户端创建失败: {}", e);
             panic!("failed to create S3 client");
         }
     };
 
     // 3. 测试连接 - 列出所有桶
-    info!("\nTesting connection (listing all buckets)...");
+    info!("\n正在测试连接(列出所有桶)...");
     match client.inner.list_buckets().send().await {
         Ok(result) => {
-            info!("✓ Connection successful!");
+            info!("✓ 连接成功!");
             let buckets = result.buckets();
-            info!("  Current bucket count: {}", buckets.len());
+            info!("  当前桶数量: {}", buckets.len());
             for bucket in buckets {
                 info!("  - {}", bucket.name().unwrap_or("unknown"));
             }
         }
         Err(e) => {
-            info!("✗ Connection failed: {:?}", e);
-            info!("\nPossible reasons:");
-            info!("  1. Network connection issue - check if endpoint URL is correct");
-            info!("  2. S3 service not started - confirm MinIO is running");
-            info!("  3. Firewall blocked - check if port is open");
-            info!("  4. TLS/SSL issue - HTTP vs HTTPS");
+            info!("✗ 连接失败: {:?}", e);
+            info!("\n可能原因:");
+            info!("  1. 网络连接问题 - 检查端点 URL 是否正确");
+            info!("  2. S3 服务未启动 - 确认 MinIO 正在运行");
+            info!("  3. 防火墙拦截 - 检查端口是否开放");
+            info!("  4. TLS/SSL 问题 - HTTP 与 HTTPS 混用");
             return;
         }
     }
 
     // 4. 检查默认桶是否存在
-    info!("\nChecking default bucket '{}'...", client.config.default_bucket);
+    info!("\n正在检查默认桶 '{}'...", client.config.default_bucket);
     match client.inner.head_bucket().bucket(&client.config.default_bucket).send().await {
         Ok(_) => {
-            info!("✓ Default bucket already exists");
+            info!("✓ 默认桶已存在");
         }
         Err(e) => {
-            info!("✗ Default bucket does not exist or inaccessible: {:?}", e);
-            info!("\nAttempting to create bucket...");
+            info!("✗ 默认桶不存在或不可访问: {:?}", e);
+            info!("\n正在尝试创建桶...");
 
             // 5. 尝试创建桶
             match client.inner.create_bucket().bucket(&client.config.default_bucket).send().await {
                 Ok(_) => {
-                    info!("✓ Bucket created successfully");
+                    info!("✓ 桶创建成功");
                 }
                 Err(create_err) => {
-                    info!("✗ Bucket creation failed: {:?}", create_err);
-                    info!("\nPossible reasons:");
-                    info!("  1. Insufficient permissions - check Access Key and Secret Key");
-                    info!("  2. Bucket name already taken");
-                    info!("  3. Region configuration error");
-                    info!("  4. MinIO version incompatible");
+                    info!("✗ 桶创建失败: {:?}", create_err);
+                    info!("\n可能原因:");
+                    info!("  1. 权限不足 - 检查 Access Key 和 Secret Key");
+                    info!("  2. 桶名称已被占用");
+                    info!("  3. 区域配置错误");
+                    info!("  4. MinIO 版本不兼容");
 
                     // 尝试获取更详细的错误信息
                     let meta = create_err.meta();
-                    info!("\nError details:");
-                    info!("  Error code: {:?}", meta.code());
-                    info!("  Error message: {:?}", meta.message());
-                    info!("  Request ID: {:?}", meta.request_id());
+                    info!("\n错误详情:");
+                    info!("  错误码: {:?}", meta.code());
+                    info!("  错误消息: {:?}", meta.message());
+                    info!("  请求 ID: {:?}", meta.request_id());
                 }
             }
         }
     }
 
     // 6. 测试上传和下载
-    info!("\nTesting file upload...");
+    info!("\n正在测试文件上传...");
     let test_key = "test/diagnostic-test.txt";
     let test_data = b"Hello, S3 Diagnostic Test!";
 
@@ -236,10 +243,10 @@ async fn diagnose_s3_connection() {
         .await
     {
         Ok(_) => {
-            info!("✓ File uploaded successfully");
+            info!("✓ 文件上传成功");
 
             // 尝试下载
-            info!("\nTesting file download...");
+            info!("\n正在测试文件下载...");
             match client
                 .inner
                 .get_object()
@@ -249,8 +256,9 @@ async fn diagnose_s3_connection() {
                 .await
             {
                 Ok(result) => {
-                    let body = result.body.collect().await.unwrap().into_bytes();
-                    info!("✓ File downloaded successfully, size: {} bytes", body.len());
+                    let body =
+                        result.body.collect().await.expect("收集下载响应体失败").into_bytes();
+                    info!("✓ 文件下载成功,大小: {} 字节", body.len());
 
                     // 清理测试文件
                     let _ = client
@@ -260,19 +268,19 @@ async fn diagnose_s3_connection() {
                         .key(test_key)
                         .send()
                         .await;
-                    info!("✓ Test file cleaned up");
+                    info!("✓ 测试文件已清理");
                 }
                 Err(e) => {
-                    info!("✗ File download failed: {:?}", e);
+                    info!("✗ 文件下载失败: {:?}", e);
                 }
             }
         }
         Err(e) => {
-            info!("✗ File upload failed: {:?}", e);
+            info!("✗ 文件上传失败: {:?}", e);
         }
     }
 
-    info!("\n====== Diagnostic Complete ======");
+    info!("\n====== 诊断完成 ======");
 }
 
 /// 测试桶创建权限

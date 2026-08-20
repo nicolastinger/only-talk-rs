@@ -2,15 +2,15 @@ use serde::{Deserialize, Serialize};
 
 use crate::models::quic_connection::ConnectionType;
 
-// QUIC initial packet
+// QUIC 初始数据包
 #[derive(Debug, Serialize, Deserialize)]
 pub struct FirstQuicMsg {
-    pub token: String,             // User token
-    pub uuid: String,              // User account
-    pub msg_type: ConnectionType,  // Stream data type: text, image, video, other
-    pub text_serde_struct: String, // Text type serialized struct
-    pub dyn_buffer_size: usize,    // Buffer size
-    pub dyn_header_size: usize,    // Header size
+    pub token: String,             // 用户 token
+    pub uuid: String,              // 用户账号
+    pub msg_type: ConnectionType,  // 流数据类型：文本、图片、视频、其他
+    pub text_serde_struct: String, // 文本类型序列化结构体
+    pub dyn_buffer_size: usize,    // 缓冲区大小
+    pub dyn_header_size: usize,    // 头部大小
 }
 
 impl FirstQuicMsg {

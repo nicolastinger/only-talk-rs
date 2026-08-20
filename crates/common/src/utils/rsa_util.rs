@@ -1,4 +1,5 @@
-use crate::config_manager::{get_config, set_config};
+use std::fs;
+
 use anyhow::anyhow;
 use argon2::password_hash::PasswordHash;
 use argon2::password_hash::rand_core::OsRng;
@@ -9,12 +10,13 @@ use rbatis::rbatis_codegen::ops::AsProxy;
 use rsa::pkcs1::EncodeRsaPublicKey;
 use rsa::pkcs8::{DecodePrivateKey, EncodePrivateKey};
 use rsa::{RsaPrivateKey, RsaPublicKey};
-use std::fs;
 
-/// Get RSA keys with three-level caching strategy:
-/// 1. First try to get from memory (config manager)
-/// 2. If not in memory, try to read from file system
-/// 3. If not in file system, generate new keys
+use crate::config_manager::{get_config, set_config};
+
+/// 获取 RSA 密钥对,采用三级缓存策略:
+/// 1. 优先从内存获取(配置管理器)
+/// 2. 内存中没有则尝试从文件系统读取
+/// 3. 文件系统中也没有则生成新密钥
 pub fn get_rsa_keys() -> Result<(RsaPrivateKey, RsaPublicKey), anyhow::Error> {
     let private_key_config = get_config("jwt_private_key");
     let public_key_config = get_config("jwt_public_key");
@@ -49,36 +51,36 @@ pub fn get_rsa_keys() -> Result<(RsaPrivateKey, RsaPublicKey), anyhow::Error> {
     Ok((private_key, public_key))
 }
 
-/// Generate a new RSA key pair and save to memory and file system
+/// 生成新的 RSA 密钥对并保存到内存和文件系统
 fn generate_rsa_key_pair() -> Result<(RsaPrivateKey, RsaPublicKey), anyhow::Error> {
-    // Generate a new RSA key pair if no existing key files
+    // 若不存在密钥文件则生成新的 RSA 密钥对
     let mut rng = rand::thread_rng();
     let bits = 2048;
     let private_key = RsaPrivateKey::new(&mut rng, bits)?;
 
-    // Derive public key from private key
+    // 从私钥派生公钥
     let public_key = RsaPublicKey::from(&private_key);
     let private_key_pem = private_key.to_pkcs8_pem(Default::default())?;
     let private_key_str = private_key_pem.to_string();
-    // Convert public key to PEM format string
+    // 将公钥转换为 PEM 格式字符串
     let public_key_pem = public_key.to_pkcs1_pem(Default::default())?;
     let public_key_str = public_key_pem.to_string();
     set_config("jwt_private_key".string(), private_key_str.clone());
     set_config("jwt_public_key".string(), public_key_str.clone());
-    // Ensure the config/jwt directory exists before writing key files
+    // 写入密钥文件前确保 config/jwt 目录存在
     fs::create_dir_all("./config/jwt")?;
-    // Save generated key to file
+    // 将生成的密钥保存到文件
     fs::write("./config/jwt/private.key", private_key_str)?;
     fs::write("./config/jwt/public.key", public_key_str)?;
     Ok((private_key, public_key))
 }
 
-// Generate a random string of specified length
+// 生成指定长度的随机字符串
 pub fn generate_random_string(length: usize) -> String {
     let mut rng = rand::thread_rng();
     std::iter::repeat(())
         .map(|_| rng.sample(Alphanumeric))
-        .map(|num| num as char) // Convert u8 to char
+        .map(|num| num as char) // 将 u8 转换为 char
         .take(length)
         .collect::<String>()
 }

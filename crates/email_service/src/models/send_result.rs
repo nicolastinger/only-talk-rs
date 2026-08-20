@@ -2,11 +2,11 @@
 //!
 //! 本模块定义了邮件发送后的结果类型：
 //!
-//! - [`SendResult`]: 发送结果
-//! - [`SendStatus`]: 发送状态
-//! - [`RecipientResult`]: 收件人级别的结果
-//! - [`ErrorInfo`]: 错误详情
-//! - [`ErrorCategory`]: 错误分类
+//! - [`SendResult`][]: 发送结果
+//! - [`SendStatus`][]: 发送状态
+//! - [`RecipientResult`][]: 收件人级别的结果
+//! - [`ErrorInfo`][]: 错误详情
+//! - [`ErrorCategory`][]: 错误分类
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -17,8 +17,8 @@ use serde::{Deserialize, Serialize};
 ///
 /// # 状态判断
 ///
-/// - [`SendResult::is_success`]: 是否成功（包括部分成功）
-/// - [`SendResult::is_queued`]: 是否在队列中
+/// - [`SendResult::is_success`][]: 是否成功（包括部分成功）
+/// - [`SendResult::is_queued`][]: 是否在队列中
 ///
 /// # 示例
 ///

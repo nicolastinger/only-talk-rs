@@ -10,7 +10,7 @@ use tracing::{debug, error, info, warn};
 
 use crate::utils::internal_quic_msg::{InternalQuicRequest, InternalQuicResponse};
 
-/// Skip server certificate verification (internal services use self-signed certs)
+/// 跳过服务器证书校验(内部服务使用自签名证书)
 #[derive(Debug)]
 pub struct SkipServerVerification;
 
@@ -28,11 +28,9 @@ impl ServerCertVerifier for SkipServerVerification {
     }
 }
 
-/// Create QUIC client config that skips server cert verification
+/// 创建跳过服务器证书校验的 QUIC 客户端配置
 pub fn make_internal_client_config() -> Result<ClientConfig> {
-    debug!(
-        "[internal QUIC client] [single chat] creating client config (skipping cert verification)"
-    );
+    debug!("[内部 QUIC 客户端] [单聊] 正在创建客户端配置(跳过证书校验)");
     let crypto = rustls::ClientConfig::builder()
         .with_safe_defaults()
         .with_custom_certificate_verifier(Arc::new(SkipServerVerification))
@@ -43,70 +41,65 @@ pub fn make_internal_client_config() -> Result<ClientConfig> {
     let mut config = ClientConfig::new(Arc::new(crypto));
     config.transport_config(Arc::new(transport));
 
-    debug!("[internal QUIC client] [single chat] client config complete idle_timeout=30s");
+    debug!("[内部 QUIC 客户端] [单聊] 客户端配置完成 idle_timeout=30s");
     Ok(config)
 }
 
-/// Send a request to the internal QUIC service and receive a response
+/// 向内部 QUIC 服务发送请求并接收响应
 ///
-/// Connect -> Send request -> Read response -> Close connection
+/// 连接 -> 发送请求 -> 读取响应 -> 关闭连接
 pub async fn send_internal_quic_msg(
     server_addr: SocketAddr,
     request: InternalQuicRequest,
 ) -> Result<InternalQuicResponse> {
     info!(
-        "[internal QUIC client] [single chat] sending internal request target_user={} msg_type={} preferred_index={}",
+        "[内部 QUIC 客户端] [单聊] 发送内部请求 target_user={} msg_type={} preferred_index={}",
         request.target_user, request.msg_type, request.preferred_index
     );
 
-    // Create client config
+    // 创建客户端配置
     let client_config = make_internal_client_config()?;
     let mut endpoint = Endpoint::client("0.0.0.0:0".parse()?)?;
     endpoint.set_default_client_config(client_config);
-    debug!("[internal QUIC client] [single chat] endpoint created");
+    debug!("[内部 QUIC 客户端] [单聊] 客户端端点已创建");
 
-    // Establish connection
-    info!("[internal QUIC client] [single chat] connecting to internal node {}", server_addr);
+    // 建立连接
+    info!("[内部 QUIC 客户端] [单聊] 正在连接内部节点 {}", server_addr);
     let connection = endpoint.connect(server_addr, "localhost")?.await.map_err(|e| {
-        error!(
-            "[internal QUIC client] [single chat] connection to internal node {} failed: {}",
-            server_addr, e
-        );
+        error!("[内部 QUIC 客户端] [单聊] 连接内部节点 {} 失败: {}", server_addr, e);
         anyhow::anyhow!("Internal QUIC connection to {} failed: {}", server_addr, e)
     })?;
-    info!("[internal QUIC client] [single chat] connected to internal node {}", server_addr);
+    info!("[内部 QUIC 客户端] [单聊] 已连接内部节点 {}", server_addr);
 
-    // open bi-directional stream
+    // 打开双向流
     let (mut send_stream, mut recv_stream) = connection.open_bi().await?;
-    debug!("[internal QUIC client] [single chat] bi-directional stream opened");
+    debug!("[内部 QUIC 客户端] [单聊] 双向流已打开");
 
-    // serialize and send request
+    // 序列化并发送请求
     let body = bincode::serialize(&request)?;
     let body_len = body.len();
-    debug!("[internal QUIC client] [single chat] request serialized size={} bytes", body_len);
+    debug!("[内部 QUIC 客户端] [单聊] 请求序列化完成,大小={} 字节", body_len);
 
     send_stream.write_all(&body).await?;
-    debug!("[internal QUIC client] [single chat] request sent {} bytes", body_len);
+    debug!("[内部 QUIC 客户端] [单聊] 请求已发送 {} 字节", body_len);
     send_stream.finish().await?;
-    debug!("[internal QUIC client] [single chat] send stream closed");
+    debug!("[内部 QUIC 客户端] [单聊] 发送流已关闭");
 
-    // read response
+    // 读取响应
     let mut buf = vec![0u8; 1024 * 16];
-    debug!("[internal QUIC client] [single chat] waiting for response...");
+    debug!("[内部 QUIC 客户端] [单聊] 正在等待响应...");
     match recv_stream.read(&mut buf).await? {
         Some(len) => {
-            debug!("[internal QUIC client] [single chat] response received size={} bytes", len);
+            debug!("[内部 QUIC 客户端] [单聊] 收到响应,大小={} 字节", len);
             let resp: InternalQuicResponse = bincode::deserialize(&buf[..len])?;
             info!(
-                "[internal QUIC client] [single chat] response parsed status={} delivered={:?} message={:?}",
+                "[内部 QUIC 客户端] [单聊] 响应解析完成 status={} delivered={:?} message={:?}",
                 resp.status, resp.delivered, resp.message
             );
             Ok(resp)
         }
         None => {
-            warn!(
-                "[internal QUIC client] [single chat] server closed stream, no response returned"
-            );
+            warn!("[内部 QUIC 客户端] [单聊] 服务器关闭了流,未返回响应");
             Ok(InternalQuicResponse::error("server returned no response"))
         }
     }

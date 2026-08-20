@@ -11,10 +11,20 @@ pub struct SignUpBasicUserDTO {
     pub icon: Option<String>,
     pub info: Option<String>,
     #[validate(
+        required(message = "需要输入邮箱"),
+        regex(path = "common::utils::validators::EMAIL_REGEX", message = "邮箱格式不正确")
+    )]
+    pub email: Option<String>,
+    #[validate(
+        required(message = "需要输入验证码"),
+        length(min = 6, max = 6, message = "验证码长度必须为6位")
+    )]
+    pub verification_code: Option<String>,
+    #[validate(
         required(message = "需要输入密码"),
         regex(
             path = "common::utils::validators::PASSWORD_REGEX",
-            message = "密码必须包含大小写字母和数字,并且长度在14以上"
+            message = "密码必须为14位以上的字母或数字"
         )
     )]
     pub password: Option<String>,
@@ -28,6 +38,7 @@ impl SignUpBasicUserDTO {
             account: self.account,
             icon: self.icon,
             info: self.info,
+            email: self.email,
             password: self.password,
         }
     }

@@ -8,6 +8,7 @@ http_service = { path = "../http_service" }
 quic_service = { path = "../quic_service" }
 common = { path = "../common" }
 s3_service = { path = "../s3_service" }
+email_service = { path = "../email_service" }
 serde = { workspace = true }
 rbatis = { workspace = true }
 validator = { workspace = true }
@@ -16,7 +17,6 @@ rbs = { workspace = true }
 tracing = { workspace = true }
 tracing-actix-web = { workspace = true }
 toml = { workspace = true }
-actix-files = { workspace = true }
 actix-web = { workspace = true }
 deadpool-redis = { workspace = true }
 rustls-pemfile = { workspace = true }
@@ -30,7 +30,7 @@ uuid = { workspace = true }
 actix-multipart = { workspace = true }
 tokio = { workspace = true }
 futures-util = { workspace = true }
-dotenvy = "0.15"
-futures = "0.3.31"
+dotenvy = { workspace = true }
+futures = { workspace = true }
 
 

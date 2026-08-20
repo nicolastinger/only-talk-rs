@@ -1,5 +1,6 @@
 pub mod group_controller;
 pub mod group_dto;
+#[allow(clippy::module_inception)]
 pub mod group_service;
 pub mod group_vo;
 

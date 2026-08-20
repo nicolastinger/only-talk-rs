@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - name: clippy
+            toolchain: stable
+            components: clippy
+            command: cargo clippy --workspace --all-targets -- -D warnings
+          - name: fmt
+            toolchain: nightly
+            components: rustfmt
+            command: cargo +nightly fmt --all --check
+          - name: test
+            toolchain: stable
+            components: ""
+            command: cargo test --workspace --tests
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: |
+          if [ -n "${{ matrix.components }}" ]; then
+            rustup toolchain install ${{ matrix.toolchain }} --profile minimal --component ${{ matrix.components }}
+          else
+            rustup toolchain install ${{ matrix.toolchain }} --profile minimal
+          fi
+      - uses: Swatinem/rust-cache@v2
+        with:
+          toolchain: ${{ matrix.toolchain }}
+      - name: ${{ matrix.name }}
+        run: ${{ matrix.command }}

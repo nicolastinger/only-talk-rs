@@ -1,37 +1,17 @@
 use anyhow::anyhow;
-use deadpool_redis::Connection;
 use deadpool_redis::redis::cmd;
-use deadpool_redis::{Config as RedisConfig, Pool, Runtime};
+use deadpool_redis::{Config as RedisConfig, Connection, Pool, Runtime};
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
-use crate::{REDIS_CLIENT, REDIS_INIT_ONCE};
-
-/// Initialize Redis connection pool (only effective on first call)
+/// 初始化 Redis 连接池
 pub fn init_redis(url: &str) -> Result<Pool, anyhow::Error> {
-    if REDIS_INIT_ONCE.get().is_some() {
-        return REDIS_CLIENT
-            .try_read()
-            .map_err(|_| anyhow!("Failed to acquire Redis read lock"))?
-            .clone()
-            .ok_or_else(|| anyhow!("Redis not initialized"));
-    }
-
-    info!("connecting to Redis - address: {}", url);
+    info!("正在连接 Redis - 地址: {}", url);
     let config = RedisConfig::from_url(url);
     let pool = config
         .create_pool(Some(Runtime::Tokio1))
         .map_err(|e| anyhow!("Failed to create Redis connection pool: {}", e))?;
-
-    {
-        let mut guard =
-            REDIS_CLIENT.try_write().map_err(|_| anyhow!("Failed to acquire Redis write lock"))?;
-        if REDIS_INIT_ONCE.set(()).is_ok() {
-            *guard = Some(pool.clone());
-        }
-    }
-
-    info!("Redis connection pool initialized successfully");
+    info!("Redis 连接池初始化成功");
     Ok(pool)
 }
 
@@ -42,61 +22,48 @@ pub async fn verify_redis(pool: &Pool) {
                 deadpool_redis::redis::cmd("PING").query_async(&mut conn).await;
             match result {
                 Ok(ref s) if s == "PONG" => {
-                    info!("Redis connected (PING: {})", s);
+                    info!("Redis 连接成功 (PING: {})", s);
                 }
                 Ok(s) => {
-                    warn!("Redis PING returned anomaly: {}", s);
+                    warn!("Redis PING 返回异常: {}", s);
                 }
                 Err(e) => {
-                    error!("Redis connection failed: {}", e);
+                    error!("Redis 连接失败: {}", e);
                 }
             }
         }
         Err(e) => {
-            error!("Redis connection acquisition failed: {}", e);
+            error!("获取 Redis 连接失败: {}", e);
         }
     }
 }
 
-pub async fn get_redis_conn() -> Result<Connection, anyhow::Error> {
-    let redis_client = REDIS_CLIENT.read().await;
-    let redis_conn = redis_client.as_ref().ok_or(anyhow!("Redis client error"))?;
-    let conn = redis_conn.get().await?;
-    Ok(conn)
-}
-
-/// Redis connection fallback: returns None when unavailable, no error
-pub async fn try_get_redis_conn() -> Option<Connection> {
-    let redis = REDIS_CLIENT.read().await;
-    redis.as_ref()?.get().await.ok()
-}
-
-/// Redis distributed lock acquire
+/// 获取 Redis 分布式锁
 pub async fn acquire_lock(
     conn: &mut Connection,
     key: &str,
     ttl_sec: u64,
     content: String,
 ) -> Result<Option<String>, anyhow::Error> {
-    let lock_id = Uuid::new_v4().to_string(); // Generate unique identifier
+    let lock_id = Uuid::new_v4().to_string(); // 生成唯一标识
     let lock_id = format!("{}_{}", lock_id, content);
     let result: Option<()> = cmd("SET")
         .arg(key)
         .arg(&lock_id)
-        .arg("NX") // Mutual exclusion: only set when key does not exist
-        .arg("EX") // Expiry time unit: seconds
+        .arg("NX") // 互斥: 仅当键不存在时设置
+        .arg("EX") // 过期时间单位: 秒
         .arg(ttl_sec)
         .query_async(conn)
         .await?;
 
     Ok(if result.is_some() {
-        Some(lock_id) // Return lock identifier for subsequent release
+        Some(lock_id) // 返回锁标识,供后续释放使用
     } else {
         None
     })
 }
 
-/// Redis distributed lock release
+/// 释放 Redis 分布式锁
 pub async fn release_lock(
     conn: &mut Connection,
     key: &str,
@@ -112,5 +79,5 @@ pub async fn release_lock(
     let deleted: i32 =
         cmd("EVAL").arg(script).arg(1).arg(key).arg(lock_id).query_async(conn).await?;
 
-    Ok(deleted == 1) // Whether the lock was successfully released
+    Ok(deleted == 1) // 锁是否成功释放
 }

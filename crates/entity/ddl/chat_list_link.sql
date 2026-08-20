@@ -1,6 +1,6 @@
--- public.chat_list_link table definition
+-- public.chat_list_link 表定义
 
--- Drop table
+-- 删除表
 -- DROP TABLE chat_list_link;
 
 CREATE TABLE IF NOT EXISTS chat_list_link (
@@ -13,10 +13,10 @@ CREATE TABLE IF NOT EXISTS chat_list_link (
     CONSTRAINT chat_list_link_unique UNIQUE (id)
 );
 
--- Table comment
+-- 表注释
 COMMENT ON TABLE public.chat_list_link IS '聊天列表';
 
--- Column comments
+-- 列注释
 COMMENT ON COLUMN public.chat_list_link.uuid IS '用户id';
 COMMENT ON COLUMN public.chat_list_link.friend_uuid IS '朋友id';
 COMMENT ON COLUMN public.chat_list_link."enable" IS '是否显示';

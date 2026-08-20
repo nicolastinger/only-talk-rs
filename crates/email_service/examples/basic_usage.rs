@@ -1,5 +1,5 @@
 use email_service::prelude::*;
-use email_service::{AliyunConfig, ProviderConfig, RetryConfig, TencentConfig};
+use email_service::{AliyunConfig, ProviderConfig, RetryConfig};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

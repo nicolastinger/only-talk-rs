@@ -109,7 +109,7 @@ impl S3Client {
 
         // Log successful initialization
         info!(
-            "S3 client initialized - Provider: {}, Endpoint: {}, Bucket: {}",
+            "S3 客户端初始化完成 - Provider: {}, Endpoint: {}, Bucket: {}",
             config.provider, config.endpoint_url, config.default_bucket
         );
 
@@ -145,11 +145,11 @@ impl S3Client {
     pub async fn health_check(&self) -> Result<bool, S3Error> {
         match self.inner.list_buckets().send().await {
             Ok(_) => {
-                info!("S3 health check passed");
+                info!("S3 健康检查通过");
                 Ok(true)
             }
             Err(e) => {
-                tracing::error!("S3 health check failed: {:?}", e);
+                tracing::error!("S3 健康检查失败: {:?}", e);
                 Ok(false)
             }
         }
@@ -193,7 +193,7 @@ impl S3Client {
         let exists = self.inner.head_bucket().bucket(bucket).send().await.is_ok();
 
         if !exists {
-            info!("default bucket {} does not exist, creating...", bucket);
+            info!("默认桶 {} 不存在,正在创建...", bucket);
             // Create bucket
             self.inner
                 .create_bucket()
@@ -201,9 +201,9 @@ impl S3Client {
                 .send()
                 .await
                 .map_err(|e| S3Error::AwsError(format!("Failed to create bucket: {}", e)))?;
-            info!("default bucket {} created successfully", bucket);
+            info!("默认桶 {} 创建成功", bucket);
         } else {
-            info!("default bucket {} already exists", bucket);
+            info!("默认桶 {} 已存在", bucket);
         }
 
         Ok(())
@@ -262,11 +262,11 @@ impl GlobalS3Client {
         let client = S3Client::new(config).await?;
 
         // If S3 service is enabled, ensure default bucket exists
-        if client.config.enabled {
-            if let Err(e) = client.ensure_default_bucket().await {
-                // Bucket creation failure only logs warning, service still starts
-                tracing::warn!("failed to ensure default bucket: {}, service still starts", e);
-            }
+        if client.config.enabled
+            && let Err(e) = client.ensure_default_bucket().await
+        {
+            // Bucket creation failure only logs warning, service still starts
+            tracing::warn!("确保默认桶存在失败: {},服务仍将继续启动", e);
         }
 
         // Return Arc-wrapped client, supports multi-threading sharing

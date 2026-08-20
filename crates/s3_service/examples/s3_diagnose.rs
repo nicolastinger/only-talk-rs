@@ -1,3 +1,6 @@
+// 示例程序直接使用 unwrap 简化演示代码,此处豁免生产代码的 unwrap 禁令
+#![allow(clippy::unwrap_used, clippy::disallowed_methods)]
+
 use s3_service::S3Client;
 use s3_service::config::S3Config;
 
@@ -8,12 +11,12 @@ async fn main() {
     // 1. 加载配置
     let config = S3Config::default_minio();
     println!("配置信息:");
-    println!("  Provider: {:?}", config.provider);
-    println!("  Endpoint: {}", config.endpoint_url);
-    println!("  Access Key: {}", config.access_key_id);
-    println!("  Region: {}", config.region);
-    println!("  Default Bucket: {}", config.default_bucket);
-    println!("  Force Path Style: {}", config.force_path_style);
+    println!("  服务商: {:?}", config.provider);
+    println!("  端点: {}", config.endpoint_url);
+    println!("  访问密钥: {}", config.access_key_id);
+    println!("  区域: {}", config.region);
+    println!("  默认桶: {}", config.default_bucket);
+    println!("  强制路径样式: {}", config.force_path_style);
 
     // 2. 创建客户端
     println!("\n正在创建 S3 客户端...");

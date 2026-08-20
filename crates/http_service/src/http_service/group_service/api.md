@@ -5,7 +5,7 @@
 | 项目 | 说明 |
 |---|---|
 | **基础路径** | `/group/chat` |
-| **认证方式** | 请求头中携带用户 UUID（由 `get_uuid_from_header!` 宏从 HTTP Header 中提取） |
+| **认证方式** | 请求头携带 `Authorization: Bearer <JWT>`（除登录/注册外所有端点经中间件鉴权）；用户 UUID 由 `get_uuid_from_header!` 宏从请求扩展中读取（JWT 中间件注入的 `AuthAccount`） |
 | **统一响应格式** | `CommonResponse<T>` |
 
 ### 统一响应结构
@@ -137,7 +137,7 @@
 
 ## 3. 更新群组信息
 
-**`PUT /group/chat/update`**
+**`POST /group/chat/update`**
 
 更新群组的基本信息。**仅群主（Owner）可操作**，非群主调用返回 `false`。
 
@@ -176,7 +176,7 @@
 
 ## 4. 解散群组
 
-**`DELETE /group/chat/dissolve/{group_uuid}`**
+**`POST /group/chat/dissolve/{group_uuid}`**
 
 解散指定群组。**仅群主（Owner）可操作**，将群状态设为 `2`（已解散）。
 
@@ -425,9 +425,25 @@
 
 ---
 
+## 10.5 获取我发出的邀请列表
+
+**`GET /group/chat/member/invite/sent`**
+
+查询当前用户发出的所有入群邀请。
+
+### 请求参数
+
+无（从请求头获取用户 UUID）
+
+### 响应数据 `Vec<GroupInvitationVO>`
+
+响应结构同第 10 节（`GroupInvitationVO`，`invitee_uuid` 为被邀请人）。
+
+---
+
 ## 11. 移除群成员
 
-**`DELETE /group/chat/member/remove/{group_uuid}/{user_uuid}`**
+**`POST /group/chat/member/remove/{group_uuid}/{user_uuid}`**
 
 将指定成员移出群组。**需要管理员（Admin）及以上权限**，且不能移除同级或更高级角色的成员。
 
@@ -484,7 +500,7 @@
 
 ## 13. 设置成员角色
 
-**`PUT /group/chat/member/set_role`**
+**`POST /group/chat/member/set_role`**
 
 设置群成员的角色。**仅群主（Owner）可操作**。
 
@@ -521,23 +537,27 @@
 
 ## 14. 获取群消息历史
 
-**`GET /group/chat/message/history`**
+**`POST /group/chat/message/history`**
 
 分页查询群组消息历史记录。**需为群成员**才能查看。
 
-### 查询参数
+### 请求体
 
-| 参数 | 类型 | 必填 | 校验规则 | 说明 |
+```json
+{
+  "group_uuid": "xxx",
+  "start": 0,
+  "size": 20,
+  "last_read_msg_id": null
+}
+```
+
+| 字段 | 类型 | 必填 | 校验规则 | 说明 |
 |---|---|---|---|---|
 | `group_uuid` | String | ✅ | - | 群 UUID |
 | `start` | Option\<u32\> | ❌ | ≥ 0，默认 0 | 起始偏移量 |
 | `size` | Option\<u32\> | ❌ | 1-100，默认 20 | 每页数量 |
-
-### 请求示例
-
-```
-GET /group/chat/message/history?group_uuid=xxx&start=0&size=20
-```
+| `last_read_msg_id` | Option\<i64\> | ❌ | ≥ 0 | 群成员已读游标（`group_member.last_read_msg_id`），传入后按游标拉取未读消息 |
 
 ### 业务逻辑
 
@@ -600,7 +620,8 @@ GET /group/chat/message/history?group_uuid=xxx&start=0&size=20
   "data": [
     {
       "group_uuid": "uuid-string",
-      "unread_count": 5
+      "unread_count": 5,
+      "last_read_msg_id": 1024
     }
   ],
   "message": "Success"
@@ -611,6 +632,7 @@ GET /group/chat/message/history?group_uuid=xxx&start=0&size=20
 |---|---|---|
 | `group_uuid` | String | 群组 UUID |
 | `unread_count` | i64 | 未读消息数 |
+| `last_read_msg_id` | i64 | 群成员已读游标，用于按游标拉取未读消息 |
 
 ---
 
@@ -627,6 +649,7 @@ GET /group/chat/message/history?group_uuid=xxx&start=0&size=20
 | 邀请成员入群 | ✅ | ✅ | ❌ |
 | 接受/拒绝邀请 | ✅ | ✅ | ✅ |
 | 获取待处理邀请 | ✅ | ✅ | ✅ |
+| 获取我发出的邀请 | ✅ | ✅ | ✅ |
 | 移除成员（低级） | ✅ | ✅ | ❌ |
 | 退出群组 | ❌ | ✅ | ✅ |
 | 设置成员角色 | ✅ | ❌ | ❌ |

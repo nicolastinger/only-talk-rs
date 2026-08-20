@@ -1,39 +1,38 @@
 use std::net::SocketAddr;
 
 use anyhow::{Result, anyhow};
-use rbatis::RBatis;
-use rbatis::rbdc::Uuid;
-use tracing::{info, warn};
-
+use common::config_str::GROUP_MEMBERS_CACHE;
 use common::models::notify_entity::system_notification::SystemNotification;
 use common::read_global_config;
 use common::utils::internal_quic_client::send_internal_quic_msg;
 use common::utils::internal_quic_msg::{InternalQuicRequest, RequestSource};
 use common::utils::message_types::NOTIFY_TYPE_MSG;
-use common::utils::redis_utils::try_get_redis_conn;
 use common::utils::server_count_sync::compute_preferred_index;
 use common::utils::time::get_now_time_stamp_as_millis;
-use entity::models::group_entity::{
-    group_info::GroupInfo,
-    group_invitation::{
-        GroupInvitation, INVITATION_ACCEPTED, INVITATION_DECLINED, INVITATION_PENDING,
-    },
-    group_member::{GroupMember, ROLE_ADMIN, ROLE_MEMBER, ROLE_OWNER, STATUS_NORMAL},
-    group_message_record::GroupMessageRecord,
+use entity::models::group_entity::group_info::GroupInfo;
+use entity::models::group_entity::group_invitation::{
+    GroupInvitation, INVITATION_ACCEPTED, INVITATION_DECLINED, INVITATION_PENDING,
 };
+use entity::models::group_entity::group_member::{
+    GroupMember, ROLE_ADMIN, ROLE_MEMBER, ROLE_OWNER, STATUS_NORMAL,
+};
+use entity::models::group_entity::group_message_record::GroupMessageRecord;
+use rbatis::RBatis;
+use rbatis::rbdc::Uuid;
+use tracing::{info, warn};
 
-use crate::http_service::group_service::group_dto::{
-    create_group_dto::CreateGroupDTO,
-    group_message_history_dto::GroupMessageHistoryDTO,
-    invite_member_dto::{HandleInvitationDTO, InviteMemberDTO},
-    set_role_dto::SetRoleDTO,
-    update_group_dto::UpdateGroupDTO,
+use crate::http_service::group_service::group_dto::create_group_dto::CreateGroupDTO;
+use crate::http_service::group_service::group_dto::group_message_history_dto::GroupMessageHistoryDTO;
+use crate::http_service::group_service::group_dto::invite_member_dto::{
+    HandleInvitationDTO, InviteMemberDTO,
 };
-use crate::http_service::group_service::group_vo::{
-    group_info_vo::{GroupInfoVO, GroupListItemVO},
-    group_invitation_vo::GroupInvitationVO,
-    group_member_vo::GroupMemberVO,
-    group_message_vo::{GroupMessageVO, UnreadCountVO},
+use crate::http_service::group_service::group_dto::set_role_dto::SetRoleDTO;
+use crate::http_service::group_service::group_dto::update_group_dto::UpdateGroupDTO;
+use crate::http_service::group_service::group_vo::group_info_vo::{GroupInfoVO, GroupListItemVO};
+use crate::http_service::group_service::group_vo::group_invitation_vo::GroupInvitationVO;
+use crate::http_service::group_service::group_vo::group_member_vo::GroupMemberVO;
+use crate::http_service::group_service::group_vo::group_message_vo::{
+    GroupMessageVO, UnreadCountVO,
 };
 use crate::http_service::notify_service::service::system_notification::{
     send_group_invite_msg, send_group_invite_result_msg,
@@ -47,7 +46,7 @@ async fn push_notification_via_quic(notification: SystemNotification) -> Result<
         .ok_or_else(|| anyhow!("Notification missing target user ID"))?;
     let json_str = serde_json::to_string(&notification)?;
 
-    // Wrap as TextQuicMsg binary (consistent with other message paths)
+    // 包装为 TextQuicMsg 二进制(与其他消息路径保持一致)
     let payload = common::utils::text_msg::generate_text_msg(
         NOTIFY_TYPE_MSG,
         json_str.into_bytes(),
@@ -74,6 +73,7 @@ async fn push_notification_via_quic(notification: SystemNotification) -> Result<
 
 pub async fn create_group_service(
     rb: &RBatis,
+    redis: &deadpool_redis::Pool,
     owner_uuid: &str,
     dto: CreateGroupDTO,
 ) -> Result<GroupInfoVO> {
@@ -110,10 +110,10 @@ pub async fn create_group_service(
 
     GroupMember::insert(rb, &group_member).await?;
 
-    // Sync group members to Redis cache
-    sync_group_members_to_redis(rb, &group_uuid.to_string()).await?;
+    // 同步群成员到 Redis 缓存
+    sync_group_members_to_redis(rb, redis, &group_uuid.to_string()).await?;
 
-    info!("[group chat] created successfully group_uuid={} owner={}", group_uuid, owner_uuid);
+    info!("[群聊] 创建成功 group_uuid={} owner={}", group_uuid, owner_uuid);
 
     Ok(GroupInfoVO {
         group_uuid: group_uuid.to_string(),
@@ -181,7 +181,7 @@ pub async fn update_group_service(
             update_group.updated_at = Some(now);
 
             GroupInfo::update_by_group_uuid(rb, &update_group, &group_uuid).await?;
-            info!("[group chat] updated successfully group_uuid={}", group_uuid);
+            info!("[群聊] 更新成功 group_uuid={}", group_uuid);
             Ok(true)
         }
         None => Ok(false),
@@ -207,7 +207,7 @@ pub async fn dissolve_group_service(
             g.updated_at = Some(now);
             GroupInfo::update_by_group_uuid(rb, &g, &uuid).await?;
 
-            info!("[group chat] dissolved successfully group_uuid={}", group_uuid);
+            info!("[群聊] 解散成功 group_uuid={}", group_uuid);
             Ok(true)
         }
         None => Ok(false),
@@ -220,22 +220,22 @@ pub async fn get_my_groups_service(rb: &RBatis, user_uuid: &str) -> Result<Vec<G
 
     let mut result = Vec::new();
     for membership in memberships {
-        if let Some(g_uuid) = membership.group_uuid {
-            if let Some(group) = GroupInfo::select_by_group_uuid(rb, &g_uuid).await? {
-                if group.status != Some(1) {
-                    continue;
-                }
-                let member_count = count_group_members(rb, &g_uuid.to_string()).await?;
-                result.push(GroupListItemVO {
-                    group_uuid: g_uuid.to_string(),
-                    group_name: group.group_name.unwrap_or_default(),
-                    avatar: group.avatar,
-                    owner_uuid: group.owner_uuid.map(|u: Uuid| u.to_string()).unwrap_or_default(),
-                    member_count,
-                    last_msg_time: None,
-                    unread_count: 0,
-                });
+        if let Some(g_uuid) = membership.group_uuid
+            && let Some(group) = GroupInfo::select_by_group_uuid(rb, &g_uuid).await?
+        {
+            if group.status != Some(1) {
+                continue;
             }
+            let member_count = count_group_members(rb, &g_uuid.to_string()).await?;
+            result.push(GroupListItemVO {
+                group_uuid: g_uuid.to_string(),
+                group_name: group.group_name.unwrap_or_default(),
+                avatar: group.avatar,
+                owner_uuid: group.owner_uuid.map(|u: Uuid| u.to_string()).unwrap_or_default(),
+                member_count,
+                last_msg_time: None,
+                unread_count: 0,
+            });
         }
     }
 
@@ -244,26 +244,27 @@ pub async fn get_my_groups_service(rb: &RBatis, user_uuid: &str) -> Result<Vec<G
 
 pub async fn get_group_members_service(
     rb: &RBatis,
+    redis: &deadpool_redis::Pool,
     group_uuid: &str,
 ) -> Result<Vec<GroupMemberVO>> {
     use deadpool_redis::redis::AsyncCommands;
 
-    let cache_key = format!("group:members:{}", group_uuid);
+    let cache_key = format!("{}{}", GROUP_MEMBERS_CACHE, group_uuid).to_uppercase();
 
-    // Preferentially read UUID list from Redis cache
-    let cache_hit = if let Some(mut conn) = try_get_redis_conn().await {
+    // 优先从 Redis 缓存读取 UUID 列表
+    let cache_hit = if let Ok(mut conn) = redis.get().await {
         let cached: Option<String> = conn.get(&cache_key).await.unwrap_or(None);
         cached.and_then(|json| serde_json::from_str::<Vec<String>>(&json).ok())
     } else {
         None
     };
 
-    // Sync from DB if cache miss
+    // 缓存未命中时从数据库同步
     if cache_hit.is_none() {
-        sync_group_members_to_redis(rb, group_uuid).await?;
+        sync_group_members_to_redis(rb, redis, group_uuid).await?;
     }
 
-    // Query full member info from DB
+    // 从数据库查询完整成员信息
     let uuid = group_uuid.parse::<Uuid>()?;
     let members: Vec<GroupMember> = GroupMember::select_members_by_group(rb, &uuid).await?;
     Ok(members
@@ -308,14 +309,14 @@ pub async fn invite_group_members_service(
             for user_uuid_str in &dto.user_uuids {
                 let user_uuid = user_uuid_str.parse::<Uuid>()?;
 
-                // Check if already an active member
+                // 检查是否已是群成员
                 let existing: Option<GroupMember> =
                     GroupMember::select_by_group_and_user(rb, &group_uuid, &user_uuid).await?;
                 if existing.is_some_and(|m| m.status == Some(STATUS_NORMAL)) {
                     continue;
                 }
 
-                // Check if there is a pending invitation
+                // 检查是否存在待处理的邀请
                 let pending: Option<GroupInvitation> =
                     GroupInvitation::select_by_group_and_invitee(rb, &group_uuid, &user_uuid)
                         .await?;
@@ -323,7 +324,7 @@ pub async fn invite_group_members_service(
                     if p.status == Some(INVITATION_PENDING) {
                         continue;
                     }
-                    // Update old invitation record to pending
+                    // 更新旧邀请记录为待处理
                     let mut updated = p.clone();
                     updated.status = Some(INVITATION_PENDING);
                     updated.updated_at = Some(now);
@@ -342,7 +343,7 @@ pub async fn invite_group_members_service(
                     GroupInvitation::insert(rb, &invitation).await?;
                 }
 
-                // Send notification
+                // 发送通知
                 let notify_msg = format!("Invited you to join group chat '{}'", group_name);
                 let notification = send_group_invite_msg(
                     rb,
@@ -356,11 +357,7 @@ pub async fn invite_group_members_service(
                 invited.push(user_uuid_str.clone());
             }
 
-            info!(
-                "[group chat] invitation sent successfully group_uuid={} count={}",
-                group_uuid,
-                invited.len()
-            );
+            info!("[群聊] 邀请发送成功 group_uuid={} count={}", group_uuid, invited.len());
             Ok(invited)
         }
         None => Err(anyhow!("Operator is not a group member")),
@@ -369,6 +366,7 @@ pub async fn invite_group_members_service(
 
 pub async fn accept_group_invitation_service(
     rb: &RBatis,
+    redis: &deadpool_redis::Pool,
     user_uuid: &str,
     dto: HandleInvitationDTO,
 ) -> Result<bool> {
@@ -382,13 +380,13 @@ pub async fn accept_group_invitation_service(
         Some(mut inv) if inv.status == Some(INVITATION_PENDING) => {
             let now = get_now_time_stamp_as_millis()?;
 
-            // Update invitation status
+            // 更新邀请状态
             inv.status = Some(INVITATION_ACCEPTED);
             inv.updated_at = Some(now);
             let inv_id = inv.id.ok_or_else(|| anyhow!("Invitation record missing ID"))?;
             GroupInvitation::update_by_id(rb, &inv, &inv_id).await?;
 
-            // Add as group member
+            // 添加为群成员
             let member = GroupMember {
                 id: None,
                 group_uuid: Some(group_uuid.clone()),
@@ -402,9 +400,9 @@ pub async fn accept_group_invitation_service(
             };
             GroupMember::insert(rb, &member).await?;
 
-            sync_group_members_to_redis(rb, &dto.group_uuid).await?;
+            sync_group_members_to_redis(rb, redis, &dto.group_uuid).await?;
 
-            // Notify the inviter
+            // 通知邀请者
             let group = GroupInfo::select_by_group_uuid(rb, &group_uuid).await?;
             let group_name = group.and_then(|g| g.group_name).unwrap_or_default();
             let notify_msg =
@@ -420,10 +418,7 @@ pub async fn accept_group_invitation_service(
                 let _ = push_notification_via_quic(notification).await;
             }
 
-            info!(
-                "[group chat] invitation accepted group_uuid={} user={}",
-                dto.group_uuid, user_uuid
-            );
+            info!("[群聊] 邀请已接受 group_uuid={} user={}", dto.group_uuid, user_uuid);
             Ok(true)
         }
         _ => Ok(false),
@@ -450,10 +445,7 @@ pub async fn decline_group_invitation_service(
             let inv_id = inv.id.ok_or_else(|| anyhow!("Invitation record missing ID"))?;
             GroupInvitation::update_by_id(rb, &inv, &inv_id).await?;
 
-            info!(
-                "[group chat] invitation declined group_uuid={} user={}",
-                dto.group_uuid, user_uuid
-            );
+            info!("[群聊] 邀请已拒绝 group_uuid={} user={}", dto.group_uuid, user_uuid);
             Ok(true)
         }
         _ => Ok(false),
@@ -525,6 +517,7 @@ pub async fn get_sent_invitations_service(
 
 pub async fn remove_group_member_service(
     rb: &RBatis,
+    redis: &deadpool_redis::Pool,
     operator_uuid: &str,
     group_uuid: &str,
     target_uuid: &str,
@@ -554,11 +547,8 @@ pub async fn remove_group_member_service(
                     let user_uuid =
                         t.user_uuid.clone().ok_or_else(|| anyhow!("Member missing user_uuid"))?;
                     GroupMember::update_by_group_and_user(rb, &t, &g_uuid, &user_uuid).await?;
-                    sync_group_members_to_redis(rb, group_uuid).await?;
-                    info!(
-                        "[group chat] member removed successfully group_uuid={} target={}",
-                        group_uuid, target_uuid
-                    );
+                    sync_group_members_to_redis(rb, redis, group_uuid).await?;
+                    info!("[群聊] 成员移除成功 group_uuid={} target={}", group_uuid, target_uuid);
                     Ok(true)
                 }
                 None => Ok(false),
@@ -568,7 +558,12 @@ pub async fn remove_group_member_service(
     }
 }
 
-pub async fn quit_group_service(rb: &RBatis, user_uuid: &str, group_uuid: &str) -> Result<bool> {
+pub async fn quit_group_service(
+    rb: &RBatis,
+    redis: &deadpool_redis::Pool,
+    user_uuid: &str,
+    group_uuid: &str,
+) -> Result<bool> {
     let g_uuid = group_uuid.parse::<Uuid>()?;
     let u_uuid = user_uuid.parse::<Uuid>()?;
     let member: Option<GroupMember> =
@@ -583,11 +578,8 @@ pub async fn quit_group_service(rb: &RBatis, user_uuid: &str, group_uuid: &str) 
             let user_uuid_val =
                 m.user_uuid.clone().ok_or_else(|| anyhow!("Member missing user_uuid"))?;
             GroupMember::update_by_group_and_user(rb, &m, &g_uuid, &user_uuid_val).await?;
-            sync_group_members_to_redis(rb, group_uuid).await?;
-            info!(
-                "[group chat] member quit successfully group_uuid={} user={}",
-                group_uuid, user_uuid
-            );
+            sync_group_members_to_redis(rb, redis, group_uuid).await?;
+            info!("[群聊] 成员退出成功 group_uuid={} user={}", group_uuid, user_uuid);
             Ok(true)
         }
         None => Ok(false),
@@ -621,7 +613,7 @@ pub async fn set_member_role_service(
                         t.user_uuid.clone().ok_or_else(|| anyhow!("Member missing user_uuid"))?;
                     GroupMember::update_by_group_and_user(rb, &t, &group_uuid, &user_uuid).await?;
                     info!(
-                        "[group chat] role set successfully group_uuid={} user={} role={}",
+                        "[群聊] 角色设置成功 group_uuid={} user={} role={}",
                         dto.group_uuid, dto.user_uuid, dto.role
                     );
                     Ok(true)
@@ -648,11 +640,15 @@ pub async fn get_group_message_history_service(
         return Ok(Vec::new());
     }
 
-    let start = dto.start.unwrap_or(0);
-    let size = dto.size.unwrap_or(20);
-
-    let messages: Vec<GroupMessageRecord> =
-        GroupMessageRecord::select_by_group(rb, &group_uuid, start, size).await?;
+    // 游标模式：按群成员已读游标拉取未读消息（id > last_read_msg_id）
+    let messages: Vec<GroupMessageRecord> = match dto.last_read_msg_id {
+        Some(cursor) => GroupMessageRecord::select_unread(rb, &group_uuid, cursor).await?,
+        None => {
+            let start = dto.start.unwrap_or(0);
+            let size = dto.size.unwrap_or(20);
+            GroupMessageRecord::select_by_group(rb, &group_uuid, start, size).await?
+        }
+    };
 
     Ok(messages
         .into_iter()
@@ -686,6 +682,7 @@ pub async fn get_unread_group_messages_service(
                 result.push(UnreadCountVO {
                     group_uuid: g_uuid.to_string(),
                     unread_count: unread.len() as i64,
+                    last_read_msg_id,
                 });
             }
         }
@@ -694,7 +691,11 @@ pub async fn get_unread_group_messages_service(
     Ok(result)
 }
 
-async fn sync_group_members_to_redis(rb: &RBatis, group_uuid: &str) -> Result<()> {
+async fn sync_group_members_to_redis(
+    rb: &RBatis,
+    redis: &deadpool_redis::Pool,
+    group_uuid: &str,
+) -> Result<()> {
     use deadpool_redis::redis::AsyncCommands;
 
     let uuid = group_uuid.parse::<Uuid>()?;
@@ -702,21 +703,14 @@ async fn sync_group_members_to_redis(rb: &RBatis, group_uuid: &str) -> Result<()
     let uuids: Vec<String> =
         members.into_iter().filter_map(|m| m.user_uuid.map(|u: Uuid| u.to_string())).collect();
 
-    let cache_key = format!("group:members:{}", group_uuid);
+    let cache_key = format!("{}{}", GROUP_MEMBERS_CACHE, group_uuid).to_uppercase();
     let json = serde_json::to_string(&uuids)?;
 
-    if let Some(mut conn) = try_get_redis_conn().await {
+    if let Ok(mut conn) = redis.get().await {
         let _: Result<(), _> = conn.set_ex(&cache_key, &json, 1800_u64).await;
-        info!(
-            "[group chat] synced members to Redis group_uuid={} member_count={}",
-            group_uuid,
-            uuids.len()
-        );
+        info!("[群聊] 群成员已同步到 Redis group_uuid={} member_count={}", group_uuid, uuids.len());
     } else {
-        warn!(
-            "[group chat] failed to get Redis connection, members not synced group_uuid={}",
-            group_uuid
-        );
+        warn!("[群聊] 获取 Redis 连接失败,成员未同步 group_uuid={}", group_uuid);
     }
 
     Ok(())

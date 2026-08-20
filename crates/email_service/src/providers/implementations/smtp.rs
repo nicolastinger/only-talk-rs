@@ -1,6 +1,7 @@
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use reqwest::Client;
-use std::sync::Arc;
 
 use crate::config::SmtpConfig;
 use crate::error::{EmailError, EmailResult};
@@ -26,6 +27,8 @@ impl SmtpEmailProvider {
         Ok(Arc::new(Self::new(config)?))
     }
 
+    // 第三方宏 serde_json::json! 内部会对 to_value 的结果调用 unwrap,并非本项目代码
+    #[allow(clippy::disallowed_methods)]
     async fn send_via_api(&self, email: &Email) -> EmailResult<SendResult> {
         let to_addresses: Vec<String> = email.to.iter().map(|a| a.address().to_string()).collect();
 
@@ -51,7 +54,7 @@ impl SmtpEmailProvider {
 
         let response = self
             .client
-            .post(&format!("https://{}:{}", self.config.host, self.config.port))
+            .post(format!("https://{}:{}", self.config.host, self.config.port))
             .json(&body)
             .basic_auth(&self.config.username, Some(&self.config.password))
             .send()

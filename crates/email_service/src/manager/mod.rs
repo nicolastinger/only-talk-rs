@@ -2,10 +2,10 @@
 //!
 //! 本模块提供邮件发送的核心管理功能：
 //!
-//! - [`EmailManager`]: 邮件管理器，统一管理服务商和发送逻辑
-//! - [`EmailManagerBuilder`]: 管理器构建器
-//! - [`ProviderPool`]: 服务商连接池
-//! - [`ProviderSelector`]: 服务商选择器
+//! - [`EmailManager`][]: 邮件管理器，统一管理服务商和发送逻辑
+//! - [`EmailManagerBuilder`][]: 管理器构建器
+//! - [`ProviderPool`][]: 服务商连接池
+//! - [`ProviderSelector`][]: 服务商选择器
 //!
 //! # 快速开始
 //!

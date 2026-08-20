@@ -18,7 +18,7 @@ use crate::error::S3Error;
 /// ```rust
 /// use s3_service::config::S3Provider;
 ///
-/// let provider = S3Provider::from_str("minio").unwrap();
+/// let provider: S3Provider = "minio".parse().expect("解析 S3Provider 失败");
 /// assert_eq!(provider, S3Provider::MinIO);
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -41,7 +41,9 @@ impl fmt::Display for S3Provider {
     }
 }
 
-impl S3Provider {
+impl std::str::FromStr for S3Provider {
+    type Err = S3Error;
+
     /// Parse storage provider type from string
     ///
     /// Converts a configuration string to an S3Provider enum.
@@ -64,7 +66,7 @@ impl S3Provider {
     /// # Errors
     ///
     /// Unsupported provider names return a config error
-    pub fn from_str(s: &str) -> Result<Self, S3Error> {
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
             "minio" => Ok(S3Provider::MinIO),
             "aliyun_oss" | "aliyun" | "oss" => Ok(S3Provider::AliyunOSS),
@@ -232,7 +234,7 @@ impl S3Config {
 
         // Parse storage provider type
         let provider_str = get_config("s3.provider")?;
-        let provider = S3Provider::from_str(&provider_str)?;
+        let provider: S3Provider = provider_str.parse()?;
 
         // Parse whether S3 service is enabled
         let enabled = get_config("s3.enabled")

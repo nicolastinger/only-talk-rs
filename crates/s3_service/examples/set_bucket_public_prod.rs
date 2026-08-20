@@ -1,3 +1,6 @@
+// 示例程序直接使用 unwrap 简化演示代码,此处豁免生产代码的 unwrap 禁令
+#![allow(clippy::unwrap_used, clippy::disallowed_methods)]
+
 use s3_service::S3Client;
 use s3_service::config::{S3Config, S3Provider};
 
@@ -14,7 +17,7 @@ async fn main() {
 
     println!("目标服务器: {}", endpoint);
     println!("目标桶: {}", bucket_name);
-    println!("Access Key: {}", access_key);
+    println!("访问密钥: {}", access_key);
 
     let config = S3Config {
         provider: S3Provider::MinIO,

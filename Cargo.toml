@@ -60,11 +60,34 @@ futures-util = "0.3"
 webpki-roots = "1.0.2"
 x509-parser = "0.16"
 rcgen = "0.13"
+dotenvy = "0.15"
+futures = "0.3.31"
+dashmap = "6.1"
+thiserror = "2.0"
+argon2 = "0.5"
+chrono = { version = "0.4", features = ["serde"] }
+reqwest = "0.11"
+base64 = "0.22"
+hmac = "0.12"
+hex = "0.4"
+parking_lot = "0.12"
+backoff = "0.4"
+urlencoding = "2.1"
+mime = "0.3"
+image = "0.25"
+webp = "0.3"
+bytes = "1"
+aws-sdk-s3 = "1"
+aws-config = "1"
+aws-credential-types = "1"
+tokio-test = "0.4"
+actix-http = "3"
+criterion = { version = "0.5", features = ["html_reports"] }
 
 [dependencies]
 common = { path = "crates/common" }
 tracing = { workspace = true }
 actix-web = { workspace = true }
 tokio = { workspace = true }
-dotenvy = "0.15"
+dotenvy = { workspace = true }
 

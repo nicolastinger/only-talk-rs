@@ -1,16 +1,16 @@
+use std::str::FromStr;
+use std::sync::Arc;
+
 use actix_multipart::Multipart;
 use anyhow::anyhow;
+use common::models::file_entity::biz_file_link::BizFileLink;
+use common::models::user_entity::friend_link::FriendLink;
+use http_service::http_service::file_service::service::avatar_s3_service::{
+    upload_group_avatar_s3, upload_user_avatar_s3,
+};
 use http_service::http_service::file_service::service::biz_service::{
     create_avatar_biz, create_group_avatar_biz,
 };
-use std::str::FromStr;
-use std::sync::Arc;
-use tracing::info;
-
-use common::models::file_entity::biz_file_link::BizFileLink;
-use common::models::user_entity::friend_link::FriendLink;
-use http_service::http_service::file_service::service::avatar_s3_service::upload_group_avatar_s3;
-use http_service::http_service::file_service::service::avatar_s3_service::upload_user_avatar_s3;
 use http_service::http_service::file_service::service::chat_biz_service::{
     create_group_chat_biz, create_user_chat_biz,
 };
@@ -22,28 +22,23 @@ use http_service::http_service::user_service::service::user_service::update_user
 use http_service::utils::http_response::CommonResponseRef;
 use rbatis::{RBatis, rbdc};
 use s3_service::S3Client;
+use tracing::info;
 
-/// Upload user avatar
+/// 上传用户头像
 pub async fn upload_user_avatar(
     rb: &RBatis,
     uuid: Option<String>,
     payload: Multipart,
-    s3_client: Option<Arc<S3Client>>,
+    s3_client: Arc<S3Client>,
 ) -> Result<String, anyhow::Error> {
     let uuid = uuid.ok_or(anyhow!("User ID cannot be empty"))?;
     let user_id = rbdc::Uuid::from_str(&uuid)?;
 
-    // 1. Upload avatar via S3
-    let s3_client = s3_client.ok_or(anyhow!("S3 client not initialized"))?;
-    if !s3_client.config.enabled {
-        return Err(anyhow!("S3 service not enabled"));
-    }
-
-    info!("uploading avatar to S3...");
+    info!("正在上传头像到 S3...");
     let original_record = upload_user_avatar_s3(rb, uuid.clone(), payload, s3_client.clone())
         .await
         .map_err(|e| anyhow!("S3 upload failed: {}", e))?;
-    info!("avatar uploaded to S3 successfully");
+    info!("头像上传到 S3 成功");
 
     // 2. Save business info
     let biz_record = create_avatar_biz(rb, user_id).await?;
@@ -64,13 +59,13 @@ pub async fn upload_user_avatar(
     Ok(CommonResponseRef::<String>::success_json(&biz_id)?)
 }
 
-/// Upload user chat file
+/// 上传用户聊天文件
 pub async fn upload_user_chat_file(
     rb: &RBatis,
     uuid: Option<String>,
     payload: Multipart,
     friend_uuid: String,
-    s3_client: Option<Arc<S3Client>>,
+    s3_client: Arc<S3Client>,
 ) -> Result<String, anyhow::Error> {
     let uuid = uuid.ok_or(anyhow!("User ID cannot be empty"))?;
     let user_id = rbdc::Uuid::from_str(&uuid)?;
@@ -85,16 +80,11 @@ pub async fn upload_user_chat_file(
     }
 
     // 2. Upload via S3
-    let s3_client = s3_client.ok_or(anyhow!("S3 client not initialized"))?;
-    if !s3_client.config.enabled {
-        return Err(anyhow!("S3 service not enabled"));
-    }
-
-    info!("uploading chat file to S3...");
+    info!("正在上传聊天文件到 S3...");
     let record = upload_chat_preview_file_s3(rb, uuid.clone(), payload, s3_client.clone())
         .await
         .map_err(|e| anyhow!("S3 upload failed: {}", e))?;
-    info!("chat file uploaded to S3 successfully");
+    info!("聊天文件上传到 S3 成功");
 
     // 3. 保存业务信息
     let chat_biz_record = create_user_chat_biz(rb, user_id, friend_uuid).await?;
@@ -115,33 +105,28 @@ pub async fn upload_user_chat_file(
     Ok(CommonResponseRef::<BizRecordVO>::success_json(&biz_record)?)
 }
 
-/// Upload group chat file (no friend relationship check)
+/// 上传群聊文件(不校验好友关系)
 pub async fn upload_group_chat_file(
     rb: &RBatis,
     uuid: Option<String>,
     payload: Multipart,
     group_uuid: String,
-    s3_client: Option<Arc<S3Client>>,
+    s3_client: Arc<S3Client>,
 ) -> Result<String, anyhow::Error> {
     let uuid = uuid.ok_or(anyhow!("User ID cannot be empty"))?;
     let user_id = rbdc::Uuid::from_str(&uuid)?;
     let group_id = rbdc::Uuid::from_str(&group_uuid)?;
 
-    // Upload via S3 (no friend check for group chat)
-    let s3_client = s3_client.ok_or(anyhow!("S3 client not initialized"))?;
-    if !s3_client.config.enabled {
-        return Err(anyhow!("S3 service not enabled"));
-    }
-
-    info!("uploading group chat file to S3...");
+    // 通过 S3 上传(群聊不做好友校验)
+    info!("正在上传群聊文件到 S3...");
     let record = upload_chat_preview_file_s3(rb, uuid.clone(), payload, s3_client.clone())
         .await
         .map_err(|e| anyhow!("S3 upload failed: {}", e))?;
-    info!("group chat file uploaded to S3 successfully");
+    info!("群聊文件上传到 S3 成功");
 
-    // Save business info (no friend check)
+    // 保存业务信息(不校验好友关系)
     let chat_biz_record = create_group_chat_biz(rb, user_id, group_id).await?;
-    // Save file association
+    // 保存文件关联
     let biz_file_link = BizFileLink {
         id: None,
         biz_id: chat_biz_record.uuid.clone(),
@@ -152,34 +137,29 @@ pub async fn upload_group_chat_file(
     BizFileLink::insert(rb, &biz_file_link).await?;
     let biz_link_vo = BizFileLinkVO::from_biz_file_link(biz_file_link);
     let biz_link_vo_vec = vec![biz_link_vo];
-    // Convert to VO
+    // 转换为 VO
     let biz_record = BizRecordVO::from_chat_biz_record(chat_biz_record, biz_link_vo_vec);
 
     Ok(CommonResponseRef::<BizRecordVO>::success_json(&biz_record)?)
 }
 
-/// Upload group avatar
+/// 上传群头像
 pub async fn upload_group_avatar(
     rb: &RBatis,
     uuid: Option<String>,
     group_uuid: String,
     payload: Multipart,
-    s3_client: Option<Arc<S3Client>>,
+    s3_client: Arc<S3Client>,
 ) -> Result<String, anyhow::Error> {
     let uuid = uuid.ok_or(anyhow!("User ID cannot be empty"))?;
     let user_id = rbdc::Uuid::from_str(&uuid)?;
     let group_id = rbdc::Uuid::from_str(&group_uuid)?;
 
-    let s3_client = s3_client.ok_or(anyhow!("S3 client not initialized"))?;
-    if !s3_client.config.enabled {
-        return Err(anyhow!("S3 service not enabled"));
-    }
-
-    info!("uploading group avatar to S3...");
+    info!("正在上传群头像到 S3...");
     let original_record = upload_group_avatar_s3(rb, uuid.clone(), payload, s3_client.clone())
         .await
         .map_err(|e| anyhow!("S3 upload failed: {}", e))?;
-    info!("group avatar uploaded to S3 successfully");
+    info!("群头像上传到 S3 成功");
 
     let biz_record = create_group_avatar_biz(rb, user_id, group_id).await?;
     let biz_file_link = BizFileLink {

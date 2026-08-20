@@ -1,8 +1,8 @@
 use anyhow::anyhow;
 use common::config_str::USER_READ_MSG;
+use common::models::chat_entity::add_read_chat_record::AddReadChatRecordDTO;
 use common::models::chat_entity::chat_message_read::ChatMessageRecordRead;
 use common::models::chat_entity::chat_message_record::ChatMessageRecord;
-use common::utils::redis_utils::get_redis_conn;
 use deadpool_redis::redis::AsyncCommands;
 use rbatis::RBatis;
 use rbatis::rbdc::Uuid;
@@ -28,26 +28,16 @@ pub async fn get_chat_by_limit(
     let chat = res.first().ok_or(anyhow!("没有数据"))?;
     let vec = chat.raw.clone();
     let str = String::from_utf8(vec.into_inner())?;
-    info!("result: {}", str);
+    info!("查询结果: {}", str);
     Ok(CommonResponseRef::<Vec<ChatMessageRecord>>::success_json(&res)?)
 }
-
-// 用户新增聊天记录
-// pub async fn add_user_chat_record(text_msg: TextQuicMsg) -> Result<(), anyhow::Error> {
-//     // TODO kafka转发消息ck批量写入
-//     let rb = RBATIS_DATABASE.read().await;
-//     let rb = rb.as_ref().ok_or(anyhow!("获取连接失败"))?;
-//     let chat_msg = ChatMessageRecord::from(text_msg)?;
-//     ChatMessageRecord::insert(rb, &chat_msg).await?;
-//     Ok(())
-// }
 
 /// 获取未读消息
 pub async fn get_unread_chat_record(
     rb: &RBatis,
     uuid: Option<String>,
 ) -> Result<String, anyhow::Error> {
-    info!("request received");
+    info!("收到请求");
     let uuid = uuid.ok_or(anyhow!("账号获取失败"))?.parse::<Uuid>()?;
 
     let empty_vec = CommonResponseNoDataRef::success_empty();
@@ -62,14 +52,14 @@ pub async fn get_unread_chat_record(
         // 3、返回最新消息，最大9999
         let last_read = 0;
         let unread_msg = ChatMessageRecord::select_unread_by_time(rb, &uuid, last_read).await?;
-        info!("unread_msg {}", unread_msg.len());
+        info!("未读消息数量 {}", unread_msg.len());
         return Ok(CommonResponseRef::<Vec<ChatMessageRecord>>::success_json(&unread_msg)?);
     }
     // 4、查找已读消息有没有最新消息
     let last_msg_ref = last_msg.as_ref().ok_or(anyhow!("获取最新消息失败"))?;
     let res = read_msg.iter().find(|x| x.nano_id == last_msg_ref.nano_id);
     if res.is_some() {
-        info!("request finished");
+        info!("请求处理完成");
         return Ok(empty_vec);
     }
     // 5、获取未读消息
@@ -94,36 +84,38 @@ pub async fn get_unread_chat_record(
                 x
             })
             .collect();
-        info!("request finished");
+        info!("请求处理完成");
         return Ok(CommonResponseRef::<Vec<ChatMessageRecord>>::success_json(&unread_msg)?);
     }
-    info!("request finished");
+    info!("请求处理完成");
     Ok(empty_vec)
 }
 
 // 用户新增已读消息
 pub async fn add_user_chat_read(
+    redis: &deadpool_redis::Pool,
     uuid: Option<String>,
-    chat_message_read: Vec<ChatMessageRecordRead>,
+    chat_message_read: Vec<AddReadChatRecordDTO>,
 ) -> Result<String, anyhow::Error> {
     let uuid = uuid.ok_or(anyhow!("账号获取失败"))?;
     let chat_message_read_str = serde_json::to_string(&chat_message_read)?;
     // 写入到redis
-    let key = format!("{}{}", USER_READ_MSG, uuid);
-    let mut redis = get_redis_conn().await?;
+    let key = format!("{}{}", USER_READ_MSG, uuid).to_uppercase();
+    let mut redis = redis.get().await?;
     let res: Result<String, _> = redis.get(&key).await;
 
     if res.is_err() {
         let _: () = redis.set_ex(&key, chat_message_read_str, 60 * 60 * 24).await?;
     } else {
-        let mut last_chat_message_read: Vec<ChatMessageRecordRead> = serde_json::from_str(&res?)?;
+        let mut last_chat_message_read: Vec<AddReadChatRecordDTO> = serde_json::from_str(&res?)?;
         for item in chat_message_read.into_iter() {
             let new_item =
                 last_chat_message_read.iter_mut().find(|x| x.send_user == item.send_user);
             if let Some(new_item) = new_item {
                 new_item.timestamp = item.timestamp;
                 new_item.nano_id = item.nano_id.clone();
-                info!("update last_chat_message_read: {:?}", new_item);
+                new_item.chat_type = item.chat_type;
+                info!("更新 last_chat_message_read: {:?}", new_item);
             } else {
                 last_chat_message_read.push(item)
             }

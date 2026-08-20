@@ -1,8 +1,9 @@
-use dashmap::DashMap;
-use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
+
+use dashmap::DashMap;
+use parking_lot::RwLock;
 
 use crate::error::{EmailError, EmailResult};
 use crate::providers::BoxedEmailProvider;
@@ -20,6 +21,12 @@ pub struct HealthStatus {
     pub last_check: Instant,
     pub consecutive_failures: u32,
     pub last_error: Option<String>,
+}
+
+impl Default for HealthStatus {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl HealthStatus {
@@ -84,7 +91,7 @@ impl ProviderPool {
             .map(|entry| entry.value().clone())
             .collect();
 
-        providers.sort_by(|a, b| b.priority().cmp(&a.priority()));
+        providers.sort_by_key(|p| std::cmp::Reverse(p.priority()));
         providers
     }
 
@@ -142,7 +149,7 @@ impl ProviderPool {
             let result = match provider.health_check().await {
                 Ok(healthy) => healthy,
                 Err(e) => {
-                    tracing::warn!("Health check failed for provider '{}': {}", name, e);
+                    tracing::warn!("服务商 '{}' 健康检查失败: {}", name, e);
                     false
                 }
             };

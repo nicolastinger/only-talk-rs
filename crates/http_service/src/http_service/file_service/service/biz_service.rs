@@ -1,8 +1,6 @@
-use crate::http_service::file_service::service::chat_biz_service::get_chat_file_record_by_biz_id;
-use crate::http_service::file_service::service::chat_s3_service::upload_chat_origin_file_s3;
-use crate::http_service::file_service::vo::biz_file_link_vo::BizFileLinkVO;
-use crate::http_service::file_service::vo::biz_record_vo::BizRecordVO;
-use crate::utils::http_response::CommonResponseRef;
+use std::str::FromStr;
+use std::sync::Arc;
+
 use actix_multipart::Multipart;
 use anyhow::anyhow;
 use common::models::file_entity::biz_file_link::BizFileLink;
@@ -11,10 +9,14 @@ use common::utils::time::get_now_time_stamp_as_millis;
 use rbatis::{RBatis, rbdc};
 use rbs::value;
 use s3_service::S3Client;
-use std::str::FromStr;
-use std::sync::Arc;
 use tracing::info;
 use uuid::Uuid;
+
+use crate::http_service::file_service::service::chat_biz_service::get_chat_file_record_by_biz_id;
+use crate::http_service::file_service::service::chat_s3_service::upload_chat_origin_file_s3;
+use crate::http_service::file_service::vo::biz_file_link_vo::BizFileLinkVO;
+use crate::http_service::file_service::vo::biz_record_vo::BizRecordVO;
+use crate::utils::http_response::CommonResponseRef;
 
 /// 创建上传用户头像业务id
 pub async fn create_avatar_biz(
@@ -93,7 +95,7 @@ pub async fn get_pub_file_record_by_biz_id(
 /// 通过业务id补充原文件信息
 pub async fn upload_original_file_by_biz_id(
     rb: &RBatis,
-    s3_client: Option<Arc<S3Client>>,
+    s3_client: Arc<S3Client>,
     uuid: Option<String>,
     biz_id: String,
     biz_record_type: String,
@@ -121,7 +123,7 @@ pub async fn upload_original_file_by_biz_id(
             }
         }
         "private" => {
-            // TODO
+            // TODO 待实现
         }
         _ => return Err(anyhow!("不支持的业务类型")),
     }
@@ -130,16 +132,11 @@ pub async fn upload_original_file_by_biz_id(
     }
 
     // 2. 使用S3上传
-    let s3_client = s3_client.ok_or(anyhow!("S3客户端未初始化"))?;
-    if !s3_client.config.enabled {
-        return Err(anyhow!("S3服务未启用"));
-    }
-
-    info!("uploading original file to S3...");
+    info!("正在上传原始文件到 S3...");
     let original_record = upload_chat_origin_file_s3(rb, uuid.clone(), payload, s3_client.clone())
         .await
         .map_err(|e| anyhow!("S3上传失败: {}", e))?;
-    info!("original file uploaded to S3 successfully");
+    info!("原始文件上传到 S3 成功");
 
     let preview_id = rbdc::Uuid::from_str(&preview_id)?;
     // 3. 更新biz_file_link

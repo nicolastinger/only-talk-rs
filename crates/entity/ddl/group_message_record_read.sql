@@ -1,6 +1,6 @@
--- public.group_message_record_read table definition
+-- public.group_message_record_read 表定义
 
--- Drop table
+-- 删除表
 -- DROP TABLE group_message_record_read;
 
 CREATE TABLE IF NOT EXISTS group_message_record_read (
@@ -13,10 +13,10 @@ CREATE TABLE IF NOT EXISTS group_message_record_read (
     CONSTRAINT group_message_record_read_pk PRIMARY KEY (id)
 );
 
--- Table comment
+-- 表注释
 COMMENT ON TABLE public.group_message_record_read IS '群消息已读状态表';
 
--- Column comments
+-- 列注释
 COMMENT ON COLUMN public.group_message_record_read.id IS '自增id';
 COMMENT ON COLUMN public.group_message_record_read.nano_id IS '消息主键';
 COMMENT ON COLUMN public.group_message_record_read."timestamp" IS '消息创建时间';

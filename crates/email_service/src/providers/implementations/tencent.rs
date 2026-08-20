@@ -1,11 +1,13 @@
+use std::collections::HashMap;
+use std::sync::Arc;
+
 use async_trait::async_trait;
-use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine};
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use chrono::Utc;
 use hmac::{Hmac, Mac};
 use reqwest::Client;
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
-use std::sync::Arc;
 
 use crate::config::TencentConfig;
 use crate::error::{EmailError, EmailResult};
@@ -113,7 +115,7 @@ impl TencentEmailProvider {
             .map_err(|e| EmailError::NetworkError(format!("Failed to read response: {}", e)))?;
 
         if !status.is_success() {
-            tracing::error!("Tencent API error: status={}, body={}", status, body);
+            tracing::error!("腾讯云 API 错误: status={}, body={}", status, body);
             return Err(EmailError::ProviderError {
                 provider: "tencent".to_string(),
                 message: format!("API error: {} - {}", status, body),

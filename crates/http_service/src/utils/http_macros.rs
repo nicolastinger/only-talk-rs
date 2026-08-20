@@ -1,4 +1,4 @@
-// HTTP input entity validation
+// HTTP 入参实体校验
 #[macro_export]
 macro_rules! validate_and_respond {
     ($model:expr) => {{

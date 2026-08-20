@@ -1,14 +1,12 @@
-use std::fs;
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufReader, Seek, SeekFrom};
 use std::sync::Arc;
 
-use crate::controller::configure_api_routes;
-use actix_files::Files;
 use actix_web::middleware::from_fn;
 use actix_web::{App, HttpServer, middleware, web};
-use common::config_str::{USER_FILE_PUBLIC, USER_FILE_PUBLIC_DIR};
 use common::{init_app_config, init_redis, init_sql_pool, read_global_config, verify_redis};
+use email_service::config::{AliyunConfig, EmailServiceConfig, ProviderConfig};
 use http_service;
 use http_service::middleware::TraceIdMiddleware;
 use http_service::utils::record_bad_http::error_record_middleware;
@@ -16,7 +14,9 @@ use rustls::{Certificate, PrivateKey, ServerConfig};
 use rustls_pemfile::{certs, ec_private_keys, pkcs8_private_keys, rsa_private_keys};
 use s3_service::client::GlobalS3Client;
 use s3_service::config::S3Config;
-use tracing::{error, info, warn};
+use tracing::{error, info};
+
+use crate::controller::configure_api_routes;
 
 fn read_key_file(path: &str, label: &str) -> anyhow::Result<File> {
     File::open(path).map_err(|e| anyhow::anyhow!("{} not found: {}", label, e))
@@ -38,9 +38,9 @@ fn init_cert_file() -> anyhow::Result<(Vec<Certificate>, PrivateKey)> {
         .into_iter()
         .map(Certificate)
         .collect::<Vec<_>>();
-    info!("loaded {} certificates", cert_chain.len());
+    info!("已加载 {} 个证书", cert_chain.len());
 
-    // Try reading private keys of different types
+    // 尝试读取不同类型的私钥
     let mut keys = {
         reset_file(key_file)?;
         if let Ok(keys) = rsa_private_keys(key_file) {
@@ -89,49 +89,70 @@ fn init_cert_file() -> anyhow::Result<(Vec<Certificate>, PrivateKey)> {
     Ok((cert_chain, key))
 }
 
-/// Initialize S3 client
-async fn init_s3_client() -> Option<Arc<s3_service::S3Client>> {
-    // Try reading S3 config
+/// 初始化 S3 客户端。
+///
+/// S3 存储为必选项: 未启用或初始化失败时启动报错。
+async fn init_s3_client() -> anyhow::Result<Arc<s3_service::S3Client>> {
     let enabled = common::config_manager::get_config("s3.enabled")
         .unwrap_or_else(|| "false".to_string())
         .parse::<bool>()
         .unwrap_or(false);
 
     if !enabled {
-        info!("S3 storage not enabled, using local storage");
-        return None;
+        return Err(anyhow::anyhow!(
+            "S3 storage is required but s3.enabled is false, refusing to start"
+        ));
     }
 
-    match S3Config::from_global_config() {
-        Ok(config) => {
-            info!("initializing S3 client - Provider: {}", config.provider);
-            match GlobalS3Client::init(config).await {
-                Ok(client) => {
-                    info!("S3 client initialized successfully");
-                    Some(client)
-                }
-                Err(e) => {
-                    error!("S3 client initialization failed: {}, falling back to local storage", e);
-                    None
-                }
-            }
-        }
-        Err(e) => {
-            warn!("failed to read S3 config: {}, using local storage", e);
-            None
-        }
-    }
+    let config = S3Config::from_global_config()
+        .map_err(|e| anyhow::anyhow!("failed to read S3 config: {}", e))?;
+
+    info!("正在初始化 S3 客户端 - Provider: {}", config.provider);
+    let client = GlobalS3Client::init(config)
+        .await
+        .map_err(|e| anyhow::anyhow!("S3 client initialization failed: {}", e))?;
+    info!("S3 客户端初始化成功");
+    Ok(client)
 }
 
-/// Initialize services
-pub async fn start_server() -> anyhow::Result<()> {
-    // Create public file directory
-    let pub_file_path = USER_FILE_PUBLIC_DIR;
-    if !std::path::Path::new(pub_file_path).exists() {
-        fs::create_dir_all(pub_file_path)
-            .map_err(|e| anyhow::anyhow!("Failed to create public directory: {}", e))?;
+/// 初始化邮件管理器,从配置加载阿里云提供商。
+///
+/// 配置中禁用邮件时创建空管理器(发送将失败)。
+fn init_email_manager() -> anyhow::Result<Arc<email_service::EmailManager>> {
+    let enabled = common::config_manager::get_config("email.enabled")
+        .unwrap_or_else(|| "false".to_string())
+        .parse::<bool>()
+        .unwrap_or(false);
+
+    if !enabled {
+        info!("邮件服务未启用,将不会发送验证码");
+        return Ok(Arc::new(email_service::EmailManager::new(EmailServiceConfig::default())?));
     }
 
+    let aliyun = AliyunConfig {
+        enabled: true,
+        priority: 100,
+        access_key_id: read_global_config!("email", "access_key_id"),
+        access_key_secret: read_global_config!("email", "access_key_secret"),
+        region_id: read_global_config!("email", "region_id"),
+        account_name: read_global_config!("email", "account_name"),
+        from_alias: Some("OnlyTalk".to_string()),
+        ..Default::default()
+    };
+    let mut providers = HashMap::new();
+    providers.insert("aliyun".to_string(), ProviderConfig::Aliyun(aliyun));
+
+    let config = EmailServiceConfig {
+        default_provider: Some("aliyun".to_string()),
+        providers,
+        ..Default::default()
+    };
+    info!("正在使用阿里云提供商初始化邮件管理器");
+    Ok(Arc::new(email_service::EmailManager::new(config)?))
+}
+
+/// 初始化服务
+pub async fn start_server() -> anyhow::Result<()> {
     init_app_config()?;
 
     let url = read_global_config!("database", "url");
@@ -140,13 +161,13 @@ pub async fn start_server() -> anyhow::Result<()> {
 
     let (cert_chain, key) = init_cert_file()?;
 
-    // Configure TLS
+    // 配置 TLS
     let config = ServerConfig::builder()
         .with_safe_defaults()
         .with_no_client_auth()
         .with_single_cert(cert_chain, key)
         .map_err(|e| {
-            error!("failed to set certificate and private key: {}", e);
+            error!("设置证书和私钥失败: {}", e);
             std::io::Error::other("Failed to set certificate and private key")
         })?;
 
@@ -154,34 +175,30 @@ pub async fn start_server() -> anyhow::Result<()> {
     let redis_pool = init_redis(&redis_url)?;
     verify_redis(&redis_pool).await;
 
-    // Initialize S3 client
-    let s3_client = init_s3_client().await;
+    // 初始化 S3 客户端(必选)
+    let s3_client = init_s3_client().await?;
+
+    // 初始化邮件管理器(注册验证码使用阿里云提供商)
+    let email = init_email_manager()?;
+
+    let state = http_service::state::AppState {
+        core: common::state::CoreState { db: pool, redis: redis_pool },
+        s3: s3_client,
+        email,
+    };
 
     let address = read_global_config!("server", "address");
-
-    let s3_data = match s3_client {
-        Some(client) => web::Data::new(client),
-        None => {
-            warn!("S3 client not initialized, S3-related features unavailable");
-            // Create a placeholder that won't be actually used
-            let config = S3Config::default_minio();
-            web::Data::new(Arc::new(s3_service::S3Client::new(config).await?))
-        }
-    };
 
     HttpServer::new(move || {
         App::new()
             .wrap(TraceIdMiddleware)
             .wrap(from_fn(error_record_middleware))
-            .app_data(web::Data::new(redis_pool.clone()))
-            .app_data(web::Data::new(pool.clone()))
-            .app_data(s3_data.clone())
+            .app_data(web::Data::new(state.clone()))
             .wrap(middleware::Logger::default())
             .configure(http_service::http_service::configure_routes)
             .configure(configure_api_routes)
-            .service(Files::new(USER_FILE_PUBLIC, USER_FILE_PUBLIC_DIR).show_files_listing())
     })
-    .bind_rustls_021(address, config)? // Bind to HTTPS port
+    .bind_rustls_021(address, config)? // 绑定 HTTPS 端口
     // .bind(address)?
     .run()
     .await?;

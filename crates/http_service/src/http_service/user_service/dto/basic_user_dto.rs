@@ -10,7 +10,7 @@ pub struct SignInBasicUserDTO {
         required(message = "需要输入密码"),
         regex(
             path = "common::utils::validators::PASSWORD_REGEX",
-            message = "密码必须包含大小写字母和数字,并且长度在14以上"
+            message = "密码必须为14位以上的字母或数字"
         )
     )]
     pub password: Option<String>,
@@ -26,6 +26,7 @@ impl SignInBasicUserDTO {
             account: self.account,
             icon: None,
             info: None,
+            email: None,
             password: self.password,
         }
     }

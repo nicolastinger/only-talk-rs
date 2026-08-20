@@ -17,8 +17,8 @@ OnlyTalk RS 是一个基于 Rust 构建的高性能即时通讯（IM）后端服
 | 数据库 | PostgreSQL + rbatis 4.6 | ORM 数据持久化 |
 | 缓存 | Redis + deadpool-redis | 连接池、会话管理 |
 | 对象存储 | AWS S3 SDK | 支持 MinIO / 阿里云 OSS / AWS S3 |
-| 认证 | JWT (jsonwebtoken 8.0) | 用户身份验证 |
-| 日志 | tracing + tracing-subscriber | 结构化日志、JSON 输出 |
+| 认证 | JWT (jsonwebtoken 8.0) | 用户身份验证（RS256 非对称） |
+| 日志 | tracing + tracing-subscriber | 文本日志（stdout + 文件双通道）、TraceId 全链路 |
 | 加密 | rustls 0.21 + rcgen | TLS 证书管理 |
 | Rust Edition | 2024 | 最新语言特性 |
 
@@ -28,17 +28,18 @@ OnlyTalk RS 是一个基于 Rust 构建的高性能即时通讯（IM）后端服
 only-talk-rs/
 ├── src/main.rs                  # 独立模式入口（同时启动 QUIC + HTTP）
 ├── crates/
-│   ├── api/                     # API 服务层（整合 HTTP + QUIC 路由）
-│   ├── common/                  # 公共工具：配置管理、JWT、RSA 加密、QUIC 配置、tracing
+│   ├── api/                     # 应用组装层：TLS + AppState 装配、集成服务（/integrated、/file_integrated）
+│   ├── common/                  # 基础设施：配置、连接池、CoreState、JWT、RSA、tracing、消息协议
 │   ├── entity/                  # 数据模型与数据库操作（rbatis）、DDL 脚本
-│   ├── email_service/           # 邮件服务（SMTP via reqwest，含连接池）
-│   ├── http_service/            # HTTP 端点：用户、好友、群组、聊天、通知、文件
+│   ├── email_service/           # 邮件服务库（多服务商 HTTPS API，注册邮箱验证码已接入）
+│   ├── http_service/            # HTTP 端点：用户、好友、群组、聊天、通知、文件、S3 管理
 │   ├── quic_service/            # QUIC 服务：外网连接、内网通信、NAT 打洞、P2P 转发
 │   └── s3_service/              # S3 对象存储抽象层（多提供商支持）
 ├── config/
-│   ├── app_config.toml          # 应用配置（数据库、Redis、QUIC、文件、S3）
+│   ├── app_config.toml          # 应用配置（数据库、Redis、QUIC、NAT、S3）
+│   ├── jwt/                     # 自动生成的 RSA 密钥对（首次启动创建）
 │   └── ssl/                     # TLS 证书（fullchain.pem + privkey.pem）
-├── docs/                        # 技术文档
+├── docs/                        # 技术文档（含各 crate 职责说明）
 ├── .env.example                 # 环境变量模板
 ├── Cargo.toml                   # 工作区配置
 ├── clippy.toml                  # Clippy 规则
@@ -49,7 +50,7 @@ only-talk-rs/
 
 ### 前置要求
 
-- **Rust**: 1.75+ (Edition 2024)
+- **Rust**: 1.85+ (Edition 2024)
 - **PostgreSQL**: 12+
 - **Redis**: 6+
 - **TLS 证书**: 自签名或正式证书（放置于 `config/ssl/` 目录）
@@ -74,9 +75,9 @@ cp .env.example .env
 DATABASE_URL=postgres://postgres:YOUR_PASSWORD@127.0.0.1:5432/postgres
 
 # Redis
-REDIS_URL=redis://:YOUR_PASSWORD@127.0.0.1:6379/
+REDIS_URL=redis://:YOUR_PASSWORD@127.0.0.1:4096/
 
-# S3 对象存储（可选）
+# S3 对象存储（必选，缺失时服务拒绝启动）
 S3_ENDPOINT=http://127.0.0.1:9000
 S3_ACCESS_KEY=your-access-key
 S3_SECRET_KEY=your-secret-key
@@ -98,7 +99,7 @@ address = "0.0.0.0:4433"        # QUIC 外网监听端口
 address = "127.0.0.1:4434"      # QUIC 内网通信端口
 
 [s3]
-enabled = false                 # 是否启用 S3 存储（false 则使用本地存储）
+enabled = true                  # S3 为必选，enabled = false 时服务拒绝启动
 provider = "minio"              # minio / aliyun_oss / aws_s3
 ```
 
@@ -111,7 +112,7 @@ config/ssl/fullchain.pem    # 证书链
 config/ssl/privkey.pem      # 私钥（支持 RSA / EC / PKCS8 格式）
 ```
 
-开发环境可使用 rcgen 自动生成自签名证书。
+内网 QUIC 服务使用 rcgen 自动生成自签名证书；对外 HTTPS 证书需自行放置于 `config/ssl/`（可使用 `config/ssl/auto_general.sh` 脚本生成）。
 
 ### 5. 初始化数据库
 
@@ -135,13 +136,32 @@ cargo run --release
 - **QUIC 外网服务**：`0.0.0.0:4433`
 - **QUIC 内网服务**：`127.0.0.1:4434`
 
+## 架构与依赖注入
+
+分层结构（依赖方向自上而下，单向）：
+
+```
+api ──► http_service ──► common
+  │          │
+  │          ▼
+  └──────► quic_service ──► common ──► entity
+  │
+  └──────► s3_service ──► common
+  └──────► email_service（阿里云邮件推送已接入，注册邮箱验证码依赖）
+```
+
+- **`common::CoreState`**：共享连接状态（`db: RBatis` + `redis: Pool`），供 http_service 与 quic_service 复用。
+- **`http_service::AppState`**：组合 `CoreState` + `s3` + `email`，`api` 启动时构造一次并注入 `web::Data<AppState>`；controller 只引用 AppState，经 `state.db()` / `state.redis()` / `state.s3()` 取连接，service 层保持窄签名（`&RBatis` / `&Pool` / `Arc<S3Client>`）。
+- **quic_service**：同样以 `CoreState` 注入（`ChatNode` 持有），跨 `tokio::spawn` 处 clone 传递。
+- 新增依赖时只需给 `AppState` 加字段 + 在具体 service 函数使用，controller 签名无需改动。
+
 ## 部署模式
 
 | 模式 | 入口 | 端口 | 说明 |
 |------|------|------|------|
-| **独立模式** | `src/main.rs` | 8443 + 4433 + 4434 | QUIC + HTTP 同进程运行 |
-| **QUIC 网关** | `crates/quic_service/src/bin/quic_server.rs` | 4433 + 4434 | 仅 QUIC 连接管理 |
-| **API 服务** | `crates/api/src/main.rs` | 8443 | 仅 HTTP REST API |
+| **独立模式** | `src/main.rs` | 8443 + 4433 + 4434 + 19562-19565 | QUIC + HTTP 同进程运行 |
+| **QUIC 网关** | `crates/quic_service/src/bin/quic_server.rs` | 4433 + 4434 + 19562-19565 | 仅 QUIC 连接管理 |
+| **API 服务** | `crates/api/src/bin/api_server.rs` | 8443 | 仅 HTTP REST API |
 
 ### 独立模式（默认）
 
@@ -167,13 +187,14 @@ QUIC 服务与 HTTP 服务在同一进程中启动，适合中小型部署。
 | `/msg` | chat_service | 文本消息、消息查询、消息漫游 |
 | `/file` | file_service | 文件上传/下载、头像管理、S3 预签名 URL |
 | `/notify` | notify_service | 系统通知、推送通知 |
-| `/integrated` | api/controller | 综合用户服务与文件上传服务 |
+| `/integrated` | api/controller | 综合用户服务（好友+通知、QUIC 节点分配） |
+| `/file_integrated` | api/controller | 综合文件上传（头像、聊天文件） |
 
 ### QUIC 协议
 
 - **外网连接**：客户端通过 `4433` 端口建立 QUIC 长连接
 - **内网通信**：服务器节点间通过 `4434` 端口内部通信
-- **NAT 打洞**：UDP 端口 `9562-9565` 用于 P2P 穿透
+- **NAT 打洞**：UDP 端口 `19562-19565` 用于 P2P 穿透
 
 ## 特性
 
@@ -185,14 +206,14 @@ QUIC 服务与 HTTP 服务在同一进程中启动，适合中小型部署。
 
 ### P2P 连接
 
-- UDP NAT 发现（端口 9562-9565）
+- UDP NAT 发现（端口 19562-19565）
 - P2P 打洞建立直连通道
 - 打洞失败自动降级为服务器中转
 
 ### 文件存储
 
-- 支持本地存储与 S3 对象存储无缝切换
-- 图片自动压缩为 WebP 格式
+- 基于 S3 对象存储（MinIO / 阿里云 OSS / AWS S3），本地存储已移除
+- 图片上传后自动压缩为 WebP 格式
 - 分片上传（大文件支持）
 - 预签名 URL 安全访问
 
@@ -206,9 +227,8 @@ QUIC 服务与 HTTP 服务在同一进程中启动，适合中小型部署。
 
 ### 日志与监控
 
-- 结构化日志（tracing + JSON 输出）
+- 文本日志（tracing，stdout + 文件双通道）
 - TraceId 全链路追踪
-- 日志文件自动轮转
 - 错误请求自动记录
 
 ## 配置说明
@@ -221,6 +241,13 @@ url = "${DATABASE_URL}"         # PostgreSQL 连接字符串
 
 [redis]
 url = "${REDIS_URL}"            # Redis 连接字符串
+test_url = "${TEST_REDIS_URL}"  # 测试用 Redis（集成测试）
+
+[cluster]
+server_index = 0                # 集群节点编号
+
+[app]
+domain = "${APP_DOMAIN}"        # 应用域名
 
 [server]
 address = "0.0.0.0:8443"        # HTTPS 监听地址
@@ -231,18 +258,36 @@ log_level = "info"              # 日志级别
 address = "0.0.0.0:4433"        # QUIC 外网地址
 cert_path = "./config/ssl/fullchain.pem"
 key_path = "./config/ssl/privkey.pem"
+server_name = "127.0.0.1:4433"
+node_address = "127.0.0.1:4433"
+
+[internal_quic_server]
+address = "127.0.0.1:4434"      # QUIC 内网地址
+server_name = "INTERNAL_SERVER_1"
+node_address = "127.0.0.1:4434"
 
 [file_upload]
-max_file_size = 20971520        # 最大文件上传大小（20MB）
+max_file_size = 20485760        # 最大文件上传大小（约 20MB）
 
 [s3]
-enabled = true                  # 是否启用 S3
+enabled = true                  # S3 必选，false 时服务拒绝启动
 provider = "minio"              # 存储提供商
 endpoint = "${S3_ENDPOINT}"
 access_key = "${S3_ACCESS_KEY}"
 secret_key = "${S3_SECRET_KEY}"
 default_bucket = "only-talk-rs"
+
+[nat_udp]
+v4_port_1 = 19562               # NAT 穿透 UDP 端口
+v6_port_1 = 19563
+v4_port_2 = 19564
+v6_port_2 = 19565
+
+[email]
+enabled = "${EMAIL_ENABLED}"    # 邮件服务开关（注册验证码）
 ```
+
+> 其余配置段（`[file_types]` 文件类型扩展名/MIME、S3 各 bucket 划分与分片参数等）详见 `config/app_config.toml`。
 
 ### 文件类型配置
 
@@ -293,10 +338,23 @@ cargo bench -p quic_service
 
 ## 文档
 
+### 设计文档
+
 - [启动部署指南](docs/启动部署指南.md)
 - [集群路由方案](docs/集群路由方案.md)
 - [群聊广播方案](docs/群聊广播方案.md)
 - [Entity 核心拆分方案](docs/entity-core拆分方案.md)
+
+### Crate 职责说明
+
+- [entity](docs/crate-entity.md) — 数据访问层（rbatis 实体模型 + DDL）
+- [common](docs/crate-common.md) — 基础设施（配置、连接池、JWT、tracing、协议、集群）
+- [http_service](docs/crate-http_service.md) — HTTP REST 业务层（用户/好友/群聊/消息/文件/通知）
+- [quic_service](docs/crate-quic_service.md) — QUIC 实时通信、NAT 打洞、P2P、集群转发
+- [s3_service](docs/crate-s3_service.md) — 对象存储抽象（MinIO/OSS/AWS）
+- [email_service](docs/crate-email_service.md) — 邮件发送库（多服务商，已接入注册邮箱验证码）
+- [api](docs/crate-api.md) — 应用组装层（TLS、AppState 装配、集成服务）
+- [only_talk_rs](docs/crate-root.md) — 单体进程入口
 
 ## License
 

@@ -1,11 +1,13 @@
+use std::collections::HashMap;
+use std::sync::Arc;
+
 use async_trait::async_trait;
-use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine};
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use chrono::Utc;
 use hmac::{Hmac, Mac};
 use reqwest::Client;
 use sha2::Sha256;
-use std::collections::HashMap;
-use std::sync::Arc;
 
 use crate::config::AliyunConfig;
 use crate::error::{EmailError, EmailResult};
@@ -97,7 +99,7 @@ impl AliyunEmailProvider {
             .map_err(|e| EmailError::NetworkError(format!("Failed to read response: {}", e)))?;
 
         if !status.is_success() {
-            tracing::error!("Aliyun API error: status={}, body={}", status, body);
+            tracing::error!("阿里云 API 错误: status={}, body={}", status, body);
             return Err(EmailError::ProviderError {
                 provider: "aliyun".to_string(),
                 message: format!("API error: {} - {}", status, body),
@@ -130,7 +132,7 @@ impl EmailProvider for AliyunEmailProvider {
         match self.send_request("DescAccountSummary", params).await {
             Ok(_) => Ok(true),
             Err(e) => {
-                tracing::warn!("Aliyun health check failed: {}", e);
+                tracing::warn!("阿里云健康检查失败: {}", e);
                 Ok(false)
             }
         }

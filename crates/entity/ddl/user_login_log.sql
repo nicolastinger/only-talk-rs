@@ -1,6 +1,6 @@
--- public.user_login_log table definition
+-- public.user_login_log 表定义
 
--- Drop table
+-- 删除表
 -- DROP TABLE user_login_log;
 
 CREATE TABLE IF NOT EXISTS user_login_log (
@@ -11,10 +11,10 @@ CREATE TABLE IF NOT EXISTS user_login_log (
     last_login_ipv6 varchar(128) -- 最后登录的IPv6地址
 );
 
--- Table comment
+-- 表注释
 COMMENT ON TABLE public.user_login_log IS '用户登录记录表';
 
--- Column comments
+-- 列注释
 COMMENT ON COLUMN public.user_login_log.id IS '主键ID';
 COMMENT ON COLUMN public.user_login_log.last_login_at IS '最后登录时间（Unix时间戳，毫秒）';
 COMMENT ON COLUMN public.user_login_log.last_login_equipment IS '最后登录的设备';

@@ -1,8 +1,9 @@
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::time::Duration;
+
 use email_service::error::EmailError;
 use email_service::{RetryConfig, RetryStrategy};
-use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::Arc;
-use std::time::Duration;
 
 #[tokio::test]
 async fn test_retry_strategy_exponential_backoff() {
@@ -166,6 +167,6 @@ async fn test_retry_success_immediately() {
         .await;
 
     assert!(result.is_ok());
-    assert_eq!(result.unwrap(), "immediate success");
+    assert_eq!(result.expect("重试策略执行失败"), "immediate success");
     assert_eq!(attempts.load(Ordering::SeqCst), 1);
 }

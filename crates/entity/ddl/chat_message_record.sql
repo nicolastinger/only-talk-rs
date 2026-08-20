@@ -1,6 +1,6 @@
--- public.chat_message_record table definition
+-- public.chat_message_record 表定义
 
--- Drop table
+-- 删除表
 -- DROP TABLE chat_message_record;
 
 CREATE TABLE IF NOT EXISTS chat_message_record (
@@ -14,14 +14,14 @@ CREATE TABLE IF NOT EXISTS chat_message_record (
     CONSTRAINT chat_message_record_unique UNIQUE (id)
 );
 
--- Indexes
-CREATE INDEX chat_message_record_create_at_idx ON public.chat_message_record USING btree ("timestamp");
-CREATE INDEX chat_message_record_send_user_idx ON public.chat_message_record USING btree (send_user, recv_user, "timestamp");
+-- 索引
+CREATE INDEX IF NOT EXISTS chat_message_record_create_at_idx ON public.chat_message_record USING btree ("timestamp");
+CREATE INDEX IF NOT EXISTS chat_message_record_send_user_idx ON public.chat_message_record USING btree (send_user, recv_user, "timestamp");
 
--- Table comment
+-- 表注释
 COMMENT ON TABLE public.chat_message_record IS '单对单聊天列表';
 
--- Column comments
+-- 列注释
 COMMENT ON COLUMN public.chat_message_record.send_user IS '发送人id';
 COMMENT ON COLUMN public.chat_message_record.recv_user IS '接收用户id';
 COMMENT ON COLUMN public.chat_message_record.text_type IS '消息类型，0-文本，1-图片';

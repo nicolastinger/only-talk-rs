@@ -1,12 +1,12 @@
-//! Global message type definitions
+//! 全局消息类型定义
 
-/// Plain text message
+/// 纯文本消息
 pub const MSG_TYPE_TEXT: u16 = 1;
 
-/// Image message
+/// 图片消息
 pub const MSG_TYPE_IMAGE: u16 = 2;
 
-/// File message
+/// 文件消息
 pub const MSG_TYPE_FILE: u16 = 3;
 
 /// P2P 消息（客户端直连通信，服务端仅转发）
@@ -21,13 +21,13 @@ pub const MSG_TYPE_P2P_VIDEO_DATA: u16 = 6;
 /// P2P 视频配置（客户端直连，服务端仅转发）
 pub const MSG_TYPE_P2P_VIDEO_CONFIG: u16 = 7;
 
-/// Heartbeat message (Ping)
+/// 心跳消息 (Ping)
 pub const MSG_TYPE_PING: u16 = 99;
 
-/// Message delivery success receipt
+/// 消息投递成功回执
 pub const MSG_TYPE_RECALL_SUCCESS: u16 = 201;
 
-/// Message delivery failure receipt
+/// 消息投递失败回执
 pub const MSG_TYPE_RECALL_FAILURE: u16 = 202;
 
 /// 通知客户端作为 P2P 连接的服务端（NAT 发现后由服务端下发）
@@ -36,28 +36,28 @@ pub const MSG_TYPE_P2P_USER_SERVER: u16 = 203;
 /// 通知客户端作为 P2P 连接的客户端（NAT 发现后由服务端下发）
 pub const MSG_TYPE_P2P_USER_CLIENT: u16 = 204;
 
-/// Notification message
+/// 通知消息
 pub const NOTIFY_TYPE_MSG: u16 = 1024;
 
-/// System message
+/// 系统消息
 pub const MSG_TYPE_SYSTEM: u16 = 10001;
 
-/// Friend notification message forwarded by internal service
+/// 内部服务转发的添加好友通知消息
 pub const INTERNAL_FRIEND_NOTIFY: u16 = 20001;
 
-// ==================== Group Chat Message Types ====================
+// ==================== 群聊消息类型 ====================
 
-/// Group text message
+/// 群文本消息
 pub const MSG_TYPE_GROUP_TEXT: u16 = 2001;
 
-/// Group image message
+/// 群图片消息
 pub const MSG_TYPE_GROUP_IMAGE: u16 = 2002;
 
-/// Group file message
+/// 群文件消息
 pub const MSG_TYPE_GROUP_FILE: u16 = 2003;
 
-/// Group notification message (member changes, etc.)
+/// 群通知消息(成员变更等)
 pub const MSG_TYPE_GROUP_NOTIFICATION: u16 = 2004;
 
-/// Group message delivery success receipt
+/// 群消息投递成功回执
 pub const MSG_TYPE_GROUP_ACK: u16 = 2201;

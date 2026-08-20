@@ -25,7 +25,8 @@ pub struct UpdateUserDTO {
 }
 
 lazy_static::lazy_static! {
-    static ref CHINA_PHONE_REGEX: regex::Regex = regex::Regex::new(r"^1[3-9]\d{9}$").unwrap();
+    static ref CHINA_PHONE_REGEX: regex::Regex =
+        regex::Regex::new(r"^1[3-9]\d{9}$").expect("china phone regex should compile");
 }
 
 impl UpdateUserDTO {

@@ -3,6 +3,8 @@ url = "${DATABASE_URL}"
 
 [redis]
 url = "${REDIS_URL}"
+# 测试用 Redis（http_service 集成测试使用，建议指向独立的 DB index/实例，测试结束会清空所有 key）
+test_url = "${TEST_REDIS_URL}"
 
 [cluster]
 server_index = 0
@@ -79,7 +81,7 @@ group_avatar_bucket = "group-avatar"
 region = "us-east-1"
 # 是否启用路径风格访问（MinIO必须为true）
 force_path_style = true
-# 是否启用S3存储（false则走本地存储）
+# 是否启用S3存储（必选，关闭则服务启动失败）
 enabled = true
 # 预签名URL过期时间（秒）
 presign_expire_seconds = 3600
@@ -89,3 +91,12 @@ multipart_threshold = 10485760
 multipart_chunk_size = 5242880
 # 最大并发上传数
 max_concurrent_uploads = 10
+
+[email]
+# 邮件服务开关（注册邮箱验证码依赖此服务）
+enabled = "${EMAIL_ENABLED}"
+# 阿里云邮件推送
+access_key_id = "${EMAIL_ACCESS_KEY_ID}"
+access_key_secret = "${EMAIL_ACCESS_KEY_SECRET}"
+region_id = "cn-hangzhou"
+account_name = "${EMAIL_ACCOUNT_NAME}"

@@ -1,9 +1,13 @@
+// 基准测试代码直接使用 unwrap 简化演示代码,此处豁免生产代码的 unwrap 禁令
+#![allow(clippy::unwrap_used, clippy::disallowed_methods)]
+
+use std::sync::Arc;
+
 use common::utils::message_types::MSG_TYPE_TEXT;
 use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 use quic_service::X25;
 use quic_service::models::text_msg::HeadMsg;
 use quic_service::msg_service::text_msg_service::{generate_text_msg, get_text_msg};
-use std::sync::Arc;
 use tokio::sync::Mutex;
 
 fn head_size() -> usize {

@@ -36,6 +36,7 @@
 //! ```
 
 use std::time::Duration;
+
 use thiserror::Error;
 
 /// 邮件服务错误枚举

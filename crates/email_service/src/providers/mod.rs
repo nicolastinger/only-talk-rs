@@ -2,9 +2,9 @@
 //!
 //! 本模块定义了邮件服务商的核心抽象和实现：
 //!
-//! - [`EmailProvider`]: 服务商 Trait，定义统一接口
-//! - [`RetryStrategy`]: 重试策略
-//! - [`CircuitBreaker`]: 熔断器
+//! - [`EmailProvider`][]: 服务商 Trait，定义统一接口
+//! - [`RetryStrategy`][]: 重试策略
+//! - [`CircuitBreaker`][]: 熔断器
 //!
 //! # 支持的服务商
 //!
