@@ -176,10 +176,17 @@ mod user_entity {
     fn user_login_log_roundtrip() {
         let log = UserLoginLog {
             id: Some(1),
-            last_login_at: Some(1_700_000_000),
-            last_login_equipment: Some("PC".to_string()),
-            last_login_ipv4: Some("127.0.0.1".to_string()),
-            last_login_ipv6: Some("::1".to_string()),
+            uuid: Some(uuid("00000000-0000-0000-0000-000000000001")),
+            account: Some("alice001".to_string()),
+            login_type: Some("account".to_string()),
+            event_type: Some("success".to_string()),
+            login_at: Some(1_700_000_000),
+            platform: Some("PC".to_string()),
+            ipv4: Some("127.0.0.1".to_string()),
+            ipv6: None,
+            user_agent: Some("Mozilla/5.0".to_string()),
+            device: None,
+            result: None,
         };
         assert_roundtrip(&log);
     }

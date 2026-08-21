@@ -63,12 +63,19 @@
 - `updated_at` - 更新时间
 - `version` - 版本号
 
-#### 3. 用户登录记录表 `user_login_log.sql`
+#### 3. 用户登录审计表 `user_login_log.sql`
 - `id` - 主键
-- `last_login_at` - 最后登录时间
-- `last_login_equipment` - 最后登录的设备
-- `last_login_ipv4` - 最后登录的IPv4地址
-- `last_login_ipv6` - 最后登录的IPv6地址
+- `uuid` - 关联 basic_user.uuid（账号不存在时为空，用户删除后置空保留审计）
+- `account` - 登录时提交的账号（失败/不存在也保留，便于审计）
+- `login_type` - 登录渠道：account / email / refresh
+- `event_type` - 事件类型：success / password_fail / account_not_found / refresh
+- `login_at` - 事件时间（Unix 时间戳，毫秒）
+- `platform` - 登录平台：PC / MOBILE
+- `ipv4` / `ipv6` - 客户端 IP 地址
+- `user_agent` - 客户端 User-Agent
+- `device` - 设备指纹/名称（预留）
+- `result` - 结果补充（如刷新失败原因）
+- 索引：`(uuid, login_at DESC)`、`(account, login_at DESC)`、`(login_at DESC)`
 
 ---
 

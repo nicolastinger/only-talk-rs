@@ -1,5 +1,7 @@
 use std::str::FromStr;
 
+use actix_web::HttpRequest;
+use actix_web::http::header::USER_AGENT;
 use anyhow::anyhow;
 use common::config_str::{
     EMAIL_VERIFY_CODE, MOBILE_PLATFORM, PC_PLATFORM, REFRESH_TOKEN, REFRESH_TOKEN_PLATFORM,
@@ -7,6 +9,10 @@ use common::config_str::{
 use common::models::user_entity::basic_user::BasicUser;
 use common::models::user_entity::email_sso::EmailSso;
 use common::models::user_entity::user_info::UserInfo;
+use common::models::user_entity::user_login_log::{
+    LOGIN_EVENT_ACCOUNT_NOT_FOUND, LOGIN_EVENT_PASSWORD_FAIL, LOGIN_EVENT_REFRESH,
+    LOGIN_EVENT_SUCCESS, LOGIN_TYPE_ACCOUNT, LOGIN_TYPE_REFRESH, UserLoginLog,
+};
 use common::utils::jwt_util::{generate_access_token, generate_token_with_expiry};
 use common::utils::rsa_util::{hash_password, verify_password};
 use common::utils::time::get_now_time_stamp_as_millis;
@@ -193,11 +199,37 @@ pub async fn add_new_basic_user_service(
     }
 }
 
+/// 从 HttpRequest 提取客户端 IP(ipv4/ipv6)与 User-Agent
+fn extract_client_info(req: &HttpRequest) -> (Option<String>, Option<String>, Option<String>) {
+    let (ipv4, ipv6) = match req.peer_addr() {
+        Some(addr) if addr.ip().is_ipv4() => (Some(addr.ip().to_string()), None),
+        Some(addr) if addr.ip().is_ipv6() => (None, Some(addr.ip().to_string())),
+        _ => (None, None),
+    };
+    let user_agent = req
+        .headers()
+        .get(USER_AGENT)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+    (ipv4, ipv6, user_agent)
+}
+
+/// 写入登录审计记录（审计失败仅记录日志，不阻塞登录主流程）
+async fn write_login_log(
+    rb: &RBatis,
+    log: UserLoginLog,
+) {
+    if let Err(e) = UserLoginLog::insert(rb, &log).await {
+        error!("写入登录审计记录失败: {}", e);
+    }
+}
+
 /// 用户登录
 pub async fn user_sign_in(
     rb: &RBatis,
     redis: &deadpool_redis::Pool,
     basic_user_dto: SignInBasicUserDTO,
+    req: &HttpRequest,
 ) -> Result<String, anyhow::Error> {
     let platform =
         basic_user_dto.platform.as_ref().cloned().ok_or(anyhow!("平台为空".to_string()))?;
@@ -210,15 +242,41 @@ pub async fn user_sign_in(
     let account_str = account.as_ref().ok_or(anyhow!("账号为空".to_string()))?;
     let password_str = password.as_ref().ok_or(anyhow!("密码为空".to_string()))?;
 
-    let basic_user =
-        BasicUser::select_by_account(rb, account_str).await?.ok_or(anyhow!("用户不存在"))?;
+    let (ipv4, ipv6, user_agent) = extract_client_info(req);
+
+    let basic_user = match BasicUser::select_by_account(rb, account_str).await {
+        Ok(Some(user)) => user,
+        Ok(None) => {
+            // 账号不存在: 记录审计,保留提交的账号便于追踪
+            write_login_log(
+                rb,
+                UserLoginLog {
+                    id: None,
+                    uuid: None,
+                    account: Some(account_str.to_string()),
+                    login_type: Some(LOGIN_TYPE_ACCOUNT.to_string()),
+                    event_type: Some(LOGIN_EVENT_ACCOUNT_NOT_FOUND.to_string()),
+                    login_at: get_now_time_stamp_as_millis().ok(),
+                    platform: Some(platform.clone()),
+                    ipv4: ipv4.clone(),
+                    ipv6: ipv6.clone(),
+                    user_agent: user_agent.clone(),
+                    device: None,
+                    result: None,
+                },
+            )
+            .await;
+            return Err(anyhow!("用户不存在"));
+        }
+        Err(e) => return Err(anyhow!("查询用户失败: {}", e)),
+    };
 
     let mut conn = redis.get().await?;
 
     let exit_password = basic_user.password.as_ref().ok_or(anyhow!("密码为空"))?;
 
     if verify_password(password_str, exit_password) {
-        let uuid = basic_user.uuid.ok_or(anyhow!("账号为空"))?.to_string();
+        let uuid = basic_user.uuid.clone().ok_or(anyhow!("账号为空"))?.to_string();
         // 短效 token (24h)
         let access_token = generate_access_token(uuid.clone(), platform.clone())?;
         // 长效 refresh token (30 days)
@@ -243,23 +301,90 @@ pub async fn user_sign_in(
             .query_async(&mut conn)
             .await?;
 
+        // 登录成功审计
+        write_login_log(
+            rb,
+            UserLoginLog {
+                id: None,
+                uuid: basic_user.uuid.clone(),
+                account: Some(account_str.to_string()),
+                login_type: Some(LOGIN_TYPE_ACCOUNT.to_string()),
+                event_type: Some(LOGIN_EVENT_SUCCESS.to_string()),
+                login_at: get_now_time_stamp_as_millis().ok(),
+                platform: Some(platform.clone()),
+                ipv4,
+                ipv6,
+                user_agent,
+                device: None,
+                result: None,
+            },
+        )
+        .await;
+
         let sign_in_vo = SignInResponseVO { access_token, refresh_token };
         Ok(CommonResponseRef::<SignInResponseVO>::success_json(&sign_in_vo)?)
     } else {
+        // 密码错误审计
+        write_login_log(
+            rb,
+            UserLoginLog {
+                id: None,
+                uuid: basic_user.uuid.clone(),
+                account: Some(account_str.to_string()),
+                login_type: Some(LOGIN_TYPE_ACCOUNT.to_string()),
+                event_type: Some(LOGIN_EVENT_PASSWORD_FAIL.to_string()),
+                login_at: get_now_time_stamp_as_millis().ok(),
+                platform: Some(platform.clone()),
+                ipv4: ipv4.clone(),
+                ipv6: ipv6.clone(),
+                user_agent: user_agent.clone(),
+                device: None,
+                result: None,
+            },
+        )
+        .await;
         Err(anyhow!("用户或密码不正确!"))
     }
 }
 
 /// 通过 refresh_token 换取短效 access_token
 pub async fn refresh_access_token(
+    rb: &RBatis,
     redis: &deadpool_redis::Pool,
     refresh_token_dto: RefreshTokenDTO,
+    req: &HttpRequest,
 ) -> Result<String, anyhow::Error> {
     let mut conn = redis.get().await?;
 
+    let (ipv4, ipv6, user_agent) = extract_client_info(req);
+
     let key = format!("{}{}", REFRESH_TOKEN, refresh_token_dto.refresh_token).to_uppercase();
     let result: RedisResult<String> = cmd("GET").arg(&key).query_async(&mut conn).await;
-    let uuid = result.map_err(|_| anyhow!("refresh_token 无效或已过期"))?;
+    let uuid = match result {
+        Ok(u) => u,
+        Err(e) => {
+            // token 无效/过期审计(uuid 无法解析,留空)
+            write_login_log(
+                rb,
+                UserLoginLog {
+                    id: None,
+                    uuid: None,
+                    account: None,
+                    login_type: Some(LOGIN_TYPE_REFRESH.to_string()),
+                    event_type: Some(LOGIN_EVENT_REFRESH.to_string()),
+                    login_at: get_now_time_stamp_as_millis().ok(),
+                    platform: None,
+                    ipv4: ipv4.clone(),
+                    ipv6: ipv6.clone(),
+                    user_agent: user_agent.clone(),
+                    device: None,
+                    result: Some("refresh_token 无效或已过期".to_string()),
+                },
+            )
+            .await;
+            return Err(anyhow!("refresh_token 无效或已过期: {}", e));
+        }
+    };
 
     let platform_key =
         format!("{}{}", REFRESH_TOKEN_PLATFORM, refresh_token_dto.refresh_token).to_uppercase();
@@ -268,6 +393,27 @@ pub async fn refresh_access_token(
 
     // 生成新的短效 access_token (24h)
     let access_token = generate_access_token(uuid.clone(), platform.clone())?;
+
+    // 刷新成功审计
+    write_login_log(
+        rb,
+        UserLoginLog {
+            id: None,
+            uuid: uuid.parse::<rbatis::rbdc::Uuid>().ok(),
+            account: None,
+            login_type: Some(LOGIN_TYPE_REFRESH.to_string()),
+            event_type: Some(LOGIN_EVENT_REFRESH.to_string()),
+            login_at: get_now_time_stamp_as_millis().ok(),
+            platform: Some(platform.clone()),
+            ipv4,
+            ipv6,
+            user_agent,
+            device: None,
+            result: None,
+        },
+    )
+    .await;
+
     let sign_in_vo =
         SignInResponseVO { access_token, refresh_token: refresh_token_dto.refresh_token.clone() };
     Ok(CommonResponseRef::<SignInResponseVO>::success_json(&sign_in_vo)?)

@@ -60,20 +60,22 @@ pub async fn send_verify_code(
 #[post("/sign_in")]
 pub async fn sign_in(
     state: web::Data<AppState>,
+    req: HttpRequest,
     basic_user_dto: web::Json<SignInBasicUserDTO>,
 ) -> impl Responder {
     let basic_user_dto: SignInBasicUserDTO = validate_and_respond!(basic_user_dto);
-    let res = user_sign_in(state.db(), state.redis(), basic_user_dto).await;
+    let res = user_sign_in(state.db(), state.redis(), basic_user_dto, &req).await;
     respond_json_any!(res)
 }
 
 #[post("/refresh_token")]
 pub async fn refresh_token(
     state: web::Data<AppState>,
+    req: HttpRequest,
     dto: web::Json<RefreshTokenDTO>,
 ) -> impl Responder {
     let dto: RefreshTokenDTO = validate_and_respond!(dto);
-    let res = refresh_access_token(state.redis(), dto).await;
+    let res = refresh_access_token(state.db(), state.redis(), dto, &req).await;
     respond_json_any!(res)
 }
 
