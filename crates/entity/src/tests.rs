@@ -32,6 +32,7 @@ use crate::models::group_entity::group_message_record::{
 };
 use crate::models::notify_entity::system_notification::SystemNotification;
 use crate::models::user_entity::basic_user::BasicUser;
+use crate::models::user_entity::email_sso::EmailSso;
 use crate::models::user_entity::friend_link::FriendLink;
 use crate::models::user_entity::friend_request_info::FriendRequestInfo;
 use crate::models::user_entity::user_info::UserInfo;
@@ -103,7 +104,6 @@ mod user_entity {
             account: Some("alice001".to_string()),
             icon: Some("icon.png".to_string()),
             info: Some("hello".to_string()),
-            email: Some("alice@example.com".to_string()),
             password: Some("secret".to_string()),
         };
         assert_roundtrip(&user);
@@ -115,7 +115,6 @@ mod user_entity {
         assert!(user.uuid.is_none());
         assert!(user.username.is_none());
         assert!(user.account.is_none());
-        assert!(user.email.is_none());
         assert!(user.password.is_none());
     }
 
@@ -127,10 +126,32 @@ mod user_entity {
             account: Some("alice001".to_string()),
             icon: None,
             info: None,
-            email: Some("alice@example.com".to_string()),
             password: Some("secret".to_string()),
         };
         assert!(user.validate().is_ok());
+    }
+
+    #[test]
+    fn email_sso_roundtrip() {
+        let sso = EmailSso {
+            uuid: Some(uuid("00000000-0000-0000-0000-000000000001")),
+            email: Some("alice@example.com".to_string()),
+            email_normalized: Some("alice@example.com".to_string()),
+            verified: Some(true),
+            verified_at: Some(1_700_000_000),
+            verify_code_issued_at: Some(1_700_000_000),
+            is_primary: Some(true),
+            status: Some(1),
+            last_login_at: None,
+            last_login_ip: None,
+            login_count: Some(0),
+            fail_count: Some(0),
+            locked_until: None,
+            created_at: Some(1_700_000_000),
+            updated_at: Some(1_700_000_001),
+            deleted_at: None,
+        };
+        assert_roundtrip(&sso);
     }
 
     #[test]

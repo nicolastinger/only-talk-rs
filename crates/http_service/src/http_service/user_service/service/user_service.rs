@@ -5,10 +5,12 @@ use common::config_str::{
     EMAIL_VERIFY_CODE, MOBILE_PLATFORM, PC_PLATFORM, REFRESH_TOKEN, REFRESH_TOKEN_PLATFORM,
 };
 use common::models::user_entity::basic_user::BasicUser;
+use common::models::user_entity::email_sso::EmailSso;
 use common::models::user_entity::user_info::UserInfo;
 use common::utils::jwt_util::{generate_access_token, generate_token_with_expiry};
 use common::utils::rsa_util::{hash_password, verify_password};
 use common::utils::time::get_now_time_stamp_as_millis;
+use common::utils::validators::normalize_email;
 use deadpool_redis::redis::{AsyncCommands, RedisResult, cmd};
 use email_service::manager::EmailManager;
 use email_service::{Email, EmailAddress};
@@ -64,7 +66,8 @@ pub async fn send_verify_code_service(
     email: &str,
 ) -> Result<String, anyhow::Error> {
     // 1. 邮箱唯一性检查
-    if BasicUser::select_by_email(rb, email).await?.is_some() {
+    let normalized = normalize_email(email);
+    if EmailSso::select_by_email_normalized(rb, &normalized).await?.is_some() {
         return Err(anyhow!("该邮箱已被注册"));
     }
 
@@ -102,15 +105,16 @@ pub async fn add_new_basic_user_service(
     basic_user: SignUpBasicUserDTO,
 ) -> Result<String, anyhow::Error> {
     // 1. 邮箱唯一性检查
-    let email = basic_user.email.as_ref().ok_or(anyhow!("邮箱为空"))?;
-    if BasicUser::select_by_email(rb, email).await?.is_some() {
+    let email = basic_user.email.clone().ok_or(anyhow!("邮箱为空"))?;
+    let email_normalized = normalize_email(&email);
+    if EmailSso::select_by_email_normalized(rb, &email_normalized).await?.is_some() {
         return Err(anyhow!("该邮箱已被注册"));
     }
 
     // 2. 校验注册验证码(与 Redis 中的一致,校验通过后删除)
     let code = basic_user.verification_code.as_ref().ok_or(anyhow!("验证码为空"))?;
     let mut conn = redis.get().await?;
-    let code_key = format!("{}{}", EMAIL_VERIFY_CODE, email).to_uppercase();
+    let code_key = format!("{}{}", EMAIL_VERIFY_CODE, email_normalized).to_uppercase();
     let stored: Option<String> = conn.get(&code_key).await?;
     match stored {
         Some(stored) if stored == *code => {
@@ -146,13 +150,33 @@ pub async fn add_new_basic_user_service(
                     created_at: Some(now),
                     updated_at: Some(now),
                     phone: None,
-                    email: None,
+                    email: Some(email.clone()),
                     address: None,
                     status: None,
                 };
 
+                let email_sso = EmailSso {
+                    uuid: basic_user.uuid.clone(),
+                    email: Some(email.clone()),
+                    email_normalized: Some(email_normalized.clone()),
+                    verified: Some(true),
+                    verified_at: Some(now),
+                    verify_code_issued_at: Some(now),
+                    is_primary: Some(true),
+                    status: Some(1),
+                    last_login_at: None,
+                    last_login_ip: None,
+                    login_count: Some(0),
+                    fail_count: Some(0),
+                    locked_until: None,
+                    created_at: Some(now),
+                    updated_at: Some(now),
+                    deleted_at: None,
+                };
+
                 BasicUser::insert(&tx, &basic_user).await?;
                 UserInfo::insert(&tx, &user_info).await?;
+                EmailSso::insert(&tx, &email_sso).await?;
 
                 tx.commit().await?;
                 Ok(())

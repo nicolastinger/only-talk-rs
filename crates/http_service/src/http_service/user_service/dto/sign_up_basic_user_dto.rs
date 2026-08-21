@@ -38,7 +38,6 @@ impl SignUpBasicUserDTO {
             account: self.account,
             icon: self.icon,
             info: self.info,
-            email: self.email,
             password: self.password,
         }
     }

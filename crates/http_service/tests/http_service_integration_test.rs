@@ -21,6 +21,7 @@ use anyhow::{Context, Result, anyhow};
 use common::config_manager;
 use common::config_str::EMAIL_VERIFY_CODE;
 use common::models::user_entity::basic_user::BasicUser;
+use common::models::user_entity::email_sso::EmailSso;
 use common::models::user_entity::user_info::UserInfo;
 use common::state::CoreState;
 use common::utils::rsa_util::hash_password;
@@ -110,7 +111,7 @@ async fn http_service_user_api_integration() -> Result<()> {
         info!("已连接测试数据库 {}", TEST_DATABASE_NAME);
 
         entity::ddl::apply_all_ddl(&test_rb).await.context("应用 DDL 失败")?;
-        for table in ["basic_user", "user_info", "friend_link", "group_info"] {
+        for table in ["basic_user", "user_info", "friend_link", "group_info", "email_sso"] {
             if !table_exists(&test_rb, table).await? {
                 return Err(anyhow!("表 {} 未创建", table));
             }
@@ -132,7 +133,6 @@ async fn http_service_user_api_integration() -> Result<()> {
                 account: Some(SEED_ACCOUNT.to_string()),
                 icon: None,
                 info: Some(String::new()),
-                email: Some(SEED_EMAIL.to_string()),
                 password: Some(hashed),
             },
         )
@@ -157,6 +157,29 @@ async fn http_service_user_api_integration() -> Result<()> {
         )
         .await
         .context("写入种子用户详情失败")?;
+        EmailSso::insert(
+            &test_rb,
+            &EmailSso {
+                uuid: Some(seed_uuid_rbdc.clone()),
+                email: Some(SEED_EMAIL.to_string()),
+                email_normalized: Some(SEED_EMAIL.to_lowercase()),
+                verified: Some(true),
+                verified_at: Some(now),
+                verify_code_issued_at: Some(now),
+                is_primary: Some(true),
+                status: Some(1),
+                last_login_at: None,
+                last_login_ip: None,
+                login_count: Some(0),
+                fail_count: Some(0),
+                locked_until: None,
+                created_at: Some(now),
+                updated_at: Some(now),
+                deleted_at: None,
+            },
+        )
+        .await
+        .context("写入种子用户邮箱渠道失败")?;
         info!("种子用户已写入: {}", SEED_ACCOUNT);
 
         let state = AppState {

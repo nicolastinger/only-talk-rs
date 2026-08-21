@@ -260,7 +260,6 @@ mod user_dto {
         assert_eq!(user.uuid, None);
         assert_eq!(user.username.as_deref(), Some("user01"));
         assert_eq!(user.account.as_deref(), Some("acct001"));
-        assert_eq!(user.email.as_deref(), Some("a@b.com"));
         assert_eq!(user.password.as_deref(), Some("abcdefghijklmn"));
         assert_eq!(user.icon, None);
     }
@@ -305,7 +304,6 @@ mod user_dto {
         assert_eq!(user.account.as_deref(), Some("acct001"));
         assert_eq!(user.password.as_deref(), Some("abcdefghijklmn"));
         assert_eq!(user.username, None);
-        assert_eq!(user.email, None);
     }
 
     #[test]
@@ -394,7 +392,6 @@ mod user_dto {
             account: Some("acct".to_string()),
             icon: Some("icon".to_string()),
             info: Some("oldinfo".to_string()),
-            email: Some("old@b.com".to_string()),
             password: None,
         };
         dto.apply_to_basic_user(&mut user);

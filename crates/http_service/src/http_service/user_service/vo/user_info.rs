@@ -80,7 +80,6 @@ mod tests {
             account: Some("acct001".to_string()),
             icon: Some("icon-1".to_string()),
             info: Some("hello".to_string()),
-            email: None,
             password: None,
         };
 
@@ -121,7 +120,6 @@ mod tests {
             account: None,
             icon: None,
             info: None,
-            email: None,
             password: None,
         };
 

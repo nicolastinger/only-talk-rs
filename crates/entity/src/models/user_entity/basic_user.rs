@@ -11,13 +11,11 @@ pub struct BasicUser {
     pub account: Option<String>,
     pub icon: Option<String>,
     pub info: Option<String>,
-    pub email: Option<String>,
     pub password: Option<String>,
 }
 
 crud!(BasicUser {}); //crud = 插入+按列查询+按列更新+按列删除
 impl_select!(BasicUser{select_by_account(account:&str) -> Option => "`where account = #{account} limit 1`"});
-impl_select!(BasicUser{select_by_email(email:&str) -> Option => "`where email = #{email} limit 1`"});
 impl_select!(BasicUser{select_by_uuid(uuid:&Uuid) -> Option => "`where uuid = #{uuid} limit 1`"});
 
 /// 是否存在某用户
