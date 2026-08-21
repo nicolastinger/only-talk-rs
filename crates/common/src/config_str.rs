@@ -29,9 +29,10 @@ pub static REFRESH_TOKEN: &str = "REFRESH_TOKEN:";
 // 刷新令牌平台映射
 pub static REFRESH_TOKEN_PLATFORM: &str = "REFRESH_TOKEN:PLATFORM:";
 // 邮箱注册验证码
-pub static EMAIL_VERIFY_CODE: &str = "EMAIL:VERIFY:CODE:";
-// 默认最大文件大小 (20MB)
+pub static EMAIL_VERIFY_CODE: &str = "EMAIL:VERIFY:CODE:";// 默认最大文件大小 (20MB)
 pub static DEFAULT_MAX_FILE_SIZE: i64 = 20 * 1024 * 1024;
+// 注册会话 token(两步注册,step1 验证通过后下发,映射占位用户 uuid)
+pub static REGISTER_SESSION_TOKEN: &str = "REGISTER:SESSION:TOKEN:";
 // PC 平台
 pub static PC_PLATFORM: &str = "PC";
 // 移动端平台

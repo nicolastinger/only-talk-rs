@@ -27,6 +27,7 @@ impl SignInBasicUserDTO {
             icon: None,
             info: None,
             password: self.password,
+            registration_status: None,
         }
     }
 }

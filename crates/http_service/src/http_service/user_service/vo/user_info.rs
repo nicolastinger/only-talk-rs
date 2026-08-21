@@ -81,6 +81,7 @@ mod tests {
             icon: Some("icon-1".to_string()),
             info: Some("hello".to_string()),
             password: None,
+            registration_status: None,
         };
 
         let vo = UserInfoVO::from((user_info, basic_user));
@@ -121,6 +122,7 @@ mod tests {
             icon: None,
             info: None,
             password: None,
+            registration_status: None,
         };
 
         let vo = UserInfoVO::from((user_info, basic_user));

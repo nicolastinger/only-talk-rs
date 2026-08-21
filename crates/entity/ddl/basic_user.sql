@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS basic_user (
     "password" varchar NOT NULL, -- 用户密码
     info varchar NULL, -- 个人简介
     icon varchar NULL, -- 用户头像超链接
+    registration_status int2 NOT NULL DEFAULT 0, -- 注册状态: 0=占位未完成 1=已完成
     CONSTRAINT basic_user_pk PRIMARY KEY (uuid)
 );
 
@@ -23,3 +24,4 @@ COMMENT ON COLUMN public.basic_user.account IS '用户编码';
 COMMENT ON COLUMN public.basic_user."password" IS '用户密码';
 COMMENT ON COLUMN public.basic_user.info IS '个人简介';
 COMMENT ON COLUMN public.basic_user.icon IS '用户头像超链接';
+COMMENT ON COLUMN public.basic_user.registration_status IS '注册状态: 0=占位未完成 1=已完成';

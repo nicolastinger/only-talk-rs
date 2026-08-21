@@ -19,7 +19,7 @@ use actix_web::middleware::from_fn;
 use actix_web::{App, test, web};
 use anyhow::{Context, Result, anyhow};
 use common::config_manager;
-use common::config_str::EMAIL_VERIFY_CODE;
+use common::config_str::{EMAIL_VERIFY_CODE, REGISTER_SESSION_TOKEN};
 use common::models::user_entity::basic_user::BasicUser;
 use common::models::user_entity::email_sso::EmailSso;
 use common::models::user_entity::user_info::UserInfo;
@@ -58,17 +58,20 @@ const SEED_USERNAME: &str = "Seed User One";
 const SEED_EMAIL: &str = "seed_user_1@example.com";
 const SEED_PASSWORD: &str = "SeedPass12345678";
 
-// 新注册用户（走完整注册接口）
+// 新注册用户（走两步注册: step1 创建占位 -> complete_profile 补全）
 const NEW_ACCOUNT: &str = "new_user_1";
 const NEW_USERNAME: &str = "New User One";
 const NEW_EMAIL: &str = "new_user_1@example.com";
 const NEW_PASSWORD: &str = "NewUserPass123456";
 
-// 验证码错误的用户（注册应失败）
-const WRONG_ACCOUNT: &str = "wrong_user_1";
-const WRONG_USERNAME: &str = "Wrong User One";
+// 验证码错误的用户（step1 应失败, 不创建占位）
 const WRONG_EMAIL: &str = "wrong_user_1@example.com";
-const WRONG_PASSWORD: &str = "WrongUserPass123456";
+
+// 用于 complete_profile 账号冲突场景的邮箱（占位创建成功后用已存在账号补全应失败）
+const CONFLICT_EMAIL: &str = "conflict_user_1@example.com";
+
+// 用于会话 token 过期后重新继续注册场景的邮箱（占位用户允许重新走 step1 继续注册）
+const RESUME_EMAIL: &str = "resume_user_1@example.com";
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "需要本地 PostgreSQL、Redis 与仓库根目录 .env"]
@@ -134,6 +137,7 @@ async fn http_service_user_api_integration() -> Result<()> {
                 icon: None,
                 info: Some(String::new()),
                 password: Some(hashed),
+                registration_status: Some(1),
             },
         )
         .await
@@ -286,46 +290,222 @@ async fn http_service_user_api_integration() -> Result<()> {
         );
         info!("refresh_token 刷新成功");
 
-        // ===== 5. 注册流程：预置验证码后注册新用户 =====
+        // ===== 5. 两步注册流程 =====
         let mut conn = redis_pool.get().await.context("获取 Redis 连接失败")?;
-        let code_key = format!("{}{}", EMAIL_VERIFY_CODE, NEW_EMAIL).to_uppercase();
-        let _: () = conn.set_ex(&code_key, "123456", 300).await.context("写入注册验证码失败")?;
-        info!("已向测试 Redis 预置验证码: {}", code_key);
 
-        let sign_up_body = json_obj(&[
-            ("username", NEW_USERNAME),
-            ("account", NEW_ACCOUNT),
-            ("email", NEW_EMAIL),
-            ("verification_code", "123456"),
-            ("password", NEW_PASSWORD),
-        ]);
-        let (status, json) = post_json(&app, "/user/sign_up", Some(&sign_up_body), None).await;
-        assert_eq!(status, StatusCode::OK, "注册应成功: {json}");
-        assert_eq!(json["code"], 204, "注册成功应返回 code 204: {json}");
-        info!("新用户 {} 注册成功", NEW_ACCOUNT);
-
-        // 重复注册同一邮箱应失败
-        let (status, json) = post_json(&app, "/user/sign_up", Some(&sign_up_body), None).await;
-        assert_eq!(status, StatusCode::BAD_REQUEST, "重复注册应返回 400: {json}");
-
-        // 验证码错误应失败
-        let wrong_body = json_obj(&[
-            ("username", WRONG_USERNAME),
-            ("account", WRONG_ACCOUNT),
-            ("email", WRONG_EMAIL),
-            ("verification_code", "999999"),
-            ("password", WRONG_PASSWORD),
-        ]);
-        let (status, json) = post_json(&app, "/user/sign_up", Some(&wrong_body), None).await;
+        // 5.1 step1 验证码错误 -> 400, 不创建占位
+        // 为 WRONG_EMAIL 预置一个错误验证码, 提交不匹配的验证码应失败
+        let wrong_code_key = format!("{}{}", EMAIL_VERIFY_CODE, WRONG_EMAIL).to_uppercase();
+        let _: () =
+            conn.set_ex(&wrong_code_key, "000000", 300).await.context("写入验证码失败")?;
+        let step1_wrong_body = json_obj(&[("email", WRONG_EMAIL), ("verification_code", "999999")]);
+        let (status, json) =
+            post_json(&app, "/user/sign_up_step1", Some(&step1_wrong_body), None).await;
         assert_eq!(status, StatusCode::BAD_REQUEST, "验证码错误应返回 400: {json}");
 
-        // 新用户登录
-        let new_sign_in =
-            json_obj(&[("account", NEW_ACCOUNT), ("password", NEW_PASSWORD), ("platform", "PC")]);
+        // 5.2 step1 成功: 为 NEW_EMAIL 预置正确验证码, 创建占位用户, 返回 reg_token + uuid
+        let code_key = format!("{}{}", EMAIL_VERIFY_CODE, NEW_EMAIL).to_uppercase();
+        let _: () = conn.set_ex(&code_key, "123456", 300).await.context("写入注册验证码失败")?;
+        let step1_body = json_obj(&[("email", NEW_EMAIL), ("verification_code", "123456")]);
+        let (status, json) =
+            post_json(&app, "/user/sign_up_step1", Some(&step1_body), None).await;
+        assert_eq!(status, StatusCode::OK, "step1 应成功: {json}");
+        assert_eq!(json["code"], 200, "step1 响应 code 应为 200: {json}");
+        let reg_token = json["data"]["reg_token"].as_str().context("缺少 reg_token")?.to_string();
+        let reg_uuid = json["data"]["uuid"].as_str().context("缺少 uuid")?.to_string();
+        let reg_uuid_rbdc: RbatisUuid = reg_uuid.parse().context("解析占位 uuid 失败")?;
+        info!("step1 创建占位用户: uuid={}", reg_uuid);
+
+        // 占位用户已写入 basic_user, registration_status=0, account 以 u_ 开头
+        let placeholder = BasicUser::select_by_uuid(&test_rb, &reg_uuid_rbdc)
+            .await
+            .context("查询占位用户失败")?
+            .expect("占位用户应存在");
+        assert_eq!(placeholder.registration_status, Some(0), "占位用户 registration_status 应为 0");
+        assert!(
+            placeholder.account.as_deref().map(|a| a.starts_with("u_")).unwrap_or(false),
+            "占位账号应以 u_ 开头: {:?}",
+            placeholder.account
+        );
+
+        // email_sso 已创建并指向该占位用户
+        let email_sso = EmailSso::select_by_uuid(&test_rb, &reg_uuid_rbdc)
+            .await
+            .context("查询 email_sso 失败")?
+            .expect("占位用户 email_sso 应存在");
+        assert_eq!(
+            email_sso.email_normalized.as_deref(),
+            Some(NEW_EMAIL),
+            "email_sso 邮箱应一致"
+        );
+
+        // 注册会话 token 已写入 Redis 并映射到占位用户 uuid
+        let token_key = format!("{}{}", REGISTER_SESSION_TOKEN, reg_token).to_uppercase();
+        let stored_uuid: Option<String> = conn.get(&token_key).await.context("读取注册会话失败")?;
+        assert_eq!(stored_uuid.as_deref(), Some(reg_uuid.as_str()), "注册会话应映射到占位 uuid");
+
+        // 5.3 占位账号登录被拦截
+        let placeholder_account = placeholder.account.clone().expect("占位账号");
+        let placeholder_login = json_obj(&[
+            ("account", placeholder_account.as_str()),
+            ("password", "SomeValidPass123456"),
+            ("platform", "PC"),
+        ]);
+        let (status, json) =
+            post_json(&app, "/user/sign_in", Some(&placeholder_login), None).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "占位用户登录应被拦截: {json}");
+
+        // 5.4 step1 重复同一邮箱(占位未完成) -> 400
+        let (status, json) =
+            post_json(&app, "/user/sign_up_step1", Some(&step1_body), None).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "重复 step1 同一邮箱应返回 400: {json}");
+
+        // 5.4b complete_profile 邮箱不匹配(防 token 冒用/重放) -> 400, token 未被消费
+        let mismatched_body = json_obj(&[
+            ("reg_token", reg_token.as_str()),
+            ("email", WRONG_EMAIL),
+            ("account", "other_acct_123"),
+            ("password", NEW_PASSWORD),
+            ("username", "Other Name"),
+        ]);
+        let (status, json) =
+            post_json(&app, "/user/complete_profile", Some(&mismatched_body), None).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "邮箱不匹配应返回 400: {json}");
+        let still_there: Option<String> =
+            conn.get(&token_key).await.context("读取注册会话失败")?;
+        assert!(still_there.is_some(), "邮箱不匹配时 token 不应被消费");
+
+        // 5.5 complete_profile 成功: 用 reg_token 补全账号/用户名/密码
+        let complete_body = json_obj(&[
+            ("reg_token", reg_token.as_str()),
+            ("email", NEW_EMAIL),
+            ("account", NEW_ACCOUNT),
+            ("password", NEW_PASSWORD),
+            ("username", NEW_USERNAME),
+        ]);
+        let (status, json) =
+            post_json(&app, "/user/complete_profile", Some(&complete_body), None).await;
+        assert_eq!(status, StatusCode::OK, "complete_profile 应成功: {json}");
+        assert_eq!(json["code"], 204, "complete_profile 成功应返回 code 204: {json}");
+        info!("补全资料成功: account={}", NEW_ACCOUNT);
+
+        // 补全后 registration_status=1, account 已改为自定义账号
+        let completed = BasicUser::select_by_uuid(&test_rb, &reg_uuid_rbdc)
+            .await
+            .context("查询补全用户失败")?
+            .expect("补全用户应存在");
+        assert_eq!(completed.registration_status, Some(1), "补全后 registration_status 应为 1");
+        assert_eq!(completed.account.as_deref(), Some(NEW_ACCOUNT), "补全后 account 应更新");
+        assert_eq!(completed.username.as_deref(), Some(NEW_USERNAME), "补全后 username 应更新");
+
+        // 注册会话 token 已消费(Redis 中已删除)
+        let stored_uuid: Option<String> = conn.get(&token_key).await.context("读取注册会话失败")?;
+        assert!(stored_uuid.is_none(), "注册会话应已被消费");
+
+        // 5.6 旧占位账号失效, 新账号可登录
+        let (status, json) =
+            post_json(&app, "/user/sign_in", Some(&placeholder_login), None).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "旧占位账号登录应失败: {json}");
+        let new_sign_in = json_obj(&[
+            ("account", NEW_ACCOUNT),
+            ("password", NEW_PASSWORD),
+            ("platform", "PC"),
+        ]);
         let (status, json) = post_json(&app, "/user/sign_in", Some(&new_sign_in), None).await;
-        assert_eq!(status, StatusCode::OK, "新用户登录应成功: {json}");
-        assert_eq!(json["code"], 200, "新用户登录响应 code 应为 200: {json}");
-        info!("注册流程全部通过");
+        assert_eq!(status, StatusCode::OK, "新账号登录应成功: {json}");
+        assert_eq!(json["code"], 200, "新账号登录响应 code 应为 200: {json}");
+
+        // 5.7 complete_profile token 重复使用 -> 400(token 已消费)
+        let (status, json) =
+            post_json(&app, "/user/complete_profile", Some(&complete_body), None).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "重复使用 reg_token 应返回 400: {json}");
+
+        // 5.8 complete_profile 无效 token -> 400
+        let invalid_body = json_obj(&[
+            ("reg_token", "nonexistent-token"),
+            ("email", "some_other@example.com"),
+            ("account", "some_acct_123"),
+            ("password", NEW_PASSWORD),
+            ("username", "Some Name"),
+        ]);
+        let (status, json) =
+            post_json(&app, "/user/complete_profile", Some(&invalid_body), None).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "无效 reg_token 应返回 400: {json}");
+
+        // 5.9 complete_profile 账号冲突 -> 400
+        // 先用 CONFLICT_EMAIL 创建另一个占位用户
+        let conflict_code_key = format!("{}{}", EMAIL_VERIFY_CODE, CONFLICT_EMAIL).to_uppercase();
+        let _: () =
+            conn.set_ex(&conflict_code_key, "123456", 300).await.context("写入验证码失败")?;
+        let conflict_step1 = json_obj(&[("email", CONFLICT_EMAIL), ("verification_code", "123456")]);
+        let (status, json) =
+            post_json(&app, "/user/sign_up_step1", Some(&conflict_step1), None).await;
+        assert_eq!(status, StatusCode::OK, "CONFLICT_EMAIL step1 应成功: {json}");
+        let conflict_token = json["data"]["reg_token"].as_str().context("缺少 reg_token")?.to_string();
+        // 用已存在的种子账号 SEED_ACCOUNT 补全应冲突
+        let conflict_body = json_obj(&[
+            ("reg_token", conflict_token.as_str()),
+            ("email", CONFLICT_EMAIL),
+            ("account", SEED_ACCOUNT),
+            ("password", NEW_PASSWORD),
+            ("username", "Conflict User"),
+        ]);
+        let (status, json) =
+            post_json(&app, "/user/complete_profile", Some(&conflict_body), None).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "账号冲突应返回 400: {json}");
+
+        // 5.10 会话 token 过期后重新继续注册: 占位用户(registration_status=0)允许重新走 step1
+        // 5.10.1 step1 创建占位用户
+        let resume_code_key = format!("{}{}", EMAIL_VERIFY_CODE, RESUME_EMAIL).to_uppercase();
+        let _: () =
+            conn.set_ex(&resume_code_key, "123456", 300).await.context("写入验证码失败")?;
+        let resume_step1 = json_obj(&[("email", RESUME_EMAIL), ("verification_code", "123456")]);
+        let (status, json) =
+            post_json(&app, "/user/sign_up_step1", Some(&resume_step1), None).await;
+        assert_eq!(status, StatusCode::OK, "RESUME_EMAIL step1 应成功: {json}");
+        let resume_uuid = json["data"]["uuid"].as_str().context("缺少 uuid")?.to_string();
+
+        // 5.10.2 模拟会话 token 过期: 删除 Redis 中的注册会话 token
+        let resume_token_key = format!(
+            "{}{}",
+            REGISTER_SESSION_TOKEN,
+            json["data"]["reg_token"].as_str().context("缺少 reg_token")?
+        )
+        .to_uppercase();
+        let _: () = conn.del(&resume_token_key).await.context("删除注册会话失败")?;
+
+        // 5.10.3 重新获取验证码后再次 step1 应成功, 且复用同一占位用户(uuid 不变)
+        let _: () =
+            conn.set_ex(&resume_code_key, "654321", 300).await.context("重新写入验证码失败")?;
+        let resume_step1_2 = json_obj(&[("email", RESUME_EMAIL), ("verification_code", "654321")]);
+        let (status, json) =
+            post_json(&app, "/user/sign_up_step1", Some(&resume_step1_2), None).await;
+        assert_eq!(status, StatusCode::OK, "占位用户重新 step1 应成功: {json}");
+        assert_eq!(
+            json["data"]["uuid"].as_str(),
+            Some(resume_uuid.as_str()),
+            "占位用户应复用同一 uuid: {json}"
+        );
+        let resume_token2 = json["data"]["reg_token"].as_str().context("缺少 reg_token")?.to_string();
+
+        // 5.10.4 用新 token 补全资料应成功
+        let resume_complete = json_obj(&[
+            ("reg_token", resume_token2.as_str()),
+            ("email", RESUME_EMAIL),
+            ("account", "resume_acct_1"),
+            ("password", NEW_PASSWORD),
+            ("username", "Resume User"),
+        ]);
+        let (status, json) =
+            post_json(&app, "/user/complete_profile", Some(&resume_complete), None).await;
+        assert_eq!(status, StatusCode::OK, "续注册 complete_profile 应成功: {json}");
+        assert_eq!(json["code"], 204, "续注册 complete_profile 应返回 code 204: {json}");
+
+        // 5.10.5 完成注册后, 该邮箱不可再被注册
+        let (status, json) =
+            post_json(&app, "/user/sign_up_step1", Some(&resume_step1_2), None).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "已完成注册的邮箱再次 step1 应返回 400: {json}");
+        info!("两步注册流程全部通过");
 
         Ok::<(), anyhow::Error>(())
     })

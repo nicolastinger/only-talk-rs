@@ -14,7 +14,8 @@ use crate::common::dto::base_dto::AuthAccount;
 lazy_static! {
     static ref IGNORED_PATHS: RwLock<HashSet<String>> = {
         let mut m = HashSet::new();
-        m.insert("/user/sign_up".to_string());
+        m.insert("/user/sign_up_step1".to_string());
+        m.insert("/user/complete_profile".to_string());
         m.insert("/user/sign_in".to_string());
         m.insert("/user/refresh_token".to_string());
         m.insert("/user/send_verify_code".to_string());

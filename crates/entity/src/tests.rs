@@ -105,6 +105,7 @@ mod user_entity {
             icon: Some("icon.png".to_string()),
             info: Some("hello".to_string()),
             password: Some("secret".to_string()),
+            registration_status: Some(1),
         };
         assert_roundtrip(&user);
     }
@@ -116,6 +117,7 @@ mod user_entity {
         assert!(user.username.is_none());
         assert!(user.account.is_none());
         assert!(user.password.is_none());
+        assert!(user.registration_status.is_none());
     }
 
     #[test]
@@ -127,6 +129,7 @@ mod user_entity {
             icon: None,
             info: None,
             password: Some("secret".to_string()),
+            registration_status: Some(1),
         };
         assert!(user.validate().is_ok());
     }

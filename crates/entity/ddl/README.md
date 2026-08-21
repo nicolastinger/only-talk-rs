@@ -33,11 +33,11 @@
 - `username` - 用户名
 - `account` - 用户编码
 - `password` - 用户密码
-- `email` - 邮箱
 - `info` - 用户信息
 - `icon` - 头像
+- `registration_status` - 注册状态（0=占位未完成，1=已完成）
 
-（无 `created_at` / `updated_at` 列。）
+（无 `created_at` / `updated_at` 列。邮箱登录渠道已迁移至独立的 `email_sso` 表。）
 
 ---
 
@@ -222,8 +222,10 @@
 | 文件 | 说明 |
 |------|------|
 | `fix_file_path_stored_name_inconsistency.sql` | **数据修复脚本**（SELECT/UPDATE），非建表脚本 |
-| `migrations/add_email_to_basic_user.sql` | 增量迁移：为 `basic_user` 添加 `email` 列 |
+| `migrations/add_email_to_basic_user.sql` | 增量迁移：为 `basic_user` 添加 `email` 列（已被 `email_sso` 取代） |
 | `migrations/add_bucket_to_file_upload_record.sql` | 增量迁移：为 `file_upload_record` 添加 `bucket` 列 |
+| `migrations/add_email_sso_table.sql` | 增量迁移：创建 `email_sso` 表并从 `basic_user` 移除 `email` 列 |
+| `migrations/add_registration_status_to_basic_user.sql` | 增量迁移：为 `basic_user` 添加 `registration_status` 注册状态列 |
 
 ---
 

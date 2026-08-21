@@ -21,9 +21,10 @@ use http_service::http_service::group_service::group_vo::group_message_vo::{
     GroupMessageVO, UnreadCountVO,
 };
 use http_service::http_service::user_service::dto::basic_user_dto::SignInBasicUserDTO;
+use http_service::http_service::user_service::dto::complete_profile_dto::CompleteProfileDTO;
 use http_service::http_service::user_service::dto::refresh_token_dto::RefreshTokenDTO;
 use http_service::http_service::user_service::dto::send_verify_code_dto::SendVerifyCodeDTO;
-use http_service::http_service::user_service::dto::sign_up_basic_user_dto::SignUpBasicUserDTO;
+use http_service::http_service::user_service::dto::sign_up_step1_dto::SignUpStep1DTO;
 use http_service::http_service::user_service::dto::update_user_dto::UpdateUserDTO;
 use http_service::utils::file_utils::{compress_image, get_image_mime_type, is_image_file};
 use http_service::utils::http_response::{
@@ -203,65 +204,99 @@ mod compress_image {
 mod user_dto {
     use super::*;
 
-    fn valid_sign_up() -> SignUpBasicUserDTO {
-        SignUpBasicUserDTO {
-            username: Some("user01".to_string()),
-            account: Some("acct001".to_string()),
-            icon: None,
-            info: None,
+    fn valid_step1() -> SignUpStep1DTO {
+        SignUpStep1DTO {
             email: Some("a@b.com".to_string()),
             verification_code: Some("123456".to_string()),
+        }
+    }
+
+    fn valid_complete_profile() -> CompleteProfileDTO {
+        CompleteProfileDTO {
+            reg_token: Some("reg-token-abc".to_string()),
+            email: Some("a@b.com".to_string()),
+            account: Some("acct001".to_string()),
             password: Some("abcdefghijklmn".to_string()),
+            username: Some("user01".to_string()),
+            icon: None,
+            info: None,
         }
     }
 
     #[test]
-    fn sign_up_valid_passes() {
-        assert!(valid_sign_up().validate().is_ok());
+    fn sign_up_step1_valid_passes() {
+        assert!(valid_step1().validate().is_ok());
     }
 
     #[test]
-    fn sign_up_rejects_short_fields() {
-        let mut dto = valid_sign_up();
-        dto.username = Some("ab".to_string());
-        assert!(dto.validate().is_err());
-
-        let mut dto = valid_sign_up();
-        dto.account = Some("ab".to_string());
-        assert!(dto.validate().is_err());
-
-        let mut dto = valid_sign_up();
-        dto.verification_code = Some("123".to_string());
-        assert!(dto.validate().is_err());
-    }
-
-    #[test]
-    fn sign_up_rejects_bad_email() {
-        let mut dto = valid_sign_up();
+    fn sign_up_step1_rejects_bad_email() {
+        let mut dto = valid_step1();
         dto.email = Some("not-an-email".to_string());
         assert!(dto.validate().is_err());
 
-        let mut dto = valid_sign_up();
+        let mut dto = valid_step1();
         dto.email = None;
         assert!(dto.validate().is_err());
     }
 
     #[test]
-    fn sign_up_rejects_weak_password() {
-        let mut dto = valid_sign_up();
-        dto.password = Some("abc123".to_string());
+    fn sign_up_step1_rejects_short_code() {
+        let mut dto = valid_step1();
+        dto.verification_code = Some("123".to_string());
+        assert!(dto.validate().is_err());
+
+        let mut dto = valid_step1();
+        dto.verification_code = None;
         assert!(dto.validate().is_err());
     }
 
     #[test]
-    fn sign_up_to_basic_user_maps_fields() {
-        let dto = valid_sign_up();
-        let user = dto.to_basic_user();
-        assert_eq!(user.uuid, None);
-        assert_eq!(user.username.as_deref(), Some("user01"));
-        assert_eq!(user.account.as_deref(), Some("acct001"));
-        assert_eq!(user.password.as_deref(), Some("abcdefghijklmn"));
-        assert_eq!(user.icon, None);
+    fn complete_profile_valid_passes() {
+        assert!(valid_complete_profile().validate().is_ok());
+    }
+
+    #[test]
+    fn complete_profile_rejects_bad_or_missing_email() {
+        let mut dto = valid_complete_profile();
+        dto.email = Some("not-an-email".to_string());
+        assert!(dto.validate().is_err());
+
+        let mut dto = valid_complete_profile();
+        dto.email = None;
+        assert!(dto.validate().is_err());
+    }
+
+    #[test]
+    fn complete_profile_rejects_short_account() {
+        let mut dto = valid_complete_profile();
+        dto.account = Some("ab".to_string());
+        assert!(dto.validate().is_err());
+
+        let mut dto = valid_complete_profile();
+        dto.account = None;
+        assert!(dto.validate().is_err());
+    }
+
+    #[test]
+    fn complete_profile_rejects_weak_password() {
+        let mut dto = valid_complete_profile();
+        dto.password = Some("abc123".to_string());
+        assert!(dto.validate().is_err());
+
+        let mut dto = valid_complete_profile();
+        dto.password = None;
+        assert!(dto.validate().is_err());
+    }
+
+    #[test]
+    fn complete_profile_rejects_missing_token_or_username() {
+        let mut dto = valid_complete_profile();
+        dto.reg_token = None;
+        assert!(dto.validate().is_err());
+
+        let mut dto = valid_complete_profile();
+        dto.username = None;
+        assert!(dto.validate().is_err());
     }
 
     #[test]
@@ -393,6 +428,7 @@ mod user_dto {
             icon: Some("icon".to_string()),
             info: Some("oldinfo".to_string()),
             password: None,
+            registration_status: Some(1),
         };
         dto.apply_to_basic_user(&mut user);
         assert_eq!(user.username.as_deref(), Some("newname"));

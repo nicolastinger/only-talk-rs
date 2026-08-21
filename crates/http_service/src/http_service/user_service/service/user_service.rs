@@ -5,6 +5,7 @@ use actix_web::http::header::USER_AGENT;
 use anyhow::anyhow;
 use common::config_str::{
     EMAIL_VERIFY_CODE, MOBILE_PLATFORM, PC_PLATFORM, REFRESH_TOKEN, REFRESH_TOKEN_PLATFORM,
+    REGISTER_SESSION_TOKEN,
 };
 use common::models::user_entity::basic_user::BasicUser;
 use common::models::user_entity::email_sso::EmailSso;
@@ -27,10 +28,12 @@ use tracing::{error, info};
 use uuid::Uuid;
 
 use crate::http_service::user_service::dto::basic_user_dto::SignInBasicUserDTO;
+use crate::http_service::user_service::dto::complete_profile_dto::CompleteProfileDTO;
 use crate::http_service::user_service::dto::refresh_token_dto::RefreshTokenDTO;
-use crate::http_service::user_service::dto::sign_up_basic_user_dto::SignUpBasicUserDTO;
+use crate::http_service::user_service::dto::sign_up_step1_dto::SignUpStep1DTO;
 use crate::http_service::user_service::dto::update_user_dto::UpdateUserDTO;
 use crate::http_service::user_service::vo::sign_in_vo::SignInResponseVO;
+use crate::http_service::user_service::vo::sign_up_step1_vo::SignUpStep1ResponseVO;
 use crate::http_service::user_service::vo::user_info::UserInfoVO;
 use crate::utils::http_response::{CommonResponseNoDataRef, CommonResponseRef};
 
@@ -71,9 +74,9 @@ pub async fn send_verify_code_service(
     email_manager: &EmailManager,
     email: &str,
 ) -> Result<String, anyhow::Error> {
-    // 1. 邮箱唯一性检查
+    // 1. 邮箱唯一性检查(仅已完成注册的邮箱视为已占用; 占位未完成允许重新获取验证码)
     let normalized = normalize_email(email);
-    if EmailSso::select_by_email_normalized(rb, &normalized).await?.is_some() {
+    if email_already_registered(rb, &normalized).await? {
         return Err(anyhow!("该邮箱已被注册"));
     }
 
@@ -105,20 +108,48 @@ pub async fn send_verify_code_service(
     Ok(CommonResponseNoDataRef::success_empty())
 }
 
-pub async fn add_new_basic_user_service(
+/// 邮箱是否已被完成注册。
+/// 返回 true 表示该邮箱已被占(已完成注册用户占用); 占位未完成(registration_status=0)视为可重新注册。
+async fn email_already_registered(
+    rb: &RBatis,
+    email_normalized: &str,
+) -> Result<bool, anyhow::Error> {
+    let Some(sso) = EmailSso::select_by_email_normalized(rb, email_normalized).await? else {
+        return Ok(false);
+    };
+    let Some(uuid) = sso.uuid else {
+        // 理论不应发生(外键必指向 basic_user), 保守视为已占用
+        return Ok(true);
+    };
+    let user = BasicUser::select_by_uuid(rb, &uuid).await?;
+    Ok(match user {
+        Some(u) => u.registration_status == Some(1),
+        None => true,
+    })
+}
+
+/// 两步注册第一步: 校验邮箱 + 验证码, 创建占位用户并下发注册会话 token
+pub async fn sign_up_step1_service(
     rb: &RBatis,
     redis: &deadpool_redis::Pool,
-    basic_user: SignUpBasicUserDTO,
+    dto: SignUpStep1DTO,
 ) -> Result<String, anyhow::Error> {
-    // 1. 邮箱唯一性检查
-    let email = basic_user.email.clone().ok_or(anyhow!("邮箱为空"))?;
+    // 1. 邮箱检查: 已完成注册则拒绝; 已有占位用户(注册未完成)则允许复用继续注册
+    let email = dto.email.clone().ok_or(anyhow!("邮箱为空"))?;
     let email_normalized = normalize_email(&email);
-    if EmailSso::select_by_email_normalized(rb, &email_normalized).await?.is_some() {
+    if email_already_registered(rb, &email_normalized).await? {
         return Err(anyhow!("该邮箱已被注册"));
     }
+    let existing_placeholder = match EmailSso::select_by_email_normalized(rb, &email_normalized).await? {
+        Some(sso) => match sso.uuid {
+            Some(uuid) => BasicUser::select_by_uuid(rb, &uuid).await?.filter(|u| u.registration_status == Some(0)),
+            None => None,
+        },
+        None => None,
+    };
 
     // 2. 校验注册验证码(与 Redis 中的一致,校验通过后删除)
-    let code = basic_user.verification_code.as_ref().ok_or(anyhow!("验证码为空"))?;
+    let code = dto.verification_code.as_ref().ok_or(anyhow!("验证码为空"))?;
     let mut conn = redis.get().await?;
     let code_key = format!("{}{}", EMAIL_VERIFY_CODE, email_normalized).to_uppercase();
     let stored: Option<String> = conn.get(&code_key).await?;
@@ -131,72 +162,136 @@ pub async fn add_new_basic_user_service(
         }
     }
 
-    let mut basic_user = SignUpBasicUserDTO::to_basic_user(basic_user);
-    basic_user.uuid = Some(Uuid::now_v7().to_string().parse()?);
-    let password = basic_user.password.as_ref().ok_or(anyhow!("密码为空"))?;
-    let hashed_password = hash_password(password)?;
-    basic_user.password = Some(hashed_password);
-    basic_user.icon = None;
-    basic_user.info = Some("".to_string());
+    // 3. 复用已有占位用户, 否则创建新占位用户(registration_status=0 未完成,不可登录)
+    let uuid: rbdc::Uuid = if let Some(placeholder) = existing_placeholder {
+        placeholder.uuid.clone().ok_or(anyhow!("占位用户缺少 uuid"))?
+    } else {
+        let new_uuid: rbdc::Uuid = Uuid::now_v7().to_string().parse()?;
+        let tx = rb.acquire_begin().await?;
+        let result: Result<(), anyhow::Error> = async {
+            let now = get_now_time_stamp_as_millis()?;
+            let placeholder_account = format!("u_{}", new_uuid.to_string());
+            let placeholder_password = hash_password(&Uuid::now_v7().to_string())?;
 
-    let account_ref: &str = basic_user.account.as_deref().unwrap_or("");
-    match get_exit_user(rb, account_ref).await {
-        true => Err(anyhow!("该账号已存在!".to_string())),
-        false => {
-            let tx = rb.acquire_begin().await?;
-            // 使用事务块包裹逻辑
-            let result: Result<(), anyhow::Error> = async {
-                let now = get_now_time_stamp_as_millis()?;
-                let user_info = UserInfo {
-                    uuid: basic_user.uuid.clone(),
-                    gender: None,
-                    age: Some(0),
-                    birthday: Some(0),
-                    note: Some("这个人很勤快，但什么都没写".to_string()),
-                    created_at: Some(now),
-                    updated_at: Some(now),
-                    phone: None,
-                    email: Some(email.clone()),
-                    address: None,
-                    status: None,
-                };
+            let basic_user = BasicUser {
+                uuid: Some(new_uuid.clone()),
+                username: Some("".to_string()),
+                account: Some(placeholder_account),
+                icon: None,
+                info: Some("".to_string()),
+                password: Some(placeholder_password),
+                registration_status: Some(0),
+            };
 
-                let email_sso = EmailSso {
-                    uuid: basic_user.uuid.clone(),
-                    email: Some(email.clone()),
-                    email_normalized: Some(email_normalized.clone()),
-                    verified: Some(true),
-                    verified_at: Some(now),
-                    verify_code_issued_at: Some(now),
-                    is_primary: Some(true),
-                    status: Some(1),
-                    last_login_at: None,
-                    last_login_ip: None,
-                    login_count: Some(0),
-                    fail_count: Some(0),
-                    locked_until: None,
-                    created_at: Some(now),
-                    updated_at: Some(now),
-                    deleted_at: None,
-                };
+            let user_info = UserInfo {
+                uuid: Some(new_uuid.clone()),
+                gender: None,
+                age: Some(0),
+                birthday: Some(0),
+                note: Some("这个人很勤快，但什么都没写".to_string()),
+                created_at: Some(now),
+                updated_at: Some(now),
+                phone: None,
+                email: Some(email.clone()),
+                address: None,
+                status: None,
+            };
 
-                BasicUser::insert(&tx, &basic_user).await?;
-                UserInfo::insert(&tx, &user_info).await?;
-                EmailSso::insert(&tx, &email_sso).await?;
+            let email_sso = EmailSso {
+                uuid: Some(new_uuid.clone()),
+                email: Some(email.clone()),
+                email_normalized: Some(email_normalized.clone()),
+                verified: Some(true),
+                verified_at: Some(now),
+                verify_code_issued_at: Some(now),
+                is_primary: Some(true),
+                status: Some(1),
+                last_login_at: None,
+                last_login_ip: None,
+                login_count: Some(0),
+                fail_count: Some(0),
+                locked_until: None,
+                created_at: Some(now),
+                updated_at: Some(now),
+                deleted_at: None,
+            };
 
-                tx.commit().await?;
-                Ok(())
-            }
-            .await;
+            BasicUser::insert(&tx, &basic_user).await?;
+            UserInfo::insert(&tx, &user_info).await?;
+            EmailSso::insert(&tx, &email_sso).await?;
 
-            // 如果事务中有错误，回滚事务
-            if result.is_err() {
-                let _ = tx.rollback().await;
-                return Err(anyhow!("事务执行错误"));
-            }
-            Ok(CommonResponseNoDataRef::success_empty())
+            tx.commit().await?;
+            Ok(())
         }
+        .await;
+
+        if result.is_err() {
+            let _ = tx.rollback().await;
+            return Err(anyhow!("创建占位用户失败"));
+        }
+        new_uuid
+    };
+
+    // 4. 生成注册会话 token 并写入 Redis(映射 uuid, 30 分钟有效)
+    let reg_token = Uuid::now_v7().to_string();
+    let key = format!("{}{}", REGISTER_SESSION_TOKEN, reg_token).to_uppercase();
+    let mut conn = redis.get().await?;
+    conn.set_ex::<&str, &str, ()>(&key, &uuid.to_string(), 1800).await?;
+
+    let vo = SignUpStep1ResponseVO { reg_token, uuid: uuid.to_string() };
+    Ok(CommonResponseRef::<SignUpStep1ResponseVO>::success_json(&vo)?)
+}
+
+/// 两步注册第二步: 凭注册会话 token 补全账号、用户名与密码, 完成注册
+pub async fn complete_profile_service(
+    rb: &RBatis,
+    redis: &deadpool_redis::Pool,
+    dto: CompleteProfileDTO,
+) -> Result<String, anyhow::Error> {
+    // 1. 校验注册会话 token, 获取占位用户 uuid
+    let reg_token = dto.reg_token.as_ref().ok_or(anyhow!("注册会话token为空"))?;
+    let mut conn = redis.get().await?;
+    let key = format!("{}{}", REGISTER_SESSION_TOKEN, reg_token).to_uppercase();
+    let uuid_str: Option<String> = conn.get(&key).await?;
+    let uuid_str = uuid_str.ok_or(anyhow!("注册会话已失效或不存在"))?;
+    let uuid: rbdc::Uuid = uuid_str.parse().map_err(|_| anyhow!("注册会话无效"))?;
+
+    // 1.5 校验邮箱归属: 防止 reg_token 被冒用/重放, 提交的邮箱必须与占位用户一致
+    let email = dto.email.as_ref().ok_or(anyhow!("邮箱为空"))?;
+    let email_normalized = normalize_email(email);
+    let sso = EmailSso::select_by_uuid(rb, &uuid).await?.ok_or(anyhow!("邮箱渠道不存在"))?;
+    if sso.email_normalized.as_deref() != Some(email_normalized.as_str()) {
+        return Err(anyhow!("邮箱与注册会话不匹配"));
     }
+
+    // 2. 校验账号唯一性
+    let account = dto.account.as_ref().ok_or(anyhow!("账号为空"))?;
+    if BasicUser::select_by_account(rb, account).await?.is_some() {
+        return Err(anyhow!("该账号已存在"));
+    }
+
+    // 3. 校验密码并哈希
+    let password = dto.password.as_ref().ok_or(anyhow!("密码为空"))?;
+    let hashed_password = hash_password(password)?;
+
+    // 4. 补全占位用户信息(账号/用户名/密码/简介, registration_status=1 完成注册)
+    let mut basic_user = BasicUser::select_by_uuid(rb, &uuid).await?.ok_or(anyhow!("用户不存在"))?;
+    basic_user.account = Some(account.clone());
+    basic_user.password = Some(hashed_password);
+    basic_user.username = Some(dto.username.clone().unwrap_or_default());
+    if let Some(ref info) = dto.info {
+        basic_user.info = Some(info.clone());
+    }
+    if let Some(ref icon) = dto.icon {
+        basic_user.icon = Some(icon.clone());
+    }
+    basic_user.registration_status = Some(1);
+    BasicUser::update_by_uuid(rb, &basic_user, &uuid).await?;
+
+    // 5. 消费注册会话 token
+    let _: Result<(), _> = conn.del(&key).await;
+
+    Ok(CommonResponseNoDataRef::success_empty())
 }
 
 /// 从 HttpRequest 提取客户端 IP(ipv4/ipv6)与 User-Agent
@@ -270,6 +365,11 @@ pub async fn user_sign_in(
         }
         Err(e) => return Err(anyhow!("查询用户失败: {}", e)),
     };
+
+    // 占位未完成注册的用户不允许登录
+    if basic_user.registration_status != Some(1) {
+        return Err(anyhow!("该账号尚未完成注册,请先补全资料"));
+    }
 
     let mut conn = redis.get().await?;
 
