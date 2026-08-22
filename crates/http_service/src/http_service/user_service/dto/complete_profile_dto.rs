@@ -4,7 +4,10 @@ use validator::Validate;
 /// 两步注册第二步: 凭注册会话 token 补全账号、用户名与密码
 #[derive(Clone, Deserialize, Serialize, Debug, Validate)]
 pub struct CompleteProfileDTO {
-    #[validate(required(message = "需要输入注册会话token"), length(min = 1, message = "注册会话token不能为空"))]
+    #[validate(
+        required(message = "需要输入注册会话token"),
+        length(min = 1, message = "注册会话token不能为空")
+    )]
     pub reg_token: Option<String>,
     #[validate(
         required(message = "需要输入邮箱"),
