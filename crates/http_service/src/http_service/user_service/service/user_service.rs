@@ -173,7 +173,7 @@ pub async fn sign_up_step1_service(
         let tx = rb.acquire_begin().await?;
         let result: Result<(), anyhow::Error> = async {
             let now = get_now_time_stamp_as_millis()?;
-            let placeholder_account = format!("u_{}", new_uuid.to_string());
+            let placeholder_account = format!("u_{}", new_uuid);
             let placeholder_password = hash_password(&Uuid::now_v7().to_string())?;
 
             let basic_user = BasicUser {
