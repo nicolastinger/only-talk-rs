@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS system_notification (
     content_type int2 NULL, -- 内容类型，0-纯文本，1-json, 2-xml
     user_id uuid NULL, -- 接收人
     is_read bool NULL, -- 是否已读
+    biz_id varchar NULL, -- 业务ID（如好友请求/群邀请记录ID）
     level1 int4 NULL, -- 第一层级，用于定位功能大类
     level2 int4 NULL, -- 第二层级，用于定位子功能模块
     level3 int4 NULL, -- 第三层级，用于定位具体功能组
@@ -35,6 +36,7 @@ COMMENT ON COLUMN public.system_notification.created_at IS '创建时间 (Unix�
 COMMENT ON COLUMN public.system_notification.content_type IS '内容类型，0-纯文本，1-json, 2-xml';
 COMMENT ON COLUMN public.system_notification.user_id IS '接收人';
 COMMENT ON COLUMN public.system_notification.is_read IS '是否已读';
+COMMENT ON COLUMN public.system_notification.biz_id IS '业务ID（如好友请求/群邀请记录ID）';
 COMMENT ON COLUMN public.system_notification.level1 IS '第一层级，用于定位功能大类';
 COMMENT ON COLUMN public.system_notification.level2 IS '第二层级，用于定位子功能模块';
 COMMENT ON COLUMN public.system_notification.level3 IS '第三层级，用于定位具体功能组';

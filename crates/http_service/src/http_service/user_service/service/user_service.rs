@@ -626,51 +626,6 @@ pub async fn get_user_uuid_by_account(
     Ok(uuid.to_string().parse()?)
 }
 
-/// 验证用户传递的token
-pub async fn verify_p2p_token_service(
-    redis: &deadpool_redis::Pool,
-    uuid: String,
-    token: String,
-    me: Option<String>,
-) -> Result<String, anyhow::Error> {
-    let mut conn = redis.get().await?;
-    let me = me.ok_or(anyhow!("获取账号失败"))?;
-
-    let key = format!("P2P:USER:AUTH:{}:{}", uuid, token).to_uppercase();
-    let result: RedisResult<String> = cmd("GET").arg(&key).query_async(&mut conn).await;
-    let res = result?;
-    info!("结果: {} {}", uuid, res);
-    match res == me {
-        true => {
-            let key = format!("{}{}", "USER_UDP_ADDRESS_", uuid).to_uppercase();
-            let result: RedisResult<String> = cmd("GET").arg(&key).query_async(&mut conn).await;
-            Ok(CommonResponseRef::<String>::success_json(&result?)?)
-        }
-        false => Err(anyhow!("failed")),
-    }
-}
-
-/// 添加用户验证的token
-pub async fn add_p2p_token_service(
-    redis: &deadpool_redis::Pool,
-    uuid: String,
-    token: String,
-    me: Option<String>,
-) -> Result<String, anyhow::Error> {
-    let mut conn = redis.get().await?;
-    let me = me.ok_or(anyhow!("获取账号失败"))?;
-
-    let key = format!("P2P:USER:AUTH:{}:{}", me, token).to_uppercase();
-    let _: () = cmd("SET")
-        .arg(&key)
-        .arg(uuid.to_string())
-        .arg("EX")
-        .arg(600)
-        .query_async(&mut conn)
-        .await?;
-    Ok(CommonResponseNoDataRef::success_empty())
-}
-
 pub async fn update_user_avatar(
     rb: &RBatis,
     biz_id: String,

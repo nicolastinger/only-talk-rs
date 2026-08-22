@@ -188,13 +188,14 @@
 
 **说明**：`user_id` 逻辑关联 `basic_user.uuid`。
 
-**主要字段（共 13 列）：**
+**主要字段（共 14 列）：**
 - `id` - 主键（**uuid 类型**）
 - `user_id` - 接收人（逻辑关联 basic_user.uuid）
 - `title` - 通知标题
 - `content` - 详细内容
 - `is_read` - 是否已读
 - `priority` - 通知优先级
+- `biz_id` - 业务ID（如好友请求/群邀请记录ID）
 - 另有 `created_at`、`content_type`、`level1`~`level4`、`unread_count`
 
 ---
