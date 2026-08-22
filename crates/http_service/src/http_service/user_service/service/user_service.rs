@@ -4,8 +4,8 @@ use actix_web::HttpRequest;
 use actix_web::http::header::USER_AGENT;
 use anyhow::anyhow;
 use common::config_str::{
-    EMAIL_VERIFY_CODE, MOBILE_PLATFORM, PC_PLATFORM, REFRESH_TOKEN, REFRESH_TOKEN_PLATFORM,
-    REGISTER_SESSION_TOKEN,
+    EMAIL_VERIFY_CODE, MOBILE_PLATFORM, PC_PLATFORM, REFRESH_TOKEN, REFRESH_TOKEN_DEVICE,
+    REFRESH_TOKEN_PLATFORM, REGISTER_SESSION_TOKEN,
 };
 use common::models::user_entity::basic_user::BasicUser;
 use common::models::user_entity::email_sso::EmailSso;
@@ -140,13 +140,16 @@ pub async fn sign_up_step1_service(
     if email_already_registered(rb, &email_normalized).await? {
         return Err(anyhow!("该邮箱已被注册"));
     }
-    let existing_placeholder = match EmailSso::select_by_email_normalized(rb, &email_normalized).await? {
-        Some(sso) => match sso.uuid {
-            Some(uuid) => BasicUser::select_by_uuid(rb, &uuid).await?.filter(|u| u.registration_status == Some(0)),
+    let existing_placeholder =
+        match EmailSso::select_by_email_normalized(rb, &email_normalized).await? {
+            Some(sso) => match sso.uuid {
+                Some(uuid) => BasicUser::select_by_uuid(rb, &uuid)
+                    .await?
+                    .filter(|u| u.registration_status == Some(0)),
+                None => None,
+            },
             None => None,
-        },
-        None => None,
-    };
+        };
 
     // 2. 校验注册验证码(与 Redis 中的一致,校验通过后删除)
     let code = dto.verification_code.as_ref().ok_or(anyhow!("验证码为空"))?;
@@ -275,7 +278,8 @@ pub async fn complete_profile_service(
     let hashed_password = hash_password(password)?;
 
     // 4. 补全占位用户信息(账号/用户名/密码/简介, registration_status=1 完成注册)
-    let mut basic_user = BasicUser::select_by_uuid(rb, &uuid).await?.ok_or(anyhow!("用户不存在"))?;
+    let mut basic_user =
+        BasicUser::select_by_uuid(rb, &uuid).await?.ok_or(anyhow!("用户不存在"))?;
     basic_user.account = Some(account.clone());
     basic_user.password = Some(hashed_password);
     basic_user.username = Some(dto.username.clone().unwrap_or_default());
@@ -301,19 +305,13 @@ fn extract_client_info(req: &HttpRequest) -> (Option<String>, Option<String>, Op
         Some(addr) if addr.ip().is_ipv6() => (None, Some(addr.ip().to_string())),
         _ => (None, None),
     };
-    let user_agent = req
-        .headers()
-        .get(USER_AGENT)
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string());
+    let user_agent =
+        req.headers().get(USER_AGENT).and_then(|v| v.to_str().ok()).map(|s| s.to_string());
     (ipv4, ipv6, user_agent)
 }
 
 /// 写入登录审计记录（审计失败仅记录日志，不阻塞登录主流程）
-async fn write_login_log(
-    rb: &RBatis,
-    log: UserLoginLog,
-) {
+async fn write_login_log(rb: &RBatis, log: UserLoginLog) {
     if let Err(e) = UserLoginLog::insert(rb, &log).await {
         error!("写入登录审计记录失败: {}", e);
     }
@@ -331,6 +329,8 @@ pub async fn user_sign_in(
     if platform != PC_PLATFORM && platform != MOBILE_PLATFORM {
         return Err(anyhow!("暂不支持该平台登录".to_string()));
     }
+    let device_fingerprint =
+        basic_user_dto.device_fingerprint.clone().ok_or(anyhow!("设备指纹为空".to_string()))?;
     let basic_user = SignInBasicUserDTO::to_basic_user(basic_user_dto);
     let BasicUser { account, password, .. } = basic_user;
 
@@ -356,7 +356,7 @@ pub async fn user_sign_in(
                     ipv4: ipv4.clone(),
                     ipv6: ipv6.clone(),
                     user_agent: user_agent.clone(),
-                    device: None,
+                    device: Some(device_fingerprint.clone()),
                     result: None,
                 },
             )
@@ -400,6 +400,15 @@ pub async fn user_sign_in(
             .arg(3600 * 24 * 30)
             .query_async(&mut conn)
             .await?;
+        // 存储 refresh_token 绑定的设备指纹 (30 天过期)
+        let rt_device_key = format!("{}{}", REFRESH_TOKEN_DEVICE, refresh_token).to_uppercase();
+        let _: () = cmd("SET")
+            .arg(&rt_device_key)
+            .arg(&device_fingerprint)
+            .arg("EX")
+            .arg(3600 * 24 * 30)
+            .query_async(&mut conn)
+            .await?;
 
         // 登录成功审计
         write_login_log(
@@ -415,7 +424,7 @@ pub async fn user_sign_in(
                 ipv4,
                 ipv6,
                 user_agent,
-                device: None,
+                device: Some(device_fingerprint),
                 result: None,
             },
         )
@@ -438,7 +447,7 @@ pub async fn user_sign_in(
                 ipv4: ipv4.clone(),
                 ipv6: ipv6.clone(),
                 user_agent: user_agent.clone(),
-                device: None,
+                device: Some(device_fingerprint),
                 result: None,
             },
         )
@@ -463,7 +472,7 @@ pub async fn refresh_access_token(
     let uuid = match result {
         Ok(u) => u,
         Err(e) => {
-            // token 无效/过期审计(uuid 无法解析,留空)
+            // token 无效/过期审计(uuid 无法解析,留空;设备指纹记录客户端提交值)
             write_login_log(
                 rb,
                 UserLoginLog {
@@ -477,7 +486,7 @@ pub async fn refresh_access_token(
                     ipv4: ipv4.clone(),
                     ipv6: ipv6.clone(),
                     user_agent: user_agent.clone(),
-                    device: None,
+                    device: Some(refresh_token_dto.device_fingerprint.clone()),
                     result: Some("refresh_token 无效或已过期".to_string()),
                 },
             )
@@ -490,6 +499,36 @@ pub async fn refresh_access_token(
         format!("{}{}", REFRESH_TOKEN_PLATFORM, refresh_token_dto.refresh_token).to_uppercase();
     let platform: RedisResult<String> = cmd("GET").arg(&platform_key).query_async(&mut conn).await;
     let platform = platform.map_err(|_| anyhow!("无法获取平台信息"))?;
+
+    // 校验设备指纹: refresh_token 必须与其绑定的设备指纹一致
+    let device_key =
+        format!("{}{}", REFRESH_TOKEN_DEVICE, refresh_token_dto.refresh_token).to_uppercase();
+    let stored_device: RedisResult<String> =
+        cmd("GET").arg(&device_key).query_async(&mut conn).await;
+    if !device_fingerprint_matches(
+        stored_device.as_deref().ok(),
+        &refresh_token_dto.device_fingerprint,
+    ) {
+        write_login_log(
+            rb,
+            UserLoginLog {
+                id: None,
+                uuid: uuid.parse::<rbatis::rbdc::Uuid>().ok(),
+                account: None,
+                login_type: Some(LOGIN_TYPE_REFRESH.to_string()),
+                event_type: Some(LOGIN_EVENT_REFRESH.to_string()),
+                login_at: get_now_time_stamp_as_millis().ok(),
+                platform: Some(platform.clone()),
+                ipv4: ipv4.clone(),
+                ipv6: ipv6.clone(),
+                user_agent: user_agent.clone(),
+                device: Some(refresh_token_dto.device_fingerprint.clone()),
+                result: Some("设备指纹不匹配".to_string()),
+            },
+        )
+        .await;
+        return Err(anyhow!("设备不匹配，请重新登录"));
+    }
 
     // 生成新的短效 access_token (24h)
     let access_token = generate_access_token(uuid.clone(), platform.clone())?;
@@ -508,7 +547,7 @@ pub async fn refresh_access_token(
             ipv4,
             ipv6,
             user_agent,
-            device: None,
+            device: Some(refresh_token_dto.device_fingerprint),
             result: None,
         },
     )
@@ -676,4 +715,30 @@ pub async fn update_user_info_service(
     }
 
     Ok(CommonResponseNoDataRef::success_empty())
+}
+
+/// 校验 refresh_token 绑定的设备指纹是否与请求携带的一致
+fn device_fingerprint_matches(stored: Option<&str>, provided: &str) -> bool {
+    stored.is_some_and(|s| s == provided)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::device_fingerprint_matches;
+
+    #[test]
+    fn device_fingerprint_matches_identical() {
+        assert!(device_fingerprint_matches(Some("fp-1"), "fp-1"));
+    }
+
+    #[test]
+    fn device_fingerprint_matches_different() {
+        assert!(!device_fingerprint_matches(Some("fp-1"), "fp-2"));
+    }
+
+    #[test]
+    fn device_fingerprint_matches_missing_binding() {
+        // 旧 token 没有设备绑定(Redis 无 DEVICE key),应视为不匹配
+        assert!(!device_fingerprint_matches(None, "fp-1"));
+    }
 }

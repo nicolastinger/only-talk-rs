@@ -305,6 +305,7 @@ mod user_dto {
             account: Some("acct001".to_string()),
             password: Some("abcdefghijklmn".to_string()),
             platform: Some("PC".to_string()),
+            device_fingerprint: Some("a1b2c3d4e5f60718293a4b5c6d7e8f90".to_string()),
         };
         assert!(dto.validate().is_ok());
     }
@@ -315,6 +316,7 @@ mod user_dto {
             account: Some("acct001".to_string()),
             password: Some("abcdefghijklmn".to_string()),
             platform: Some("PC".to_string()),
+            device_fingerprint: Some("a1b2c3d4e5f60718293a4b5c6d7e8f90".to_string()),
         };
         dto.account = None;
         assert!(dto.validate().is_err());
@@ -323,8 +325,27 @@ mod user_dto {
             account: Some("acct001".to_string()),
             password: Some("abcdefghijklmn".to_string()),
             platform: Some("PC".to_string()),
+            device_fingerprint: Some("a1b2c3d4e5f60718293a4b5c6d7e8f90".to_string()),
         };
         dto.platform = None;
+        assert!(dto.validate().is_err());
+
+        let mut dto = SignInBasicUserDTO {
+            account: Some("acct001".to_string()),
+            password: Some("abcdefghijklmn".to_string()),
+            platform: Some("PC".to_string()),
+            device_fingerprint: Some("a1b2c3d4e5f60718293a4b5c6d7e8f90".to_string()),
+        };
+        dto.device_fingerprint = None;
+        assert!(dto.validate().is_err());
+
+        let mut dto = SignInBasicUserDTO {
+            account: Some("acct001".to_string()),
+            password: Some("abcdefghijklmn".to_string()),
+            platform: Some("PC".to_string()),
+            device_fingerprint: Some("a1b2c3d4e5f60718293a4b5c6d7e8f90".to_string()),
+        };
+        dto.device_fingerprint = Some("short".to_string());
         assert!(dto.validate().is_err());
     }
 
@@ -334,6 +355,7 @@ mod user_dto {
             account: Some("acct001".to_string()),
             password: Some("abcdefghijklmn".to_string()),
             platform: Some("PC".to_string()),
+            device_fingerprint: Some("a1b2c3d4e5f60718293a4b5c6d7e8f90".to_string()),
         };
         let user = dto.to_basic_user();
         assert_eq!(user.account.as_deref(), Some("acct001"));
@@ -358,10 +380,22 @@ mod user_dto {
 
     #[test]
     fn refresh_token_non_empty_required() {
-        let dto = RefreshTokenDTO { refresh_token: "token".to_string() };
+        let dto = RefreshTokenDTO {
+            refresh_token: "token".to_string(),
+            device_fingerprint: "a1b2c3d4e5f60718293a4b5c6d7e8f90".to_string(),
+        };
         assert!(dto.validate().is_ok());
 
-        let dto = RefreshTokenDTO { refresh_token: String::new() };
+        let dto = RefreshTokenDTO {
+            refresh_token: String::new(),
+            device_fingerprint: "a1b2c3d4e5f60718293a4b5c6d7e8f90".to_string(),
+        };
+        assert!(dto.validate().is_err());
+
+        let dto = RefreshTokenDTO {
+            refresh_token: "token".to_string(),
+            device_fingerprint: "short".to_string(),
+        };
         assert!(dto.validate().is_err());
     }
 

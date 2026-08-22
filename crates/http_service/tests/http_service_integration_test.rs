@@ -58,6 +58,10 @@ const SEED_USERNAME: &str = "Seed User One";
 const SEED_EMAIL: &str = "seed_user_1@example.com";
 const SEED_PASSWORD: &str = "SeedPass12345678";
 
+// 设备指纹（64 位 hex，模拟客户端生成的设备指纹）
+const SEED_DEVICE_FP: &str = "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90";
+const WRONG_DEVICE_FP: &str = "feedfacefeedfacefeedfacefeedfacefeedfacefeedfacefeedfacefeedface";
+
 // 新注册用户（走两步注册: step1 创建占位 -> complete_profile 补全）
 const NEW_ACCOUNT: &str = "new_user_1";
 const NEW_USERNAME: &str = "New User One";
@@ -218,8 +222,12 @@ async fn http_service_user_api_integration() -> Result<()> {
         );
 
         // ===== 2. 种子用户登录 =====
-        let sign_in_body =
-            json_obj(&[("account", SEED_ACCOUNT), ("password", SEED_PASSWORD), ("platform", "PC")]);
+        let sign_in_body = json_obj(&[
+            ("account", SEED_ACCOUNT),
+            ("password", SEED_PASSWORD),
+            ("platform", "PC"),
+            ("device_fingerprint", SEED_DEVICE_FP),
+        ]);
         let (status, json) = post_json(&app, "/user/sign_in", Some(&sign_in_body), None).await;
         assert_eq!(status, StatusCode::OK, "登录应成功: {json}");
         assert_eq!(json["code"], 200, "登录响应 code 应为 200: {json}");
@@ -230,6 +238,12 @@ async fn http_service_user_api_integration() -> Result<()> {
             .context("登录响应缺少 refresh_token")?
             .to_string();
         info!("种子用户登录成功");
+
+        // 2b. 缺少设备指纹的登录应被拒绝（必填校验）
+        let no_device_body =
+            json_obj(&[("account", SEED_ACCOUNT), ("password", SEED_PASSWORD), ("platform", "PC")]);
+        let (status, json) = post_json(&app, "/user/sign_in", Some(&no_device_body), None).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "缺少设备指纹登录应被拒绝: {json}");
 
         // ===== 3. 鉴权后的用户信息查询 =====
         let (status, json) = post_json(&app, "/user/me", None, Some(&access_token)).await;
@@ -279,7 +293,10 @@ async fn http_service_user_api_integration() -> Result<()> {
         info!("鉴权用户接口全部通过");
 
         // ===== 4. refresh_token 换取新 access_token =====
-        let refresh_body = json_obj(&[("refresh_token", refresh_token.as_str())]);
+        let refresh_body = json_obj(&[
+            ("refresh_token", refresh_token.as_str()),
+            ("device_fingerprint", SEED_DEVICE_FP),
+        ]);
         let (status, json) =
             post_json(&app, "/user/refresh_token", Some(&refresh_body), None).await;
         assert_eq!(status, StatusCode::OK, "刷新 token 应成功: {json}");
@@ -290,14 +307,24 @@ async fn http_service_user_api_integration() -> Result<()> {
         );
         info!("refresh_token 刷新成功");
 
+        // 4b. 设备指纹不匹配的 refresh_token 请求应被拒绝
+        let wrong_refresh_body = json_obj(&[
+            ("refresh_token", refresh_token.as_str()),
+            ("device_fingerprint", WRONG_DEVICE_FP),
+        ]);
+        let (status, json) =
+            post_json(&app, "/user/refresh_token", Some(&wrong_refresh_body), None).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "设备指纹不匹配应被拒绝: {json}");
+        assert_ne!(json["code"], 200, "设备指纹不匹配不应返回 200: {json}");
+        info!("设备指纹不匹配的刷新被拒绝");
+
         // ===== 5. 两步注册流程 =====
         let mut conn = redis_pool.get().await.context("获取 Redis 连接失败")?;
 
         // 5.1 step1 验证码错误 -> 400, 不创建占位
         // 为 WRONG_EMAIL 预置一个错误验证码, 提交不匹配的验证码应失败
         let wrong_code_key = format!("{}{}", EMAIL_VERIFY_CODE, WRONG_EMAIL).to_uppercase();
-        let _: () =
-            conn.set_ex(&wrong_code_key, "000000", 300).await.context("写入验证码失败")?;
+        let _: () = conn.set_ex(&wrong_code_key, "000000", 300).await.context("写入验证码失败")?;
         let step1_wrong_body = json_obj(&[("email", WRONG_EMAIL), ("verification_code", "999999")]);
         let (status, json) =
             post_json(&app, "/user/sign_up_step1", Some(&step1_wrong_body), None).await;
@@ -307,8 +334,7 @@ async fn http_service_user_api_integration() -> Result<()> {
         let code_key = format!("{}{}", EMAIL_VERIFY_CODE, NEW_EMAIL).to_uppercase();
         let _: () = conn.set_ex(&code_key, "123456", 300).await.context("写入注册验证码失败")?;
         let step1_body = json_obj(&[("email", NEW_EMAIL), ("verification_code", "123456")]);
-        let (status, json) =
-            post_json(&app, "/user/sign_up_step1", Some(&step1_body), None).await;
+        let (status, json) = post_json(&app, "/user/sign_up_step1", Some(&step1_body), None).await;
         assert_eq!(status, StatusCode::OK, "step1 应成功: {json}");
         assert_eq!(json["code"], 200, "step1 响应 code 应为 200: {json}");
         let reg_token = json["data"]["reg_token"].as_str().context("缺少 reg_token")?.to_string();
@@ -333,11 +359,7 @@ async fn http_service_user_api_integration() -> Result<()> {
             .await
             .context("查询 email_sso 失败")?
             .expect("占位用户 email_sso 应存在");
-        assert_eq!(
-            email_sso.email_normalized.as_deref(),
-            Some(NEW_EMAIL),
-            "email_sso 邮箱应一致"
-        );
+        assert_eq!(email_sso.email_normalized.as_deref(), Some(NEW_EMAIL), "email_sso 邮箱应一致");
 
         // 注册会话 token 已写入 Redis 并映射到占位用户 uuid
         let token_key = format!("{}{}", REGISTER_SESSION_TOKEN, reg_token).to_uppercase();
@@ -350,14 +372,13 @@ async fn http_service_user_api_integration() -> Result<()> {
             ("account", placeholder_account.as_str()),
             ("password", "SomeValidPass123456"),
             ("platform", "PC"),
+            ("device_fingerprint", SEED_DEVICE_FP),
         ]);
-        let (status, json) =
-            post_json(&app, "/user/sign_in", Some(&placeholder_login), None).await;
+        let (status, json) = post_json(&app, "/user/sign_in", Some(&placeholder_login), None).await;
         assert_eq!(status, StatusCode::BAD_REQUEST, "占位用户登录应被拦截: {json}");
 
         // 5.4 step1 重复同一邮箱(占位未完成) -> 400
-        let (status, json) =
-            post_json(&app, "/user/sign_up_step1", Some(&step1_body), None).await;
+        let (status, json) = post_json(&app, "/user/sign_up_step1", Some(&step1_body), None).await;
         assert_eq!(status, StatusCode::BAD_REQUEST, "重复 step1 同一邮箱应返回 400: {json}");
 
         // 5.4b complete_profile 邮箱不匹配(防 token 冒用/重放) -> 400, token 未被消费
@@ -371,8 +392,7 @@ async fn http_service_user_api_integration() -> Result<()> {
         let (status, json) =
             post_json(&app, "/user/complete_profile", Some(&mismatched_body), None).await;
         assert_eq!(status, StatusCode::BAD_REQUEST, "邮箱不匹配应返回 400: {json}");
-        let still_there: Option<String> =
-            conn.get(&token_key).await.context("读取注册会话失败")?;
+        let still_there: Option<String> = conn.get(&token_key).await.context("读取注册会话失败")?;
         assert!(still_there.is_some(), "邮箱不匹配时 token 不应被消费");
 
         // 5.5 complete_profile 成功: 用 reg_token 补全账号/用户名/密码
@@ -403,13 +423,13 @@ async fn http_service_user_api_integration() -> Result<()> {
         assert!(stored_uuid.is_none(), "注册会话应已被消费");
 
         // 5.6 旧占位账号失效, 新账号可登录
-        let (status, json) =
-            post_json(&app, "/user/sign_in", Some(&placeholder_login), None).await;
+        let (status, json) = post_json(&app, "/user/sign_in", Some(&placeholder_login), None).await;
         assert_eq!(status, StatusCode::BAD_REQUEST, "旧占位账号登录应失败: {json}");
         let new_sign_in = json_obj(&[
             ("account", NEW_ACCOUNT),
             ("password", NEW_PASSWORD),
             ("platform", "PC"),
+            ("device_fingerprint", SEED_DEVICE_FP),
         ]);
         let (status, json) = post_json(&app, "/user/sign_in", Some(&new_sign_in), None).await;
         assert_eq!(status, StatusCode::OK, "新账号登录应成功: {json}");
@@ -437,11 +457,13 @@ async fn http_service_user_api_integration() -> Result<()> {
         let conflict_code_key = format!("{}{}", EMAIL_VERIFY_CODE, CONFLICT_EMAIL).to_uppercase();
         let _: () =
             conn.set_ex(&conflict_code_key, "123456", 300).await.context("写入验证码失败")?;
-        let conflict_step1 = json_obj(&[("email", CONFLICT_EMAIL), ("verification_code", "123456")]);
+        let conflict_step1 =
+            json_obj(&[("email", CONFLICT_EMAIL), ("verification_code", "123456")]);
         let (status, json) =
             post_json(&app, "/user/sign_up_step1", Some(&conflict_step1), None).await;
         assert_eq!(status, StatusCode::OK, "CONFLICT_EMAIL step1 应成功: {json}");
-        let conflict_token = json["data"]["reg_token"].as_str().context("缺少 reg_token")?.to_string();
+        let conflict_token =
+            json["data"]["reg_token"].as_str().context("缺少 reg_token")?.to_string();
         // 用已存在的种子账号 SEED_ACCOUNT 补全应冲突
         let conflict_body = json_obj(&[
             ("reg_token", conflict_token.as_str()),
@@ -457,8 +479,7 @@ async fn http_service_user_api_integration() -> Result<()> {
         // 5.10 会话 token 过期后重新继续注册: 占位用户(registration_status=0)允许重新走 step1
         // 5.10.1 step1 创建占位用户
         let resume_code_key = format!("{}{}", EMAIL_VERIFY_CODE, RESUME_EMAIL).to_uppercase();
-        let _: () =
-            conn.set_ex(&resume_code_key, "123456", 300).await.context("写入验证码失败")?;
+        let _: () = conn.set_ex(&resume_code_key, "123456", 300).await.context("写入验证码失败")?;
         let resume_step1 = json_obj(&[("email", RESUME_EMAIL), ("verification_code", "123456")]);
         let (status, json) =
             post_json(&app, "/user/sign_up_step1", Some(&resume_step1), None).await;
@@ -486,7 +507,8 @@ async fn http_service_user_api_integration() -> Result<()> {
             Some(resume_uuid.as_str()),
             "占位用户应复用同一 uuid: {json}"
         );
-        let resume_token2 = json["data"]["reg_token"].as_str().context("缺少 reg_token")?.to_string();
+        let resume_token2 =
+            json["data"]["reg_token"].as_str().context("缺少 reg_token")?.to_string();
 
         // 5.10.4 用新 token 补全资料应成功
         let resume_complete = json_obj(&[
@@ -504,7 +526,11 @@ async fn http_service_user_api_integration() -> Result<()> {
         // 5.10.5 完成注册后, 该邮箱不可再被注册
         let (status, json) =
             post_json(&app, "/user/sign_up_step1", Some(&resume_step1_2), None).await;
-        assert_eq!(status, StatusCode::BAD_REQUEST, "已完成注册的邮箱再次 step1 应返回 400: {json}");
+        assert_eq!(
+            status,
+            StatusCode::BAD_REQUEST,
+            "已完成注册的邮箱再次 step1 应返回 400: {json}"
+        );
         info!("两步注册流程全部通过");
 
         Ok::<(), anyhow::Error>(())

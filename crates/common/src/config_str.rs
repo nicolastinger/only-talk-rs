@@ -28,8 +28,10 @@ pub static GROUP_MEMBERS_CACHE: &str = "GROUP:MEMBERS:";
 pub static REFRESH_TOKEN: &str = "REFRESH_TOKEN:";
 // 刷新令牌平台映射
 pub static REFRESH_TOKEN_PLATFORM: &str = "REFRESH_TOKEN:PLATFORM:";
+// 刷新令牌设备指纹映射
+pub static REFRESH_TOKEN_DEVICE: &str = "REFRESH_TOKEN:DEVICE:";
 // 邮箱注册验证码
-pub static EMAIL_VERIFY_CODE: &str = "EMAIL:VERIFY:CODE:";// 默认最大文件大小 (20MB)
+pub static EMAIL_VERIFY_CODE: &str = "EMAIL:VERIFY:CODE:"; // 默认最大文件大小 (20MB)
 pub static DEFAULT_MAX_FILE_SIZE: i64 = 20 * 1024 * 1024;
 // 注册会话 token(两步注册,step1 验证通过后下发,映射占位用户 uuid)
 pub static REGISTER_SESSION_TOKEN: &str = "REGISTER:SESSION:TOKEN:";
