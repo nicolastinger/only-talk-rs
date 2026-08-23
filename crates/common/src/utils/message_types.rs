@@ -24,6 +24,18 @@ pub const MSG_TYPE_P2P_VIDEO_CONFIG: u16 = 7;
 /// 心跳消息 (Ping)
 pub const MSG_TYPE_PING: u16 = 99;
 
+/// WebRTC 通话邀请（中心服务器转发，服务端不持久化）
+pub const MSG_TYPE_P2P_VIDEO_CALL_INVITE: u16 = 12;
+
+/// WebRTC 通话接受
+pub const MSG_TYPE_P2P_VIDEO_CALL_ACCEPT: u16 = 13;
+
+/// WebRTC 通话拒绝
+pub const MSG_TYPE_P2P_VIDEO_CALL_REJECT: u16 = 14;
+
+/// WebRTC 通话结束
+pub const MSG_TYPE_P2P_VIDEO_CALL_END: u16 = 15;
+
 /// WebRTC 信令消息（用户间通过中心服务器转发，服务端不持久化）
 pub const MSG_TYPE_WEBRTC_SIGNAL: u16 = 100;
 

@@ -142,26 +142,34 @@ async fn process_text_msg(
         let core_clone = core.clone();
         tokio::spawn(async move {
             let current_user = text_msg_clone.send_user.clone();
-            // WebRTC 信令是呼叫建立期的瞬态消息，服务端仅做转发与 ACK，不持久化
+            // WebRTC 信令(100)与视频通话控制消息(12-15)是呼叫建立期的瞬态消息：
+            // 服务端仅转发、不持久化；信令(100)不回 ACK（前端独立发送命令不依赖发送/回执表），
+            // 控制消息(12-15)仍回 ACK，因为它们仍走 send_text_msg 发送流程。
+            let should_ack = text_msg_clone.text_type != message_types::MSG_TYPE_WEBRTC_SIGNAL;
             match text_msg_clone.text_type {
-                message_types::MSG_TYPE_WEBRTC_SIGNAL => {}
+                message_types::MSG_TYPE_WEBRTC_SIGNAL
+                | message_types::MSG_TYPE_P2P_VIDEO_CALL_INVITE
+                | message_types::MSG_TYPE_P2P_VIDEO_CALL_ACCEPT
+                | message_types::MSG_TYPE_P2P_VIDEO_CALL_REJECT
+                | message_types::MSG_TYPE_P2P_VIDEO_CALL_END => {}
                 _ => {
                     if let Err(e) = add_user_chat_record(&core_clone, text_msg_clone).await {
                         error!("[单聊] 插入消息失败: {}", e);
                     }
                 }
             }
-            // 发送 ACK 消息
-            if let Err(e) = send_msg_record_success(
-                ack_nano_id,
-                &conn_key,
-                current_user,
-                ack_raw_id,
-                now,
-                &conns,
-                message_types::MSG_TYPE_RECALL_SUCCESS,
-            )
-            .await
+            // 发送 ACK 消息（信令不回执，其余类型仍回执）
+            if should_ack
+                && let Err(e) = send_msg_record_success(
+                    ack_nano_id,
+                    &conn_key,
+                    current_user,
+                    ack_raw_id,
+                    now,
+                    &conns,
+                    message_types::MSG_TYPE_RECALL_SUCCESS,
+                )
+                .await
             {
                 error!("[单聊] 发送 ACK 失败: {}", e);
             }
