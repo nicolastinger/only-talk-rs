@@ -24,6 +24,9 @@ pub const MSG_TYPE_P2P_VIDEO_CONFIG: u16 = 7;
 /// 心跳消息 (Ping)
 pub const MSG_TYPE_PING: u16 = 99;
 
+/// WebRTC 信令消息（用户间通过中心服务器转发，服务端不持久化）
+pub const MSG_TYPE_WEBRTC_SIGNAL: u16 = 100;
+
 /// 消息投递成功回执
 pub const MSG_TYPE_RECALL_SUCCESS: u16 = 201;
 

@@ -142,8 +142,14 @@ async fn process_text_msg(
         let core_clone = core.clone();
         tokio::spawn(async move {
             let current_user = text_msg_clone.send_user.clone();
-            if let Err(e) = add_user_chat_record(&core_clone, text_msg_clone).await {
-                error!("[单聊] 插入消息失败: {}", e);
+            // WebRTC 信令是呼叫建立期的瞬态消息，服务端仅做转发与 ACK，不持久化
+            match text_msg_clone.text_type {
+                message_types::MSG_TYPE_WEBRTC_SIGNAL => {}
+                _ => {
+                    if let Err(e) = add_user_chat_record(&core_clone, text_msg_clone).await {
+                        error!("[单聊] 插入消息失败: {}", e);
+                    }
+                }
             }
             // 发送 ACK 消息
             if let Err(e) = send_msg_record_success(
