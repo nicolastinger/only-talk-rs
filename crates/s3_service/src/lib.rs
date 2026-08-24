@@ -54,7 +54,7 @@ pub mod operations;
 pub mod storage;
 
 // Re-export commonly used types for convenience
-pub use client::S3Client;
+pub use client::{GlobalS3Client, S3Client};
 pub use config::S3Config;
 pub use error::S3Error;
 pub use storage::{
