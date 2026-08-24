@@ -187,6 +187,7 @@ QUIC 服务与 HTTP 服务在同一进程中启动，适合中小型部署。
 | `/msg` | chat_service | 文本消息、消息查询、消息漫游 |
 | `/file` | file_service | 文件上传/下载、头像管理、S3 预签名 URL |
 | `/notify` | notify_service | 系统通知、推送通知 |
+| `/plaza` | plaza_service | 交友广场（允许被发现、交友宣言、标签、发现流） |
 | `/integrated` | api/controller | 综合用户服务（好友+通知、QUIC 节点分配） |
 | `/file_integrated` | api/controller | 综合文件上传（头像、聊天文件） |
 
@@ -344,6 +345,7 @@ cargo bench -p quic_service
 - [集群路由方案](docs/集群路由方案.md)
 - [群聊广播方案](docs/群聊广播方案.md)
 - [Entity 核心拆分方案](docs/entity-core拆分方案.md)
+- [交友广场设计方案](docs/交友广场设计方案.md)
 
 ### Crate 职责说明
 
