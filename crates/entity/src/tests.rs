@@ -31,6 +31,8 @@ use crate::models::group_entity::group_message_record::{
     GroupMessageRecord, MSG_TYPE_FILE, MSG_TYPE_IMAGE, MSG_TYPE_TEXT,
 };
 use crate::models::notify_entity::system_notification::SystemNotification;
+use crate::models::plaza_entity::plaza_user_info::PlazaUserInfo;
+use crate::models::plaza_entity::plaza_user_tag::PlazaUserTag;
 use crate::models::user_entity::basic_user::BasicUser;
 use crate::models::user_entity::email_sso::EmailSso;
 use crate::models::user_entity::friend_link::FriendLink;
@@ -519,5 +521,56 @@ mod notify_entity {
             priority: Some(1),
         };
         assert_roundtrip(&notification);
+    }
+}
+
+/// 交友广场模块
+mod plaza_entity {
+    use super::*;
+
+    #[test]
+    fn plaza_user_info_roundtrip() {
+        let info = PlazaUserInfo {
+            uuid: Some(uuid("00000000-0000-0000-0000-000000000050")),
+            allow_discover: Some(false),
+            motto: Some("寻找有趣的灵魂".to_string()),
+            status: Some(0),
+            created_at: Some(1_700_000_000),
+            updated_at: Some(1_700_000_001),
+        };
+        assert_roundtrip(&info);
+    }
+
+    #[test]
+    fn plaza_user_info_empty_has_all_fields_none() {
+        let info: PlazaUserInfo = serde_json::from_str("{}").expect("反序列化失败");
+        assert!(info.uuid.is_none());
+        assert!(info.allow_discover.is_none());
+        assert!(info.motto.is_none());
+        assert!(info.status.is_none());
+        assert!(info.created_at.is_none());
+        assert!(info.updated_at.is_none());
+    }
+
+    #[test]
+    fn plaza_user_tag_roundtrip() {
+        let tag = PlazaUserTag {
+            id: Some(uuid("00000000-0000-0000-0000-000000000051")),
+            user_uuid: Some(uuid("00000000-0000-0000-0000-000000000001")),
+            tag: Some("摄影".to_string()),
+            sort: Some(0),
+            created_at: Some(1_700_000_000),
+        };
+        assert_roundtrip(&tag);
+    }
+
+    #[test]
+    fn plaza_user_tag_empty_has_all_fields_none() {
+        let tag: PlazaUserTag = serde_json::from_str("{}").expect("反序列化失败");
+        assert!(tag.id.is_none());
+        assert!(tag.user_uuid.is_none());
+        assert!(tag.tag.is_none());
+        assert!(tag.sort.is_none());
+        assert!(tag.created_at.is_none());
     }
 }
