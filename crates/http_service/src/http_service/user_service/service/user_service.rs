@@ -4,8 +4,7 @@ use actix_web::HttpRequest;
 use actix_web::http::header::USER_AGENT;
 use anyhow::anyhow;
 use common::config_str::{
-    EMAIL_VERIFY_CODE, MOBILE_PLATFORM, PC_PLATFORM, REFRESH_TOKEN, REFRESH_TOKEN_DEVICE,
-    REFRESH_TOKEN_PLATFORM, REGISTER_SESSION_TOKEN,
+    EMAIL_VERIFY_CODE, MOBILE_PLATFORM, PC_PLATFORM, REFRESH_TOKEN, REGISTER_SESSION_TOKEN,
 };
 use common::models::user_entity::basic_user::BasicUser;
 use common::models::user_entity::email_sso::EmailSso;
@@ -14,7 +13,7 @@ use common::models::user_entity::user_login_log::{
     LOGIN_EVENT_ACCOUNT_NOT_FOUND, LOGIN_EVENT_PASSWORD_FAIL, LOGIN_EVENT_REFRESH,
     LOGIN_EVENT_SUCCESS, LOGIN_TYPE_ACCOUNT, LOGIN_TYPE_REFRESH, UserLoginLog,
 };
-use common::utils::jwt_util::{generate_access_token, generate_token_with_expiry};
+use common::utils::jwt_util::{generate_access_token, generate_token_with_expiry, verify_token};
 use common::utils::rsa_util::{hash_password, verify_password};
 use common::utils::time::get_now_time_stamp_as_millis;
 use common::utils::validators::normalize_email;
@@ -383,27 +382,10 @@ pub async fn user_sign_in(
         let refresh_token =
             generate_token_with_expiry(uuid.clone(), platform.clone(), 3600 * 24 * 30)?;
 
-        // 存储 refresh_token 到 Redis (30 天过期)
+        // 存储 refresh_token 绑定的设备指纹 (30 天过期)
         let rt_key = format!("{}{}", REFRESH_TOKEN, refresh_token).to_uppercase();
         let _: () = cmd("SET")
             .arg(&rt_key)
-            .arg(&uuid)
-            .arg("EX")
-            .arg(3600 * 24 * 30)
-            .query_async(&mut conn)
-            .await?;
-        let rt_platform_key = format!("{}{}", REFRESH_TOKEN_PLATFORM, refresh_token).to_uppercase();
-        let _: () = cmd("SET")
-            .arg(&rt_platform_key)
-            .arg(&platform)
-            .arg("EX")
-            .arg(3600 * 24 * 30)
-            .query_async(&mut conn)
-            .await?;
-        // 存储 refresh_token 绑定的设备指纹 (30 天过期)
-        let rt_device_key = format!("{}{}", REFRESH_TOKEN_DEVICE, refresh_token).to_uppercase();
-        let _: () = cmd("SET")
-            .arg(&rt_device_key)
             .arg(&device_fingerprint)
             .arg("EX")
             .arg(3600 * 24 * 30)
@@ -467,10 +449,10 @@ pub async fn refresh_access_token(
 
     let (ipv4, ipv6, user_agent) = extract_client_info(req);
 
-    let key = format!("{}{}", REFRESH_TOKEN, refresh_token_dto.refresh_token).to_uppercase();
-    let result: RedisResult<String> = cmd("GET").arg(&key).query_async(&mut conn).await;
-    let uuid = match result {
-        Ok(u) => u,
+    // 校验 refresh_token 签名/过期,解析 uuid(用户身份)与 platform(携带在 sub 声明)
+    let token = &refresh_token_dto.refresh_token;
+    let claims = match verify_token(token) {
+        Ok(c) => c,
         Err(e) => {
             // token 无效/过期审计(uuid 无法解析,留空;设备指纹记录客户端提交值)
             write_login_log(
@@ -494,15 +476,11 @@ pub async fn refresh_access_token(
             return Err(anyhow!("refresh_token 无效或已过期: {}", e));
         }
     };
-
-    let platform_key =
-        format!("{}{}", REFRESH_TOKEN_PLATFORM, refresh_token_dto.refresh_token).to_uppercase();
-    let platform: RedisResult<String> = cmd("GET").arg(&platform_key).query_async(&mut conn).await;
-    let platform = platform.map_err(|_| anyhow!("无法获取平台信息"))?;
+    let uuid = claims.uuid;
+    let platform = claims.sub;
 
     // 校验设备指纹: refresh_token 必须与其绑定的设备指纹一致
-    let device_key =
-        format!("{}{}", REFRESH_TOKEN_DEVICE, refresh_token_dto.refresh_token).to_uppercase();
+    let device_key = format!("{}{}", REFRESH_TOKEN, token).to_uppercase();
     let stored_device: RedisResult<String> =
         cmd("GET").arg(&device_key).query_async(&mut conn).await;
     if !device_fingerprint_matches(
@@ -693,7 +671,7 @@ mod tests {
 
     #[test]
     fn device_fingerprint_matches_missing_binding() {
-        // 旧 token 没有设备绑定(Redis 无 DEVICE key),应视为不匹配
+        // token 没有设备绑定(Redis 无对应 key),应视为不匹配
         assert!(!device_fingerprint_matches(None, "fp-1"));
     }
 }

@@ -24,12 +24,8 @@ pub static USER_UDP_ADDRESS: &str = "USER_UDP_ADDRESS_";
 pub static USER_UDP_ADDRESS_LOCK: &str = "USER_UDP_ADDRESS_LOCK_";
 // 群成员列表缓存
 pub static GROUP_MEMBERS_CACHE: &str = "GROUP:MEMBERS:";
-// 刷新令牌映射
+// 刷新令牌映射(值:绑定设备指纹)
 pub static REFRESH_TOKEN: &str = "REFRESH_TOKEN:";
-// 刷新令牌平台映射
-pub static REFRESH_TOKEN_PLATFORM: &str = "REFRESH_TOKEN:PLATFORM:";
-// 刷新令牌设备指纹映射
-pub static REFRESH_TOKEN_DEVICE: &str = "REFRESH_TOKEN:DEVICE:";
 // 邮箱注册验证码
 pub static EMAIL_VERIFY_CODE: &str = "EMAIL:VERIFY:CODE:"; // 默认最大文件大小 (20MB)
 pub static DEFAULT_MAX_FILE_SIZE: i64 = 20 * 1024 * 1024;
