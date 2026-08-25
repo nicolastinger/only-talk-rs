@@ -52,5 +52,5 @@ jobs:
             git pull --ff-only
             echo "${{ secrets.DEPLOY_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
             cd deploy
-            docker compose pull app
-            docker compose up -d app
+            docker-compose pull app
+            docker-compose up -d app
