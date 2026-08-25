@@ -5,7 +5,7 @@ FROM rust:1.85-slim AS builder
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential pkg-config libssl-dev perl ca-certificates \
+    build-essential pkg-config cmake libssl-dev perl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 COPY Cargo.toml Cargo.lock ./
