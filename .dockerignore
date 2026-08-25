@@ -1,0 +1,18 @@
+target/
+.git/
+.gitignore
+.idea/
+log/
+resources/
+.env
+.env.*
+! .env.example
+*.pem
+*.key
+config/ssl/
+config/jwt/
+docker/
+deploy/
+docs/
+crates/*/target/
+.git-blame-ignore-revs
