@@ -20,6 +20,12 @@ use http_service::http_service::group_service::group_vo::group_member_vo::GroupM
 use http_service::http_service::group_service::group_vo::group_message_vo::{
     GroupMessageVO, UnreadCountVO,
 };
+use http_service::http_service::moment_service::dto::moment_dto::{
+    AddCommentDTO, CommentListQuery, CreateMomentDTO, LikeToggleDTO,
+};
+use http_service::http_service::moment_service::vo::moment_vo::{
+    MomentCommentListVO, MomentCommentVO, MomentListVO, MomentVO,
+};
 use http_service::http_service::user_service::dto::basic_user_dto::SignInBasicUserDTO;
 use http_service::http_service::user_service::dto::complete_profile_dto::CompleteProfileDTO;
 use http_service::http_service::user_service::dto::refresh_token_dto::RefreshTokenDTO;
@@ -727,6 +733,104 @@ mod serde_roundtrip {
             remark: None,
             file_infos: None,
         });
+    }
+}
+
+/// 动态广场 DTO/VO 序列化与字段映射
+mod moment {
+    use super::*;
+
+    #[test]
+    fn moment_dto_roundtrip() {
+        assert_roundtrip(&CreateMomentDTO {
+            content: "今日份美好".to_string(),
+            visibility: 0,
+            file_ids: vec!["f1".to_string(), "f2".to_string()],
+        });
+        assert_roundtrip(&LikeToggleDTO { moment_uuid: "m1".to_string() });
+        assert_roundtrip(&AddCommentDTO {
+            moment_uuid: "m1".to_string(),
+            content: "写得好".to_string(),
+        });
+        assert_roundtrip(&CommentListQuery { moment_uuid: "m1".to_string() });
+    }
+
+    #[test]
+    fn moment_vo_roundtrip() {
+        assert_roundtrip(&MomentVO {
+            uuid: "m1".to_string(),
+            author_uuid: "u1".to_string(),
+            username: Some("Alice".to_string()),
+            icon: Some("icon-1".to_string()),
+            content: "内容".to_string(),
+            visibility: 0,
+            image_count: 3,
+            like_count: 3,
+            comment_count: 2,
+            liked_by_me: true,
+            created_at: 1_700_000_000,
+            updated_at: 1_700_000_001,
+        });
+    }
+
+    #[test]
+    fn moment_list_vo_serializes_fields() {
+        let vo = MomentListVO {
+            total: 1,
+            list: vec![MomentVO {
+                uuid: "m1".to_string(),
+                author_uuid: "u1".to_string(),
+                username: None,
+                icon: None,
+                content: "内容".to_string(),
+                visibility: 1,
+                image_count: 2,
+                like_count: 0,
+                comment_count: 0,
+                liked_by_me: false,
+                created_at: 1,
+                updated_at: 1,
+            }],
+        };
+        let value = serde_json::to_value(&vo).expect("序列化失败");
+        assert_eq!(value["total"], 1);
+        assert_eq!(value["list"][0]["uuid"], "m1");
+        assert_eq!(value["list"][0]["visibility"], 1);
+        assert_eq!(value["list"][0]["image_count"], 2);
+        assert_eq!(value["list"][0]["liked_by_me"], false);
+    }
+
+    #[test]
+    fn moment_comment_vo_roundtrip() {
+        assert_roundtrip(&MomentCommentVO {
+            id: "c1".to_string(),
+            moment_uuid: "m1".to_string(),
+            author_uuid: "u2".to_string(),
+            username: Some("Bob".to_string()),
+            icon: None,
+            content: "哈哈".to_string(),
+            created_at: 1_700_000_000,
+        });
+    }
+
+    #[test]
+    fn moment_comment_list_vo_serializes_fields() {
+        let vo = MomentCommentListVO {
+            total: 1,
+            list: vec![MomentCommentVO {
+                id: "c1".to_string(),
+                moment_uuid: "m1".to_string(),
+                author_uuid: "u2".to_string(),
+                username: None,
+                icon: Some("icon-2".to_string()),
+                content: "哈哈".to_string(),
+                created_at: 1,
+            }],
+        };
+        let value = serde_json::to_value(&vo).expect("序列化失败");
+        assert_eq!(value["total"], 1);
+        assert_eq!(value["list"][0]["id"], "c1");
+        assert_eq!(value["list"][0]["icon"], "icon-2");
     }
 }
 

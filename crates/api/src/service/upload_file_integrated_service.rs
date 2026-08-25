@@ -176,3 +176,22 @@ pub async fn upload_group_avatar(
 
     Ok(CommonResponseRef::<String>::success_json(&biz_id)?)
 }
+
+/// 上传动态广场图片(仅上传文件, 返回 file_id, 由 /moment/create 负责关联)
+pub async fn upload_moment(
+    rb: &RBatis,
+    uuid: Option<String>,
+    payload: Multipart,
+    s3_client: Arc<S3Client>,
+) -> Result<String, anyhow::Error> {
+    let uuid = uuid.ok_or(anyhow!("User ID cannot be empty"))?;
+
+    info!("正在上传动态广场图片到 S3...");
+    let record = upload_chat_preview_file_s3(rb, uuid, payload, s3_client.clone())
+        .await
+        .map_err(|e| anyhow!("S3 upload failed: {}", e))?;
+    info!("动态广场图片上传到 S3 成功");
+
+    let file_id = record.uuid.ok_or(anyhow!("file id is empty"))?.to_string();
+    Ok(CommonResponseRef::<String>::success_json(&file_id)?)
+}

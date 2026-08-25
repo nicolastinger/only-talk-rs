@@ -30,6 +30,9 @@ use crate::models::group_entity::group_message_read::GroupMessageRecordRead;
 use crate::models::group_entity::group_message_record::{
     GroupMessageRecord, MSG_TYPE_FILE, MSG_TYPE_IMAGE, MSG_TYPE_TEXT,
 };
+use crate::models::moment_entity::moment::Moment;
+use crate::models::moment_entity::moment_comment::MomentComment;
+use crate::models::moment_entity::moment_like::MomentLike;
 use crate::models::notify_entity::system_notification::SystemNotification;
 use crate::models::plaza_entity::plaza_user_info::PlazaUserInfo;
 use crate::models::plaza_entity::plaza_user_tag::PlazaUserTag;
@@ -572,5 +575,82 @@ mod plaza_entity {
         assert!(tag.tag.is_none());
         assert!(tag.sort.is_none());
         assert!(tag.created_at.is_none());
+    }
+}
+
+/// 动态广场模块
+mod moment_entity {
+    use super::*;
+
+    #[test]
+    fn moment_roundtrip() {
+        let moment = Moment {
+            uuid: Some(uuid("00000000-0000-0000-0000-000000000060")),
+            author_uuid: Some(uuid("00000000-0000-0000-0000-000000000001")),
+            content: Some("动态广场的第一条动态".to_string()),
+            visibility: Some(0),
+            is_del: Some(false),
+            created_at: Some(1_700_000_000),
+            updated_at: Some(1_700_000_001),
+        };
+        assert_roundtrip(&moment);
+    }
+
+    #[test]
+    fn moment_empty_has_all_fields_none() {
+        let moment: Moment = serde_json::from_str("{}").expect("反序列化失败");
+        assert!(moment.uuid.is_none());
+        assert!(moment.author_uuid.is_none());
+        assert!(moment.content.is_none());
+        assert!(moment.visibility.is_none());
+        assert!(moment.is_del.is_none());
+        assert!(moment.created_at.is_none());
+        assert!(moment.updated_at.is_none());
+    }
+
+    #[test]
+    fn moment_like_roundtrip() {
+        let like = MomentLike {
+            id: Some(uuid("00000000-0000-0000-0000-000000000061")),
+            moment_uuid: Some(uuid("00000000-0000-0000-0000-000000000060")),
+            user_uuid: Some(uuid("00000000-0000-0000-0000-000000000001")),
+            is_del: Some(false),
+            created_at: Some(1_700_000_000),
+        };
+        assert_roundtrip(&like);
+    }
+
+    #[test]
+    fn moment_like_empty_has_all_fields_none() {
+        let like: MomentLike = serde_json::from_str("{}").expect("反序列化失败");
+        assert!(like.id.is_none());
+        assert!(like.moment_uuid.is_none());
+        assert!(like.user_uuid.is_none());
+        assert!(like.is_del.is_none());
+        assert!(like.created_at.is_none());
+    }
+
+    #[test]
+    fn moment_comment_roundtrip() {
+        let comment = MomentComment {
+            id: Some(uuid("00000000-0000-0000-0000-000000000062")),
+            moment_uuid: Some(uuid("00000000-0000-0000-0000-000000000060")),
+            author_uuid: Some(uuid("00000000-0000-0000-0000-000000000001")),
+            content: Some("写得好".to_string()),
+            is_del: Some(false),
+            created_at: Some(1_700_000_000),
+        };
+        assert_roundtrip(&comment);
+    }
+
+    #[test]
+    fn moment_comment_empty_has_all_fields_none() {
+        let comment: MomentComment = serde_json::from_str("{}").expect("反序列化失败");
+        assert!(comment.id.is_none());
+        assert!(comment.moment_uuid.is_none());
+        assert!(comment.author_uuid.is_none());
+        assert!(comment.content.is_none());
+        assert!(comment.is_del.is_none());
+        assert!(comment.created_at.is_none());
     }
 }
