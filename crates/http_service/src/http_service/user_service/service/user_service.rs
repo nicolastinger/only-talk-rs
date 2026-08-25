@@ -445,6 +445,7 @@ pub async fn refresh_access_token(
     refresh_token_dto: RefreshTokenDTO,
     req: &HttpRequest,
 ) -> Result<String, anyhow::Error> {
+    info!("refresh_token_dto: {:?}", refresh_token_dto);
     let mut conn = redis.get().await?;
 
     let (ipv4, ipv6, user_agent) = extract_client_info(req);
@@ -460,7 +461,7 @@ pub async fn refresh_access_token(
                 UserLoginLog {
                     id: None,
                     uuid: None,
-                    account: None,
+                    account: Some(String::new()),
                     login_type: Some(LOGIN_TYPE_REFRESH.to_string()),
                     event_type: Some(LOGIN_EVENT_REFRESH.to_string()),
                     login_at: get_now_time_stamp_as_millis().ok(),
@@ -479,6 +480,16 @@ pub async fn refresh_access_token(
     let uuid = claims.uuid;
     let platform = claims.sub;
 
+    // 解析账号(审计 account 非空,由 uuid 反查 basic_user)
+    let uuid_parsed: Option<rbatis::rbdc::Uuid> = uuid.parse().ok();
+    let account_str: String = match &uuid_parsed {
+        Some(uid) => match BasicUser::select_by_uuid(rb, uid).await {
+            Ok(Some(user)) => user.account.unwrap_or_default(),
+            _ => String::new(),
+        },
+        None => String::new(),
+    };
+
     // 校验设备指纹: refresh_token 必须与其绑定的设备指纹一致
     let device_key = format!("{}{}", REFRESH_TOKEN, token).to_uppercase();
     let stored_device: RedisResult<String> =
@@ -491,8 +502,8 @@ pub async fn refresh_access_token(
             rb,
             UserLoginLog {
                 id: None,
-                uuid: uuid.parse::<rbatis::rbdc::Uuid>().ok(),
-                account: None,
+                uuid: uuid_parsed.clone(),
+                account: Some(account_str.clone()),
                 login_type: Some(LOGIN_TYPE_REFRESH.to_string()),
                 event_type: Some(LOGIN_EVENT_REFRESH.to_string()),
                 login_at: get_now_time_stamp_as_millis().ok(),
@@ -516,8 +527,8 @@ pub async fn refresh_access_token(
         rb,
         UserLoginLog {
             id: None,
-            uuid: uuid.parse::<rbatis::rbdc::Uuid>().ok(),
-            account: None,
+            uuid: uuid_parsed.clone(),
+            account: Some(account_str.clone()),
             login_type: Some(LOGIN_TYPE_REFRESH.to_string()),
             event_type: Some(LOGIN_EVENT_REFRESH.to_string()),
             login_at: get_now_time_stamp_as_millis().ok(),
