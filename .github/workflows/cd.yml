@@ -37,7 +37,7 @@ jobs:
   deploy:
     needs: build-push
     runs-on: ubuntu-latest
-    environment: production
+    environment: deploy
     steps:
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.2.0
