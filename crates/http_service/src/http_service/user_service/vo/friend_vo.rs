@@ -26,13 +26,13 @@ pub async fn query_friend_list(
 ) -> Result<String, anyhow::Error> {
     let friend_list: Option<Vec<FriendListVO>> = rb
         .query_decode("select bu.uuid, bu.username, bu.account, bu.icon, bu.info, fs.is_del, fs.is_block, fs.version, fs.updated_at, fs.created_at from
-(select accept_user as uuid, is_del, (bl.uuid is not null) as is_block, updated_at, version, created_at FROM friend_link
-left join black_list bl on bl.me_user = ? and bl.block_user = accept_user
-where request_user = ?
+(select fl.accept_user as uuid, fl.is_del, (bl.uuid is not null) as is_block, fl.updated_at, fl.version, fl.created_at FROM friend_link fl
+left join black_list bl on bl.me_user = ? and bl.block_user = fl.accept_user
+where fl.request_user = ?
 union all
-select request_user as uuid, is_del, (bl.uuid is not null) as is_block, updated_at, version, created_at FROM friend_link
-left join black_list bl on bl.me_user = ? and bl.block_user = request_user
-where accept_user = ? ) fs left join basic_user bu
+select fl.request_user as uuid, fl.is_del, (bl.uuid is not null) as is_block, fl.updated_at, fl.version, fl.created_at FROM friend_link fl
+left join black_list bl on bl.me_user = ? and bl.block_user = fl.request_user
+where fl.accept_user = ? ) fs left join basic_user bu
 on fs.uuid = bu.uuid where fs.updated_at >= ?", vec![value!(uuid), value!(uuid), value!(uuid), value!(uuid), value!(created_at)])
         .await?;
     Ok(CommonResponseRef::<Option<Vec<FriendListVO>>>::success_json(&friend_list)?)
