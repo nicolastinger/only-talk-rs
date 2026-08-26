@@ -294,27 +294,37 @@ async fn handle_conn(
                 }
                 match conn_for_uni.accept_uni().await {
                     Ok(mut recv) => {
-                        let mut buf = vec![0u8; 1024 * 10];
-                        match recv.read(&mut buf).await {
-                            Ok(Some(length)) => {
-                                let _ = process_rec_msg(
-                                    &core_clone,
-                                    &mut buf,
-                                    current_uid.clone(),
-                                    length,
-                                    &conn_key,
-                                    &platform_clone,
-                                    uni_buffer_msg.clone(),
-                                    head_length,
-                                    conns.clone(),
-                                    config.server_index,
-                                )
-                                .await;
+                        // 大消息会跨多个QUIC包到达，必须读取完整流后统一处理，
+                        // 否则未读余量会触发对端 STOP_SENDING，导致"发送被对端终止"
+                        let mut msg_data: Vec<u8> = Vec::new();
+                        let mut chunk = vec![0u8; 1024 * 10];
+                        loop {
+                            match recv.read(&mut chunk).await {
+                                Ok(Some(n)) => {
+                                    msg_data.extend_from_slice(&chunk[..n]);
+                                }
+                                Ok(None) => break,
+                                Err(e) => {
+                                    warn!("[server] uni 流读取错误: {}", e);
+                                    break;
+                                }
                             }
-                            Ok(None) => {}
-                            Err(e) => {
-                                warn!("[server] uni 流读取错误: {}", e);
-                            }
+                        }
+                        if !msg_data.is_empty() {
+                            let msg_len = msg_data.len();
+                            let _ = process_rec_msg(
+                                &core_clone,
+                                &mut msg_data,
+                                current_uid.clone(),
+                                msg_len,
+                                &conn_key,
+                                &platform_clone,
+                                uni_buffer_msg.clone(),
+                                head_length,
+                                conns.clone(),
+                                config.server_index,
+                            )
+                            .await;
                         }
                     }
                     Err(e) => {

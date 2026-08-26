@@ -33,11 +33,11 @@
 - `username` - 用户名
 - `account` - 用户编码
 - `password` - 用户密码
-- `email` - 邮箱
 - `info` - 用户信息
 - `icon` - 头像
+- `registration_status` - 注册状态（0=占位未完成，1=已完成）
 
-（无 `created_at` / `updated_at` 列。）
+（无 `created_at` / `updated_at` 列。邮箱登录渠道已迁移至独立的 `email_sso` 表。）
 
 ---
 
@@ -63,12 +63,19 @@
 - `updated_at` - 更新时间
 - `version` - 版本号
 
-#### 3. 用户登录记录表 `user_login_log.sql`
+#### 3. 用户登录审计表 `user_login_log.sql`
 - `id` - 主键
-- `last_login_at` - 最后登录时间
-- `last_login_equipment` - 最后登录的设备
-- `last_login_ipv4` - 最后登录的IPv4地址
-- `last_login_ipv6` - 最后登录的IPv6地址
+- `uuid` - 关联 basic_user.uuid（账号不存在时为空，用户删除后置空保留审计）
+- `account` - 登录时提交的账号（失败/不存在也保留，便于审计）
+- `login_type` - 登录渠道：account / email / refresh
+- `event_type` - 事件类型：success / password_fail / account_not_found / refresh
+- `login_at` - 事件时间（Unix 时间戳，毫秒）
+- `platform` - 登录平台：PC / MOBILE
+- `ipv4` / `ipv6` - 客户端 IP 地址
+- `user_agent` - 客户端 User-Agent
+- `device` - 设备指纹/名称（预留）
+- `result` - 结果补充（如刷新失败原因）
+- 索引：`(uuid, login_at DESC)`、`(account, login_at DESC)`、`(login_at DESC)`
 
 ---
 
@@ -181,13 +188,14 @@
 
 **说明**：`user_id` 逻辑关联 `basic_user.uuid`。
 
-**主要字段（共 13 列）：**
+**主要字段（共 14 列）：**
 - `id` - 主键（**uuid 类型**）
 - `user_id` - 接收人（逻辑关联 basic_user.uuid）
 - `title` - 通知标题
 - `content` - 详细内容
 - `is_read` - 是否已读
 - `priority` - 通知优先级
+- `biz_id` - 业务ID（如好友请求/群邀请记录ID）
 - 另有 `created_at`、`content_type`、`level1`~`level4`、`unread_count`
 
 ---
@@ -215,8 +223,10 @@
 | 文件 | 说明 |
 |------|------|
 | `fix_file_path_stored_name_inconsistency.sql` | **数据修复脚本**（SELECT/UPDATE），非建表脚本 |
-| `migrations/add_email_to_basic_user.sql` | 增量迁移：为 `basic_user` 添加 `email` 列 |
+| `migrations/add_email_to_basic_user.sql` | 增量迁移：为 `basic_user` 添加 `email` 列（已被 `email_sso` 取代） |
 | `migrations/add_bucket_to_file_upload_record.sql` | 增量迁移：为 `file_upload_record` 添加 `bucket` 列 |
+| `migrations/add_email_sso_table.sql` | 增量迁移：创建 `email_sso` 表并从 `basic_user` 移除 `email` 列 |
+| `migrations/add_registration_status_to_basic_user.sql` | 增量迁移：为 `basic_user` 添加 `registration_status` 注册状态列 |
 
 ---
 

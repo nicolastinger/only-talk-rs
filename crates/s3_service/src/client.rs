@@ -249,10 +249,10 @@ impl GlobalS3Client {
     /// # Example
     ///
     /// ```rust,no_run
-    /// use s3_service::{GlobalS3Client, S3Config};
+    /// use s3_service::{GlobalS3Client, S3Client, S3Config};
     /// use std::sync::Arc;
     ///
-    /// async fn init_s3() -> Result<Arc<s3_service::S3Client>, s3_service::S3Error> {
+    /// async fn init_s3() -> Result<Arc<S3Client>, s3_service::S3Error> {
     ///     let config = S3Config::default_minio();
     ///     GlobalS3Client::init(config).await
     /// }

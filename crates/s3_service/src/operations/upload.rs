@@ -109,8 +109,10 @@ pub async fn upload_object(
 ///         "document.pdf",
 ///         data,
 ///         Some("application/pdf"),
-///         metadata
-///     ).await
+///         metadata,
+///     )
+///     .await?;
+///     Ok(())
 /// }
 /// ```
 pub async fn upload_object_with_metadata(

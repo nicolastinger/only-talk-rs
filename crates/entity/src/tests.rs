@@ -30,8 +30,14 @@ use crate::models::group_entity::group_message_read::GroupMessageRecordRead;
 use crate::models::group_entity::group_message_record::{
     GroupMessageRecord, MSG_TYPE_FILE, MSG_TYPE_IMAGE, MSG_TYPE_TEXT,
 };
+use crate::models::moment_entity::moment::Moment;
+use crate::models::moment_entity::moment_comment::MomentComment;
+use crate::models::moment_entity::moment_like::MomentLike;
 use crate::models::notify_entity::system_notification::SystemNotification;
+use crate::models::plaza_entity::plaza_user_info::PlazaUserInfo;
+use crate::models::plaza_entity::plaza_user_tag::PlazaUserTag;
 use crate::models::user_entity::basic_user::BasicUser;
+use crate::models::user_entity::email_sso::EmailSso;
 use crate::models::user_entity::friend_link::FriendLink;
 use crate::models::user_entity::friend_request_info::FriendRequestInfo;
 use crate::models::user_entity::user_info::UserInfo;
@@ -103,8 +109,8 @@ mod user_entity {
             account: Some("alice001".to_string()),
             icon: Some("icon.png".to_string()),
             info: Some("hello".to_string()),
-            email: Some("alice@example.com".to_string()),
             password: Some("secret".to_string()),
+            registration_status: Some(1),
         };
         assert_roundtrip(&user);
     }
@@ -115,8 +121,8 @@ mod user_entity {
         assert!(user.uuid.is_none());
         assert!(user.username.is_none());
         assert!(user.account.is_none());
-        assert!(user.email.is_none());
         assert!(user.password.is_none());
+        assert!(user.registration_status.is_none());
     }
 
     #[test]
@@ -127,10 +133,33 @@ mod user_entity {
             account: Some("alice001".to_string()),
             icon: None,
             info: None,
-            email: Some("alice@example.com".to_string()),
             password: Some("secret".to_string()),
+            registration_status: Some(1),
         };
         assert!(user.validate().is_ok());
+    }
+
+    #[test]
+    fn email_sso_roundtrip() {
+        let sso = EmailSso {
+            uuid: Some(uuid("00000000-0000-0000-0000-000000000001")),
+            email: Some("alice@example.com".to_string()),
+            email_normalized: Some("alice@example.com".to_string()),
+            verified: Some(true),
+            verified_at: Some(1_700_000_000),
+            verify_code_issued_at: Some(1_700_000_000),
+            is_primary: Some(true),
+            status: Some(1),
+            last_login_at: None,
+            last_login_ip: None,
+            login_count: Some(0),
+            fail_count: Some(0),
+            locked_until: None,
+            created_at: Some(1_700_000_000),
+            updated_at: Some(1_700_000_001),
+            deleted_at: None,
+        };
+        assert_roundtrip(&sso);
     }
 
     #[test]
@@ -155,10 +184,17 @@ mod user_entity {
     fn user_login_log_roundtrip() {
         let log = UserLoginLog {
             id: Some(1),
-            last_login_at: Some(1_700_000_000),
-            last_login_equipment: Some("PC".to_string()),
-            last_login_ipv4: Some("127.0.0.1".to_string()),
-            last_login_ipv6: Some("::1".to_string()),
+            uuid: Some(uuid("00000000-0000-0000-0000-000000000001")),
+            account: Some("alice001".to_string()),
+            login_type: Some("account".to_string()),
+            event_type: Some("success".to_string()),
+            login_at: Some(1_700_000_000),
+            platform: Some("PC".to_string()),
+            ipv4: Some("127.0.0.1".to_string()),
+            ipv6: None,
+            user_agent: Some("Mozilla/5.0".to_string()),
+            device: None,
+            result: None,
         };
         assert_roundtrip(&log);
     }
@@ -488,5 +524,133 @@ mod notify_entity {
             priority: Some(1),
         };
         assert_roundtrip(&notification);
+    }
+}
+
+/// 交友广场模块
+mod plaza_entity {
+    use super::*;
+
+    #[test]
+    fn plaza_user_info_roundtrip() {
+        let info = PlazaUserInfo {
+            uuid: Some(uuid("00000000-0000-0000-0000-000000000050")),
+            allow_discover: Some(false),
+            motto: Some("寻找有趣的灵魂".to_string()),
+            status: Some(0),
+            created_at: Some(1_700_000_000),
+            updated_at: Some(1_700_000_001),
+        };
+        assert_roundtrip(&info);
+    }
+
+    #[test]
+    fn plaza_user_info_empty_has_all_fields_none() {
+        let info: PlazaUserInfo = serde_json::from_str("{}").expect("反序列化失败");
+        assert!(info.uuid.is_none());
+        assert!(info.allow_discover.is_none());
+        assert!(info.motto.is_none());
+        assert!(info.status.is_none());
+        assert!(info.created_at.is_none());
+        assert!(info.updated_at.is_none());
+    }
+
+    #[test]
+    fn plaza_user_tag_roundtrip() {
+        let tag = PlazaUserTag {
+            id: Some(uuid("00000000-0000-0000-0000-000000000051")),
+            user_uuid: Some(uuid("00000000-0000-0000-0000-000000000001")),
+            tag: Some("摄影".to_string()),
+            sort: Some(0),
+            created_at: Some(1_700_000_000),
+        };
+        assert_roundtrip(&tag);
+    }
+
+    #[test]
+    fn plaza_user_tag_empty_has_all_fields_none() {
+        let tag: PlazaUserTag = serde_json::from_str("{}").expect("反序列化失败");
+        assert!(tag.id.is_none());
+        assert!(tag.user_uuid.is_none());
+        assert!(tag.tag.is_none());
+        assert!(tag.sort.is_none());
+        assert!(tag.created_at.is_none());
+    }
+}
+
+/// 动态广场模块
+mod moment_entity {
+    use super::*;
+
+    #[test]
+    fn moment_roundtrip() {
+        let moment = Moment {
+            uuid: Some(uuid("00000000-0000-0000-0000-000000000060")),
+            author_uuid: Some(uuid("00000000-0000-0000-0000-000000000001")),
+            content: Some("动态广场的第一条动态".to_string()),
+            visibility: Some(0),
+            is_del: Some(false),
+            created_at: Some(1_700_000_000),
+            updated_at: Some(1_700_000_001),
+        };
+        assert_roundtrip(&moment);
+    }
+
+    #[test]
+    fn moment_empty_has_all_fields_none() {
+        let moment: Moment = serde_json::from_str("{}").expect("反序列化失败");
+        assert!(moment.uuid.is_none());
+        assert!(moment.author_uuid.is_none());
+        assert!(moment.content.is_none());
+        assert!(moment.visibility.is_none());
+        assert!(moment.is_del.is_none());
+        assert!(moment.created_at.is_none());
+        assert!(moment.updated_at.is_none());
+    }
+
+    #[test]
+    fn moment_like_roundtrip() {
+        let like = MomentLike {
+            id: Some(uuid("00000000-0000-0000-0000-000000000061")),
+            moment_uuid: Some(uuid("00000000-0000-0000-0000-000000000060")),
+            user_uuid: Some(uuid("00000000-0000-0000-0000-000000000001")),
+            is_del: Some(false),
+            created_at: Some(1_700_000_000),
+        };
+        assert_roundtrip(&like);
+    }
+
+    #[test]
+    fn moment_like_empty_has_all_fields_none() {
+        let like: MomentLike = serde_json::from_str("{}").expect("反序列化失败");
+        assert!(like.id.is_none());
+        assert!(like.moment_uuid.is_none());
+        assert!(like.user_uuid.is_none());
+        assert!(like.is_del.is_none());
+        assert!(like.created_at.is_none());
+    }
+
+    #[test]
+    fn moment_comment_roundtrip() {
+        let comment = MomentComment {
+            id: Some(uuid("00000000-0000-0000-0000-000000000062")),
+            moment_uuid: Some(uuid("00000000-0000-0000-0000-000000000060")),
+            author_uuid: Some(uuid("00000000-0000-0000-0000-000000000001")),
+            content: Some("写得好".to_string()),
+            is_del: Some(false),
+            created_at: Some(1_700_000_000),
+        };
+        assert_roundtrip(&comment);
+    }
+
+    #[test]
+    fn moment_comment_empty_has_all_fields_none() {
+        let comment: MomentComment = serde_json::from_str("{}").expect("反序列化失败");
+        assert!(comment.id.is_none());
+        assert!(comment.moment_uuid.is_none());
+        assert!(comment.author_uuid.is_none());
+        assert!(comment.content.is_none());
+        assert!(comment.is_del.is_none());
+        assert!(comment.created_at.is_none());
     }
 }

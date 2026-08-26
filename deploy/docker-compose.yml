@@ -1,0 +1,104 @@
+services:
+  app:
+    image: ${IMAGE}:${IMAGE_TAG:-latest}
+    container_name: only-talk-app
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "8443:8443/tcp"
+      - "4433:4433/tcp"
+      - "4433:4433/udp"
+      - "4434:4434/tcp"
+      - "4434:4434/udp"
+      - "19562:19562/udp"
+      - "19563:19563/udp"
+      - "19564:19564/udp"
+      - "19565:19565/udp"
+    volumes:
+      - ../config:/app/config
+      - ./.env:/app/.env:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:17-alpine
+    container_name: only-talk-pgsql
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-app_db}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - pgdata:/var/lib/postgresql/data/pgdata
+      - ../crates/entity/ddl:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-app_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  redis:
+    image: redis:7.2.4-alpine
+    container_name: only-talk-redis
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD} --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a ${REDIS_PASSWORD} ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: minio/minio:RELEASE.2025-07-23T15-54-02Z
+    container_name: only-talk-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      TZ: Asia/Shanghai
+      MINIO_ROOT_USER: ${MINIO_USER_NAME}
+      MINIO_ROOT_PASSWORD: ${MINIO_USER_PASSWORD}
+      MINIO_BROWSER_REDIRECT_URL: ${MINIO_BROWSER_REDIRECT_URL:-}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+      - minio_config:/root/.minio
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  certbot:
+    image: certbot/certbot
+    container_name: only-talk-certbot
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "/boot/certbot-entrypoint.sh"]
+    env_file: .env
+    environment:
+      DOMAIN: ${DOMAIN}
+      EMAIL: ${EMAIL}
+    volumes:
+      - letsencrypt_data:/etc/letsencrypt
+      - ../config/ssl:/app/config/ssl
+      - ./certbot/certbot-entrypoint.sh:/boot/certbot-entrypoint.sh:ro
+    ports:
+      - "80:80"
+
+volumes:
+  pgdata:
+  redis_data:
+  minio_data:
+  minio_config:
+  letsencrypt_data:

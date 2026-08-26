@@ -3,14 +3,15 @@ use tracing::info;
 
 use crate::common::dto::base_dto::AuthAccount;
 use crate::http_service::user_service::dto::basic_user_dto::SignInBasicUserDTO;
+use crate::http_service::user_service::dto::complete_profile_dto::CompleteProfileDTO;
 use crate::http_service::user_service::dto::refresh_token_dto::RefreshTokenDTO;
 use crate::http_service::user_service::dto::send_verify_code_dto::SendVerifyCodeDTO;
-use crate::http_service::user_service::dto::sign_up_basic_user_dto::SignUpBasicUserDTO;
+use crate::http_service::user_service::dto::sign_up_step1_dto::SignUpStep1DTO;
 use crate::http_service::user_service::dto::update_user_dto::UpdateUserDTO;
 use crate::http_service::user_service::service::user_service::{
-    add_new_basic_user_service, get_exit_user, get_user_info_by_account, get_user_info_by_uuid,
+    complete_profile_service, get_exit_user, get_user_info_by_account, get_user_info_by_uuid,
     get_user_uuid_by_account_service, refresh_access_token, send_verify_code_service,
-    update_user_info_service, user_sign_in,
+    sign_up_step1_service, update_user_info_service, user_sign_in,
 };
 use crate::state::AppState;
 use crate::utils::http_response::{CommonResponse, CommonResponseNoDataRef};
@@ -19,7 +20,8 @@ use crate::{get_uuid_from_header, respond_json_any, validate_and_respond};
 pub fn user_service(cfg: &mut web::ServiceConfig) {
     cfg.service(get_exit_user_flag)
         .service(sign_in)
-        .service(sign_up)
+        .service(sign_up_step1)
+        .service(complete_profile)
         .service(send_verify_code)
         .service(refresh_token)
         .service(me_api)
@@ -36,13 +38,23 @@ pub async fn get_exit_user_flag(state: web::Data<AppState>, account: String) -> 
     HttpResponse::Ok().body(res.to_string())
 }
 
-#[post("/sign_up")]
-pub async fn sign_up(
+#[post("/sign_up_step1")]
+pub async fn sign_up_step1(
     state: web::Data<AppState>,
-    basic_user: web::Json<SignUpBasicUserDTO>,
+    dto: web::Json<SignUpStep1DTO>,
 ) -> impl Responder {
-    let basic_user = validate_and_respond!(basic_user);
-    let res = add_new_basic_user_service(state.db(), state.redis(), basic_user).await;
+    let dto = validate_and_respond!(dto);
+    let res = sign_up_step1_service(state.db(), state.redis(), dto).await;
+    respond_json_any!(res)
+}
+
+#[post("/complete_profile")]
+pub async fn complete_profile(
+    state: web::Data<AppState>,
+    dto: web::Json<CompleteProfileDTO>,
+) -> impl Responder {
+    let dto = validate_and_respond!(dto);
+    let res = complete_profile_service(state.db(), state.redis(), dto).await;
     respond_json_any!(res)
 }
 
@@ -60,20 +72,22 @@ pub async fn send_verify_code(
 #[post("/sign_in")]
 pub async fn sign_in(
     state: web::Data<AppState>,
+    req: HttpRequest,
     basic_user_dto: web::Json<SignInBasicUserDTO>,
 ) -> impl Responder {
     let basic_user_dto: SignInBasicUserDTO = validate_and_respond!(basic_user_dto);
-    let res = user_sign_in(state.db(), state.redis(), basic_user_dto).await;
+    let res = user_sign_in(state.db(), state.redis(), basic_user_dto, &req).await;
     respond_json_any!(res)
 }
 
 #[post("/refresh_token")]
 pub async fn refresh_token(
     state: web::Data<AppState>,
+    req: HttpRequest,
     dto: web::Json<RefreshTokenDTO>,
 ) -> impl Responder {
     let dto: RefreshTokenDTO = validate_and_respond!(dto);
-    let res = refresh_access_token(state.redis(), dto).await;
+    let res = refresh_access_token(state.db(), state.redis(), dto, &req).await;
     respond_json_any!(res)
 }
 

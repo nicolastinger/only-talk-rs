@@ -5,4 +5,6 @@ use validator::Validate;
 pub struct RefreshTokenDTO {
     #[validate(length(min = 1))]
     pub refresh_token: String,
+    #[validate(length(min = 16))]
+    pub device_fingerprint: String,
 }

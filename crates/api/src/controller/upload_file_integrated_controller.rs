@@ -6,14 +6,16 @@ use http_service::utils::http_response::CommonResponseNoDataRef;
 use http_service::{get_uuid_from_header, respond_json_any};
 
 use crate::service::upload_file_integrated_service::{
-    upload_group_avatar, upload_group_chat_file, upload_user_avatar, upload_user_chat_file,
+    upload_group_avatar, upload_group_chat_file, upload_moment, upload_user_avatar,
+    upload_user_chat_file,
 };
 
 pub fn upload_file_integrated_service(cfg: &mut web::ServiceConfig) {
     cfg.service(upload_user_avatar_api)
         .service(upload_user_chat_api)
         .service(upload_group_chat_api)
-        .service(upload_group_avatar_api);
+        .service(upload_group_avatar_api)
+        .service(upload_moment_api);
 }
 
 #[post("/upload/user_avatar")]
@@ -67,5 +69,17 @@ async fn upload_group_avatar_api(
     let group_uuid = group_uuid.into_inner();
     let s3_client = state.s3.clone();
     let res = upload_group_avatar(state.db(), uuid, group_uuid, payload, s3_client).await;
+    respond_json_any!(res)
+}
+
+#[post("/upload/moment")]
+async fn upload_moment_api(
+    payload: Multipart,
+    req: HttpRequest,
+    state: web::Data<AppState>,
+) -> impl Responder {
+    let uuid = get_uuid_from_header!(req);
+    let s3_client = state.s3.clone();
+    let res = upload_moment(state.db(), uuid, payload, s3_client).await;
     respond_json_any!(res)
 }
