@@ -34,6 +34,7 @@ use crate::models::moment_entity::moment::Moment;
 use crate::models::moment_entity::moment_comment::MomentComment;
 use crate::models::moment_entity::moment_like::MomentLike;
 use crate::models::notify_entity::system_notification::SystemNotification;
+use crate::models::plaza_entity::plaza_like::PlazaLike;
 use crate::models::plaza_entity::plaza_user_info::PlazaUserInfo;
 use crate::models::plaza_entity::plaza_user_tag::PlazaUserTag;
 use crate::models::user_entity::basic_user::BasicUser;
@@ -588,6 +589,28 @@ mod plaza_entity {
         assert!(tag.tag.is_none());
         assert!(tag.sort.is_none());
         assert!(tag.created_at.is_none());
+    }
+
+    #[test]
+    fn plaza_like_roundtrip() {
+        let like = PlazaLike {
+            id: Some(uuid("00000000-0000-0000-0000-000000000063")),
+            target_uuid: Some(uuid("00000000-0000-0000-0000-000000000050")),
+            user_uuid: Some(uuid("00000000-0000-0000-0000-000000000001")),
+            is_del: Some(false),
+            created_at: Some(1_700_000_000),
+        };
+        assert_roundtrip(&like);
+    }
+
+    #[test]
+    fn plaza_like_empty_has_all_fields_none() {
+        let like: PlazaLike = serde_json::from_str("{}").expect("反序列化失败");
+        assert!(like.id.is_none());
+        assert!(like.target_uuid.is_none());
+        assert!(like.user_uuid.is_none());
+        assert!(like.is_del.is_none());
+        assert!(like.created_at.is_none());
     }
 }
 

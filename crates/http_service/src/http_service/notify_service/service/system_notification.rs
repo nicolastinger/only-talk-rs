@@ -130,6 +130,64 @@ pub async fn send_group_invite_result_msg(
     Ok(system_notification)
 }
 
+/// 新增广场心动通知
+pub async fn send_plaza_like_msg(
+    rb: &RBatis,
+    user_id: rbatis::rbdc::Uuid,
+    msg: String,
+    biz_id: Option<String>,
+) -> Result<SystemNotification, anyhow::Error> {
+    let now = get_now_time_stamp_as_millis()?;
+    let uuid = Uuid::now_v7().to_string();
+    let system_notification = SystemNotification {
+        id: Some(rbatis::rbdc::Uuid::from_str(uuid.as_str())?),
+        title: Some("交友广场通知".to_string()),
+        content: Some(msg),
+        created_at: Some(now),
+        content_type: Some(0),
+        user_id: Some(user_id),
+        biz_id,
+        is_read: Some(false),
+        level1: Some(1),
+        level2: Some(4), // 交友广场通知
+        level3: Some(1), // 心动
+        level4: Some(0),
+        unread_count: Some(1),
+        priority: Some(1),
+    };
+    SystemNotification::insert(rb, &system_notification).await?;
+    Ok(system_notification)
+}
+
+/// 新增广场互相心动(匹配)通知
+pub async fn send_plaza_match_msg(
+    rb: &RBatis,
+    user_id: rbatis::rbdc::Uuid,
+    msg: String,
+    biz_id: Option<String>,
+) -> Result<SystemNotification, anyhow::Error> {
+    let now = get_now_time_stamp_as_millis()?;
+    let uuid = Uuid::now_v7().to_string();
+    let system_notification = SystemNotification {
+        id: Some(rbatis::rbdc::Uuid::from_str(uuid.as_str())?),
+        title: Some("交友广场通知".to_string()),
+        content: Some(msg),
+        created_at: Some(now),
+        content_type: Some(0),
+        user_id: Some(user_id),
+        biz_id,
+        is_read: Some(false),
+        level1: Some(1),
+        level2: Some(4), // 交友广场通知
+        level3: Some(2), // 互相心动(匹配)
+        level4: Some(0),
+        unread_count: Some(1),
+        priority: Some(1),
+    };
+    SystemNotification::insert(rb, &system_notification).await?;
+    Ok(system_notification)
+}
+
 /// 获取用户未读的通知
 pub async fn get_user_unread_notification(
     rb: &RBatis,

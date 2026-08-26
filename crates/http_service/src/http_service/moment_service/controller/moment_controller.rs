@@ -53,7 +53,8 @@ pub async fn list_api(
     let body = body.into_inner();
     let page_num = body.page_num.unwrap_or(1);
     let page_size = body.page_size.unwrap_or(20);
-    respond_json_any!(get_moment_list(state.db(), uuid, page_num, page_size).await)
+    let author_uuid = body.data.map(|d| d.author_uuid).unwrap_or_default();
+    respond_json_any!(get_moment_list(state.db(), uuid, page_num, page_size, author_uuid).await)
 }
 
 #[post("/detail/{moment_uuid}")]

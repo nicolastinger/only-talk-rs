@@ -154,20 +154,28 @@ pub async fn create_moment(
     get_moment_detail(rb, Some(me.to_string()), moment_uuid.to_string()).await
 }
 
-/// 分页拉取动态流(公开 + 自己可见的)
+/// 分页拉取动态流(公开 + 自己可见的, 可按作者过滤)
 pub async fn get_moment_list(
     rb: &RBatis,
     my_uuid: Option<String>,
     page_num: u32,
     page_size: u32,
+    author_uuid: Option<String>,
 ) -> Result<String, anyhow::Error> {
     let me = parse_uuid(my_uuid)?.ok_or_else(|| anyhow!("Failed to get account"))?;
     let page_num = page_num.max(1);
     let page_size = page_size.clamp(1, 50);
     let offset = (page_num as i64 - 1) * page_size as i64;
 
-    let count_sql = "SELECT count(*) as count FROM moment m WHERE m.is_del = false AND (m.visibility = 0 OR m.author_uuid = ?)";
-    let count_row: Option<CountRow> = rb.query_decode(count_sql, vec![value!(me.clone())]).await?;
+    let author = author_uuid.map(|s| parse_uuid(Some(s))).transpose()?.flatten();
+
+    let mut count_sql = "SELECT count(*) as count FROM moment m WHERE m.is_del = false AND (m.visibility = 0 OR m.author_uuid = ?)".to_string();
+    let mut count_args = vec![value!(me.clone())];
+    if let Some(a) = &author {
+        count_sql.push_str(" AND m.author_uuid = ?");
+        count_args.push(value!(a.clone()));
+    }
+    let count_row: Option<CountRow> = rb.query_decode(&count_sql, count_args).await?;
     let total = count_row.map(|r| r.count).unwrap_or(0) as u32;
 
     let select_sql = "SELECT m.uuid, m.author_uuid, m.content, m.visibility::int as visibility, \
@@ -177,12 +185,20 @@ pub async fn get_moment_list(
         (SELECT count(*) FROM moment_comment mc WHERE mc.moment_uuid = m.uuid AND mc.is_del = false) as comment_count, \
         (SELECT count(*) FROM moment_like ml2 WHERE ml2.moment_uuid = m.uuid AND ml2.user_uuid = ? AND ml2.is_del = false) as liked_by_me \
         FROM moment m JOIN basic_user bu ON m.author_uuid = bu.uuid \
-        WHERE m.is_del = false AND (m.visibility = 0 OR m.author_uuid = ?) \
-        ORDER BY m.created_at DESC \
-        LIMIT ? OFFSET ?";
-    let args =
-        vec![value!(me.clone()), value!(me.clone()), value!(page_size as i64), value!(offset)];
-    let rows: Vec<MomentRow> = rb.query_decode(select_sql, args).await?;
+        WHERE m.is_del = false AND (m.visibility = 0 OR m.author_uuid = ?)";
+    let mut select_sql = if author.is_some() {
+        format!("{select_sql} AND m.author_uuid = ?")
+    } else {
+        select_sql.to_string()
+    };
+    select_sql.push_str(" ORDER BY m.created_at DESC LIMIT ? OFFSET ?");
+    let mut args = vec![value!(me.clone()), value!(me.clone())];
+    if let Some(a) = &author {
+        args.push(value!(a.clone()));
+    }
+    args.push(value!(page_size as i64));
+    args.push(value!(offset));
+    let rows: Vec<MomentRow> = rb.query_decode(&select_sql, args).await?;
 
     let list = rows.into_iter().map(to_vo).collect();
     Ok(CommonResponseRef::<MomentListVO>::success_json(&MomentListVO { total, list })?)

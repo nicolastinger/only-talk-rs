@@ -11,12 +11,19 @@ pub struct PlazaUserVO {
     pub address: Option<String>,
     pub motto: Option<String>,
     pub tags: Vec<String>,
+    pub liked_by_me: bool,
 }
 
 #[derive(Serialize, Debug)]
 pub struct PlazaListVO {
     pub total: u32,
     pub list: Vec<PlazaUserVO>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct PlazaCrushResult {
+    /// 是否达成互相心动(匹配)
+    pub matched: bool,
 }
 
 #[derive(Serialize, Debug)]
@@ -36,6 +43,7 @@ pub struct PlazaUserRow {
     pub age: Option<i32>,
     pub address: Option<String>,
     pub motto: Option<String>,
+    pub liked_by_me: Option<i64>,
 }
 
 #[derive(Deserialize, Debug)]

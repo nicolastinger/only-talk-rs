@@ -17,4 +17,11 @@ pub struct PlazaListQuery {
     pub gender: Option<u8>,
     pub age_min: Option<u32>,
     pub age_max: Option<u32>,
+    pub tag: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PlazaCrushToggleDTO {
+    /// 被心动用户uuid
+    pub target_uuid: String,
 }

@@ -11,7 +11,9 @@ pub struct CreateMomentDTO {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct MomentListQuery {}
+pub struct MomentListQuery {
+    pub author_uuid: Option<String>,
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct LikeToggleDTO {
