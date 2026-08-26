@@ -5,8 +5,9 @@ use crate::common::dto::base_dto::{AuthAccount, ReqList};
 use crate::http_service::user_service::dto::friend_dto::FriendDTO;
 use crate::http_service::user_service::dto::friend_request_info_dto::FriendRequestInfoDTO;
 use crate::http_service::user_service::service::friend_service::{
-    add_friend, delete_friend_service, get_accept_friend_request_list, get_friend_list,
-    get_friend_request_list, process_friend,
+    add_friend, block_friend_service, delete_friend_service, get_accept_friend_request_list,
+    get_black_list_service, get_friend_list, get_friend_request_list, process_friend,
+    unblock_friend_service,
 };
 use crate::state::AppState;
 use crate::utils::http_response::CommonResponseNoDataRef;
@@ -18,7 +19,10 @@ pub fn friend_service(cfg: &mut web::ServiceConfig) {
         .service(get_friend_api)
         .service(get_accept_friend_request_list_api)
         .service(get_friend_request_list_api)
-        .service(delete_friend_api);
+        .service(delete_friend_api)
+        .service(block_friend_api)
+        .service(unblock_friend_api)
+        .service(black_list_api);
 }
 
 #[post("/friend_list")]
@@ -131,4 +135,48 @@ pub async fn delete_friend_api(
     }
     let res = CommonResponseNoDataRef::success_empty();
     HttpResponse::Ok().body(res)
+}
+
+#[post("/block_friend/{friend_uuid}")]
+pub async fn block_friend_api(
+    req: HttpRequest,
+    state: web::Data<AppState>,
+    path: web::Path<String>,
+) -> impl Responder {
+    let friend_uuid = path.into_inner();
+    let my_uuid = get_uuid_from_header!(req);
+    let res = block_friend_service(state.db(), my_uuid, friend_uuid).await;
+    if let Err(t) = res {
+        error!("err_context {:?}", t);
+        error!("{}", t.backtrace());
+        return HttpResponse::BadRequest()
+            .body(CommonResponseNoDataRef::error_json(&t.to_string()));
+    }
+    let res = CommonResponseNoDataRef::success_empty();
+    HttpResponse::Ok().body(res)
+}
+
+#[post("/unblock_friend/{friend_uuid}")]
+pub async fn unblock_friend_api(
+    req: HttpRequest,
+    state: web::Data<AppState>,
+    path: web::Path<String>,
+) -> impl Responder {
+    let friend_uuid = path.into_inner();
+    let my_uuid = get_uuid_from_header!(req);
+    let res = unblock_friend_service(state.db(), my_uuid, friend_uuid).await;
+    if let Err(t) = res {
+        error!("err_context {:?}", t);
+        error!("{}", t.backtrace());
+        return HttpResponse::BadRequest()
+            .body(CommonResponseNoDataRef::error_json(&t.to_string()));
+    }
+    let res = CommonResponseNoDataRef::success_empty();
+    HttpResponse::Ok().body(res)
+}
+
+#[post("/black_list")]
+pub async fn black_list_api(req: HttpRequest, state: web::Data<AppState>) -> impl Responder {
+    let my_uuid = get_uuid_from_header!(req);
+    respond_json_any!(get_black_list_service(state.db(), my_uuid).await)
 }

@@ -2,6 +2,7 @@ use std::str::FromStr;
 
 use anyhow::anyhow;
 use common::models::user_entity::basic_user::is_exist_user_by_uuid;
+use common::models::user_entity::black_list::BlackList;
 use common::models::user_entity::friend_link::FriendLink;
 use common::models::user_entity::friend_request_info::FriendRequestInfo;
 use common::utils::time::get_now_time_stamp_as_millis;
@@ -10,7 +11,7 @@ use rbs::value;
 use uuid::Uuid;
 
 use crate::http_service::user_service::dto::friend_request_info_dto::FriendRequestInfoDTO;
-use crate::http_service::user_service::vo::friend_vo::query_friend_list;
+use crate::http_service::user_service::vo::friend_vo::{query_black_list, query_friend_list};
 use crate::utils::http_response::CommonResponseRef;
 
 /// 发起好友请求
@@ -34,7 +35,11 @@ pub async fn add_friend(
     if !is_exist_accept_user {
         return Err(anyhow!("Accept user does not exist"));
     }
-    // TODO 检查是否被接收方拉黑
+    // 检查是否被接收方拉黑
+    let blocked = is_blocked(rb, &accept_user, &request_user).await?;
+    if blocked {
+        return Err(anyhow!("You have been blocked by the accept user"));
+    }
     // TODO 检查发起/接收方好友请求是否超限
 
     // 检查是否已添加为好友
@@ -101,6 +106,11 @@ pub async fn process_friend(
     let is_exist_accept_user = is_exist_user_by_uuid(rb, &request_user).await?;
     if !is_exist_accept_user {
         return Err(anyhow!("Request user does not exist"));
+    }
+    // 检查接收方是否已被拉黑
+    let blocked = is_blocked(rb, &accept_user, &request_user).await?;
+    if blocked {
+        return Err(anyhow!("You have been blocked by the accept user"));
     }
     // TODO 检查接收方好友数量是否超限
 
@@ -252,4 +262,81 @@ pub async fn delete_friend_service(
     FriendLink::update_is_del_by_users(rb, &friend_link, &my_uuid, &friend_uuid).await?;
 
     Ok(crate::utils::http_response::CommonResponseNoDataRef::success_empty())
+}
+
+/// 检查 me_uuid 是否已被 other_uuid 拉黑
+pub async fn is_blocked(
+    rb: &RBatis,
+    me_uuid: &rbatis::rbdc::Uuid,
+    other_uuid: &rbatis::rbdc::Uuid,
+) -> Result<bool, anyhow::Error> {
+    let res = BlackList::select_by_pair(rb, other_uuid, me_uuid).await?;
+    Ok(res.is_some())
+}
+
+/// 拉黑用户
+pub async fn block_friend_service(
+    rb: &RBatis,
+    my_uuid: Option<String>,
+    friend_uuid: String,
+) -> Result<String, anyhow::Error> {
+    let my_uuid_str = my_uuid.ok_or(anyhow!("Failed to get current user ID"))?;
+    let my_uuid = rbatis::rbdc::Uuid::from_str(&my_uuid_str)?;
+    let friend_uuid = rbatis::rbdc::Uuid::from_str(&friend_uuid)?;
+
+    if my_uuid == friend_uuid {
+        return Err(anyhow!("Cannot block yourself"));
+    }
+
+    let is_exist_friend = is_exist_user_by_uuid(rb, &friend_uuid).await?;
+    if !is_exist_friend {
+        return Err(anyhow!("Friend user does not exist"));
+    }
+
+    let exist = BlackList::select_by_pair(rb, &my_uuid, &friend_uuid).await?;
+    if exist.is_some() {
+        return Err(anyhow!("Already blocked"));
+    }
+
+    let now = get_now_time_stamp_as_millis()?;
+    let black_list = BlackList {
+        uuid: Some(Uuid::now_v7().to_string().parse()?),
+        me_user: Some(my_uuid),
+        block_user: Some(friend_uuid),
+        created_at: Some(now),
+        version: Some(0),
+    };
+    BlackList::insert(rb, &black_list).await?;
+
+    Ok(crate::utils::http_response::CommonResponseNoDataRef::success_empty())
+}
+
+/// 取消拉黑用户
+pub async fn unblock_friend_service(
+    rb: &RBatis,
+    my_uuid: Option<String>,
+    friend_uuid: String,
+) -> Result<String, anyhow::Error> {
+    let my_uuid_str = my_uuid.ok_or(anyhow!("Failed to get current user ID"))?;
+    let my_uuid = rbatis::rbdc::Uuid::from_str(&my_uuid_str)?;
+    let friend_uuid = rbatis::rbdc::Uuid::from_str(&friend_uuid)?;
+
+    let exist = BlackList::select_by_pair(rb, &my_uuid, &friend_uuid).await?;
+    let exist = exist.ok_or(anyhow!("Block relation does not exist"))?;
+
+    let condition = value! {"uuid": exist.uuid.ok_or(anyhow!("Block uuid is None"))?};
+    BlackList::delete_by_map(rb, condition).await?;
+
+    Ok(crate::utils::http_response::CommonResponseNoDataRef::success_empty())
+}
+
+/// 获取黑名单列表
+pub async fn get_black_list_service(
+    rb: &RBatis,
+    my_uuid: Option<String>,
+) -> Result<String, anyhow::Error> {
+    let my_uuid_str = my_uuid.ok_or(anyhow!("Failed to get current user ID"))?;
+    let my_uuid = rbatis::rbdc::Uuid::from_str(&my_uuid_str)?;
+
+    query_black_list(rb, &my_uuid).await
 }

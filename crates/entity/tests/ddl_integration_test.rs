@@ -54,6 +54,7 @@ async fn apply_all_ddl_to_test_database() -> Result<()> {
             "user_info",
             "friend_link",
             "friend_list",
+            "black_list",
             "chat_list_link",
             "chat_message_record",
             "file_upload_record",
@@ -67,7 +68,7 @@ async fn apply_all_ddl_to_test_database() -> Result<()> {
             }
             info!("表 {} 校验通过", table);
         }
-        info!("全部 {} 张关键表校验通过", 11);
+        info!("全部 {} 张关键表校验通过", 12);
         Ok(())
     }
     .await;

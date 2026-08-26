@@ -37,6 +37,7 @@ use crate::models::notify_entity::system_notification::SystemNotification;
 use crate::models::plaza_entity::plaza_user_info::PlazaUserInfo;
 use crate::models::plaza_entity::plaza_user_tag::PlazaUserTag;
 use crate::models::user_entity::basic_user::BasicUser;
+use crate::models::user_entity::black_list::BlackList;
 use crate::models::user_entity::email_sso::EmailSso;
 use crate::models::user_entity::friend_link::FriendLink;
 use crate::models::user_entity::friend_request_info::FriendRequestInfo;
@@ -197,6 +198,18 @@ mod user_entity {
             result: None,
         };
         assert_roundtrip(&log);
+    }
+
+    #[test]
+    fn black_list_roundtrip() {
+        let list = BlackList {
+            uuid: Some(uuid("00000000-0000-0000-0000-000000000005")),
+            me_user: Some(uuid("00000000-0000-0000-0000-000000000001")),
+            block_user: Some(uuid("00000000-0000-0000-0000-000000000002")),
+            created_at: Some(1_700_000_000),
+            version: Some(0),
+        };
+        assert_roundtrip(&list);
     }
 
     #[test]
