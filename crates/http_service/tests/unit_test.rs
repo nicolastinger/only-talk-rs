@@ -768,6 +768,7 @@ mod moment {
             like_count: 3,
             comment_count: 2,
             liked_by_me: true,
+            followed_by_me: false,
             created_at: 1_700_000_000,
             updated_at: 1_700_000_001,
         });
@@ -788,6 +789,7 @@ mod moment {
                 like_count: 0,
                 comment_count: 0,
                 liked_by_me: false,
+                followed_by_me: false,
                 created_at: 1,
                 updated_at: 1,
             }],

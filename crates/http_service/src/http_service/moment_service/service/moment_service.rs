@@ -6,6 +6,7 @@ use common::models::file_entity::biz_record::BizRecord;
 use common::models::moment_entity::moment::Moment;
 use common::models::moment_entity::moment_comment::MomentComment;
 use common::models::moment_entity::moment_like::MomentLike;
+use common::models::moment_entity::user_follow::UserFollow;
 use common::utils::time::get_now_time_stamp_as_secs;
 use rbatis::RBatis;
 use rbatis::rbdc::Uuid;
@@ -13,11 +14,11 @@ use rbs::value;
 use uuid::Uuid as UuidNow;
 
 use crate::http_service::moment_service::dto::moment_dto::{
-    AddCommentDTO, CreateMomentDTO, LikeToggleDTO,
+    AddCommentDTO, CreateMomentDTO, FollowToggleDTO, LikeToggleDTO,
 };
 use crate::http_service::moment_service::vo::moment_vo::{
-    CountRow, MomentCommentListVO, MomentCommentRow, MomentCommentVO, MomentListVO, MomentRow,
-    MomentVO,
+    CountRow, MomentCommentListVO, MomentCommentRow, MomentCommentVO, MomentLikerListVO,
+    MomentLikerRow, MomentLikerVO, MomentListVO, MomentRow, MomentVO,
 };
 use crate::utils::http_response::CommonResponseRef;
 
@@ -40,6 +41,7 @@ fn to_vo(row: MomentRow) -> MomentVO {
         like_count: row.like_count.unwrap_or(0),
         comment_count: row.comment_count.unwrap_or(0),
         liked_by_me: row.liked_by_me.map(|v| v > 0).unwrap_or(false),
+        followed_by_me: row.followed_by_me.map(|v| v > 0).unwrap_or(false),
         created_at: row.created_at.unwrap_or(0),
         updated_at: row.updated_at.unwrap_or(0),
     }
@@ -53,6 +55,15 @@ fn to_comment_vo(row: MomentCommentRow) -> MomentCommentVO {
         username: row.username,
         icon: row.icon,
         content: row.content.unwrap_or_default(),
+        created_at: row.created_at.unwrap_or(0),
+    }
+}
+
+fn to_liker_vo(row: MomentLikerRow) -> MomentLikerVO {
+    MomentLikerVO {
+        uuid: row.uuid.unwrap_or_default(),
+        username: row.username,
+        icon: row.icon,
         created_at: row.created_at.unwrap_or(0),
     }
 }
@@ -154,13 +165,50 @@ pub async fn create_moment(
     get_moment_detail(rb, Some(me.to_string()), moment_uuid.to_string()).await
 }
 
-/// 分页拉取动态流(公开 + 自己可见的, 可按作者过滤)
+/// 构建动态流筛选: 返回 (WHERE 片段, 参数)
+/// feed: plaza-广场, following-关注, mine-我的; None 时保留旧逻辑(公开+自己)
+fn build_moment_filter(
+    me: &Uuid,
+    feed: Option<&str>,
+    author: Option<&Uuid>,
+) -> (String, Vec<rbs::Value>) {
+    let mut where_sql = String::from("m.is_del = false AND (");
+    let mut args = Vec::new();
+    match feed.unwrap_or("") {
+        "mine" => {
+            where_sql.push_str("m.author_uuid = ?");
+            args.push(value!(me.clone()));
+        }
+        "following" => {
+            where_sql.push_str(
+                "m.visibility = 0 AND m.author_uuid IN (SELECT target_user_uuid FROM user_follow WHERE follow_user_uuid = ? AND is_del = false)",
+            );
+            args.push(value!(me.clone()));
+        }
+        "plaza" => {
+            where_sql.push_str("m.visibility = 0");
+        }
+        _ => {
+            where_sql.push_str("m.visibility = 0 OR m.author_uuid = ?");
+            args.push(value!(me.clone()));
+        }
+    }
+    where_sql.push(')');
+    if let Some(a) = author {
+        where_sql.push_str(" AND m.author_uuid = ?");
+        args.push(value!(a.clone()));
+    }
+    (where_sql, args)
+}
+
+/// 分页拉取动态流(按 feed: plaza/following/mine; 缺省=公开+自己)
 pub async fn get_moment_list(
     rb: &RBatis,
     my_uuid: Option<String>,
     page_num: u32,
     page_size: u32,
     author_uuid: Option<String>,
+    feed: Option<String>,
 ) -> Result<String, anyhow::Error> {
     let me = parse_uuid(my_uuid)?.ok_or_else(|| anyhow!("Failed to get account"))?;
     let page_num = page_num.max(1);
@@ -169,33 +217,25 @@ pub async fn get_moment_list(
 
     let author = author_uuid.map(|s| parse_uuid(Some(s))).transpose()?.flatten();
 
-    let mut count_sql = "SELECT count(*) as count FROM moment m WHERE m.is_del = false AND (m.visibility = 0 OR m.author_uuid = ?)".to_string();
-    let mut count_args = vec![value!(me.clone())];
-    if let Some(a) = &author {
-        count_sql.push_str(" AND m.author_uuid = ?");
-        count_args.push(value!(a.clone()));
-    }
-    let count_row: Option<CountRow> = rb.query_decode(&count_sql, count_args).await?;
+    let (where_sql, where_args) = build_moment_filter(&me, feed.as_deref(), author.as_ref());
+
+    let count_sql = format!("SELECT count(*) as count FROM moment m WHERE {where_sql}");
+    let count_row: Option<CountRow> = rb.query_decode(&count_sql, where_args.clone()).await?;
     let total = count_row.map(|r| r.count).unwrap_or(0) as u32;
 
-    let select_sql = "SELECT m.uuid, m.author_uuid, m.content, m.visibility::int as visibility, \
+    let select_sql = format!(
+        "SELECT m.uuid, m.author_uuid, m.content, m.visibility::int as visibility, \
         m.created_at, m.updated_at, bu.username, bu.icon, \
         (SELECT count(*) FROM biz_file_link bf WHERE bf.biz_id = m.uuid) as image_count, \
         (SELECT count(*) FROM moment_like ml WHERE ml.moment_uuid = m.uuid AND ml.is_del = false) as like_count, \
         (SELECT count(*) FROM moment_comment mc WHERE mc.moment_uuid = m.uuid AND mc.is_del = false) as comment_count, \
-        (SELECT count(*) FROM moment_like ml2 WHERE ml2.moment_uuid = m.uuid AND ml2.user_uuid = ? AND ml2.is_del = false) as liked_by_me \
+        (SELECT count(*) FROM moment_like ml2 WHERE ml2.moment_uuid = m.uuid AND ml2.user_uuid = ? AND ml2.is_del = false) as liked_by_me, \
+        (SELECT count(*) FROM user_follow uf WHERE uf.follow_user_uuid = ? AND uf.target_user_uuid = m.author_uuid AND uf.is_del = false) as followed_by_me \
         FROM moment m JOIN basic_user bu ON m.author_uuid = bu.uuid \
-        WHERE m.is_del = false AND (m.visibility = 0 OR m.author_uuid = ?)";
-    let mut select_sql = if author.is_some() {
-        format!("{select_sql} AND m.author_uuid = ?")
-    } else {
-        select_sql.to_string()
-    };
-    select_sql.push_str(" ORDER BY m.created_at DESC LIMIT ? OFFSET ?");
+        WHERE {where_sql} ORDER BY m.created_at DESC LIMIT ? OFFSET ?"
+    );
     let mut args = vec![value!(me.clone()), value!(me.clone())];
-    if let Some(a) = &author {
-        args.push(value!(a.clone()));
-    }
+    args.extend(where_args);
     args.push(value!(page_size as i64));
     args.push(value!(offset));
     let rows: Vec<MomentRow> = rb.query_decode(&select_sql, args).await?;
@@ -218,10 +258,16 @@ pub async fn get_moment_detail(
         (SELECT count(*) FROM biz_file_link bf WHERE bf.biz_id = m.uuid) as image_count, \
         (SELECT count(*) FROM moment_like ml WHERE ml.moment_uuid = m.uuid AND ml.is_del = false) as like_count, \
         (SELECT count(*) FROM moment_comment mc WHERE mc.moment_uuid = m.uuid AND mc.is_del = false) as comment_count, \
-        (SELECT count(*) FROM moment_like ml2 WHERE ml2.moment_uuid = m.uuid AND ml2.user_uuid = ? AND ml2.is_del = false) as liked_by_me \
+        (SELECT count(*) FROM moment_like ml2 WHERE ml2.moment_uuid = m.uuid AND ml2.user_uuid = ? AND ml2.is_del = false) as liked_by_me, \
+        (SELECT count(*) FROM user_follow uf WHERE uf.follow_user_uuid = ? AND uf.target_user_uuid = m.author_uuid AND uf.is_del = false) as followed_by_me \
         FROM moment m JOIN basic_user bu ON m.author_uuid = bu.uuid \
         WHERE m.uuid = ? AND m.is_del = false AND (m.visibility = 0 OR m.author_uuid = ?)";
-    let args = vec![value!(me.clone()), value!(moment_uuid.clone()), value!(me.clone())];
+    let args = vec![
+        value!(me.clone()),
+        value!(me.clone()),
+        value!(moment_uuid.clone()),
+        value!(me.clone()),
+    ];
     let row: Option<MomentRow> = rb.query_decode(select_sql, args).await?;
     let Some(row) = row else {
         return Err(anyhow!("动态不存在"));
@@ -258,6 +304,42 @@ pub async fn switch_like(
                 created_at: Some(now),
             };
             MomentLike::insert(rb, &like).await?;
+            Ok(())
+        }
+    }
+}
+
+/// 关注/取消关注(切换)
+pub async fn switch_follow(
+    rb: &RBatis,
+    my_uuid: Option<String>,
+    dto: FollowToggleDTO,
+) -> Result<(), anyhow::Error> {
+    let me = parse_uuid(my_uuid)?.ok_or_else(|| anyhow!("Failed to get account"))?;
+    let target = parse_uuid(Some(dto.target_user_uuid))?.ok_or_else(|| anyhow!("invalid uuid"))?;
+    if target == me {
+        return Err(anyhow!("不能关注自己"));
+    }
+
+    let now = get_now_time_stamp_as_secs()?;
+    let existing = UserFollow::select_by_follow_and_target(rb, &me, &target).await?;
+    match existing {
+        Some(mut follow) => {
+            follow.is_del = Some(!follow.is_del.unwrap_or(true));
+            let id = follow.id.clone().ok_or_else(|| anyhow!("follow id missing"))?;
+            UserFollow::update_by_map(rb, &follow, value! {"id": id}).await?;
+            Ok(())
+        }
+        None => {
+            let id: Uuid = UuidNow::now_v7().to_string().parse()?;
+            let follow = UserFollow {
+                id: Some(id),
+                follow_user_uuid: Some(me),
+                target_user_uuid: Some(target),
+                is_del: Some(false),
+                created_at: Some(now),
+            };
+            UserFollow::insert(rb, &follow).await?;
             Ok(())
         }
     }
@@ -344,4 +426,40 @@ pub async fn get_comments(
         total,
         list,
     })?)
+}
+
+/// 分页拉取赞过的人
+pub async fn get_like_list(
+    rb: &RBatis,
+    my_uuid: Option<String>,
+    moment_uuid_str: String,
+    page_num: u32,
+    page_size: u32,
+) -> Result<String, anyhow::Error> {
+    let me = parse_uuid(my_uuid)?.ok_or_else(|| anyhow!("Failed to get account"))?;
+    let moment_uuid = parse_uuid(Some(moment_uuid_str))?.ok_or_else(|| anyhow!("invalid uuid"))?;
+    ensure_moment_visible(rb, &moment_uuid, &me).await?;
+
+    let page_num = page_num.max(1);
+    let page_size = page_size.clamp(1, 50);
+    let offset = (page_num as i64 - 1) * page_size as i64;
+
+    let count_sql = "SELECT count(*) as count FROM moment_like ml WHERE ml.moment_uuid = ? AND ml.is_del = false";
+    let count_row: Option<CountRow> =
+        rb.query_decode(count_sql, vec![value!(moment_uuid.clone())]).await?;
+    let total = count_row.map(|r| r.count).unwrap_or(0) as u32;
+
+    let select_sql = "SELECT bu.uuid, bu.username, bu.icon, ml.created_at \
+        FROM moment_like ml JOIN basic_user bu ON ml.user_uuid = bu.uuid \
+        WHERE ml.moment_uuid = ? AND ml.is_del = false \
+        ORDER BY ml.created_at DESC LIMIT ? OFFSET ?";
+    let rows: Vec<MomentLikerRow> = rb
+        .query_decode(
+            select_sql,
+            vec![value!(moment_uuid.clone()), value!(page_size as i64), value!(offset)],
+        )
+        .await?;
+
+    let list = rows.into_iter().map(to_liker_vo).collect();
+    Ok(CommonResponseRef::<MomentLikerListVO>::success_json(&MomentLikerListVO { total, list })?)
 }

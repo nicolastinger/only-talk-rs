@@ -12,6 +12,7 @@ pub struct MomentVO {
     pub like_count: i64,
     pub comment_count: i64,
     pub liked_by_me: bool,
+    pub followed_by_me: bool,
     pub created_at: i64,
     pub updated_at: i64,
 }
@@ -39,6 +40,20 @@ pub struct MomentCommentListVO {
     pub list: Vec<MomentCommentVO>,
 }
 
+#[derive(Serialize, Debug)]
+pub struct MomentLikerVO {
+    pub uuid: String,
+    pub username: Option<String>,
+    pub icon: Option<String>,
+    pub created_at: i64,
+}
+
+#[derive(Serialize, Debug)]
+pub struct MomentLikerListVO {
+    pub total: u32,
+    pub list: Vec<MomentLikerVO>,
+}
+
 #[derive(Deserialize, Debug)]
 pub struct MomentRow {
     pub uuid: Option<String>,
@@ -53,6 +68,7 @@ pub struct MomentRow {
     pub like_count: Option<i64>,
     pub comment_count: Option<i64>,
     pub liked_by_me: Option<i64>,
+    pub followed_by_me: Option<i64>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -69,4 +85,12 @@ pub struct MomentCommentRow {
 #[derive(Deserialize, Debug)]
 pub struct CountRow {
     pub count: i64,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct MomentLikerRow {
+    pub uuid: Option<String>,
+    pub username: Option<String>,
+    pub icon: Option<String>,
+    pub created_at: Option<i64>,
 }

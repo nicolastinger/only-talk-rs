@@ -13,11 +13,19 @@ pub struct CreateMomentDTO {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MomentListQuery {
     pub author_uuid: Option<String>,
+    /// 动态流类型: plaza-广场, following-关注, mine-我的
+    pub feed: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct LikeToggleDTO {
     pub moment_uuid: String,
+}
+
+/// 关注切换
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct FollowToggleDTO {
+    pub target_user_uuid: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -28,5 +36,10 @@ pub struct AddCommentDTO {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CommentListQuery {
+    pub moment_uuid: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct LikeListQuery {
     pub moment_uuid: String,
 }
