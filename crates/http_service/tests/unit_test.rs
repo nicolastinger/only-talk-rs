@@ -21,8 +21,7 @@ use http_service::http_service::group_service::group_vo::group_message_vo::{
     GroupMessageVO, UnreadCountVO,
 };
 use http_service::http_service::moment_service::dto::moment_dto::{
-    AddCommentDTO, CommentListQuery, CreateMomentDTO, DeleteMomentDTO, FollowToggleDTO,
-    LikeToggleDTO, MomentListQuery,
+    AddCommentDTO, CommentListQuery, CreateMomentDTO, DeleteMomentDTO, LikeToggleDTO,
 };
 use http_service::http_service::moment_service::vo::moment_vo::{
     MomentCommentListVO, MomentCommentVO, MomentListVO, MomentVO,
