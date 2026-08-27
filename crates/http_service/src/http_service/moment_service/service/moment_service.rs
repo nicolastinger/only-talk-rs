@@ -14,7 +14,7 @@ use rbs::value;
 use uuid::Uuid as UuidNow;
 
 use crate::http_service::moment_service::dto::moment_dto::{
-    AddCommentDTO, CreateMomentDTO, FollowToggleDTO, LikeToggleDTO,
+    AddCommentDTO, CreateMomentDTO, DeleteMomentDTO, FollowToggleDTO, LikeToggleDTO,
 };
 use crate::http_service::moment_service::vo::moment_vo::{
     CountRow, MomentCommentListVO, MomentCommentRow, MomentCommentVO, MomentLikerListVO,
@@ -343,6 +343,32 @@ pub async fn switch_follow(
             Ok(())
         }
     }
+}
+
+/// 删除动态(仅作者, 软删)
+pub async fn delete_moment(
+    rb: &RBatis,
+    my_uuid: Option<String>,
+    dto: DeleteMomentDTO,
+) -> Result<(), anyhow::Error> {
+    let me = parse_uuid(my_uuid)?.ok_or_else(|| anyhow!("Failed to get account"))?;
+    let moment_uuid = parse_uuid(Some(dto.moment_uuid))?.ok_or_else(|| anyhow!("invalid uuid"))?;
+
+    let moment = Moment::select_by_uuid(rb, &moment_uuid).await?;
+    let Some(mut moment) = moment else {
+        return Err(anyhow!("动态不存在"));
+    };
+    if moment.author_uuid.as_ref() != Some(&me) {
+        return Err(anyhow!("无权操作"));
+    }
+    if moment.is_del.unwrap_or(false) {
+        return Ok(());
+    }
+    moment.is_del = Some(true);
+    moment.updated_at = Some(get_now_time_stamp_as_secs()?);
+    let id = moment.uuid.clone().ok_or_else(|| anyhow!("moment uuid missing"))?;
+    Moment::update_by_map(rb, &moment, value! {"uuid": id}).await?;
+    Ok(())
 }
 
 /// 发表评论

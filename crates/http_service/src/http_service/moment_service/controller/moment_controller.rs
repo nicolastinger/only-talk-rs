@@ -3,12 +3,12 @@ use tracing::error;
 
 use crate::common::dto::base_dto::{AuthAccount, ReqList};
 use crate::http_service::moment_service::dto::moment_dto::{
-    AddCommentDTO, CommentListQuery, CreateMomentDTO, FollowToggleDTO, LikeListQuery,
-    LikeToggleDTO, MomentListQuery,
+    AddCommentDTO, CommentListQuery, CreateMomentDTO, DeleteMomentDTO, FollowToggleDTO,
+    LikeListQuery, LikeToggleDTO, MomentListQuery,
 };
 use crate::http_service::moment_service::service::moment_service::{
-    add_comment, create_moment, get_comments, get_like_list, get_moment_detail, get_moment_list,
-    switch_follow, switch_like,
+    add_comment, create_moment, delete_moment, get_comments, get_like_list, get_moment_detail,
+    get_moment_list, switch_follow, switch_like,
 };
 use crate::state::AppState;
 use crate::utils::http_response::{CommonResponse, CommonResponseNoDataRef};
@@ -18,6 +18,7 @@ pub fn moment_service(cfg: &mut web::ServiceConfig) {
     cfg.service(create_api)
         .service(list_api)
         .service(detail_api)
+        .service(delete_api)
         .service(like_switch_api)
         .service(like_list_api)
         .service(follow_switch_api)
@@ -73,6 +74,20 @@ pub async fn detail_api(
     let uuid = get_uuid_from_header!(req);
     let moment_uuid = path.into_inner();
     respond_json_any!(get_moment_detail(state.db(), uuid, moment_uuid).await)
+}
+
+#[post("/delete")]
+pub async fn delete_api(
+    req: HttpRequest,
+    state: web::Data<AppState>,
+    body: web::Json<DeleteMomentDTO>,
+) -> impl Responder {
+    let me = get_uuid_from_header!(req);
+    let dto = body.into_inner();
+    match delete_moment(state.db(), me, dto).await {
+        Ok(_) => succeed(),
+        Err(t) => fail(&t),
+    }
 }
 
 #[post("/like/switch")]

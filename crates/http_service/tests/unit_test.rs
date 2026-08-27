@@ -21,7 +21,8 @@ use http_service::http_service::group_service::group_vo::group_message_vo::{
     GroupMessageVO, UnreadCountVO,
 };
 use http_service::http_service::moment_service::dto::moment_dto::{
-    AddCommentDTO, CommentListQuery, CreateMomentDTO, LikeToggleDTO,
+    AddCommentDTO, CommentListQuery, CreateMomentDTO, DeleteMomentDTO, FollowToggleDTO,
+    LikeToggleDTO, MomentListQuery,
 };
 use http_service::http_service::moment_service::vo::moment_vo::{
     MomentCommentListVO, MomentCommentVO, MomentListVO, MomentVO,
@@ -748,6 +749,7 @@ mod moment {
             file_ids: vec!["f1".to_string(), "f2".to_string()],
         });
         assert_roundtrip(&LikeToggleDTO { moment_uuid: "m1".to_string() });
+        assert_roundtrip(&DeleteMomentDTO { moment_uuid: "m1".to_string() });
         assert_roundtrip(&AddCommentDTO {
             moment_uuid: "m1".to_string(),
             content: "写得好".to_string(),

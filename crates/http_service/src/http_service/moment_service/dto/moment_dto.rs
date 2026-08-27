@@ -34,6 +34,12 @@ pub struct AddCommentDTO {
     pub content: String,
 }
 
+/// 删除动态(仅作者, 软删 is_del=true)
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DeleteMomentDTO {
+    pub moment_uuid: String,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CommentListQuery {
     pub moment_uuid: String,
