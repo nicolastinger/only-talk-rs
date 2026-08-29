@@ -10,6 +10,7 @@ use common::models::group_entity::group_member::GroupMember;
 use common::models::group_entity::group_message_record::GroupMessageRecord;
 use common::state::CoreState;
 use common::utils::jwt_util::{Claims, verify_token};
+use common::utils::mask::mask_addr;
 use common::utils::time::get_now_time_stamp_as_millis;
 use dashmap::DashMap;
 use deadpool_redis::redis::AsyncCommands;
@@ -62,7 +63,7 @@ pub(crate) async fn run_server(
             }
         };
 
-        info!("[server] 已接受连接: address={}", conn.remote_address());
+        info!("[server] 已接受连接: address={}", mask_addr(&conn.remote_address().to_string()));
         let conns = connections.clone();
         let cfg = config.clone();
         let core_clone = core.clone();
@@ -80,7 +81,7 @@ async fn handle_connection(
     config: ChatNodeConfig,
     core: CoreState,
 ) -> Result<(), anyhow::Error> {
-    info!("新连接来源: {:?}", quic_conn.remote_address());
+    info!("新连接来源: {}", mask_addr(&quic_conn.remote_address().to_string()));
 
     loop {
         match quic_conn.accept_bi().await {
@@ -117,7 +118,7 @@ async fn handle_connection(
 async fn process_first_msg(
     send_stream: &mut SendStream,
     recv_stream: &mut RecvStream,
-    address: &String,
+    address: &str,
 ) -> Result<FirstQuicMsg, anyhow::Error> {
     // 接收流元数据，确认消息类型和头部长度
     let mut _first_quic_msg = FirstQuicMsg::new();
@@ -125,7 +126,7 @@ async fn process_first_msg(
     match recv_stream.read(&mut first_buffer).await {
         Ok(Some(length)) => {
             let origin_str = String::from_utf8_lossy(&first_buffer[0..length]);
-            info!("[server] 收到客户端初始化数据，长度: {}, 内容: {}", length, origin_str);
+            info!("[server] 收到客户端初始化数据，长度: {}", length);
             match serde_json::from_str(&origin_str) {
                 Ok(t) => {
                     _first_quic_msg = t;
@@ -135,7 +136,7 @@ async fn process_first_msg(
                     );
                 }
                 Err(e) => {
-                    error!("序列化流元数据失败: {}, 原始数据: {}", e, origin_str);
+                    error!("序列化流元数据失败: {}", e);
                     send_stream.finish().await?;
                     return Err(anyhow!("[server] Client init message format error"));
                 }
@@ -144,13 +145,13 @@ async fn process_first_msg(
         Ok(None) => {
             error!(
                 "[server] 接收客户端初始化消息失败: 客户端在发送初始化消息前已关闭连接，客户端地址: {}",
-                address
+                mask_addr(address)
             );
             send_stream.finish().await?;
             return Err(anyhow!("[server] Client closed connection without sending init message"));
         }
         Err(e) => {
-            error!("[server] 读取初始化元数据失败: {}, 客户端地址: {}", e, address.as_str());
+            error!("[server] 读取初始化元数据失败: {}, 客户端地址: {}", e, mask_addr(address));
             send_stream.finish().await?;
             return Err(anyhow!("[server] Error reading client init message"));
         }
@@ -243,10 +244,10 @@ async fn handle_conn(
     config: ChatNodeConfig,
     core: CoreState,
 ) -> Result<(), anyhow::Error> {
-    info!("[server] 正在处理新连接，客户端地址: {}", address);
+    info!("[server] 正在处理新连接，客户端地址: {}", mask_addr(&address));
 
     let first_quic_msg =
-        process_first_msg(&mut send_stream, &mut recv_stream, &address.clone()).await?;
+        process_first_msg(&mut send_stream, &mut recv_stream, &address).await?;
     let head_length = first_quic_msg.dyn_header_size;
     let claims = authenticate_connection(&first_quic_msg, &mut send_stream).await?;
     let platform = claims.sub;

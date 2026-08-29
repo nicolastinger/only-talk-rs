@@ -7,6 +7,7 @@ use common::config_str::{REDIS_INTERNAL_QUIC_SERVERS, REDIS_QUIC_SERVERS, REDIS_
 use common::state::CoreState;
 use common::utils::group_msg::{InternalGroupBroadcast, InternalGroupBroadcastResponse};
 use common::utils::internal_quic_msg::{InternalQuicRequest, InternalQuicResponse};
+use common::utils::mask::mask_addr;
 use dashmap::DashMap;
 use deadpool_redis::redis::AsyncCommands;
 use quinn::{Endpoint, RecvStream, SendStream, ServerConfig};
@@ -241,7 +242,7 @@ pub async fn run_internal_server(
 
         let conn = match incoming_conn.await {
             Ok(c) => {
-                info!("[内部 QUIC 服务器] 新连接已建立 remote_addr={}", c.remote_address());
+                info!("[内部 QUIC 服务器] 新连接已建立 remote_addr={}", mask_addr(&c.remote_address().to_string()));
                 c
             }
             Err(e) => {

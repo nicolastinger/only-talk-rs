@@ -5,6 +5,7 @@ use common::config_str::{SYSTEM, USER_UDP_ADDRESS, USER_UDP_ADDRESS_LOCK};
 use common::read_global_config;
 use common::state::CoreState;
 use common::utils::jwt_util::verify_token;
+use common::utils::mask::mask_addr;
 use common::utils::message_types;
 use common::utils::redis_utils::{acquire_lock, release_lock};
 use dashmap::DashMap;
@@ -152,7 +153,7 @@ pub async fn get_p2p_udp_socket_with_shutdown(
                         let client_port = src.port();
 
                         let udp_addr = format!("{}:{}", client_ip, client_port);
-                        info!("从 {}:{} 收到消息 size={}", client_ip, client_port, size);
+                        info!("从 {} 收到消息 size={}", mask_addr(&udp_addr), size);
 
                         let res = serde_json::from_slice::<UserAddressInfo>(&buf[..size]);
                         match res {
@@ -165,7 +166,7 @@ pub async fn get_p2p_udp_socket_with_shutdown(
                             })
                            },
                            Err(e) => {
-                            error!("NAT 地址信息解析失败，来源 {}:{},{}", client_ip, client_port, e);
+                            error!("NAT 地址信息解析失败，来源 {},{}", mask_addr(&udp_addr), e);
                             buf[..size].fill(0);
                             continue;
                            }
@@ -214,7 +215,7 @@ pub async fn get_p2p_udp_socket(
                             })
                            },
                            Err(e) => {
-                            error!("NAT 地址信息解析失败，来源 {}:{},{}", client_ip, client_port, e);
+                            error!("NAT 地址信息解析失败，来源 {},{}", mask_addr(&udp_addr), e);
                             buf[..size].fill(0);
                             continue;
                            }
@@ -238,7 +239,7 @@ async fn process_p2p_user_info(
     match verify_token(user_address_info.token.as_ref()) {
         Ok(claims) => {
             let uuid = claims.uuid;
-            info!("从 {} 收到消息，用户 uuid: {}", udp_addr, uuid);
+            info!("从 {} 收到消息，用户 uuid: {}", mask_addr(&udp_addr), uuid);
             let key = format!("{}{}_{}", USER_UDP_ADDRESS, ip_type, uuid);
             let lock_key = format!("{}{}_{}", USER_UDP_ADDRESS_LOCK, ip_type, uuid);
             let lock_key = lock_key.to_uppercase();
@@ -263,7 +264,7 @@ async fn process_p2p_user_info(
                 let result: String = conn.get(&lock_key).await?;
                 let user_addr = result.split('_').skip(1).collect::<Vec<&str>>().join("");
 
-                info!("自身地址: {:?}, 完整信息: {:?}", user_addr, user_address_info);
+                info!("自身地址: {}, uuid: {}, nat_type: {}", mask_addr(&user_addr), user_address_info.uuid, user_address_info.nat_type);
                 if user_addr == user_address_info.address {
                     user_address_info.nat_type = 3;
                 } else {

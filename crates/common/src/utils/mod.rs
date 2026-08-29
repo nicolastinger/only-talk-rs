@@ -1,6 +1,7 @@
 pub mod fatal_error;
 pub mod group_msg;
 pub mod internal_quic_client;
+pub mod mask;
 pub mod internal_quic_msg;
 pub mod jwt_util;
 pub mod message_types;
