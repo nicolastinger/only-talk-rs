@@ -8,6 +8,7 @@ use deadpool_redis::Pool;
 use tracing::{info, warn};
 
 use crate::config_str::REDIS_EXTERNAL_QUIC_SERVERS;
+use crate::utils::mask::mask_addr;
 
 /// 全局 server_count,无锁读取(热点路径)
 pub static SERVER_COUNT: std::sync::LazyLock<Arc<AtomicU32>> =
@@ -90,6 +91,6 @@ pub async fn register_external_node(
     let mut conn = pool.get().await?;
     let key = format!("{}{}", REDIS_EXTERNAL_QUIC_SERVERS, server_index);
     conn.set_ex::<&str, &str, ()>(&key, node_address, 120).await?;
-    info!("外网 QUIC 节点已注册: key={} value={} TTL=120s", key, node_address);
+    info!("外网 QUIC 节点已注册: key={} value={} TTL=120s", key, mask_addr(node_address));
     Ok(())
 }

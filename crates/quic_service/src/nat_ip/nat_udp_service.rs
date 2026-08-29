@@ -264,7 +264,12 @@ async fn process_p2p_user_info(
                 let result: String = conn.get(&lock_key).await?;
                 let user_addr = result.split('_').skip(1).collect::<Vec<&str>>().join("");
 
-                info!("自身地址: {}, uuid: {}, nat_type: {}", mask_addr(&user_addr), user_address_info.uuid, user_address_info.nat_type);
+                info!(
+                    "自身地址: {}, uuid: {}, nat_type: {}",
+                    mask_addr(&user_addr),
+                    user_address_info.uuid,
+                    user_address_info.nat_type
+                );
                 if user_addr == user_address_info.address {
                     user_address_info.nat_type = 3;
                 } else {

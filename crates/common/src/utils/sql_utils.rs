@@ -10,9 +10,11 @@ use rbdc_pg::options::PgConnectOptions;
 use rbdc_pool_fast::FastPool;
 use tracing::info;
 
+use crate::utils::mask::mask_url;
+
 /// 初始化 SQL 连接池
 pub async fn init_sql_pool(url: &str) -> Result<RBatis, anyhow::Error> {
-    info!("正在连接数据库 - 地址: {}", url);
+    info!("正在连接数据库 - 地址: {}", mask_url(url));
     let rb = RBatis::new();
 
     let mut opts = PgConnectOptions::new();

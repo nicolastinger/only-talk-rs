@@ -246,8 +246,7 @@ async fn handle_conn(
 ) -> Result<(), anyhow::Error> {
     info!("[server] 正在处理新连接，客户端地址: {}", mask_addr(&address));
 
-    let first_quic_msg =
-        process_first_msg(&mut send_stream, &mut recv_stream, &address).await?;
+    let first_quic_msg = process_first_msg(&mut send_stream, &mut recv_stream, &address).await?;
     let head_length = first_quic_msg.dyn_header_size;
     let claims = authenticate_connection(&first_quic_msg, &mut send_stream).await?;
     let platform = claims.sub;

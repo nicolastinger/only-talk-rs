@@ -32,6 +32,21 @@ fn mask_host(host: &str) -> String {
     }
 }
 
+/// 脱敏连接串（URL），隐藏其中的用户名/密码，保留 scheme 与 host:port/db。
+///
+/// - `postgres://postgres:secret@127.0.0.1:5432/postgres` -> `postgres://***@127.0.0.1:5432/postgres`
+/// - `redis://:change-me@redis:6379/0` -> `redis://***@redis:6379/0`
+/// - `redis://127.0.0.1:6379/`（无凭据）-> 原样保留
+pub fn mask_url(url: &str) -> String {
+    match url.split_once('@') {
+        Some((head, tail)) => {
+            let scheme = head.split("://").next().unwrap_or("");
+            format!("{}://***@{}", scheme, tail)
+        }
+        None => url.to_string(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -54,5 +69,20 @@ mod tests {
     #[test]
     fn test_mask_bad_addr() {
         assert_eq!(mask_addr("not-an-address"), "x.x.x.x");
+    }
+
+    #[test]
+    fn test_mask_url_with_credentials() {
+        assert_eq!(
+            mask_url("postgres://postgres:secret@127.0.0.1:5432/postgres"),
+            "postgres://***@127.0.0.1:5432/postgres"
+        );
+        assert_eq!(mask_url("redis://:change-me@redis:6379/0"), "redis://***@redis:6379/0");
+    }
+
+    #[test]
+    fn test_mask_url_without_credentials() {
+        assert_eq!(mask_url("redis://127.0.0.1:6379/"), "redis://127.0.0.1:6379/");
+        assert_eq!(mask_url("not-a-url"), "not-a-url");
     }
 }

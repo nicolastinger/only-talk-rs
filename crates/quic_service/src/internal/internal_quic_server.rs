@@ -180,7 +180,7 @@ async fn register_to_redis(core: &CoreState, config: &InternalQuicConfig) -> Res
     let key = format!("{}{}", REDIS_INTERNAL_QUIC_SERVERS, config.server_index);
     let value = config.node_address.clone();
     conn.set_ex::<&str, &str, ()>(&key, &value, 7200).await?;
-    info!("[内部 QUIC 服务器] 已注册到 Redis key={} value={} (TTL=7200s)", key, value);
+    info!("[内部 QUIC 服务器] 已注册到 Redis key={} value={} (TTL=7200s)", key, mask_addr(&value));
     Ok(())
 }
 
@@ -200,7 +200,9 @@ pub async fn run_internal_server(
 ) {
     info!(
         "[内部 QUIC 服务器] 正在初始化... bind_address={} server_index={} node_address={}",
-        config.bind_address, config.server_index, config.node_address
+        config.bind_address,
+        config.server_index,
+        mask_addr(&config.node_address)
     );
 
     let endpoint = match make_internal_endpoint(config.bind_address) {
@@ -242,7 +244,10 @@ pub async fn run_internal_server(
 
         let conn = match incoming_conn.await {
             Ok(c) => {
-                info!("[内部 QUIC 服务器] 新连接已建立 remote_addr={}", mask_addr(&c.remote_address().to_string()));
+                info!(
+                    "[内部 QUIC 服务器] 新连接已建立 remote_addr={}",
+                    mask_addr(&c.remote_address().to_string())
+                );
                 c
             }
             Err(e) => {

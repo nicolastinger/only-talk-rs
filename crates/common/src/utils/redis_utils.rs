@@ -4,9 +4,11 @@ use deadpool_redis::{Config as RedisConfig, Connection, Pool, Runtime};
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
+use crate::utils::mask::mask_url;
+
 /// 初始化 Redis 连接池
 pub fn init_redis(url: &str) -> Result<Pool, anyhow::Error> {
-    info!("正在连接 Redis - 地址: {}", url);
+    info!("正在连接 Redis - 地址: {}", mask_url(url));
     let config = RedisConfig::from_url(url);
     let pool = config
         .create_pool(Some(Runtime::Tokio1))
