@@ -18,16 +18,16 @@ locales="zh-CN"
 log_level="info"
 
 [quic_server]
-address="0.0.0.0:4433"
+address="${QUIC_SERVER_ADDRESS}"
 cert_path="./config/ssl/fullchain.pem"
 key_path="./config/ssl/privkey.pem"
-server_name="127.0.0.1:4433"
-node_address="127.0.0.1:4433"
+server_name="${QUIC_SERVER_NAME}"
+node_address="${QUIC_NODE_ADDRESS}"
 
 [internal_quic_server]
-address="127.0.0.1:4434"
-server_name="INTERNAL_SERVER_1"
-node_address="127.0.0.1:4434"
+address="${INTERNAL_QUIC_SERVER_ADDRESS}"
+server_name="${INTERNAL_QUIC_SERVER_NAME}"
+node_address="${INTERNAL_QUIC_NODE_ADDRESS}"
 
 [file_upload]
 max_file_size = 20485760  # 20MB in bytes
