@@ -256,15 +256,14 @@ impl S3Client {
             "{{\"Version\":\"2012-10-17\",\"Statement\":[{{\"Effect\":\"Allow\",\"Principal\":\"*\",\"Action\":[\"s3:GetObject\"],\"Resource\":[\"arn:aws:s3:::{}/*\"]}}]}}",
             bucket
         );
-        self.inner
-            .put_bucket_policy()
-            .bucket(bucket)
-            .policy(&policy_str)
-            .send()
-            .await
-            .map_err(|e| {
-                S3Error::AwsError(format!("Failed to set public policy on bucket {}: {}", bucket, e))
-            })?;
+        self.inner.put_bucket_policy().bucket(bucket).policy(&policy_str).send().await.map_err(
+            |e| {
+                S3Error::AwsError(format!(
+                    "Failed to set public policy on bucket {}: {}",
+                    bucket, e
+                ))
+            },
+        )?;
         info!("S3 桶 {} 已设置公开读策略", bucket);
         Ok(())
     }
