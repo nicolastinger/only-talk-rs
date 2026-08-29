@@ -195,6 +195,9 @@ impl S3Client {
     /// `default_bucket`, `chat_file_preview_bucket`, `chat_file_origin_bucket`,
     /// `user_avatar_bucket` and `group_avatar_bucket`.
     ///
+    /// Avatar buckets (`user_avatar_bucket` / `group_avatar_bucket`) are treated
+    /// as public and get a public-read policy so their `public_url()` links work.
+    ///
     /// This is an idempotent operation, safe to call on every startup.
     ///
     /// # Returns
@@ -212,6 +215,11 @@ impl S3Client {
         buckets.dedup();
         for bucket in buckets {
             self.ensure_bucket(bucket).await?;
+        }
+
+        // 头像桶需公开读，否则 public_url 无法直接访问
+        for bucket in [&self.config.user_avatar_bucket, &self.config.group_avatar_bucket] {
+            self.ensure_public_read_policy(bucket).await?;
         }
         Ok(())
     }
@@ -236,6 +244,28 @@ impl S3Client {
             info!("S3 桶 {} 已存在", bucket);
         }
 
+        Ok(())
+    }
+
+    /// Ensure a bucket has a public-read policy (idempotent)
+    ///
+    /// Grants `s3:GetObject` to anonymous principal so objects are publicly
+    /// accessible via `public_url()`.
+    async fn ensure_public_read_policy(&self, bucket: &str) -> Result<(), S3Error> {
+        let policy_str = format!(
+            "{{\"Version\":\"2012-10-17\",\"Statement\":[{{\"Effect\":\"Allow\",\"Principal\":\"*\",\"Action\":[\"s3:GetObject\"],\"Resource\":[\"arn:aws:s3:::{}/*\"]}}]}}",
+            bucket
+        );
+        self.inner
+            .put_bucket_policy()
+            .bucket(bucket)
+            .policy(&policy_str)
+            .send()
+            .await
+            .map_err(|e| {
+                S3Error::AwsError(format!("Failed to set public policy on bucket {}: {}", bucket, e))
+            })?;
+        info!("S3 桶 {} 已设置公开读策略", bucket);
         Ok(())
     }
 }
