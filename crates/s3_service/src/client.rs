@@ -186,14 +186,44 @@ impl S3Client {
     /// }
     /// ```
     pub async fn ensure_default_bucket(&self) -> Result<(), S3Error> {
-        let bucket = &self.config.default_bucket;
+        self.ensure_bucket(&self.config.default_bucket).await
+    }
 
+    /// Ensure all configured buckets exist
+    ///
+    /// Checks and creates (if missing) every bucket referenced by the config:
+    /// `default_bucket`, `chat_file_preview_bucket`, `chat_file_origin_bucket`,
+    /// `user_avatar_bucket` and `group_avatar_bucket`.
+    ///
+    /// This is an idempotent operation, safe to call on every startup.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on success, error on failure
+    pub async fn ensure_all_buckets(&self) -> Result<(), S3Error> {
+        let mut buckets = vec![
+            &self.config.default_bucket,
+            &self.config.chat_file_preview_bucket,
+            &self.config.chat_file_origin_bucket,
+            &self.config.user_avatar_bucket,
+            &self.config.group_avatar_bucket,
+        ];
+        // Deduplicate to avoid repeated HEAD/CREATE for identical bucket names
+        buckets.dedup();
+        for bucket in buckets {
+            self.ensure_bucket(bucket).await?;
+        }
+        Ok(())
+    }
+
+    /// Ensure a single bucket exists, creating it if missing
+    async fn ensure_bucket(&self, bucket: &str) -> Result<(), S3Error> {
         // Check if bucket exists
         // head_bucket success means bucket exists and we have access
         let exists = self.inner.head_bucket().bucket(bucket).send().await.is_ok();
 
         if !exists {
-            info!("默认桶 {} 不存在,正在创建...", bucket);
+            info!("S3 桶 {} 不存在,正在创建...", bucket);
             // Create bucket
             self.inner
                 .create_bucket()
@@ -201,9 +231,9 @@ impl S3Client {
                 .send()
                 .await
                 .map_err(|e| S3Error::AwsError(format!("Failed to create bucket: {}", e)))?;
-            info!("默认桶 {} 创建成功", bucket);
+            info!("S3 桶 {} 创建成功", bucket);
         } else {
-            info!("默认桶 {} 已存在", bucket);
+            info!("S3 桶 {} 已存在", bucket);
         }
 
         Ok(())
@@ -238,13 +268,13 @@ impl GlobalS3Client {
     /// # Initialization Flow
     ///
     /// 1. Create S3 client based on configuration
-    /// 2. If S3 is enabled in config, ensure default bucket exists
+    /// 2. If S3 is enabled in config, ensure all configured buckets exist
     /// 3. Return Arc-wrapped client instance
     ///
     /// # Error Handling
     ///
     /// - Client creation failure returns error
-    /// - Default bucket creation failure only logs warning, does not affect service startup
+    /// - Bucket creation failure only logs warning, does not affect service startup
     ///
     /// # Example
     ///
@@ -261,12 +291,12 @@ impl GlobalS3Client {
         // Create S3 client instance
         let client = S3Client::new(config).await?;
 
-        // If S3 service is enabled, ensure default bucket exists
+        // If S3 service is enabled, ensure all configured buckets exist
         if client.config.enabled
-            && let Err(e) = client.ensure_default_bucket().await
+            && let Err(e) = client.ensure_all_buckets().await
         {
             // Bucket creation failure only logs warning, service still starts
-            tracing::warn!("确保默认桶存在失败: {},服务仍将继续启动", e);
+            tracing::warn!("确保 S3 桶存在失败: {},服务仍将继续启动", e);
         }
 
         // Return Arc-wrapped client, supports multi-threading sharing
