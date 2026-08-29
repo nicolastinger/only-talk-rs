@@ -1,3 +1,4 @@
+pub mod announcement_entity;
 pub mod chat_entity;
 pub mod file_entity;
 pub mod group_entity;
