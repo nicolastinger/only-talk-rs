@@ -186,3 +186,34 @@ pub async fn get_quic_server_for_user(
     let info = QuicServerInfo { index, address };
     CommonResponseRef::success_json(&info).map_err(|e| anyhow!("Serialization failed: {}", e))
 }
+
+/// 获取 NAT UDP 端口配置(优先 Redis, 缺失时回退配置文件)
+pub async fn get_nat_udp_ports(redis: &deadpool_redis::Pool) -> Result<String, anyhow::Error> {
+    use common::config_str::NAT_UDP_PORTS;
+    use common::read_global_config;
+    use deadpool_redis::redis::AsyncCommands;
+    use http_service::utils::http_response::CommonResponseRef;
+    use serde::{Deserialize, Serialize};
+
+    #[derive(Serialize, Deserialize, Clone)]
+    struct NatUdpPorts {
+        v4_port_1: u16,
+        v6_port_1: u16,
+        v4_port_2: u16,
+        v6_port_2: u16,
+    }
+
+    let mut conn = redis.get().await?;
+    let raw: String = conn.get(NAT_UDP_PORTS).await.unwrap_or_default();
+    let ports = if raw.trim().is_empty() {
+        NatUdpPorts {
+            v4_port_1: read_global_config!("nat_udp", "v4_port_1").parse()?,
+            v6_port_1: read_global_config!("nat_udp", "v6_port_1").parse()?,
+            v4_port_2: read_global_config!("nat_udp", "v4_port_2").parse()?,
+            v6_port_2: read_global_config!("nat_udp", "v6_port_2").parse()?,
+        }
+    } else {
+        serde_json::from_str(&raw)?
+    };
+    CommonResponseRef::success_json(&ports).map_err(|e| anyhow!("Serialization failed: {}", e))
+}

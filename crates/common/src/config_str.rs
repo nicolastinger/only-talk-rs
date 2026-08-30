@@ -22,6 +22,8 @@ pub static USER_PROCESS_FRIEND: &str = "USER_PROCESS_FRIEND_REQUEST";
 pub static USER_UDP_ADDRESS: &str = "USER_UDP_ADDRESS_";
 // NAT UDP 用户地址锁
 pub static USER_UDP_ADDRESS_LOCK: &str = "USER_UDP_ADDRESS_LOCK_";
+// NAT UDP 端口配置缓存(JSON: v4_port_1/v6_port_1/v4_port_2/v6_port_2)
+pub static NAT_UDP_PORTS: &str = "NAT:UDP:PORTS:";
 // 群成员列表缓存
 pub static GROUP_MEMBERS_CACHE: &str = "GROUP:MEMBERS:";
 // 刷新令牌映射(值:绑定设备指纹)

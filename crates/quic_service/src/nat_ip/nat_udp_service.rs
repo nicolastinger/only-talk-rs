@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use common::config_str::{SYSTEM, USER_UDP_ADDRESS, USER_UDP_ADDRESS_LOCK};
+use common::config_str::{NAT_UDP_PORTS, SYSTEM, USER_UDP_ADDRESS, USER_UDP_ADDRESS_LOCK};
 use common::read_global_config;
 use common::state::CoreState;
 use common::utils::jwt_util::verify_token;
@@ -27,6 +27,20 @@ pub async fn run_udp_server(
     let v6_port_1: u16 = read_global_config!("nat_udp", "v6_port_1").parse()?;
     let v4_port_2: u16 = read_global_config!("nat_udp", "v4_port_2").parse()?;
     let v6_port_2: u16 = read_global_config!("nat_udp", "v6_port_2").parse()?;
+
+    // 将 NAT UDP 端口缓存到 Redis，供 HTTP API 动态下发（客户端不再写死端口）
+    {
+        let ports_json = serde_json::json!({
+            "v4_port_1": v4_port_1,
+            "v6_port_1": v6_port_1,
+            "v4_port_2": v4_port_2,
+            "v6_port_2": v6_port_2,
+        })
+        .to_string();
+        let mut conn = core.redis.get().await?;
+        conn.set::<&str, &str, ()>(NAT_UDP_PORTS, &ports_json).await?;
+        info!("NAT UDP 端口已缓存到 Redis: {}", ports_json);
+    }
 
     tokio::spawn(async move {
         let addr_1 = format!("0.0.0.0:{}", v4_port_1);
