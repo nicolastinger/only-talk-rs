@@ -142,16 +142,24 @@ async fn process_text_msg(
         let core_clone = core.clone();
         tokio::spawn(async move {
             let current_user = text_msg_clone.send_user.clone();
-            // WebRTC 信令(100)与视频通话控制消息(12-15)是呼叫建立期的瞬态消息：
-            // 服务端仅转发、不持久化；信令(100)不回 ACK（前端独立发送命令不依赖发送/回执表），
-            // 控制消息(12-15)仍回 ACK，因为它们仍走 send_text_msg 发送流程。
-            let should_ack = text_msg_clone.text_type != message_types::MSG_TYPE_WEBRTC_SIGNAL;
+            // WebRTC 信令(100)、视频通话控制消息(12-15)与 P2P 隐私握手(4)是瞬态信号：
+            // 服务端仅转发、不持久化、不回 ACK（它们不经过前端 send/回执表，无异步重发语义）。
+            let should_ack = !matches!(
+                text_msg_clone.text_type,
+                message_types::MSG_TYPE_WEBRTC_SIGNAL
+                    | message_types::MSG_TYPE_P2P_VIDEO_CALL_INVITE
+                    | message_types::MSG_TYPE_P2P_VIDEO_CALL_ACCEPT
+                    | message_types::MSG_TYPE_P2P_VIDEO_CALL_REJECT
+                    | message_types::MSG_TYPE_P2P_VIDEO_CALL_END
+                    | message_types::MSG_TYPE_P2P
+            );
             match text_msg_clone.text_type {
                 message_types::MSG_TYPE_WEBRTC_SIGNAL
                 | message_types::MSG_TYPE_P2P_VIDEO_CALL_INVITE
                 | message_types::MSG_TYPE_P2P_VIDEO_CALL_ACCEPT
                 | message_types::MSG_TYPE_P2P_VIDEO_CALL_REJECT
-                | message_types::MSG_TYPE_P2P_VIDEO_CALL_END => {}
+                | message_types::MSG_TYPE_P2P_VIDEO_CALL_END
+                | message_types::MSG_TYPE_P2P => {}
                 _ => {
                     if let Err(e) = add_user_chat_record(&core_clone, text_msg_clone).await {
                         error!("[单聊] 插入消息失败: {}", e);
