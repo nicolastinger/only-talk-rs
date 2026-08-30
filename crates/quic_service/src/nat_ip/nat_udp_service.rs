@@ -30,13 +30,10 @@ pub async fn run_udp_server(
 
     // 将 NAT UDP 端口缓存到 Redis，供 HTTP API 动态下发（客户端不再写死端口）
     {
-        let ports_json = serde_json::json!({
-            "v4_port_1": v4_port_1,
-            "v6_port_1": v6_port_1,
-            "v4_port_2": v4_port_2,
-            "v6_port_2": v6_port_2,
-        })
-        .to_string();
+        let ports_json = format!(
+            r#"{{"v4_port_1":{},"v6_port_1":{},"v4_port_2":{},"v6_port_2":{}}}"#,
+            v4_port_1, v6_port_1, v4_port_2, v6_port_2,
+        );
         let mut conn = core.redis.get().await?;
         conn.set::<&str, &str, ()>(NAT_UDP_PORTS, &ports_json).await?;
         info!("NAT UDP 端口已缓存到 Redis: {}", ports_json);
