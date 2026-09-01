@@ -14,6 +14,8 @@ pub static MAX_QUIC_SERVERS: usize = 1000;
 pub static MAX_QUIC_BUFFER_LEN: usize = 1024 * 1024 * 10;
 // 用户已读消息: user_id:other_id, nanoid
 pub static USER_READ_MSG: &str = "USER:READ:MSG:";
+// 系统通知未读拉取保留窗口(天)，仅拉取最近 N 天内的未读通知
+pub static NOTIFY_RETENTION_DAYS: i64 = 14;
 // 用户发起好友请求
 pub static USER_ADD_FRIEND: &str = "USER_ADD_FRIEND_REQUEST";
 // 用户处理好友请求

@@ -1,12 +1,13 @@
 use std::str::FromStr;
 
 use anyhow::anyhow;
-use common::models::notify_entity::system_notification::SystemNotification;
+use common::config_str::NOTIFY_RETENTION_DAYS;
+use common::models::notify_entity::system_notification::{SystemNotification, mark_read_by_ids};
 use common::utils::time::get_now_time_stamp_as_millis;
 use rbatis::RBatis;
 use uuid::Uuid;
 
-use crate::utils::http_response::CommonResponseRef;
+use crate::utils::http_response::{CommonResponseNoDataRef, CommonResponseRef};
 
 /// 新增好友请求通知
 pub async fn send_request_friend_msg(
@@ -188,7 +189,7 @@ pub async fn send_plaza_match_msg(
     Ok(system_notification)
 }
 
-/// 获取用户未读的通知
+/// 获取用户未读的通知（仅最近 NOTIFY_RETENTION_DAYS 天内）
 pub async fn get_user_unread_notification(
     rb: &RBatis,
     user_id: Option<String>,
@@ -196,6 +197,22 @@ pub async fn get_user_unread_notification(
 ) -> Result<String, anyhow::Error> {
     let user_id =
         rbatis::rbdc::Uuid::from_str(user_id.ok_or(anyhow!("user_id is empty"))?.as_str())?;
-    let system_notification = SystemNotification::select_all_by_uid(rb, &user_id, is_read).await?;
+    let now = get_now_time_stamp_as_millis()?;
+    let since = now - NOTIFY_RETENTION_DAYS * 24 * 3600 * 1000;
+    let is_read = is_read.unwrap_or(false);
+    let system_notification =
+        SystemNotification::select_unread_in_window(rb, &user_id, is_read, since).await?;
     Ok(CommonResponseRef::<Vec<SystemNotification>>::success_json(&system_notification)?)
+}
+
+/// 批量标记已读（幂等）
+pub async fn mark_notifications_read(
+    rb: &RBatis,
+    user_id: Option<String>,
+    ids: Vec<String>,
+) -> Result<String, anyhow::Error> {
+    let user_id =
+        rbatis::rbdc::Uuid::from_str(user_id.ok_or(anyhow!("user_id is empty"))?.as_str())?;
+    mark_read_by_ids(rb, &user_id, &ids).await?;
+    Ok(CommonResponseNoDataRef::success_empty())
 }
