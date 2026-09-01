@@ -9,7 +9,7 @@ use quinn::{ClientConfig, Endpoint, ServerConfig, TransportConfig};
 use rustls::{Certificate, PrivateKey, RootCertStore};
 use rustls_pemfile::{certs, ec_private_keys, pkcs8_private_keys, rsa_private_keys};
 
-/// Configure QUIC settings for client use.
+/// 为客户端使用配置 QUIC 设置。
 #[allow(dead_code)]
 pub fn configure_client() -> ClientConfig {
     let mut root_store = RootCertStore::empty();

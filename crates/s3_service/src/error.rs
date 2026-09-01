@@ -1,23 +1,23 @@
 use std::fmt;
 
-/// Unified S3 service error types
+/// 统一的 S3 服务错误类型
 ///
-/// Defines all possible error types that the S3 service may return,
-/// providing a unified error handling interface.
+/// 定义 S3 服务可能返回的所有错误类型，
+/// 提供统一的错误处理接口。
 ///
-/// # Error Types
+/// # 错误类型
 ///
-/// - `AwsError`: AWS SDK底层-level errors
-/// - `ConfigError`: Configuration-related errors
-/// - `BucketNotFound`: Bucket does not exist
-/// - `ObjectNotFound`: Object does not exist
-/// - `PermissionDenied`: Insufficient permissions
-/// - `PresignError`: Pre-signed URL generation failed
-/// - `MultipartError`: Multipart upload errors
-/// - `IoError`: IO operation errors
-/// - `Other`: Other uncategorized errors
+/// - `AwsError`: AWS SDK 底层错误
+/// - `ConfigError`: 配置相关错误
+/// - `BucketNotFound`: 桶不存在
+/// - `ObjectNotFound`: 对象不存在
+/// - `PermissionDenied`: 权限不足
+/// - `PresignError`: 预签名 URL 生成失败
+/// - `MultipartError`: 分片上传错误
+/// - `IoError`: IO 操作错误
+/// - `Other`: 其他未分类错误
 ///
-/// # Error Handling Example
+/// # 错误处理示例
 ///
 /// ```rust,no_run
 /// use s3_service::S3Error;
@@ -36,44 +36,44 @@ use std::fmt;
 /// ```
 #[derive(Debug)]
 pub enum S3Error {
-    /// AWS SDK error
-    /// Returned when underlying SDK call fails
+    /// AWS SDK 错误
+    /// 底层 SDK 调用失败时返回
     AwsError(String),
 
-    /// Configuration error
-    /// Missing, malformed, or invalid configuration
+    /// 配置错误
+    /// 配置缺失、格式错误或无效
     ConfigError(String),
 
-    /// Bucket not found
-    /// Returned when accessing non-existent bucket
+    /// 桶不存在
+    /// 访问不存在的桶时返回
     BucketNotFound(String),
 
-    /// Object not found
-    /// Returned when accessing non-existent object
+    /// 对象不存在
+    /// 访问不存在的对象时返回
     ObjectNotFound(String),
 
-    /// Permission denied
-    /// Insufficient permissions to perform operation
+    /// 权限不足
+    /// 执行操作时权限不足
     PermissionDenied(String),
 
-    /// Pre-signed URL error
-    /// Failed to create temporary access URL
+    /// 预签名 URL 错误
+    /// 创建临时访问 URL 失败
     PresignError(String),
 
-    /// Multipart upload error
-    /// Errors during multipart upload process
+    /// 分片上传错误
+    /// 分片上传过程中出错
     MultipartError(String),
 
-    /// IO error
-    /// Failed file read/write or other IO operation
+    /// IO 错误
+    /// 文件读写或其他 IO 操作失败
     IoError(String),
 
-    /// Other error
-    /// Uncategorized error type
+    /// 其他错误
+    /// 未分类的错误类型
     Other(String),
 }
 
-/// Display trait implementation, provides friendly error messages
+/// Display trait 实现，提供友好的错误消息
 impl fmt::Display for S3Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -90,21 +90,21 @@ impl fmt::Display for S3Error {
     }
 }
 
-/// Standard Error trait implementation
+/// 标准 Error trait 实现
 impl std::error::Error for S3Error {}
 
-/// Convert from std::io::Error
+/// 从 std::io::Error 转换
 ///
-/// Allows direct use of ? operator to convert IO errors to S3Error
+/// 允许直接使用 ? 操作符将 IO 错误转换为 S3Error
 impl From<std::io::Error> for S3Error {
     fn from(err: std::io::Error) -> Self {
         S3Error::IoError(err.to_string())
     }
 }
 
-/// Convert from anyhow::Error
+/// 从 anyhow::Error 转换
 ///
-/// Allows conversion of anyhow errors to S3Error
+/// 允许将 anyhow 错误转换为 S3Error
 impl From<anyhow::Error> for S3Error {
     fn from(err: anyhow::Error) -> Self {
         S3Error::Other(err.to_string())

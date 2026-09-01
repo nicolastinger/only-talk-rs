@@ -1,6 +1,6 @@
-//! Object listing operations module
+//! 对象列表操作模块
 //!
-//! Provides object listing and pagination functionality for buckets.
+//! 提供桶中对象的列表和分页功能。
 
 use aws_sdk_s3::primitives::DateTime;
 use aws_sdk_s3::types::{CommonPrefix, Object, ObjectStorageClass};
@@ -9,22 +9,22 @@ use crate::client::S3Client;
 use crate::error::S3Error;
 use crate::storage::ObjectInfo;
 
-/// List objects in bucket
+/// 列出桶中的对象
 ///
-/// List all objects in a bucket, supports prefix filtering and count limits.
+/// 列出桶中的所有对象，支持前缀过滤和数量限制。
 ///
-/// # Parameters
+/// # 参数
 ///
-/// - `client`: S3 client instance
-/// - `bucket`: Bucket name
-/// - `prefix`: Optional object key prefix filter
-/// - `max_keys`: Maximum number of objects to return
+/// - `client`: S3 客户端实例
+/// - `bucket`: 桶名称
+/// - `prefix`: 可选的对象键前缀过滤器
+/// - `max_keys`: 要返回的最大对象数量
 ///
-/// # Returns
+/// # 返回值
 ///
-/// Returns object list, common prefixes, and pagination information
+/// 返回对象列表、公共前缀和分页信息
 ///
-/// # Example
+/// # 示例
 ///
 /// ```rust,no_run
 /// async fn list_example(client: &s3_service::S3Client) -> Result<(), s3_service::S3Error> {
@@ -47,26 +47,26 @@ pub async fn list_objects(
     prefix: Option<&str>,
     max_keys: Option<i32>,
 ) -> Result<ListObjectsResult, S3Error> {
-    // Build list request
+    // 构建列表请求
     let mut builder = client.inner.list_objects_v2().bucket(bucket);
 
-    // Set prefix filter
+    // 设置前缀过滤器
     if let Some(p) = prefix {
         builder = builder.prefix(p);
     }
 
-    // Set max keys count
+    // 设置最大键数量
     if let Some(mk) = max_keys {
         builder = builder.max_keys(mk);
     }
 
-    // Execute list
+    // 执行列表
     let result = builder
         .send()
         .await
         .map_err(|e| S3Error::AwsError(format!("Failed to list objects: {}", e)))?;
 
-    // Convert results
+    // 转换结果
     let objects = convert_objects(result.contents());
     let common_prefixes = extract_common_prefixes(result.common_prefixes());
 
@@ -78,21 +78,21 @@ pub async fn list_objects(
     })
 }
 
-/// Paginated list objects
+/// 分页列出对象
 ///
-/// Supports pagination token for listing operations, used for handling large numbers of objects.
+/// 支持使用分页令牌进行列表操作，用于处理大量对象。
 ///
-/// # Parameters
+/// # 参数
 ///
-/// - `client`: S3 client instance
-/// - `bucket`: Bucket name
-/// - `prefix`: Optional prefix filter
-/// - `max_keys`: Maximum count per page
-/// - `continuation_token`: Pagination token (returned from previous page)
+/// - `client`: S3 客户端实例
+/// - `bucket`: 桶名称
+/// - `prefix`: 可选的前缀过滤器
+/// - `max_keys`: 每页最大数量
+/// - `continuation_token`: 分页令牌（由上一页返回）
 ///
-/// # Use Cases
+/// # 使用场景
 ///
-/// Used when object count exceeds 1000 or pagination display is needed
+/// 当对象数量超过 1000 或需要分页展示时使用
 pub async fn list_objects_paginated(
     client: &S3Client,
     bucket: &str,
@@ -100,31 +100,31 @@ pub async fn list_objects_paginated(
     max_keys: Option<i32>,
     continuation_token: Option<&str>,
 ) -> Result<ListObjectsResult, S3Error> {
-    // Build list request
+    // 构建列表请求
     let mut builder = client.inner.list_objects_v2().bucket(bucket);
 
-    // Set prefix
+    // 设置前缀
     if let Some(p) = prefix {
         builder = builder.prefix(p);
     }
 
-    // Set max keys per page
+    // 设置每页最大键数量
     if let Some(mk) = max_keys {
         builder = builder.max_keys(mk);
     }
 
-    // Set pagination token
+    // 设置分页令牌
     if let Some(token) = continuation_token {
         builder = builder.continuation_token(token);
     }
 
-    // Execute list
+    // 执行列表
     let result = builder
         .send()
         .await
         .map_err(|e| S3Error::AwsError(format!("Failed to paginated list objects: {}", e)))?;
 
-    // Convert results
+    // 转换结果
     let objects = convert_objects(result.contents());
     let common_prefixes = extract_common_prefixes(result.common_prefixes());
 
@@ -136,9 +136,9 @@ pub async fn list_objects_paginated(
     })
 }
 
-/// Convert S3 Object list to ObjectInfo list
+/// 将 S3 Object 列表转换为 ObjectInfo 列表
 ///
-/// Internal function, converts AWS SDK object structure to custom structure
+/// 内部函数，将 AWS SDK 对象结构转换为自定义结构
 pub(crate) fn convert_objects(contents: &[Object]) -> Vec<ObjectInfo> {
     contents
         .iter()
@@ -154,28 +154,28 @@ pub(crate) fn convert_objects(contents: &[Object]) -> Vec<ObjectInfo> {
         .collect()
 }
 
-/// Extract common prefixes
+/// 提取公共前缀
 ///
-/// Used to simulate directory structure, extracts common prefixes (e.g., directory names)
+/// 用于模拟目录结构，提取公共前缀（例如目录名）
 fn extract_common_prefixes(common_prefixes: &[CommonPrefix]) -> Vec<String> {
     common_prefixes.iter().filter_map(|p| p.prefix().map(|s: &str| s.to_string())).collect()
 }
 
-/// List objects result
+/// 对象列表结果
 ///
-/// Contains object list, common prefixes, and pagination information
+/// 包含对象列表、公共前缀和分页信息
 #[derive(Debug, serde::Serialize)]
 pub struct ListObjectsResult {
-    /// Object list
+    /// 对象列表
     pub objects: Vec<ObjectInfo>,
 
-    /// Common prefixes (used to simulate directory structure)
+    /// 公共前缀（用于模拟目录结构）
     pub common_prefixes: Vec<String>,
 
-    /// Whether there are more results
+    /// 是否还有更多结果
     pub is_truncated: bool,
 
-    /// Continuation token for next page
-    /// Used to fetch the next page of data
+    /// 下一页的续传令牌
+    /// 用于获取下一页数据
     pub next_continuation_token: Option<String>,
 }

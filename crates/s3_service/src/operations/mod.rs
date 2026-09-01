@@ -1,48 +1,48 @@
-//! S3 Operations Module
+//! S3 操作模块
 //!
-//! This module contains concrete implementations of all S3 operations,
-//! including bucket management, object upload/download, multipart upload, pre-signed URLs, etc.
+//! 本模块包含所有 S3 操作的具体实现，
+//! 包括桶管理、对象上传/下载、分片上传、预签名 URL 等。
 //!
-//! # Module Structure
+//! # 模块结构
 //!
-//! - `bucket`: Bucket operations (create, delete, list, CORS configuration, etc.)
-//! - `upload`: Object upload
-//! - `download`: Object download
-//! - `delete`: Object deletion
-//! - `list`: Object listing
-//! - `copy_move`: Object copy and move
-//! - `metadata`: Object metadata management
-//! - `multipart`: Multipart upload
-//! - `presigned`: Pre-signed URL generation
+//! - `bucket`: 桶操作（创建、删除、列表、CORS 配置等）
+//! - `upload`: 对象上传
+//! - `download`: 对象下载
+//! - `delete`: 对象删除
+//! - `list`: 对象列表
+//! - `copy_move`: 对象复制和移动
+//! - `metadata`: 对象元数据管理
+//! - `multipart`: 分片上传
+//! - `presigned`: 预签名 URL 生成
 
-/// Bucket operations module
+/// 桶操作模块
 pub mod bucket;
 
-/// Copy/move operations module
+/// 复制/移动操作模块
 pub mod copy_move;
 
-/// Delete operations module
+/// 删除操作模块
 pub mod delete;
 
-/// Download operations module
+/// 下载操作模块
 pub mod download;
 
-/// List operations module
+/// 列表操作模块
 pub mod list;
 
-/// Metadata operations module
+/// 元数据操作模块
 pub mod metadata;
 
-/// Multipart upload operations module
+/// 分片上传操作模块
 pub mod multipart;
 
-/// Pre-signed URL operations module
+/// 预签名 URL 操作模块
 pub mod presigned;
 
-/// Upload operations module
+/// 上传操作模块
 pub mod upload;
 
-// Re-export all public interfaces
+// 重新导出所有公共接口
 pub use bucket::*;
 pub use copy_move::*;
 pub use delete::*;

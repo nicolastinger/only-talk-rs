@@ -1,26 +1,25 @@
-//! S3 Object Storage Service Library
+//! S3 对象存储服务库
 //!
-//! This library provides a complete wrapper for AWS S3 and compatible storage services
-//! (such as MinIO, Aliyun OSS), supporting core functionality including file upload,
-//! download, deletion, listing, multipart upload, and pre-signed URLs.
+//! 本库提供对 AWS S3 及兼容存储服务（如 MinIO、阿里云 OSS）的完整封装，
+//! 支持文件上传、下载、删除、列表、分片上传和预签名 URL 等核心功能。
 //!
-//! # Key Features
+//! # 主要特性
 //!
-//! - **Multi-Backend Support**: Supports S3, MinIO, Aliyun OSS, and other storage services
-//! - **Unified Abstract Interface**: Provides unified storage interface via `StorageBackend` trait
-//! - **Multipart Upload**: Automatically handles multipart upload for large files
-//! - **Pre-signed URLs**: Supports generating temporary access URLs with expiration
-//! - **Local Storage**: Provides local filesystem storage implementation for development and testing
+//! - **多后端支持**: 支持 S3、MinIO、阿里云 OSS 等存储服务
+//! - **统一抽象接口**: 通过 `StorageBackend` trait 提供统一的存储接口
+//! - **分片上传**: 自动处理大文件的分片上传
+//! - **预签名 URL**: 支持生成带过期时间的临时访问 URL
+//! - **本地存储**: 提供本地文件系统存储实现，用于开发和测试
 //!
-//! # Module Structure
+//! # 模块结构
 //!
-//! - `client`: S3 client wrapper, manages AWS SDK connection
-//! - `config`: Configuration management, supports loading from config files
-//! - `error`: Unified error type definitions
-//! - `storage`: Storage backend abstract trait and implementations (local/S3)
-//! - `operations`: Concrete implementations of various S3 operations
+//! - `client`: S3 客户端封装，管理 AWS SDK 连接
+//! - `config`: 配置管理，支持从配置文件加载
+//! - `error`: 统一的错误类型定义
+//! - `storage`: 存储后端抽象 trait 及实现（本地/S3）
+//! - `operations`: 各种 S3 操作的具体实现
 //!
-//! # Quick Start
+//! # 快速开始
 //!
 //! ```rust,no_run
 //! use s3_service::{S3Client, S3Config};
@@ -38,22 +37,22 @@
 //! }
 //! ```
 
-/// S3 client module
+/// S3 客户端模块
 pub mod client;
 
-/// Configuration module
+/// 配置模块
 pub mod config;
 
-/// Error types module
+/// 错误类型模块
 pub mod error;
 
-/// S3 operations module
+/// S3 操作模块
 pub mod operations;
 
-/// Storage backend module
+/// 存储后端模块
 pub mod storage;
 
-// Re-export commonly used types for convenience
+// 重新导出常用类型，方便使用
 pub use client::{GlobalS3Client, S3Client};
 pub use config::S3Config;
 pub use error::S3Error;

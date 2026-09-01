@@ -1,35 +1,35 @@
-//! Object download operations module
+//! 对象下载操作模块
 //!
-//! Provides object download and Range download functionality.
+//! 提供对象下载和 Range 范围下载功能。
 
 use crate::client::S3Client;
 use crate::error::S3Error;
 
-/// Download object
+/// 下载对象
 ///
-/// Downloads the complete content of an object to memory.
+/// 将对象的完整内容下载到内存中。
 ///
-/// # Parameters
+/// # 参数
 ///
-/// - `client`: S3 client instance
-/// - `bucket`: Storage bucket name
-/// - `key`: Object key name
+/// - `client`: S3 客户端实例
+/// - `bucket`: 存储桶名称
+/// - `key`: 对象键名
 ///
-/// # Returns
+/// # 返回值
 ///
-/// Binary data of the object
+/// 对象的二进制数据
 ///
-/// # Notes
+/// # 说明
 ///
-/// Large file downloads consume significant memory,
-/// consider using download_object_range for batch downloading
+/// 大文件下载会消耗大量内存，
+/// 可考虑使用 download_object_range 进行分段下载
 pub async fn download_object(
     client: &S3Client,
     bucket: &str,
     key: &str,
 ) -> Result<Vec<u8>, S3Error> {
     let result = client.inner.get_object().bucket(bucket).key(key).send().await.map_err(|e| {
-        // Handle object not found error
+        // 处理对象不存在错误
         if e.as_service_error().map(|se| se.is_no_such_key()).unwrap_or(false) {
             S3Error::ObjectNotFound(key.to_string())
         } else {
@@ -37,7 +37,7 @@ pub async fn download_object(
         }
     })?;
 
-    // Collect response stream data
+    // 收集响应流数据
     let data = result
         .body
         .collect()
@@ -47,32 +47,32 @@ pub async fn download_object(
     Ok(data.into_bytes().to_vec())
 }
 
-/// Range download object
+/// Range 范围下载对象
 ///
-/// Downloads a specified byte range of an object, supports resumable downloads.
+/// 下载对象指定的字节范围，支持断点续传。
 ///
-/// # Parameters
+/// # 参数
 ///
-/// - `client`: S3 client instance
-/// - `bucket`: Storage bucket name
-/// - `key`: Object key name
-/// - `start`: Start byte position (inclusive)
-/// - `end`: End byte position (inclusive)
+/// - `client`: S3 客户端实例
+/// - `bucket`: 存储桶名称
+/// - `key`: 对象键名
+/// - `start`: 起始字节位置（含）
+/// - `end`: 结束字节位置（含）
 ///
-/// # Returns
+/// # 返回值
 ///
-/// Data within the specified range
+/// 指定范围内的数据
 ///
-/// # Use Cases
+/// # 使用场景
 ///
-/// - Resumable downloads: Record downloaded position, continue downloading remaining
-/// - Chunked downloads: Split large files into multiple chunks for downloading
-/// - Preview: Only download file header information
+/// - 断点续传：记录已下载位置，继续下载剩余部分
+/// - 分块下载：将大文件拆分为多个块分别下载
+/// - 预览：仅下载文件头信息
 ///
-/// # HTTP Range Format
+/// # HTTP Range 格式
 ///
-/// Uses "bytes=start-end" format,
-/// e.g., bytes=0-1023 means download the first 1024 bytes
+/// 使用 "bytes=start-end" 格式，
+/// 例如 bytes=0-1023 表示下载前 1024 字节
 pub async fn download_object_range(
     client: &S3Client,
     bucket: &str,
@@ -80,7 +80,7 @@ pub async fn download_object_range(
     start: i64,
     end: i64,
 ) -> Result<Vec<u8>, S3Error> {
-    // Build Range request header
+    // 构建 Range 请求头
     let range = format!("bytes={}-{}", start, end);
     let result = client
         .inner
@@ -92,7 +92,7 @@ pub async fn download_object_range(
         .await
         .map_err(|e| S3Error::AwsError(format!("Failed to Range download object: {}", e)))?;
 
-    // Collect response stream data
+    // 收集响应流数据
     let data = result
         .body
         .collect()
@@ -102,35 +102,35 @@ pub async fn download_object_range(
     Ok(data.into_bytes().to_vec())
 }
 
-/// Download object to local file
+/// 将对象下载到本地文件
 ///
-/// Downloads an object and writes it directly to a local file.
+/// 下载对象并直接写入本地文件。
 ///
-/// # Parameters
+/// # 参数
 ///
-/// - `client`: S3 client instance
-/// - `bucket`: Storage bucket name
-/// - `key`: Object key name
-/// - `file_path`: Local file save path
+/// - `client`: S3 客户端实例
+/// - `bucket`: 存储桶名称
+/// - `key`: 对象键名
+/// - `file_path`: 本地文件保存路径
 ///
-/// # Notes
+/// # 说明
 ///
-/// Automatically creates the required directory structure
+/// 自动创建所需的目录结构
 pub async fn download_object_to_file(
     client: &S3Client,
     bucket: &str,
     key: &str,
     file_path: &str,
 ) -> Result<(), S3Error> {
-    // Download object data
+    // 下载对象数据
     let data = download_object(client, bucket, key).await?;
 
-    // Ensure parent directory exists
+    // 确保父目录存在
     if let Some(parent) = std::path::Path::new(file_path).parent() {
         tokio::fs::create_dir_all(parent).await?;
     }
 
-    // Write file
+    // 写入文件
     tokio::fs::write(file_path, &data).await?;
     Ok(())
 }

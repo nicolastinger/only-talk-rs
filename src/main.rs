@@ -5,10 +5,10 @@ use common::tracing::init_tracing;
 use quic_service::init_server::start_server;
 use tracing::{debug, error, info};
 
-/// Main entry point, using Tokio async runtime
+/// 主入口点，使用 Tokio 异步运行时
 #[actix_web::main]
 async fn main() {
-    // Load .env file
+    // 加载 .env 文件
     if let Err(e) = dotenvy::dotenv() {
         eprintln!("加载 .env 文件失败: {}", e);
     }

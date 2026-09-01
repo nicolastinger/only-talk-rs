@@ -1,6 +1,6 @@
-//! Object metadata operations module
+//! 对象元数据操作模块
 //!
-//! Provides object metadata retrieval, update, and tag management functionality.
+//! 提供对象元数据的获取、更新和标签管理功能。
 
 use aws_sdk_s3::primitives::DateTime;
 use aws_sdk_s3::types::Tag;
@@ -9,30 +9,30 @@ use crate::client::S3Client;
 use crate::error::S3Error;
 use crate::storage::ObjectMetadata;
 
-/// Get object metadata
+/// 获取对象元数据
 ///
-/// Use HEAD operation to get object metadata, without downloading object content.
+/// 使用 HEAD 操作获取对象元数据，无需下载对象内容。
 ///
-/// # Parameters
+/// # 参数
 ///
-/// - `client`: S3 client instance
-/// - `bucket`: Bucket name
-/// - `key`: Object key name
+/// - `client`: S3 客户端实例
+/// - `bucket`: 桶名称
+/// - `key`: 对象键名
 ///
-/// # Returns
+/// # 返回值
 ///
-/// Complete object metadata information
+/// 完整的对象元数据信息
 ///
-/// # Performance
+/// # 性能
 ///
-/// HEAD operation does not transfer object content, fast and low overhead
+/// HEAD 操作不传输对象内容，快速且开销低
 pub async fn head_object(
     client: &S3Client,
     bucket: &str,
     key: &str,
 ) -> Result<ObjectMetadata, S3Error> {
     let result = client.inner.head_object().bucket(bucket).key(key).send().await.map_err(|e| {
-        // Handle object not found error
+        // 处理对象不存在错误
         if e.as_service_error().map(|se| se.is_not_found()).unwrap_or(false) {
             S3Error::ObjectNotFound(key.to_string())
         } else {
@@ -40,7 +40,7 @@ pub async fn head_object(
         }
     })?;
 
-    // Extract custom metadata
+    // 提取自定义元数据
     let mut metadata = std::collections::HashMap::new();
     if let Some(meta) = result.metadata() {
         for (k, v) in meta.iter() {
@@ -58,20 +58,20 @@ pub async fn head_object(
     })
 }
 
-/// Check if object exists
+/// 检查对象是否存在
 ///
-/// Quickly check if an object exists, without getting complete metadata.
+/// 快速检查对象是否存在，无需获取完整元数据。
 ///
-/// # Parameters
+/// # 参数
 ///
-/// - `client`: S3 client instance
-/// - `bucket`: Bucket name
-/// - `key`: Object key name
+/// - `client`: S3 客户端实例
+/// - `bucket`: 桶名称
+/// - `key`: 对象键名
 ///
-/// # Returns
+/// # 返回值
 ///
-/// - `Ok(true)`: Object exists
-/// - `Ok(false)`: Object does not exist
+/// - `Ok(true)`: 对象存在
+/// - `Ok(false)`: 对象不存在
 pub async fn object_exists(client: &S3Client, bucket: &str, key: &str) -> Result<bool, S3Error> {
     match head_object(client, bucket, key).await {
         Ok(_) => Ok(true),
@@ -80,22 +80,22 @@ pub async fn object_exists(client: &S3Client, bucket: &str, key: &str) -> Result
     }
 }
 
-/// Update object metadata
+/// 更新对象元数据
 ///
-/// Update object metadata by copying itself.
+/// 通过复制自身来更新对象元数据。
 ///
-/// # Parameters
+/// # 参数
 ///
-/// - `client`: S3 client instance
-/// - `bucket`: Bucket name
-/// - `key`: Object key name
-/// - `content_type`: Optional new content type
-/// - `metadata`: New custom metadata
+/// - `client`: S3 客户端实例
+/// - `bucket`: 桶名称
+/// - `key`: 对象键名
+/// - `content_type`: 可选的新内容类型
+/// - `metadata`: 新的自定义元数据
 ///
-/// # Implementation Details
+/// # 实现细节
 ///
-/// S3 does not support direct metadata modification,
-/// achieved through COPY operation with metadata replacement
+/// S3 不支持直接修改元数据，
+/// 通过带元数据替换的 COPY 操作实现
 pub async fn update_object_metadata(
     client: &S3Client,
     bucket: &str,
@@ -103,10 +103,10 @@ pub async fn update_object_metadata(
     content_type: Option<&str>,
     metadata: std::collections::HashMap<String, String>,
 ) -> Result<(), S3Error> {
-    // Copy source: same object
+    // 复制源：同一对象
     let copy_source = format!("{}/{}", bucket, key);
 
-    // Build copy request
+    // 构建复制请求
     let mut builder = client
         .inner
         .copy_object()
@@ -115,17 +115,17 @@ pub async fn update_object_metadata(
         .copy_source(copy_source)
         .metadata_directive(aws_sdk_s3::types::MetadataDirective::Replace);
 
-    // Set content type
+    // 设置内容类型
     if let Some(ct) = content_type {
         builder = builder.content_type(ct);
     }
 
-    // Set custom metadata
+    // 设置自定义元数据
     for (k, v) in &metadata {
         builder = builder.metadata(k, v);
     }
 
-    // Execute update
+    // 执行更新
     builder
         .send()
         .await
@@ -134,29 +134,29 @@ pub async fn update_object_metadata(
     Ok(())
 }
 
-/// Set object tags
+/// 设置对象标签
 ///
-/// Add key-value tags to an object for classification and management.
+/// 为对象添加键值对标签，用于分类和管理。
 ///
-/// # Parameters
+/// # 参数
 ///
-/// - `client`: S3 client instance
-/// - `bucket`: Bucket name
-/// - `key`: Object key name
-/// - `tags`: Tag key-value pair collection
+/// - `client`: S3 客户端实例
+/// - `bucket`: 桶名称
+/// - `key`: 对象键名
+/// - `tags`: 标签键值对集合
 ///
-/// # Tag Limits
+/// # 标签限制
 ///
-/// - Maximum 50 tags per object
-/// - Tag key maximum 128 bytes
-/// - Tag value maximum 256 bytes
+/// - 每个对象最多 50 个标签
+/// - 标签键最大 128 字节
+/// - 标签值最大 256 字节
 pub async fn put_object_tagging(
     client: &S3Client,
     bucket: &str,
     key: &str,
     tags: std::collections::HashMap<String, String>,
 ) -> Result<(), S3Error> {
-    // Build tag list
+    // 构建标签列表
     let tag_set: Vec<Tag> = tags
         .into_iter()
         .map(|(k, v)| {
@@ -164,13 +164,13 @@ pub async fn put_object_tagging(
         })
         .collect();
 
-    // Build tag configuration
+    // 构建标签配置
     let tagging = aws_sdk_s3::types::Tagging::builder()
         .set_tag_set(Some(tag_set))
         .build()
         .map_err(|e| S3Error::AwsError(format!("Failed to build tags: {}", e)))?;
 
-    // Apply tags
+    // 应用标签
     client
         .inner
         .put_object_tagging()
@@ -184,19 +184,19 @@ pub async fn put_object_tagging(
     Ok(())
 }
 
-/// Get object tags
+/// 获取对象标签
 ///
-/// Get all tags for an object.
+/// 获取对象的所有标签。
 ///
-/// # Parameters
+/// # 参数
 ///
-/// - `client`: S3 client instance
-/// - `bucket`: Bucket name
-/// - `key`: Object key name
+/// - `client`: S3 客户端实例
+/// - `bucket`: 桶名称
+/// - `key`: 对象键名
 ///
-/// # Returns
+/// # 返回值
 ///
-/// Tag key-value pair collection
+/// 标签键值对集合
 pub async fn get_object_tagging(
     client: &S3Client,
     bucket: &str,
@@ -211,7 +211,7 @@ pub async fn get_object_tagging(
         .await
         .map_err(|e| S3Error::AwsError(format!("Failed to get object tags: {}", e)))?;
 
-    // Convert to HashMap
+    // 转换为 HashMap
     let tags = result
         .tag_set()
         .iter()
