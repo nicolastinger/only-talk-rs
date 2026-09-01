@@ -1,5 +1,6 @@
+use rbatis::executor::Executor;
 use rbatis::rbdc::Uuid;
-use rbatis::{RBatis, crud, impl_select};
+use rbatis::{RBatis, crud};
 use rbs::value;
 use serde::{Deserialize, Serialize};
 
@@ -38,9 +39,13 @@ pub struct SystemNotification {
 
 crud!(SystemNotification {});
 
-impl_select!(SystemNotification{select_all_by_uid(user_id:&Uuid, is_read: Option<bool>) => "`where user_id = #{user_id} and (#{is_read} is null or is_read = #{is_read})`"});
+impl SystemNotification {
+    #[rbatis::py_sql("select * from system_notification where user_id = #{user_id} and (#{is_read} is null or is_read = #{is_read})")]
+    async fn select_all_by_uid(rb: &dyn Executor, user_id: &Uuid, is_read: Option<bool>) -> Vec<SystemNotification> {}
 
-impl_select!(SystemNotification{select_unread_in_window(user_id:&Uuid, is_read: bool, since: i64) => "`where user_id = #{user_id} and is_read = #{is_read} and created_at >= #{since} order by created_at desc`"});
+    #[rbatis::py_sql("select * from system_notification where user_id = #{user_id} and is_read = #{is_read} and created_at >= #{since} order by created_at desc")]
+    async fn select_unread_in_window(rb: &dyn Executor, user_id: &Uuid, is_read: bool, since: i64) -> Vec<SystemNotification> {}
+}
 
 /// 批量标记已读（幂等）：按 id 文本匹配，仅更新当前用户的通知
 pub async fn mark_read_by_ids(

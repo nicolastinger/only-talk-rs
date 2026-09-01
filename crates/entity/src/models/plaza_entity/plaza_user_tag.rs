@@ -1,5 +1,6 @@
+use rbatis::executor::Executor;
 use rbatis::rbdc::Uuid;
-use rbatis::{crud, impl_delete, impl_select};
+use rbatis::crud;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -18,5 +19,14 @@ pub struct PlazaUserTag {
 
 crud!(PlazaUserTag {});
 
-impl_select!(PlazaUserTag {select_by_user(uuid:&Uuid) -> Vec => "`where user_uuid = #{uuid} order by sort asc, created_at asc`"});
-impl_delete!(PlazaUserTag {delete_by_user(uuid:&Uuid) => "`where user_uuid = #{uuid}`"});
+impl PlazaUserTag {
+    #[rbatis::py_sql("select * from plaza_user_tag where user_uuid = #{uuid} order by sort asc, created_at asc")]
+    async fn select_by_user(rb: &dyn Executor, uuid: &Uuid) -> Vec<PlazaUserTag> {}
+
+    pub async fn delete_by_user(
+        rb: &dyn Executor,
+        uuid: &Uuid,
+    ) -> Result<rbatis::rbdc::db::ExecResult, rbatis::rbdc::Error> {
+        PlazaUserTag::delete_by_map(rb, rbs::value! {"user_uuid": uuid}).await
+    }
+}

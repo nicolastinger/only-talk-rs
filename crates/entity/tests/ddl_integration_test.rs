@@ -9,7 +9,6 @@
 //!   cargo test -p entity --test ddl_integration_test -- --ignored
 //! 前提：本地 PostgreSQL 可用，且仓库根目录存在 `.env`。
 
-use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow};
@@ -217,8 +216,7 @@ async fn build_pool(url: &str) -> Result<RBatis> {
     let rb = RBatis::new();
     let mut opts = PgConnectOptions::new();
     opts.set_uri(url).map_err(|e| anyhow!("设置数据库 URI 失败: {}", e))?;
-    let conn_manager =
-        ConnectionManager::new_arc(Arc::new(Box::new(PgDriver {})), Arc::new(Box::new(opts)));
+    let conn_manager = ConnectionManager::new_options(PgDriver {}, opts);
     let pool = FastPool::new(conn_manager).map_err(|e| anyhow!("创建连接池失败: {}", e))?;
     pool.set_timeout(Some(Duration::from_secs(2))).await;
     rb.pool

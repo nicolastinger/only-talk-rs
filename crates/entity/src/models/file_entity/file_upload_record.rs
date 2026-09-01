@@ -1,5 +1,6 @@
+use rbatis::executor::Executor;
 use rbatis::rbdc::Uuid;
-use rbatis::{crud, impl_select};
+use rbatis::crud;
 use serde::{Deserialize, Serialize};
 
 /// 文件上传记录表
@@ -64,7 +65,9 @@ impl FileUploadRecord {
             bucket: None,
         }
     }
+
+    #[rbatis::py_sql("select * from file_upload_record where uuid = #{uuid} limit 1")]
+    async fn select_by_uuid(rb: &dyn Executor, uuid: &Uuid) -> Option<FileUploadRecord> {}
 }
 
 crud!(FileUploadRecord {});
-impl_select!(FileUploadRecord{select_by_uuid(uuid:&Uuid) -> Option => "`where uuid = #{uuid} limit 1`"});

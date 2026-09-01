@@ -1,4 +1,3 @@
-use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::anyhow;
@@ -20,8 +19,7 @@ pub async fn init_sql_pool(url: &str) -> Result<RBatis, anyhow::Error> {
     let mut opts = PgConnectOptions::new();
     opts.set_uri(url).map_err(|e| anyhow!("Failed to set database URI: {}", e))?;
 
-    let conn_manager =
-        ConnectionManager::new_arc(Arc::new(Box::new(PgDriver {})), Arc::new(Box::new(opts)));
+    let conn_manager = ConnectionManager::new_options(PgDriver {}, opts);
 
     let pool = FastPool::new(conn_manager)
         .map_err(|e| anyhow!("Failed to create connection pool: {}", e))?;

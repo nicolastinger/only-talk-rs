@@ -1,5 +1,6 @@
+use rbatis::executor::Executor;
 use rbatis::rbdc::Uuid;
-use rbatis::{crud, impl_select};
+use rbatis::crud;
 use serde::{Deserialize, Serialize};
 
 /// 登录事件类型
@@ -44,5 +45,10 @@ pub struct UserLoginLog {
 
 crud!(UserLoginLog {});
 
-impl_select!(UserLoginLog{select_by_uuid(uuid:&Uuid) -> Vec => "`where uuid = #{uuid} order by login_at desc`"});
-impl_select!(UserLoginLog{select_recent_by_uuid(uuid:&Uuid, limit:i64) -> Vec => "`where uuid = #{uuid} order by login_at desc limit #{limit}`"});
+impl UserLoginLog {
+    #[rbatis::py_sql("select * from user_login_log where uuid = #{uuid} order by login_at desc")]
+    async fn select_by_uuid(rb: &dyn Executor, uuid: &Uuid) -> Vec<UserLoginLog> {}
+
+    #[rbatis::py_sql("select * from user_login_log where uuid = #{uuid} order by login_at desc limit #{limit}")]
+    async fn select_recent_by_uuid(rb: &dyn Executor, uuid: &Uuid, limit: i64) -> Vec<UserLoginLog> {}
+}

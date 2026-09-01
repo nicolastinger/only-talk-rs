@@ -1,5 +1,6 @@
+use rbatis::executor::Executor;
 use rbatis::rbdc::Uuid;
-use rbatis::{crud, impl_select, impl_update};
+use rbatis::crud;
 use serde::{Deserialize, Serialize};
 
 /// 群组信息
@@ -29,7 +30,18 @@ pub struct GroupInfo {
 
 crud!(GroupInfo {});
 
-impl_select!(GroupInfo{select_by_group_uuid(group_uuid: &Uuid) -> Option => "`where group_uuid = #{group_uuid} limit 1`"});
-impl_update!(GroupInfo{update_by_group_uuid(group_uuid: &Uuid) => "`where group_uuid = #{group_uuid}`"});
+impl GroupInfo {
+    #[rbatis::py_sql("select * from group_info where group_uuid = #{group_uuid} limit 1")]
+    async fn select_by_group_uuid(rb: &dyn Executor, group_uuid: &Uuid) -> Option<GroupInfo> {}
 
-impl_select!(GroupInfo{select_by_owner_uuid(owner_uuid: &Uuid) => "`where owner_uuid = #{owner_uuid} and status = 1`"});
+    pub async fn update_by_group_uuid(
+        rb: &dyn Executor,
+        table: &GroupInfo,
+        group_uuid: &Uuid,
+    ) -> Result<rbatis::rbdc::db::ExecResult, rbatis::rbdc::Error> {
+        GroupInfo::update_by_map(rb, table, rbs::value! {"group_uuid": group_uuid}).await
+    }
+
+    #[rbatis::py_sql("select * from group_info where owner_uuid = #{owner_uuid} and status = 1")]
+    async fn select_by_owner_uuid(rb: &dyn Executor, owner_uuid: &Uuid) -> Vec<GroupInfo> {}
+}

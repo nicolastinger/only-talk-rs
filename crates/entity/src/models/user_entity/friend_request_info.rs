@@ -1,5 +1,6 @@
+use rbatis::executor::Executor;
 use rbatis::rbdc::Uuid;
-use rbatis::{crud, impl_select};
+use rbatis::crud;
 use serde::{Deserialize, Serialize};
 
 /// 好友请求表
@@ -23,6 +24,13 @@ pub struct FriendRequestInfo {
 
 crud!(FriendRequestInfo {});
 
-impl_select!(FriendRequestInfo {select_by_uuid(uuid:&Uuid, last_uuid:&Uuid) => "`where (accept_user = #{uuid} and request_user = #{last_uuid}) or (accept_user = #{last_uuid} and request_user = #{uuid})`"});
-impl_select!(FriendRequestInfo {select_by_accept_user_and_status(uuid:&Uuid, accept_status: Option<u8>) => "`where accept_user = #{uuid} and (case when #{accept_status}::int is null then true else accept_status = #{accept_status}::int end)`"});
-impl_select!(FriendRequestInfo {select_by_request_user_and_status(uuid:&Uuid, accept_status: Option<u8>) => "`where request_user = #{uuid} and (case when #{accept_status}::int is null then true else accept_status = #{accept_status}::int end)`"});
+impl FriendRequestInfo {
+    #[rbatis::py_sql("select * from friend_request_info where (accept_user = #{uuid} and request_user = #{last_uuid}) or (accept_user = #{last_uuid} and request_user = #{uuid})")]
+    async fn select_by_uuid(rb: &dyn Executor, uuid: &Uuid, last_uuid: &Uuid) -> Vec<FriendRequestInfo> {}
+
+    #[rbatis::py_sql("select * from friend_request_info where accept_user = #{uuid} and (case when #{accept_status}::int is null then true else accept_status = #{accept_status}::int end)")]
+    async fn select_by_accept_user_and_status(rb: &dyn Executor, uuid: &Uuid, accept_status: Option<u8>) -> Vec<FriendRequestInfo> {}
+
+    #[rbatis::py_sql("select * from friend_request_info where request_user = #{uuid} and (case when #{accept_status}::int is null then true else accept_status = #{accept_status}::int end)")]
+    async fn select_by_request_user_and_status(rb: &dyn Executor, uuid: &Uuid, accept_status: Option<u8>) -> Vec<FriendRequestInfo> {}
+}

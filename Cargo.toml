@@ -40,11 +40,11 @@ rustls-pemfile = "1.0.4"
 uuid = { version = "1", features = ["v4", "v7", "serde"] }
 anyhow = "1.0"
 validator = { version = "0.16", features = ["derive"] }
-rbs = { version = "4.6.2" }
-rbatis = { version = "4.6.7", features = ["debug_mode"] }
+rbs = { version = "4.8.4" }
+rbatis = { version = "4.9.7", features = ["debug_mode"] }
 toml = "0.8.19"
-rbdc-pg = { version = "4.6.1" }
-rbdc-pool-fast = "4.6.0"
+rbdc-pg = { version = "4.9.6" }
+rbdc-pool-fast = "4.9.5"
 once_cell = "1.21.4"
 regex = "1.11.0"
 rsa = "0.9.7"

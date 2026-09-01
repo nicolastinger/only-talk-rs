@@ -37,7 +37,7 @@ use crate::http_service::user_service::vo::user_info::UserInfoVO;
 use crate::utils::http_response::{CommonResponseNoDataRef, CommonResponseRef};
 
 pub async fn test_sql(rb: &RBatis) -> Vec<BasicUser> {
-    let basic_user_all = match BasicUser::select_all(rb).await {
+    let basic_user_all = match BasicUser::select_by_map(rb, value! {}).await {
         Ok(v) => v,
         Err(e) => {
             error!("select_all 查询错误: {}", e);

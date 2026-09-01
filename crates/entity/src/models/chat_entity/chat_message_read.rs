@@ -1,5 +1,6 @@
+use rbatis::executor::Executor;
 use rbatis::rbdc::Uuid;
-use rbatis::{crud, impl_select};
+use rbatis::crud;
 use serde::{Deserialize, Serialize};
 
 /// 会话类型: 单聊
@@ -19,4 +20,7 @@ pub struct ChatMessageRecordRead {
 crud!(ChatMessageRecordRead {});
 
 // 获取已读消息
-impl_select!(ChatMessageRecordRead {select_all_read_by_column(uuid: &Uuid, size: i32)  => r#"where recv_user = #{uuid} order by timestamp desc limit #{size}"#});
+impl ChatMessageRecordRead {
+    #[rbatis::py_sql("select * from chat_message_record_read where recv_user = #{uuid} order by timestamp desc limit #{size}")]
+    async fn select_all_read_by_column(rb: &dyn Executor, uuid: &Uuid, size: i32) -> Vec<ChatMessageRecordRead> {}
+}

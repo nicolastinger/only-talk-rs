@@ -63,7 +63,7 @@ async fn rows_to_vos(
 
 async fn load_username(rb: &RBatis, uuid: &Uuid) -> Result<String, anyhow::Error> {
     let row: Option<(String,)> = rb
-        .query_decode("select username from basic_user where uuid = ?", vec![value!(uuid.clone())])
+        .exec_decode("select username from basic_user where uuid = ?", vec![value!(uuid.clone())])
         .await?;
     Ok(row.map(|r| r.0).filter(|s| !s.is_empty()).unwrap_or_else(|| "对方".to_string()))
 }
@@ -228,7 +228,7 @@ pub async fn get_plaza_list(
     let count = format!(
         "SELECT count(*) as count FROM plaza_user_info pi LEFT JOIN user_info ui ON pi.uuid = ui.uuid WHERE {where_sql}"
     );
-    let count_row: Option<CountRow> = rb.query_decode(&count, count_args).await?;
+    let count_row: Option<CountRow> = rb.exec_decode(&count, count_args).await?;
     let total = count_row.map(|r| r.count).unwrap_or(0) as u32;
 
     let page_sql = format!("{base_sql} ORDER BY pi.updated_at DESC LIMIT ? OFFSET ?");
@@ -236,7 +236,7 @@ pub async fn get_plaza_list(
     page_args.extend(args);
     page_args.push(value!(page_size as i64));
     page_args.push(value!(offset));
-    let rows: Vec<PlazaUserRow> = rb.query_decode(&page_sql, page_args).await?;
+    let rows: Vec<PlazaUserRow> = rb.exec_decode(&page_sql, page_args).await?;
 
     let list = rows_to_vos(rb, rows).await?;
     Ok(CommonResponseRef::<PlazaListVO>::success_json(&PlazaListVO { total, list })?)
@@ -256,7 +256,7 @@ pub async fn get_my_liked_list(
 
     let count_sql =
         "SELECT count(*) as count FROM plaza_like pl WHERE pl.user_uuid = ? AND pl.is_del = false";
-    let count_row: Option<CountRow> = rb.query_decode(count_sql, vec![value!(me.clone())]).await?;
+    let count_row: Option<CountRow> = rb.exec_decode(count_sql, vec![value!(me.clone())]).await?;
     let total = count_row.map(|r| r.count).unwrap_or(0) as u32;
 
     let select_sql = "SELECT bu.uuid, bu.username, bu.icon, bu.info, ui.gender, ui.age::int as age, \
@@ -269,7 +269,7 @@ pub async fn get_my_liked_list(
         ORDER BY pl.created_at DESC LIMIT ? OFFSET ?";
     let args =
         vec![value!(me.clone()), value!(me.clone()), value!(page_size as i64), value!(offset)];
-    let rows: Vec<PlazaUserRow> = rb.query_decode(select_sql, args).await?;
+    let rows: Vec<PlazaUserRow> = rb.exec_decode(select_sql, args).await?;
     let list = rows_to_vos(rb, rows).await?;
     Ok(CommonResponseRef::<PlazaListVO>::success_json(&PlazaListVO { total, list })?)
 }
@@ -289,7 +289,7 @@ pub async fn get_matched_list(
     let count_sql = "SELECT count(*) as count FROM plaza_like ml \
         JOIN plaza_like ol ON ml.target_uuid = ol.user_uuid AND ol.target_uuid = ml.user_uuid \
         WHERE ml.user_uuid = ? AND ml.is_del = false AND ol.is_del = false";
-    let count_row: Option<CountRow> = rb.query_decode(count_sql, vec![value!(me.clone())]).await?;
+    let count_row: Option<CountRow> = rb.exec_decode(count_sql, vec![value!(me.clone())]).await?;
     let total = count_row.map(|r| r.count).unwrap_or(0) as u32;
 
     let select_sql = "SELECT bu.uuid, bu.username, bu.icon, bu.info, ui.gender, ui.age::int as age, \
@@ -304,7 +304,7 @@ pub async fn get_matched_list(
         ORDER BY ml.created_at DESC LIMIT ? OFFSET ?";
     let args =
         vec![value!(me.clone()), value!(me.clone()), value!(page_size as i64), value!(offset)];
-    let rows: Vec<PlazaUserRow> = rb.query_decode(select_sql, args).await?;
+    let rows: Vec<PlazaUserRow> = rb.exec_decode(select_sql, args).await?;
     let list = rows_to_vos(rb, rows).await?;
     Ok(CommonResponseRef::<PlazaListVO>::success_json(&PlazaListVO { total, list })?)
 }
@@ -319,7 +319,7 @@ pub async fn get_plaza_user(
     let target = parse_uuid(Some(uuid_str))?.ok_or_else(|| anyhow!("invalid uuid"))?;
 
     let row: Option<PlazaUserRow> = rb
-        .query_decode(
+        .exec_decode(
             "SELECT pi.uuid, bu.username, bu.icon, bu.info, ui.gender, ui.age::int as age, \
              ui.address, pi.motto, \
              (SELECT count(*) FROM plaza_like pl WHERE pl.target_uuid = pi.uuid AND pl.user_uuid = ? AND pl.is_del = false) as liked_by_me \

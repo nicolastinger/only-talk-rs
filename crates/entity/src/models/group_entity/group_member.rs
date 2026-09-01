@@ -1,5 +1,6 @@
+use rbatis::executor::Executor;
 use rbatis::rbdc::Uuid;
-use rbatis::{crud, impl_select, impl_update};
+use rbatis::crud;
 use serde::{Deserialize, Serialize};
 
 /// 群成员角色
@@ -37,9 +38,27 @@ pub struct GroupMember {
 
 crud!(GroupMember {});
 
-impl_select!(GroupMember{select_by_group_and_user(group_uuid: &Uuid, user_uuid: &Uuid) -> Option => "`where group_uuid = #{group_uuid} and user_uuid = #{user_uuid} limit 1`"});
-impl_update!(GroupMember{update_by_group_and_user(group_uuid: &Uuid, user_uuid: &Uuid) => "`where group_uuid = #{group_uuid} and user_uuid = #{user_uuid}`"});
+impl GroupMember {
+    #[rbatis::py_sql("select * from group_member where group_uuid = #{group_uuid} and user_uuid = #{user_uuid} limit 1")]
+    async fn select_by_group_and_user(rb: &dyn Executor, group_uuid: &Uuid, user_uuid: &Uuid) -> Option<GroupMember> {}
 
-impl_select!(GroupMember{select_members_by_group(group_uuid: &Uuid) => "`where group_uuid = #{group_uuid} and status = 1`"});
+    pub async fn update_by_group_and_user(
+        rb: &dyn Executor,
+        table: &GroupMember,
+        group_uuid: &Uuid,
+        user_uuid: &Uuid,
+    ) -> Result<rbatis::rbdc::db::ExecResult, rbatis::rbdc::Error> {
+        GroupMember::update_by_map(
+            rb,
+            table,
+            rbs::value! {"group_uuid": group_uuid, "user_uuid": user_uuid},
+        )
+        .await
+    }
 
-impl_select!(GroupMember{select_groups_by_user(user_uuid: &Uuid) => "`where user_uuid = #{user_uuid} and status = 1`"});
+    #[rbatis::py_sql("select * from group_member where group_uuid = #{group_uuid} and status = 1")]
+    async fn select_members_by_group(rb: &dyn Executor, group_uuid: &Uuid) -> Vec<GroupMember> {}
+
+    #[rbatis::py_sql("select * from group_member where user_uuid = #{user_uuid} and status = 1")]
+    async fn select_groups_by_user(rb: &dyn Executor, user_uuid: &Uuid) -> Vec<GroupMember> {}
+}

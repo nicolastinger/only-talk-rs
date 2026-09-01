@@ -1,5 +1,6 @@
+use rbatis::executor::Executor;
 use rbatis::rbdc::Uuid;
-use rbatis::{RBatis, crud, impl_select, impl_update};
+use rbatis::{RBatis, crud};
 use serde::{Deserialize, Serialize};
 use validator::Validate;
 
@@ -17,9 +18,22 @@ pub struct BasicUser {
 }
 
 crud!(BasicUser {}); //crud = 插入+按列查询+按列更新+按列删除
-impl_select!(BasicUser{select_by_account(account:&str) -> Option => "`where account = #{account} limit 1`"});
-impl_select!(BasicUser{select_by_uuid(uuid:&Uuid) -> Option => "`where uuid = #{uuid} limit 1`"});
-impl_update!(BasicUser{update_by_uuid(uuid:&Uuid) => "`where uuid = #{uuid}`"});
+
+impl BasicUser {
+    #[rbatis::py_sql("select * from basic_user where account = #{account} limit 1")]
+    async fn select_by_account(rb: &dyn Executor, account: &str) -> Option<BasicUser> {}
+
+    #[rbatis::py_sql("select * from basic_user where uuid = #{uuid} limit 1")]
+    async fn select_by_uuid(rb: &dyn Executor, uuid: &Uuid) -> Option<BasicUser> {}
+
+    pub async fn update_by_uuid(
+        rb: &dyn Executor,
+        table: &BasicUser,
+        uuid: &Uuid,
+    ) -> Result<rbatis::rbdc::db::ExecResult, rbatis::rbdc::Error> {
+        BasicUser::update_by_map(rb, table, rbs::value! {"uuid": uuid}).await
+    }
+}
 
 /// 是否存在某用户
 pub async fn is_exist_user_by_uuid(rb: &RBatis, uuid: &Uuid) -> Result<bool, anyhow::Error> {

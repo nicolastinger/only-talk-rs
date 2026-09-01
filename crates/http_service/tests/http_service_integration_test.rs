@@ -700,8 +700,7 @@ async fn build_db_pool(url: &str) -> Result<RBatis> {
     let rb = RBatis::new();
     let mut opts = PgConnectOptions::new();
     opts.set_uri(url).map_err(|e| anyhow!("设置数据库 URI 失败: {}", e))?;
-    let conn_manager =
-        ConnectionManager::new_arc(Arc::new(Box::new(PgDriver {})), Arc::new(Box::new(opts)));
+    let conn_manager = ConnectionManager::new_options(PgDriver {}, opts);
     let pool = FastPool::new(conn_manager).map_err(|e| anyhow!("创建连接池失败: {}", e))?;
     pool.set_timeout(Some(Duration::from_secs(2))).await;
     rb.pool

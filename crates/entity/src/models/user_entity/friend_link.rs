@@ -1,5 +1,6 @@
+use rbatis::executor::Executor;
 use rbatis::rbdc::Uuid;
-use rbatis::{crud, impl_select, impl_update};
+use rbatis::crud;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -15,5 +16,21 @@ pub struct FriendLink {
 
 crud!(FriendLink {});
 
-impl_select!(FriendLink {select_by_last_uuid(uuid:&Uuid, last_uuid:&Uuid) -> Option => "`where (accept_user = #{uuid} and request_user = #{last_uuid}) or (accept_user = #{last_uuid} and request_user = #{uuid}) limit 1`"});
-impl_update!(FriendLink {update_is_del_by_users(request_user: &Uuid, accept_user: &Uuid) => "`where (request_user = #{request_user} and accept_user = #{accept_user}) or (request_user = #{accept_user} and accept_user = #{request_user})`"});
+impl FriendLink {
+    #[rbatis::py_sql("select * from friend_link where (accept_user = #{uuid} and request_user = #{last_uuid}) or (accept_user = #{last_uuid} and request_user = #{uuid}) limit 1")]
+    async fn select_by_last_uuid(rb: &dyn Executor, uuid: &Uuid, last_uuid: &Uuid) -> Option<FriendLink> {}
+
+    pub async fn update_is_del_by_users(
+        rb: &dyn Executor,
+        table: &FriendLink,
+        request_user: &Uuid,
+        accept_user: &Uuid,
+    ) -> Result<rbatis::rbdc::db::ExecResult, rbatis::rbdc::Error> {
+        FriendLink::update_by_map(
+            rb,
+            table,
+            rbs::value! {"request_user": request_user, "accept_user": accept_user},
+        )
+        .await
+    }
+}

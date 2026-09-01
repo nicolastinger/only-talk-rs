@@ -1,5 +1,6 @@
+use rbatis::executor::Executor;
 use rbatis::rbdc::Uuid;
-use rbatis::{crud, impl_select};
+use rbatis::crud;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -18,5 +19,10 @@ pub struct PlazaLike {
 
 crud!(PlazaLike {});
 
-impl_select!(PlazaLike {select_by_target_and_user(target_uuid:&Uuid, user_uuid:&Uuid) -> Option => "`where target_uuid = #{target_uuid} and user_uuid = #{user_uuid} limit 1`"});
-impl_select!(PlazaLike {select_by_target(target_uuid:&Uuid) => "`where target_uuid = #{target_uuid}`"});
+impl PlazaLike {
+    #[rbatis::py_sql("select * from plaza_like where target_uuid = #{target_uuid} and user_uuid = #{user_uuid} limit 1")]
+    async fn select_by_target_and_user(rb: &dyn Executor, target_uuid: &Uuid, user_uuid: &Uuid) -> Option<PlazaLike> {}
+
+    #[rbatis::py_sql("select * from plaza_like where target_uuid = #{target_uuid}")]
+    async fn select_by_target(rb: &dyn Executor, target_uuid: &Uuid) -> Vec<PlazaLike> {}
+}

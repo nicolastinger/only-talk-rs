@@ -1,5 +1,6 @@
+use rbatis::executor::Executor;
 use rbatis::rbdc::Uuid;
-use rbatis::{crud, impl_select};
+use rbatis::crud;
 use serde::{Deserialize, Serialize};
 
 /// 公开文件业务表关联
@@ -18,5 +19,11 @@ pub struct BizFileLink {
 }
 
 crud!(BizFileLink {});
-impl_select!(BizFileLink{select_by_biz_and_file(biz_id:&Uuid,file_id:&Uuid) -> Option => "`where biz_id = #{biz_id} and (file_id = #{file_id} or origin_file_id = #{file_id})`"});
-impl_select!(BizFileLink{select_by_biz(biz_id:&Uuid) => "`where biz_id = #{biz_id} limit 100`"});
+
+impl BizFileLink {
+    #[rbatis::py_sql("select * from biz_file_link where biz_id = #{biz_id} and (file_id = #{file_id} or origin_file_id = #{file_id})")]
+    async fn select_by_biz_and_file(rb: &dyn Executor, biz_id: &Uuid, file_id: &Uuid) -> Option<BizFileLink> {}
+
+    #[rbatis::py_sql("select * from biz_file_link where biz_id = #{biz_id} limit 100")]
+    async fn select_by_biz(rb: &dyn Executor, biz_id: &Uuid) -> Vec<BizFileLink> {}
+}

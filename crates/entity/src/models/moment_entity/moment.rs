@@ -1,5 +1,6 @@
+use rbatis::executor::Executor;
 use rbatis::rbdc::Uuid;
-use rbatis::{crud, impl_select, impl_update};
+use rbatis::crud;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -22,5 +23,15 @@ pub struct Moment {
 
 crud!(Moment {});
 
-impl_select!(Moment {select_by_uuid(uuid:&Uuid) -> Option => "`where uuid = #{uuid} limit 1`"});
-impl_update!(Moment {update_by_uuid(uuid:&Uuid) => "`where uuid = #{uuid}`"});
+impl Moment {
+    #[rbatis::py_sql("select * from moment where uuid = #{uuid} limit 1")]
+    async fn select_by_uuid(rb: &dyn Executor, uuid: &Uuid) -> Option<Moment> {}
+
+    pub async fn update_by_uuid(
+        rb: &dyn Executor,
+        table: &Moment,
+        uuid: &Uuid,
+    ) -> Result<rbatis::rbdc::db::ExecResult, rbatis::rbdc::Error> {
+        Moment::update_by_map(rb, table, rbs::value! {"uuid": uuid}).await
+    }
+}

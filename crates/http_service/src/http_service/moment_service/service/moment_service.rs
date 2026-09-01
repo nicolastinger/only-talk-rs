@@ -220,7 +220,7 @@ pub async fn get_moment_list(
     let (where_sql, where_args) = build_moment_filter(&me, feed.as_deref(), author.as_ref());
 
     let count_sql = format!("SELECT count(*) as count FROM moment m WHERE {where_sql}");
-    let count_row: Option<CountRow> = rb.query_decode(&count_sql, where_args.clone()).await?;
+    let count_row: Option<CountRow> = rb.exec_decode(&count_sql, where_args.clone()).await?;
     let total = count_row.map(|r| r.count).unwrap_or(0) as u32;
 
     let select_sql = format!(
@@ -238,7 +238,7 @@ pub async fn get_moment_list(
     args.extend(where_args);
     args.push(value!(page_size as i64));
     args.push(value!(offset));
-    let rows: Vec<MomentRow> = rb.query_decode(&select_sql, args).await?;
+    let rows: Vec<MomentRow> = rb.exec_decode(&select_sql, args).await?;
 
     let list = rows.into_iter().map(to_vo).collect();
     Ok(CommonResponseRef::<MomentListVO>::success_json(&MomentListVO { total, list })?)
@@ -268,7 +268,7 @@ pub async fn get_moment_detail(
         value!(moment_uuid.clone()),
         value!(me.clone()),
     ];
-    let row: Option<MomentRow> = rb.query_decode(select_sql, args).await?;
+    let row: Option<MomentRow> = rb.exec_decode(select_sql, args).await?;
     let Some(row) = row else {
         return Err(anyhow!("动态不存在"));
     };
@@ -408,7 +408,7 @@ async fn get_comment_vo(rb: &RBatis, id: &Uuid) -> Result<String, anyhow::Error>
         bu.username, bu.icon FROM moment_comment c JOIN basic_user bu ON c.author_uuid = bu.uuid \
         WHERE c.id = ?";
     let row: Option<MomentCommentRow> =
-        rb.query_decode(select_sql, vec![value!(id.clone())]).await?;
+        rb.exec_decode(select_sql, vec![value!(id.clone())]).await?;
     let Some(row) = row else {
         return Err(anyhow!("评论不存在"));
     };
@@ -433,7 +433,7 @@ pub async fn get_comments(
 
     let count_sql = "SELECT count(*) as count FROM moment_comment c WHERE c.moment_uuid = ? AND c.is_del = false";
     let count_row: Option<CountRow> =
-        rb.query_decode(count_sql, vec![value!(moment_uuid.clone())]).await?;
+        rb.exec_decode(count_sql, vec![value!(moment_uuid.clone())]).await?;
     let total = count_row.map(|r| r.count).unwrap_or(0) as u32;
 
     let select_sql = "SELECT c.id, c.moment_uuid, c.author_uuid, c.content, c.created_at, \
@@ -441,7 +441,7 @@ pub async fn get_comments(
         WHERE c.moment_uuid = ? AND c.is_del = false \
         ORDER BY c.created_at DESC LIMIT ? OFFSET ?";
     let rows: Vec<MomentCommentRow> = rb
-        .query_decode(
+        .exec_decode(
             select_sql,
             vec![value!(moment_uuid.clone()), value!(page_size as i64), value!(offset)],
         )
@@ -472,7 +472,7 @@ pub async fn get_like_list(
 
     let count_sql = "SELECT count(*) as count FROM moment_like ml WHERE ml.moment_uuid = ? AND ml.is_del = false";
     let count_row: Option<CountRow> =
-        rb.query_decode(count_sql, vec![value!(moment_uuid.clone())]).await?;
+        rb.exec_decode(count_sql, vec![value!(moment_uuid.clone())]).await?;
     let total = count_row.map(|r| r.count).unwrap_or(0) as u32;
 
     let select_sql = "SELECT bu.uuid, bu.username, bu.icon, ml.created_at \
@@ -480,7 +480,7 @@ pub async fn get_like_list(
         WHERE ml.moment_uuid = ? AND ml.is_del = false \
         ORDER BY ml.created_at DESC LIMIT ? OFFSET ?";
     let rows: Vec<MomentLikerRow> = rb
-        .query_decode(
+        .exec_decode(
             select_sql,
             vec![value!(moment_uuid.clone()), value!(page_size as i64), value!(offset)],
         )

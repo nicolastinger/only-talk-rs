@@ -25,7 +25,7 @@ pub async fn query_friend_list(
     created_at: i64,
 ) -> Result<String, anyhow::Error> {
     let friend_list: Option<Vec<FriendListVO>> = rb
-        .query_decode("select bu.uuid, bu.username, bu.account, bu.icon, bu.info, fs.is_del, fs.is_block, fs.version, fs.updated_at, fs.created_at from
+        .exec_decode("select bu.uuid, bu.username, bu.account, bu.icon, bu.info, fs.is_del, fs.is_block, fs.version, fs.updated_at, fs.created_at from
 (select fl.accept_user as uuid, fl.is_del, (bl.uuid is not null) as is_block, fl.updated_at, fl.version, fl.created_at FROM friend_link fl
 left join black_list bl on bl.me_user = ? and bl.block_user = fl.accept_user
 where fl.request_user = ?
@@ -49,7 +49,7 @@ pub struct BlackListVO {
 
 pub async fn query_black_list(rb: &RBatis, uuid: &Uuid) -> Result<String, anyhow::Error> {
     let black_list: Option<Vec<BlackListVO>> = rb
-        .query_decode("select bu.uuid, bu.account, bu.username, bu.icon, bl.created_at from black_list bl left join basic_user bu on bl.block_user = bu.uuid where bl.me_user = ?", vec![value!(uuid)])
+        .exec_decode("select bu.uuid, bu.account, bu.username, bu.icon, bl.created_at from black_list bl left join basic_user bu on bl.block_user = bu.uuid where bl.me_user = ?", vec![value!(uuid)])
         .await?;
     Ok(CommonResponseRef::<Option<Vec<BlackListVO>>>::success_json(&black_list)?)
 }

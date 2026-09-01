@@ -1,5 +1,6 @@
+use rbatis::executor::Executor;
 use rbatis::rbdc::Uuid;
-use rbatis::{crud, impl_select};
+use rbatis::crud;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -16,4 +17,7 @@ pub struct AnnouncementRead {
 
 crud!(AnnouncementRead {});
 
-impl_select!(AnnouncementRead {select_by_announcement_and_user(announcement_uuid:&Uuid, user_uuid:&Uuid) -> Option => "`where announcement_uuid = #{announcement_uuid} and user_uuid = #{user_uuid} limit 1`"});
+impl AnnouncementRead {
+    #[rbatis::py_sql("select * from announcement_read where announcement_uuid = #{announcement_uuid} and user_uuid = #{user_uuid} limit 1")]
+    async fn select_by_announcement_and_user(rb: &dyn Executor, announcement_uuid: &Uuid, user_uuid: &Uuid) -> Option<AnnouncementRead> {}
+}

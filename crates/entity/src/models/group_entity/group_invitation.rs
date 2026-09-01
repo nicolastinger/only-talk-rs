@@ -1,5 +1,6 @@
+use rbatis::executor::Executor;
 use rbatis::rbdc::Uuid;
-use rbatis::{crud, impl_select, impl_update};
+use rbatis::crud;
 use serde::{Deserialize, Serialize};
 
 /// 群邀请状态
@@ -21,8 +22,24 @@ pub struct GroupInvitation {
 
 crud!(GroupInvitation {});
 
-impl_select!(GroupInvitation{select_pending_by_invitee(invitee_uuid: &Uuid) => "`where invitee_uuid = #{invitee_uuid} and status = 1 order by created_at desc`"});
-impl_select!(GroupInvitation{select_by_inviter(inviter_uuid: &Uuid) => "`where inviter_uuid = #{inviter_uuid} order by created_at desc`"});
-impl_select!(GroupInvitation{select_pending_by_group(group_uuid: &Uuid) => "`where group_uuid = #{group_uuid} and status = 1 order by created_at desc`"});
-impl_select!(GroupInvitation{select_by_group_and_invitee(group_uuid: &Uuid, invitee_uuid: &Uuid) -> Option => "`where group_uuid = #{group_uuid} and invitee_uuid = #{invitee_uuid} order by created_at desc limit 1`"});
-impl_update!(GroupInvitation{update_by_id(id: &i64) => "`where id = #{id}`"});
+impl GroupInvitation {
+    #[rbatis::py_sql("select * from group_invitation where invitee_uuid = #{invitee_uuid} and status = 1 order by created_at desc")]
+    async fn select_pending_by_invitee(rb: &dyn Executor, invitee_uuid: &Uuid) -> Vec<GroupInvitation> {}
+
+    #[rbatis::py_sql("select * from group_invitation where inviter_uuid = #{inviter_uuid} order by created_at desc")]
+    async fn select_by_inviter(rb: &dyn Executor, inviter_uuid: &Uuid) -> Vec<GroupInvitation> {}
+
+    #[rbatis::py_sql("select * from group_invitation where group_uuid = #{group_uuid} and status = 1 order by created_at desc")]
+    async fn select_pending_by_group(rb: &dyn Executor, group_uuid: &Uuid) -> Vec<GroupInvitation> {}
+
+    #[rbatis::py_sql("select * from group_invitation where group_uuid = #{group_uuid} and invitee_uuid = #{invitee_uuid} order by created_at desc limit 1")]
+    async fn select_by_group_and_invitee(rb: &dyn Executor, group_uuid: &Uuid, invitee_uuid: &Uuid) -> Option<GroupInvitation> {}
+
+    pub async fn update_by_id(
+        rb: &dyn Executor,
+        table: &GroupInvitation,
+        id: &i64,
+    ) -> Result<rbatis::rbdc::db::ExecResult, rbatis::rbdc::Error> {
+        GroupInvitation::update_by_map(rb, table, rbs::value! {"id": id}).await
+    }
+}

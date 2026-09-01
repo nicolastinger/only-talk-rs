@@ -1,5 +1,6 @@
+use rbatis::executor::Executor;
 use rbatis::rbdc::{Bytes, Uuid};
-use rbatis::{RBatis, crud, impl_select};
+use rbatis::{RBatis, crud};
 use rbs::value;
 use serde::{Deserialize, Serialize};
 
@@ -16,15 +17,18 @@ pub struct ChatMessageRecord {
 
 crud!(ChatMessageRecord {});
 
-impl_select!(ChatMessageRecord {select_chat_by_limit(send_user: Uuid, recv_user: Uuid, start: u32, size: u32) => r#"where ((send_user = #{send_user} and recv_user = #{recv_user}) or (send_user = #{recv_user} and recv_user = #{send_user}))
-  order by created_at limit #{size} offset #{start}"#
-});
+impl ChatMessageRecord {
+    #[rbatis::py_sql("select * from chat_message_record where ((send_user = #{send_user} and recv_user = #{recv_user}) or (send_user = #{recv_user} and recv_user = #{send_user})) order by created_at limit #{size} offset #{start}")]
+    async fn select_chat_by_limit(rb: &dyn Executor, send_user: Uuid, recv_user: Uuid, start: u32, size: u32) -> Vec<ChatMessageRecord> {}
 
-// 获取最新一条消息
-impl_select!(ChatMessageRecord {select_last_by_column(uuid: &Uuid) -> Option => r#"where recv_user = #{uuid} or send_user = #{uuid} order by timestamp desc limit 1"#});
+    // 获取最新一条消息
+    #[rbatis::py_sql("select * from chat_message_record where recv_user = #{uuid} or send_user = #{uuid} order by timestamp desc limit 1")]
+    async fn select_last_by_column(rb: &dyn Executor, uuid: &Uuid) -> Option<ChatMessageRecord> {}
 
-// 获取未读消息，最大9999
-impl_select!(ChatMessageRecord {select_unread_by_time(uuid: &Uuid, time: i64) => r#"where (send_user = #{uuid} or recv_user = #{uuid}) and timestamp > #{time} order by timestamp desc limit 9999"#});
+    // 获取未读消息，最大9999
+    #[rbatis::py_sql("select * from chat_message_record where (send_user = #{uuid} or recv_user = #{uuid}) and timestamp > #{time} order by timestamp desc limit 9999")]
+    async fn select_unread_by_time(rb: &dyn Executor, uuid: &Uuid, time: i64) -> Vec<ChatMessageRecord> {}
+}
 
 // rbatis::raw_sql!(chat_message_recordraw_insert(rb: &dyn Executor, nano_id: String, created_at: i64, send_user: Uuid, recv_user: Uuid, raw: Vec<u8>, msg_type: u32)  -> Result<rbs::Value, rbatis::Error> =>
 // "INSERT INTO public.chat_message_record

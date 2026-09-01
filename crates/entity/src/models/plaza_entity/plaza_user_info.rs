@@ -1,5 +1,6 @@
+use rbatis::executor::Executor;
 use rbatis::rbdc::Uuid;
-use rbatis::{crud, impl_select, impl_update};
+use rbatis::crud;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -20,5 +21,15 @@ pub struct PlazaUserInfo {
 
 crud!(PlazaUserInfo {});
 
-impl_select!(PlazaUserInfo {select_by_uuid(uuid:&Uuid) -> Option => "`where uuid = #{uuid} limit 1`"});
-impl_update!(PlazaUserInfo {update_by_uuid(uuid:&Uuid) => "`where uuid = #{uuid}`"});
+impl PlazaUserInfo {
+    #[rbatis::py_sql("select * from plaza_user_info where uuid = #{uuid} limit 1")]
+    async fn select_by_uuid(rb: &dyn Executor, uuid: &Uuid) -> Option<PlazaUserInfo> {}
+
+    pub async fn update_by_uuid(
+        rb: &dyn Executor,
+        table: &PlazaUserInfo,
+        uuid: &Uuid,
+    ) -> Result<rbatis::rbdc::db::ExecResult, rbatis::rbdc::Error> {
+        PlazaUserInfo::update_by_map(rb, table, rbs::value! {"uuid": uuid}).await
+    }
+}
