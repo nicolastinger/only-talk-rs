@@ -23,9 +23,9 @@ path = "crates/api"
 [workspace.dependencies]
 quinn = {version = "0.10.2"}
 rustls = { version = "0.21", features = ["dangerous_configuration"] }
-jsonwebtoken = "8.0"  # 请根据最新版本调整
-tokio ={ version = "1.0.0",features = ["full"]}
-serde_json = "1.0.128"
+jsonwebtoken = "8.0"
+tokio = { version = "1.53.1", features = ["full"] }
+serde_json = "1.0.151"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 tracing-appender = "0.2"
@@ -34,30 +34,30 @@ serde = { version = "1", features = ["derive"] }
 lazy_static = "1.4"
 redis = { version = "0.22" ,features = ["tokio-comp"]}
 actix-files = "0.6"
-actix-web = { version = "4.9", features = ["rustls-0_21"] } # 请根据实际情况调整版本
+actix-web = { version = "4.15", features = ["rustls-0_21"] }
 deadpool-redis = "0.18.0"
 rustls-pemfile = "1.0.4"
 uuid = { version = "1", features = ["v4", "v7", "serde"] }
 anyhow = "1.0"
 validator = { version = "0.16", features = ["derive"] }
-rbs = { version = "4.6"}
-rbatis = { version = "4.6.7", features = ["debug_mode"]}
+rbs = { version = "=4.6.2" }
+rbatis = { version = "=4.6.7", features = ["debug_mode"] }
 toml = "0.8.19"
-rbdc-pg={version="4.6.1"}
-rbdc-pool-fast = "4.6.0"
-once_cell = "1.20.2"
+rbdc-pg = { version = "=4.6.1" }
+rbdc-pool-fast = "=4.6.0"
+once_cell = "1.21.4"
 regex = "1.11.0"
 rsa = "0.9.7"
 rand = "0.8.5"
 sha2 = "0.10.8"
 bincode = "1.3.3"
-crc = { version = "3.0" }  # 当前最新稳定版（2025年5月）
+crc = { version = "3.4" }
 crc-catalog = "2.0"  # 可选，用于预置标准CRC算法
 nanoid = "0.4.0"
 async-trait = "0.1.89"
 actix-multipart = "0.6"
 futures-util = "0.3"
-webpki-roots = "1.0.2"
+webpki-roots = "1.0.9"
 x509-parser = "0.16"
 rcgen = "0.13"
 dotenvy = "0.15"
