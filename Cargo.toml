@@ -32,19 +32,19 @@ tracing-appender = "0.2"
 tracing-actix-web = "0.7"
 serde = { version = "1", features = ["derive"] }
 lazy_static = "1.4"
-redis = { version = "0.22" ,features = ["tokio-comp"]}
+redis = { version = "1", features = ["tokio-comp"] }
 actix-files = "0.6"
 actix-web = { version = "4.15", features = ["rustls-0_21"] }
-deadpool-redis = "0.18.0"
+deadpool-redis = "0.23"
 rustls-pemfile = "1.0.4"
 uuid = { version = "1", features = ["v4", "v7", "serde"] }
 anyhow = "1.0"
 validator = { version = "0.16", features = ["derive"] }
-rbs = { version = "=4.6.2" }
-rbatis = { version = "=4.6.7", features = ["debug_mode"] }
+rbs = { version = "4.6.2" }
+rbatis = { version = "4.6.7", features = ["debug_mode"] }
 toml = "0.8.19"
-rbdc-pg = { version = "=4.6.1" }
-rbdc-pool-fast = "=4.6.0"
+rbdc-pg = { version = "4.6.1" }
+rbdc-pool-fast = "4.6.0"
 once_cell = "1.21.4"
 regex = "1.11.0"
 rsa = "0.9.7"
