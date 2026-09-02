@@ -67,7 +67,14 @@ impl FileUploadRecord {
     }
 
     #[rbatis::py_sql("select * from file_upload_record where uuid = #{uuid} limit 1")]
-    async fn select_by_uuid(rb: &dyn Executor, uuid: &Uuid) -> Option<FileUploadRecord> {}
+    async fn select_by_uuid_inner(rb: &dyn Executor, uuid: &Uuid) -> Vec<FileUploadRecord> {}
+
+    pub async fn select_by_uuid(
+        rb: &dyn Executor,
+        uuid: &Uuid,
+    ) -> rbatis::Result<Option<FileUploadRecord>> {
+        Ok(Self::select_by_uuid_inner(rb, uuid).await?.into_iter().next())
+    }
 }
 
 crud!(FileUploadRecord {});

@@ -21,5 +21,13 @@ crud!(UserFollow {});
 
 impl UserFollow {
     #[rbatis::py_sql("select * from user_follow where follow_user_uuid = #{follow_user_uuid} and target_user_uuid = #{target_user_uuid} limit 1")]
-    async fn select_by_follow_and_target(rb: &dyn Executor, follow_user_uuid: &Uuid, target_user_uuid: &Uuid) -> Option<UserFollow> {}
+    async fn select_by_follow_and_target_inner(rb: &dyn Executor, follow_user_uuid: &Uuid, target_user_uuid: &Uuid) -> Vec<UserFollow> {}
+
+    pub async fn select_by_follow_and_target(
+        rb: &dyn Executor,
+        follow_user_uuid: &Uuid,
+        target_user_uuid: &Uuid,
+    ) -> rbatis::Result<Option<UserFollow>> {
+        Ok(Self::select_by_follow_and_target_inner(rb, follow_user_uuid, target_user_uuid).await?.into_iter().next())
+    }
 }

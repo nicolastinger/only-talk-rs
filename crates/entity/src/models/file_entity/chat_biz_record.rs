@@ -36,5 +36,9 @@ crud!(ChatBizRecord {});
 
 impl ChatBizRecord {
     #[rbatis::py_sql("select * from chat_biz_record where uuid = #{uuid} limit 1")]
-    async fn select_by_uuid(rb: &dyn Executor, uuid: &Uuid) -> Option<ChatBizRecord> {}
+    async fn select_by_uuid_inner(rb: &dyn Executor, uuid: &Uuid) -> Vec<ChatBizRecord> {}
+
+    pub async fn select_by_uuid(rb: &dyn Executor, uuid: &Uuid) -> rbatis::Result<Option<ChatBizRecord>> {
+        Ok(Self::select_by_uuid_inner(rb, uuid).await?.into_iter().next())
+    }
 }

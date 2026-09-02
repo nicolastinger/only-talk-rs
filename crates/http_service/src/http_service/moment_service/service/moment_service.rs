@@ -220,7 +220,11 @@ pub async fn get_moment_list(
     let (where_sql, where_args) = build_moment_filter(&me, feed.as_deref(), author.as_ref());
 
     let count_sql = format!("SELECT count(*) as count FROM moment m WHERE {where_sql}");
-    let count_row: Option<CountRow> = rb.exec_decode(&count_sql, where_args.clone()).await?;
+    let count_row: Option<CountRow> =
+        rb.exec_decode::<Vec<CountRow>>(&count_sql, where_args.clone())
+            .await?
+            .into_iter()
+            .next();
     let total = count_row.map(|r| r.count).unwrap_or(0) as u32;
 
     let select_sql = format!(
@@ -268,7 +272,11 @@ pub async fn get_moment_detail(
         value!(moment_uuid.clone()),
         value!(me.clone()),
     ];
-    let row: Option<MomentRow> = rb.exec_decode(select_sql, args).await?;
+    let row: Option<MomentRow> = rb
+        .exec_decode::<Vec<MomentRow>>(select_sql, args)
+        .await?
+        .into_iter()
+        .next();
     let Some(row) = row else {
         return Err(anyhow!("动态不存在"));
     };
@@ -407,8 +415,11 @@ async fn get_comment_vo(rb: &RBatis, id: &Uuid) -> Result<String, anyhow::Error>
     let select_sql = "SELECT c.id, c.moment_uuid, c.author_uuid, c.content, c.created_at, \
         bu.username, bu.icon FROM moment_comment c JOIN basic_user bu ON c.author_uuid = bu.uuid \
         WHERE c.id = ?";
-    let row: Option<MomentCommentRow> =
-        rb.exec_decode(select_sql, vec![value!(id.clone())]).await?;
+    let row: Option<MomentCommentRow> = rb
+        .exec_decode::<Vec<MomentCommentRow>>(select_sql, vec![value!(id.clone())])
+        .await?
+        .into_iter()
+        .next();
     let Some(row) = row else {
         return Err(anyhow!("评论不存在"));
     };
@@ -433,7 +444,10 @@ pub async fn get_comments(
 
     let count_sql = "SELECT count(*) as count FROM moment_comment c WHERE c.moment_uuid = ? AND c.is_del = false";
     let count_row: Option<CountRow> =
-        rb.exec_decode(count_sql, vec![value!(moment_uuid.clone())]).await?;
+        rb.exec_decode::<Vec<CountRow>>(count_sql, vec![value!(moment_uuid.clone())])
+        .await?
+        .into_iter()
+        .next();
     let total = count_row.map(|r| r.count).unwrap_or(0) as u32;
 
     let select_sql = "SELECT c.id, c.moment_uuid, c.author_uuid, c.content, c.created_at, \
@@ -472,7 +486,10 @@ pub async fn get_like_list(
 
     let count_sql = "SELECT count(*) as count FROM moment_like ml WHERE ml.moment_uuid = ? AND ml.is_del = false";
     let count_row: Option<CountRow> =
-        rb.exec_decode(count_sql, vec![value!(moment_uuid.clone())]).await?;
+        rb.exec_decode::<Vec<CountRow>>(count_sql, vec![value!(moment_uuid.clone())])
+        .await?
+        .into_iter()
+        .next();
     let total = count_row.map(|r| r.count).unwrap_or(0) as u32;
 
     let select_sql = "SELECT bu.uuid, bu.username, bu.icon, ml.created_at \

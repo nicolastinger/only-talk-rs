@@ -33,7 +33,11 @@ crud!(UserInfo {});
 
 impl UserInfo {
     #[rbatis::py_sql("select * from user_info where uuid = #{uuid} limit 1")]
-    async fn select_by_uuid(rb: &dyn Executor, uuid: &Uuid) -> Option<UserInfo> {}
+    async fn select_by_uuid_inner(rb: &dyn Executor, uuid: &Uuid) -> Vec<UserInfo> {}
+
+    pub async fn select_by_uuid(rb: &dyn Executor, uuid: &Uuid) -> rbatis::Result<Option<UserInfo>> {
+        Ok(Self::select_by_uuid_inner(rb, uuid).await?.into_iter().next())
+    }
 
     pub async fn update_by_uuid(
         rb: &dyn Executor,

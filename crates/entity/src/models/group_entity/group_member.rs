@@ -40,7 +40,15 @@ crud!(GroupMember {});
 
 impl GroupMember {
     #[rbatis::py_sql("select * from group_member where group_uuid = #{group_uuid} and user_uuid = #{user_uuid} limit 1")]
-    async fn select_by_group_and_user(rb: &dyn Executor, group_uuid: &Uuid, user_uuid: &Uuid) -> Option<GroupMember> {}
+    async fn select_by_group_and_user_inner(rb: &dyn Executor, group_uuid: &Uuid, user_uuid: &Uuid) -> Vec<GroupMember> {}
+
+    pub async fn select_by_group_and_user(
+        rb: &dyn Executor,
+        group_uuid: &Uuid,
+        user_uuid: &Uuid,
+    ) -> rbatis::Result<Option<GroupMember>> {
+        Ok(Self::select_by_group_and_user_inner(rb, group_uuid, user_uuid).await?.into_iter().next())
+    }
 
     pub async fn update_by_group_and_user(
         rb: &dyn Executor,

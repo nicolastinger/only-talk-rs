@@ -33,7 +33,11 @@ crud!(Announcement {});
 
 impl Announcement {
     #[rbatis::py_sql("select * from announcement where uuid = #{uuid} limit 1")]
-    async fn select_by_uuid(rb: &dyn Executor, uuid: &Uuid) -> Option<Announcement> {}
+    async fn select_by_uuid_inner(rb: &dyn Executor, uuid: &Uuid) -> Vec<Announcement> {}
+
+    pub async fn select_by_uuid(rb: &dyn Executor, uuid: &Uuid) -> rbatis::Result<Option<Announcement>> {
+        Ok(Self::select_by_uuid_inner(rb, uuid).await?.into_iter().next())
+    }
 
     pub async fn update_by_uuid(
         rb: &dyn Executor,

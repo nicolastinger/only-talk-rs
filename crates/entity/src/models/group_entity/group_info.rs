@@ -32,7 +32,14 @@ crud!(GroupInfo {});
 
 impl GroupInfo {
     #[rbatis::py_sql("select * from group_info where group_uuid = #{group_uuid} limit 1")]
-    async fn select_by_group_uuid(rb: &dyn Executor, group_uuid: &Uuid) -> Option<GroupInfo> {}
+    async fn select_by_group_uuid_inner(rb: &dyn Executor, group_uuid: &Uuid) -> Vec<GroupInfo> {}
+
+    pub async fn select_by_group_uuid(
+        rb: &dyn Executor,
+        group_uuid: &Uuid,
+    ) -> rbatis::Result<Option<GroupInfo>> {
+        Ok(Self::select_by_group_uuid_inner(rb, group_uuid).await?.into_iter().next())
+    }
 
     pub async fn update_by_group_uuid(
         rb: &dyn Executor,

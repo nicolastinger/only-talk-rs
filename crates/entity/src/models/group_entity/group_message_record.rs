@@ -33,7 +33,14 @@ crud!(GroupMessageRecord {});
 
 impl GroupMessageRecord {
     #[rbatis::py_sql("select * from group_message_record where nano_id = #{nano_id} limit 1")]
-    async fn select_by_nano_id(rb: &dyn Executor, nano_id: &str) -> Option<GroupMessageRecord> {}
+    async fn select_by_nano_id_inner(rb: &dyn Executor, nano_id: &str) -> Vec<GroupMessageRecord> {}
+
+    pub async fn select_by_nano_id(
+        rb: &dyn Executor,
+        nano_id: &str,
+    ) -> rbatis::Result<Option<GroupMessageRecord>> {
+        Ok(Self::select_by_nano_id_inner(rb, nano_id).await?.into_iter().next())
+    }
 
     #[rbatis::py_sql("select * from group_message_record where group_uuid = #{group_uuid} order by timestamp desc limit #{size} offset #{start}")]
     async fn select_by_group(rb: &dyn Executor, group_uuid: &Uuid, start: u32, size: u32) -> Vec<GroupMessageRecord> {}

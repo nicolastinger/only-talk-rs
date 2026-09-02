@@ -62,10 +62,16 @@ async fn rows_to_vos(
 }
 
 async fn load_username(rb: &RBatis, uuid: &Uuid) -> Result<String, anyhow::Error> {
-    let row: Option<(String,)> = rb
+    let rows: Vec<rbs::Value> = rb
         .exec_decode("select username from basic_user where uuid = ?", vec![value!(uuid.clone())])
         .await?;
-    Ok(row.map(|r| r.0).filter(|s| !s.is_empty()).unwrap_or_else(|| "对方".to_string()))
+    Ok(rows
+        .first()
+        .and_then(|v| v.as_map())
+        .and_then(|m| m["username"].as_str())
+        .map(|s| s.to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "对方".to_string()))
 }
 
 /// 获取我的广场资料(允许被发现 / 交友宣言 / 标签)
@@ -228,7 +234,11 @@ pub async fn get_plaza_list(
     let count = format!(
         "SELECT count(*) as count FROM plaza_user_info pi LEFT JOIN user_info ui ON pi.uuid = ui.uuid WHERE {where_sql}"
     );
-    let count_row: Option<CountRow> = rb.exec_decode(&count, count_args).await?;
+    let count_row: Option<CountRow> = rb
+        .exec_decode::<Vec<CountRow>>(&count, count_args)
+        .await?
+        .into_iter()
+        .next();
     let total = count_row.map(|r| r.count).unwrap_or(0) as u32;
 
     let page_sql = format!("{base_sql} ORDER BY pi.updated_at DESC LIMIT ? OFFSET ?");
@@ -256,7 +266,11 @@ pub async fn get_my_liked_list(
 
     let count_sql =
         "SELECT count(*) as count FROM plaza_like pl WHERE pl.user_uuid = ? AND pl.is_del = false";
-    let count_row: Option<CountRow> = rb.exec_decode(count_sql, vec![value!(me.clone())]).await?;
+    let count_row: Option<CountRow> = rb
+        .exec_decode::<Vec<CountRow>>(count_sql, vec![value!(me.clone())])
+        .await?
+        .into_iter()
+        .next();
     let total = count_row.map(|r| r.count).unwrap_or(0) as u32;
 
     let select_sql = "SELECT bu.uuid, bu.username, bu.icon, bu.info, ui.gender, ui.age::int as age, \
@@ -289,7 +303,11 @@ pub async fn get_matched_list(
     let count_sql = "SELECT count(*) as count FROM plaza_like ml \
         JOIN plaza_like ol ON ml.target_uuid = ol.user_uuid AND ol.target_uuid = ml.user_uuid \
         WHERE ml.user_uuid = ? AND ml.is_del = false AND ol.is_del = false";
-    let count_row: Option<CountRow> = rb.exec_decode(count_sql, vec![value!(me.clone())]).await?;
+    let count_row: Option<CountRow> = rb
+        .exec_decode::<Vec<CountRow>>(count_sql, vec![value!(me.clone())])
+        .await?
+        .into_iter()
+        .next();
     let total = count_row.map(|r| r.count).unwrap_or(0) as u32;
 
     let select_sql = "SELECT bu.uuid, bu.username, bu.icon, bu.info, ui.gender, ui.age::int as age, \
@@ -319,7 +337,7 @@ pub async fn get_plaza_user(
     let target = parse_uuid(Some(uuid_str))?.ok_or_else(|| anyhow!("invalid uuid"))?;
 
     let row: Option<PlazaUserRow> = rb
-        .exec_decode(
+        .exec_decode::<Vec<PlazaUserRow>>(
             "SELECT pi.uuid, bu.username, bu.icon, bu.info, ui.gender, ui.age::int as age, \
              ui.address, pi.motto, \
              (SELECT count(*) FROM plaza_like pl WHERE pl.target_uuid = pi.uuid AND pl.user_uuid = ? AND pl.is_del = false) as liked_by_me \
@@ -329,7 +347,9 @@ pub async fn get_plaza_user(
              WHERE pi.uuid = ? AND pi.allow_discover = true AND pi.status = 0",
             vec![value!(me), value!(target.clone())],
         )
-        .await?;
+        .await?
+        .into_iter()
+        .next();
     let Some(row) = row else {
         return Err(anyhow!("User not found or not discoverable"));
     };

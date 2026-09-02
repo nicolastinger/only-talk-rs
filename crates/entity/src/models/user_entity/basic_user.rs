@@ -21,10 +21,24 @@ crud!(BasicUser {}); //crud = 插入+按列查询+按列更新+按列删除
 
 impl BasicUser {
     #[rbatis::py_sql("select * from basic_user where account = #{account} limit 1")]
-    async fn select_by_account(rb: &dyn Executor, account: &str) -> Option<BasicUser> {}
+    async fn select_by_account_inner(rb: &dyn Executor, account: &str) -> Vec<BasicUser> {}
+
+    pub async fn select_by_account(
+        rb: &dyn Executor,
+        account: &str,
+    ) -> rbatis::Result<Option<BasicUser>> {
+        Ok(Self::select_by_account_inner(rb, account).await?.into_iter().next())
+    }
 
     #[rbatis::py_sql("select * from basic_user where uuid = #{uuid} limit 1")]
-    async fn select_by_uuid(rb: &dyn Executor, uuid: &Uuid) -> Option<BasicUser> {}
+    async fn select_by_uuid_inner(rb: &dyn Executor, uuid: &Uuid) -> Vec<BasicUser> {}
+
+    pub async fn select_by_uuid(
+        rb: &dyn Executor,
+        uuid: &Uuid,
+    ) -> rbatis::Result<Option<BasicUser>> {
+        Ok(Self::select_by_uuid_inner(rb, uuid).await?.into_iter().next())
+    }
 
     pub async fn update_by_uuid(
         rb: &dyn Executor,

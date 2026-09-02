@@ -25,7 +25,11 @@ crud!(Moment {});
 
 impl Moment {
     #[rbatis::py_sql("select * from moment where uuid = #{uuid} limit 1")]
-    async fn select_by_uuid(rb: &dyn Executor, uuid: &Uuid) -> Option<Moment> {}
+    async fn select_by_uuid_inner(rb: &dyn Executor, uuid: &Uuid) -> Vec<Moment> {}
+
+    pub async fn select_by_uuid(rb: &dyn Executor, uuid: &Uuid) -> rbatis::Result<Option<Moment>> {
+        Ok(Self::select_by_uuid_inner(rb, uuid).await?.into_iter().next())
+    }
 
     pub async fn update_by_uuid(
         rb: &dyn Executor,

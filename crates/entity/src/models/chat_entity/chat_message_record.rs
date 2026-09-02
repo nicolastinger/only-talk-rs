@@ -23,7 +23,14 @@ impl ChatMessageRecord {
 
     // 获取最新一条消息
     #[rbatis::py_sql("select * from chat_message_record where recv_user = #{uuid} or send_user = #{uuid} order by timestamp desc limit 1")]
-    async fn select_last_by_column(rb: &dyn Executor, uuid: &Uuid) -> Option<ChatMessageRecord> {}
+    async fn select_last_by_column_inner(rb: &dyn Executor, uuid: &Uuid) -> Vec<ChatMessageRecord> {}
+
+    pub async fn select_last_by_column(
+        rb: &dyn Executor,
+        uuid: &Uuid,
+    ) -> rbatis::Result<Option<ChatMessageRecord>> {
+        Ok(Self::select_last_by_column_inner(rb, uuid).await?.into_iter().next())
+    }
 
     // 获取未读消息，最大9999
     #[rbatis::py_sql("select * from chat_message_record where (send_user = #{uuid} or recv_user = #{uuid}) and timestamp > #{time} order by timestamp desc limit 9999")]

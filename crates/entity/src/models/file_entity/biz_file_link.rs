@@ -22,7 +22,15 @@ crud!(BizFileLink {});
 
 impl BizFileLink {
     #[rbatis::py_sql("select * from biz_file_link where biz_id = #{biz_id} and (file_id = #{file_id} or origin_file_id = #{file_id})")]
-    async fn select_by_biz_and_file(rb: &dyn Executor, biz_id: &Uuid, file_id: &Uuid) -> Option<BizFileLink> {}
+    async fn select_by_biz_and_file_inner(rb: &dyn Executor, biz_id: &Uuid, file_id: &Uuid) -> Vec<BizFileLink> {}
+
+    pub async fn select_by_biz_and_file(
+        rb: &dyn Executor,
+        biz_id: &Uuid,
+        file_id: &Uuid,
+    ) -> rbatis::Result<Option<BizFileLink>> {
+        Ok(Self::select_by_biz_and_file_inner(rb, biz_id, file_id).await?.into_iter().next())
+    }
 
     #[rbatis::py_sql("select * from biz_file_link where biz_id = #{biz_id} limit 100")]
     async fn select_by_biz(rb: &dyn Executor, biz_id: &Uuid) -> Vec<BizFileLink> {}
