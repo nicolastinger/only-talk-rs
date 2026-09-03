@@ -43,7 +43,7 @@ fn make_internal_endpoint(bind_addr: SocketAddr) -> Result<Endpoint, Box<dyn std
 }
 
 async fn handle_internal_request(
-    _core: &CoreState,
+    core: &CoreState,
     mut send_stream: SendStream,
     mut recv_stream: RecvStream,
     connections: Arc<DashMap<String, QuicConnection>>,
@@ -108,7 +108,19 @@ async fn handle_internal_request(
                         );
                         let conn = entry.conn.clone();
 
-                        if let Err(e) = deliver_to_local_conn(conn, &request).await {
+                        let result = if request.close_after_delivery {
+                            kick_local_connection(
+                                core,
+                                &connections,
+                                &connection_key,
+                                conn,
+                                &request,
+                            )
+                            .await
+                        } else {
+                            deliver_to_local_conn(conn, &request).await
+                        };
+                        if let Err(e) = result {
                             error!("[内部 QUIC 服务器] [单聊] 投递失败: {}", e);
                             InternalQuicResponse::error(format!("Delivery failed: {}", e))
                         } else {
@@ -172,6 +184,30 @@ async fn deliver_to_local_conn(
     send.write_all(&request.payload).await?;
     send.finish().await?;
     info!("[内部 QUIC 服务器] [单聊] 投递完成,透传 {} 字节", request.payload.len());
+    Ok(())
+}
+
+async fn kick_local_connection(
+    core: &CoreState,
+    connections: &Arc<DashMap<String, QuicConnection>>,
+    connection_key: &str,
+    conn: quinn::Connection,
+    request: &InternalQuicRequest,
+) -> Result<()> {
+    let mut send = conn.open_uni().await?;
+    send.write_all(&request.payload).await?;
+    send.finish().await?;
+    conn.close(0u32.into(), b"replaced by another login");
+
+    if connections
+        .get(connection_key)
+        .map(|entry| entry.conn.stable_id() == conn.stable_id())
+        .unwrap_or(false)
+    {
+        connections.remove(connection_key);
+        let mut redis = core.redis.get().await?;
+        let _: () = redis.del(connection_key).await?;
+    }
     Ok(())
 }
 

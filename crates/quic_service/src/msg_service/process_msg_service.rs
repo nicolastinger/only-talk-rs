@@ -292,6 +292,7 @@ async fn send_msg_to_user_by_platform(
             platform: platform.to_string(),
             source: RequestSource::QuicExternal,
             ttl: 3,
+            close_after_delivery: false,
         };
 
         // 根据 preferred_index 从 Redis 获取目标节点的内网 QUIC 地址

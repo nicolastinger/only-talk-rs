@@ -3923,6 +3923,8 @@ dependencies = [
  "quinn",
  "rand 0.8.5",
  "rbatis",
+ "rbdc-pg",
+ "rbdc-pool-fast",
  "rbs",
  "rcgen",
  "redis",

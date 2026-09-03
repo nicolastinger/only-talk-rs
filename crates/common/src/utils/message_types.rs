@@ -57,6 +57,9 @@ pub const NOTIFY_TYPE_MSG: u16 = 1024;
 /// 系统消息
 pub const MSG_TYPE_SYSTEM: u16 = 10001;
 
+/// 同平台新连接建立后，通知旧客户端退出登录
+pub const MSG_TYPE_FORCE_LOGOUT: u16 = 10002;
+
 /// 内部服务转发的添加好友通知消息
 pub const INTERNAL_FRIEND_NOTIFY: u16 = 20001;
 

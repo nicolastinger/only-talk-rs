@@ -465,6 +465,7 @@ mod internal_quic_msg {
             platform: PC_PLATFORM.to_string(),
             source: RequestSource::QuicExternal,
             ttl: 3,
+            close_after_delivery: false,
         }
     }
 

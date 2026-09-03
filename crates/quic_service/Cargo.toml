@@ -52,6 +52,8 @@ tracing-subscriber = { workspace = true }
 rsa = { workspace = true }
 rand = { workspace = true }
 uuid = { workspace = true }
+rbdc-pg = { workspace = true }
+rbdc-pool-fast = { workspace = true }
 
 [[bench]]
 name = "text_msg_bench"

@@ -92,6 +92,7 @@ pub async fn add_user_with_notify(
         platform: common::config_str::PC_PLATFORM.to_string(),
         source: RequestSource::HttpApi,
         ttl: 3,
+        close_after_delivery: false,
     };
     tracing::debug!(
         "准备发送 QUIC 消息: msg_type={}, target_user={}, platform={}, source={:?}, ttl={}",
@@ -150,6 +151,7 @@ pub async fn process_friend_with_notify(
         platform: common::config_str::PC_PLATFORM.to_string(),
         source: RequestSource::HttpApi,
         ttl: 3,
+        close_after_delivery: false,
     };
     send_internal_quic_msg(server_addr, request).await?;
 

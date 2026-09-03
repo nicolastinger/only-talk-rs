@@ -26,6 +26,9 @@ pub struct InternalQuicRequest {
     pub source: RequestSource,
     /// 路由 TTL(每跳减一,到 0 停止)
     pub ttl: u8,
+    /// 投递后关闭目标连接，用于同平台挤下线
+    #[serde(default)]
+    pub close_after_delivery: bool,
 }
 
 /// 内部 QUIC 服务响应

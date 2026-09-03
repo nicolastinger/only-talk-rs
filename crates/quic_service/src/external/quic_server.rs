@@ -2,23 +2,30 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::{Result, anyhow};
-use common::config_str::USER_READ_MSG;
+use common::config_str::{
+    REDIS_INTERNAL_QUIC_SERVERS, REDIS_QUIC_SERVERS, REDIS_SPLIT, SYSTEM, USER_READ_MSG,
+};
 use common::models::chat_entity::add_read_chat_record::AddReadChatRecordDTO;
 use common::models::chat_entity::chat_message_read::ChatMessageRecordRead;
 use common::models::chat_entity::chat_message_record::ChatMessageRecord;
 use common::models::group_entity::group_member::GroupMember;
 use common::models::group_entity::group_message_record::GroupMessageRecord;
 use common::state::CoreState;
+use common::utils::internal_quic_client::send_internal_quic_msg;
+use common::utils::internal_quic_msg::{InternalQuicRequest, RequestSource};
 use common::utils::jwt_util::{Claims, verify_token};
 use common::utils::mask::mask_addr;
+use common::utils::message_types::MSG_TYPE_FORCE_LOGOUT;
+use common::utils::text_msg::generate_text_msg;
 use common::utils::time::get_now_time_stamp_as_millis;
 use dashmap::DashMap;
-use deadpool_redis::redis::AsyncCommands;
+use deadpool_redis::redis::{AsyncCommands, cmd};
 use entity::models::chat_entity::chat_message_read::CHAT_TYPE_GROUP;
 use quinn::{Connection, Endpoint, RecvStream, SendStream};
 use rbatis::dark_std::err;
 use rbs::value;
 use tokio::sync::{Mutex, watch};
+use tokio::time::timeout;
 use tracing::{error, info, warn};
 
 use super::config::ChatNodeConfig;
@@ -183,21 +190,6 @@ async fn authenticate_connection(
     Ok(claims)
 }
 
-/// 检查是否达到最大连接数
-async fn verify_max_client(
-    send_stream: &mut SendStream,
-    connections: &Arc<DashMap<String, QuicConnection>>,
-    max_connections: usize,
-) -> Result<(), anyhow::Error> {
-    let server_book_len = connections.len();
-    if server_book_len > max_connections {
-        error!("已达到最大连接数: {}", server_book_len);
-        send_stream.finish().await?;
-        return Err(anyhow!("Maximum connections reached: {}", server_book_len));
-    }
-    Ok(())
-}
-
 /// 记录连接信息
 #[allow(clippy::too_many_arguments)]
 async fn set_conn_info(
@@ -251,8 +243,15 @@ async fn handle_conn(
     let claims = authenticate_connection(&first_quic_msg, &mut send_stream).await?;
     let platform = claims.sub;
     let uuid = claims.uuid;
-    verify_max_client(&mut send_stream, &connections, config.max_connections).await?;
-    user_online(&uuid, &platform).await?;
+    let online_lock_token = user_online(
+        &core,
+        &uuid,
+        &platform,
+        &connections,
+        config.server_index,
+        config.max_connections,
+    )
+    .await?;
     let current_uuid = uuid.clone();
 
     let _msg_type = first_quic_msg.msg_type.clone();
@@ -274,6 +273,7 @@ async fn handle_conn(
         config.server_index,
     )
     .await?;
+    release_online_lock(&core, &platform, &current_uuid, &online_lock_token).await?;
 
     // 启动 uni stream 接收循环（客户端通过 open_uni 发送消息）
     let uni_shutdown = Arc::new(AtomicBool::new(false));
@@ -386,7 +386,8 @@ async fn handle_conn(
 
     uni_shutdown.store(true, Ordering::Relaxed);
 
-    end_server(&core, &connection_key, &connection_key, now, &connections).await?;
+    end_server(&core, &connection_key, &connection_key, now, conn.stable_id(), &connections)
+        .await?;
     Ok(())
 }
 
@@ -396,13 +397,14 @@ async fn end_server(
     close_key: &str,
     connection_key: &str,
     close_now: i64,
+    connection_id: usize,
     connections: &Arc<DashMap<String, QuicConnection>>,
 ) -> Result<(), anyhow::Error> {
     let mut uuid = "".to_string();
     {
         if let Some(book) = connections.get_mut(close_key) {
             let now = book.update_time;
-            if now == close_now as u64 {
+            if now == close_now as u64 && book.conn.stable_id() == connection_id {
                 info!("用户已断开连接: {}", close_key);
                 uuid = book.uuid.clone();
                 drop(book);
@@ -417,13 +419,23 @@ async fn end_server(
 
     info!("[server] 连接 {} 处理完成，当前在线连接数: {}", close_key, connections.len());
 
-    user_offline(core, uuid).await?;
+    if !uuid.is_empty() {
+        user_offline(core, uuid).await?;
+    }
 
     Ok(())
 }
 
 /// 用户离线
 async fn user_offline(core: &CoreState, uuid: String) -> std::result::Result<(), anyhow::Error> {
+    sync_read_messages(core, &uuid).await
+}
+
+/// 将 Redis 中缓存的已读消息同步到数据库。
+async fn sync_read_messages(
+    core: &CoreState,
+    uuid: &str,
+) -> std::result::Result<(), anyhow::Error> {
     // TODO
     let mut redis = core.redis.get().await?;
     let rb = &core.db;
@@ -431,7 +443,12 @@ async fn user_offline(core: &CoreState, uuid: String) -> std::result::Result<(),
     // 2. 将 Redis 缓存同步到数据库，记录用户操作
     // 将已读消息从 Redis 持久化到数据库
     let read_key = format!("{}{}", USER_READ_MSG, uuid).to_uppercase();
-    let read_record: String = redis.get(&read_key).await?;
+    let read_record: Option<String> = redis.get(&read_key).await?;
+    let Some(read_record) = read_record else {
+        info!("用户没有待同步的已读消息: {}", uuid);
+        return Ok(());
+    };
+    drop(redis);
     info!("读取已读消息，来源: {}", read_record);
     let last_chat_message_read: Vec<AddReadChatRecordDTO> = serde_json::from_str(&read_record)?;
     info!("读取已读消息，转换后: {:?}", last_chat_message_read);
@@ -537,11 +554,148 @@ async fn user_offline(core: &CoreState, uuid: String) -> std::result::Result<(),
 }
 
 /// 用户上线
-async fn user_online(uuid: &str, _platform: &str) -> std::result::Result<(), anyhow::Error> {
+async fn user_online(
+    core: &CoreState,
+    uuid: &str,
+    platform: &str,
+    connections: &Arc<DashMap<String, QuicConnection>>,
+    server_index: u32,
+    max_connections: usize,
+) -> std::result::Result<String, anyhow::Error> {
     info!("用户上线: {}", uuid);
-    // TODO
-    // 1. 设置 Redis 分布式锁，防止用户频繁上下线切换
-    // 2. 将数据库数据同步到 Redis 缓存
-    // 3. 清理 Redis 锁
+
+    let lock_key = format!("QUIC:ONLINE:LOCK:{}:{}", platform, uuid).to_uppercase();
+    let lock_token = format!("{}:{}", server_index, get_now_time_stamp_as_millis().unwrap_or(0));
+    let mut redis = core.redis.get().await?;
+    let acquired: Option<String> = cmd("SET")
+        .arg(&lock_key)
+        .arg(&lock_token)
+        .arg("NX")
+        .arg("EX")
+        .arg(30)
+        .query_async(&mut redis)
+        .await?;
+    if acquired.is_none() {
+        return Err(anyhow!("用户正在处理上线: {}", uuid));
+    }
+    drop(redis);
+
+    // 在上线锁保护期间先持久化上一次连接产生的已读状态。
+    timeout(std::time::Duration::from_secs(25), sync_read_messages(core, uuid))
+        .await
+        .map_err(|_| anyhow!("同步用户已读消息超时: {}", uuid))??;
+
+    let connection_key = format!(
+        "{}:{}{}{}{}",
+        platform,
+        REDIS_QUIC_SERVERS,
+        uuid,
+        REDIS_SPLIT,
+        ConnectionType::Text
+    )
+    .to_uppercase();
+    let payload = generate_text_msg(
+        MSG_TYPE_FORCE_LOGOUT,
+        "您的账号已在其他设备登录".as_bytes().to_vec(),
+        uuid.to_string(),
+        SYSTEM.to_string(),
+    )?;
+
+    // Redis 中保存旧连接所在节点。没有旧记录时仍检查本机，避免 Redis 短暂丢失造成重复连接。
+    let old_index = {
+        let mut redis = core.redis.get().await?;
+        let index: Option<String> = redis.get(&connection_key).await?;
+        index.and_then(|value| value.parse::<u32>().ok())
+    };
+
+    let has_old_connection = connections.contains_key(&connection_key) || old_index.is_some();
+    if connections.len() >= max_connections && !has_old_connection {
+        return Err(anyhow!("Maximum connections reached: {}", connections.len()));
+    }
+
+    if let Some(old) = connections.get(&connection_key) {
+        let old_conn = old.conn.clone();
+        drop(old);
+        kick_local_connection(core, connections, &connection_key, old_conn, payload.clone())
+            .await?;
+    } else if let Some(old_index) = old_index.filter(|index| *index != server_index) {
+        let mut redis = core.redis.get().await?;
+        let node_key = format!("{}{}", REDIS_INTERNAL_QUIC_SERVERS, old_index);
+        let node_addr: Option<String> = redis.get(&node_key).await?;
+        drop(redis);
+
+        let node_addr =
+            node_addr.ok_or_else(|| anyhow!("旧连接所在节点不可用: server_index={}", old_index))?;
+        let response = send_internal_quic_msg(
+            node_addr.parse()?,
+            InternalQuicRequest {
+                msg_type: MSG_TYPE_FORCE_LOGOUT,
+                payload,
+                target_user: uuid.to_string(),
+                preferred_index: old_index,
+                platform: platform.to_string(),
+                source: RequestSource::QuicExternal,
+                ttl: 3,
+                close_after_delivery: true,
+            },
+        )
+        .await?;
+        if response.delivered != Some(true) {
+            return Err(anyhow!(
+                "远程旧连接踢下线失败: {}",
+                response.message.unwrap_or_else(|| "unknown error".to_string())
+            ));
+        }
+    }
+
+    Ok(lock_token)
+}
+
+async fn release_online_lock(
+    core: &CoreState,
+    platform: &str,
+    uuid: &str,
+    lock_token: &str,
+) -> Result<()> {
+    let lock_key = format!("QUIC:ONLINE:LOCK:{}:{}", platform, uuid).to_uppercase();
+    let mut redis = core.redis.get().await?;
+    let _: i32 = cmd("EVAL")
+        .arg("if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end")
+        .arg(1)
+        .arg(&lock_key)
+        .arg(lock_token)
+        .query_async(&mut redis)
+        .await?;
+    Ok(())
+}
+
+async fn kick_local_connection(
+    core: &CoreState,
+    connections: &Arc<DashMap<String, QuicConnection>>,
+    connection_key: &str,
+    old_conn: Connection,
+    payload: Vec<u8>,
+) -> Result<()> {
+    if let Ok(mut send) = old_conn.open_uni().await {
+        if let Err(error) = send.write_all(&payload).await {
+            warn!("发送强制退出消息失败: {}", error);
+        } else if let Err(error) = send.finish().await {
+            warn!("完成强制退出消息失败: {}", error);
+        }
+    } else {
+        warn!("旧连接已无法打开单向流，直接关闭连接");
+    }
+    old_conn.close(0u32.into(), b"replaced by another login");
+
+    if connections
+        .get(connection_key)
+        .map(|entry| entry.conn.stable_id() == old_conn.stable_id())
+        .unwrap_or(false)
+    {
+        connections.remove(connection_key);
+        let mut redis = core.redis.get().await?;
+        let _: () = redis.del(connection_key).await?;
+    }
+
     Ok(())
 }
