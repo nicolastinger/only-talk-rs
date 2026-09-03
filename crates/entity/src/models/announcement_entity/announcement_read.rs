@@ -1,6 +1,6 @@
+use rbatis::crud;
 use rbatis::executor::Executor;
 use rbatis::rbdc::Uuid;
-use rbatis::crud;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -18,14 +18,24 @@ pub struct AnnouncementRead {
 crud!(AnnouncementRead {});
 
 impl AnnouncementRead {
-    #[rbatis::py_sql("select * from announcement_read where announcement_uuid = #{announcement_uuid} and user_uuid = #{user_uuid} limit 1")]
-    async fn select_by_announcement_and_user_inner(rb: &dyn Executor, announcement_uuid: &Uuid, user_uuid: &Uuid) -> Vec<AnnouncementRead> {}
+    #[rbatis::py_sql(
+        "select * from announcement_read where announcement_uuid = #{announcement_uuid} and user_uuid = #{user_uuid} limit 1"
+    )]
+    async fn select_by_announcement_and_user_inner(
+        rb: &dyn Executor,
+        announcement_uuid: &Uuid,
+        user_uuid: &Uuid,
+    ) -> Vec<AnnouncementRead> {
+    }
 
     pub async fn select_by_announcement_and_user(
         rb: &dyn Executor,
         announcement_uuid: &Uuid,
         user_uuid: &Uuid,
     ) -> rbatis::Result<Option<AnnouncementRead>> {
-        Ok(Self::select_by_announcement_and_user_inner(rb, announcement_uuid, user_uuid).await?.into_iter().next())
+        Ok(Self::select_by_announcement_and_user_inner(rb, announcement_uuid, user_uuid)
+            .await?
+            .into_iter()
+            .next())
     }
 }

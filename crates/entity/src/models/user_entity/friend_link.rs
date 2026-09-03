@@ -1,6 +1,6 @@
+use rbatis::crud;
 use rbatis::executor::Executor;
 use rbatis::rbdc::Uuid;
-use rbatis::crud;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -17,8 +17,15 @@ pub struct FriendLink {
 crud!(FriendLink {});
 
 impl FriendLink {
-    #[rbatis::py_sql("select * from friend_link where (accept_user = #{uuid} and request_user = #{last_uuid}) or (accept_user = #{last_uuid} and request_user = #{uuid}) limit 1")]
-    async fn select_by_last_uuid_inner(rb: &dyn Executor, uuid: &Uuid, last_uuid: &Uuid) -> Vec<FriendLink> {}
+    #[rbatis::py_sql(
+        "select * from friend_link where (accept_user = #{uuid} and request_user = #{last_uuid}) or (accept_user = #{last_uuid} and request_user = #{uuid}) limit 1"
+    )]
+    async fn select_by_last_uuid_inner(
+        rb: &dyn Executor,
+        uuid: &Uuid,
+        last_uuid: &Uuid,
+    ) -> Vec<FriendLink> {
+    }
 
     pub async fn select_by_last_uuid(
         rb: &dyn Executor,

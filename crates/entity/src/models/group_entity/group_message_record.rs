@@ -1,6 +1,6 @@
+use rbatis::crud;
 use rbatis::executor::Executor;
 use rbatis::rbdc::{Bytes, Uuid};
-use rbatis::crud;
 use serde::{Deserialize, Serialize};
 
 /// 群消息类型
@@ -42,9 +42,24 @@ impl GroupMessageRecord {
         Ok(Self::select_by_nano_id_inner(rb, nano_id).await?.into_iter().next())
     }
 
-    #[rbatis::py_sql("select * from group_message_record where group_uuid = #{group_uuid} order by timestamp desc limit #{size} offset #{start}")]
-    async fn select_by_group(rb: &dyn Executor, group_uuid: &Uuid, start: u32, size: u32) -> Vec<GroupMessageRecord> {}
+    #[rbatis::py_sql(
+        "select * from group_message_record where group_uuid = #{group_uuid} order by timestamp desc limit #{size} offset #{start}"
+    )]
+    async fn select_by_group(
+        rb: &dyn Executor,
+        group_uuid: &Uuid,
+        start: u32,
+        size: u32,
+    ) -> Vec<GroupMessageRecord> {
+    }
 
-    #[rbatis::py_sql("select * from group_message_record where group_uuid = #{group_uuid} and id > #{last_read_msg_id} order by timestamp asc limit 100")]
-    async fn select_unread(rb: &dyn Executor, group_uuid: &Uuid, last_read_msg_id: i64) -> Vec<GroupMessageRecord> {}
+    #[rbatis::py_sql(
+        "select * from group_message_record where group_uuid = #{group_uuid} and id > #{last_read_msg_id} order by timestamp asc limit 100"
+    )]
+    async fn select_unread(
+        rb: &dyn Executor,
+        group_uuid: &Uuid,
+        last_read_msg_id: i64,
+    ) -> Vec<GroupMessageRecord> {
+    }
 }

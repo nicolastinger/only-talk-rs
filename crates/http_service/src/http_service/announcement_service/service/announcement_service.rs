@@ -50,11 +50,11 @@ pub async fn get_announcement_list(
     let now = get_now_time_stamp_as_secs()?;
 
     let count_sql = "SELECT count(*) as count FROM announcement a WHERE a.is_del = false AND a.is_active = true AND a.start_at <= ? AND a.end_at >= ?";
-    let count_row: Option<CountRow> =
-        rb.exec_decode::<Vec<CountRow>>(count_sql, vec![value!(now), value!(now)])
-            .await?
-            .into_iter()
-            .next();
+    let count_row: Option<CountRow> = rb
+        .exec_decode::<Vec<CountRow>>(count_sql, vec![value!(now), value!(now)])
+        .await?
+        .into_iter()
+        .next();
     let total = count_row.map(|r| r.count).unwrap_or(0) as u32;
 
     let select_sql = "SELECT a.uuid, a.title, a.content, a.content_type::int as content_type, \
@@ -91,11 +91,8 @@ pub async fn get_announcement_detail(
         (SELECT count(*) FROM announcement_read ar2 WHERE ar2.announcement_uuid = a.uuid AND ar2.user_uuid = ?) as is_read \
         FROM announcement a WHERE a.uuid = ? AND a.is_del = false AND a.is_active = true";
     let args = vec![value!(me.clone()), value!(announcement_uuid.clone())];
-    let row: Option<AnnouncementRow> = rb
-        .exec_decode::<Vec<AnnouncementRow>>(select_sql, args)
-        .await?
-        .into_iter()
-        .next();
+    let row: Option<AnnouncementRow> =
+        rb.exec_decode::<Vec<AnnouncementRow>>(select_sql, args).await?.into_iter().next();
     let Some(row) = row else {
         return Err(anyhow!("公告不存在"));
     };
@@ -150,11 +147,11 @@ pub async fn get_announcement_read_users(
 
     let count_sql =
         "SELECT count(*) as count FROM announcement_read ar WHERE ar.announcement_uuid = ?";
-    let count_row: Option<CountRow> =
-        rb.exec_decode::<Vec<CountRow>>(count_sql, vec![value!(announcement_uuid.clone())])
-            .await?
-            .into_iter()
-            .next();
+    let count_row: Option<CountRow> = rb
+        .exec_decode::<Vec<CountRow>>(count_sql, vec![value!(announcement_uuid.clone())])
+        .await?
+        .into_iter()
+        .next();
     let total = count_row.map(|r| r.count).unwrap_or(0) as u32;
 
     let select_sql = "SELECT bu.uuid, bu.username, bu.icon, ar.created_at \

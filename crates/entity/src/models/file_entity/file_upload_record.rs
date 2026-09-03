@@ -1,6 +1,6 @@
+use rbatis::crud;
 use rbatis::executor::Executor;
 use rbatis::rbdc::Uuid;
-use rbatis::crud;
 use serde::{Deserialize, Serialize};
 
 /// 文件上传记录表

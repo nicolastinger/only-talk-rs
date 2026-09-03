@@ -40,11 +40,26 @@ pub struct SystemNotification {
 crud!(SystemNotification {});
 
 impl SystemNotification {
-    #[rbatis::py_sql("select * from system_notification where user_id = #{user_id} and (#{is_read} is null or is_read = #{is_read})")]
-    async fn select_all_by_uid(rb: &dyn Executor, user_id: &Uuid, is_read: Option<bool>) -> Vec<SystemNotification> {}
+    #[rbatis::py_sql(
+        "select * from system_notification where user_id = #{user_id} and (#{is_read} is null or is_read = #{is_read})"
+    )]
+    async fn select_all_by_uid(
+        rb: &dyn Executor,
+        user_id: &Uuid,
+        is_read: Option<bool>,
+    ) -> Vec<SystemNotification> {
+    }
 
-    #[rbatis::py_sql("select * from system_notification where user_id = #{user_id} and is_read = #{is_read} and created_at >= #{since} order by created_at desc")]
-    async fn select_unread_in_window(rb: &dyn Executor, user_id: &Uuid, is_read: bool, since: i64) -> Vec<SystemNotification> {}
+    #[rbatis::py_sql(
+        "select * from system_notification where user_id = #{user_id} and is_read = #{is_read} and created_at >= #{since} order by created_at desc"
+    )]
+    async fn select_unread_in_window(
+        rb: &dyn Executor,
+        user_id: &Uuid,
+        is_read: bool,
+        since: i64,
+    ) -> Vec<SystemNotification> {
+    }
 }
 
 /// 批量标记已读（幂等）：按 id 文本匹配，仅更新当前用户的通知

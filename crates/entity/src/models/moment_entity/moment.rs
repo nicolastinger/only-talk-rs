@@ -1,6 +1,6 @@
+use rbatis::crud;
 use rbatis::executor::Executor;
 use rbatis::rbdc::Uuid;
-use rbatis::crud;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

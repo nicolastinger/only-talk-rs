@@ -1,6 +1,6 @@
+use rbatis::crud;
 use rbatis::executor::Executor;
 use rbatis::rbdc::Uuid;
-use rbatis::crud;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Deserialize, Serialize, Debug)]
@@ -35,7 +35,10 @@ impl UserInfo {
     #[rbatis::py_sql("select * from user_info where uuid = #{uuid} limit 1")]
     async fn select_by_uuid_inner(rb: &dyn Executor, uuid: &Uuid) -> Vec<UserInfo> {}
 
-    pub async fn select_by_uuid(rb: &dyn Executor, uuid: &Uuid) -> rbatis::Result<Option<UserInfo>> {
+    pub async fn select_by_uuid(
+        rb: &dyn Executor,
+        uuid: &Uuid,
+    ) -> rbatis::Result<Option<UserInfo>> {
         Ok(Self::select_by_uuid_inner(rb, uuid).await?.into_iter().next())
     }
 

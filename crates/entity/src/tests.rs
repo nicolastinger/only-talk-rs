@@ -679,7 +679,7 @@ mod moment_entity {
         assert_roundtrip(&comment);
     }
 
-#[test]
+    #[test]
     fn moment_comment_empty_has_all_fields_none() {
         let comment: MomentComment = serde_json::from_str("{}").expect("反序列化失败");
         assert!(comment.id.is_none());

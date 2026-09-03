@@ -1,6 +1,6 @@
+use rbatis::crud;
 use rbatis::executor::Executor;
 use rbatis::rbdc::Uuid;
-use rbatis::crud;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -20,15 +20,25 @@ pub struct MomentLike {
 crud!(MomentLike {});
 
 impl MomentLike {
-    #[rbatis::py_sql("select * from moment_like where moment_uuid = #{moment_uuid} and user_uuid = #{user_uuid} limit 1")]
-    async fn select_by_moment_and_user_inner(rb: &dyn Executor, moment_uuid: &Uuid, user_uuid: &Uuid) -> Vec<MomentLike> {}
+    #[rbatis::py_sql(
+        "select * from moment_like where moment_uuid = #{moment_uuid} and user_uuid = #{user_uuid} limit 1"
+    )]
+    async fn select_by_moment_and_user_inner(
+        rb: &dyn Executor,
+        moment_uuid: &Uuid,
+        user_uuid: &Uuid,
+    ) -> Vec<MomentLike> {
+    }
 
     pub async fn select_by_moment_and_user(
         rb: &dyn Executor,
         moment_uuid: &Uuid,
         user_uuid: &Uuid,
     ) -> rbatis::Result<Option<MomentLike>> {
-        Ok(Self::select_by_moment_and_user_inner(rb, moment_uuid, user_uuid).await?.into_iter().next())
+        Ok(Self::select_by_moment_and_user_inner(rb, moment_uuid, user_uuid)
+            .await?
+            .into_iter()
+            .next())
     }
 
     #[rbatis::py_sql("select * from moment_like where moment_uuid = #{moment_uuid}")]

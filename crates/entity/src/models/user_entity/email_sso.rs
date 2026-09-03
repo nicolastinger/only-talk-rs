@@ -1,6 +1,6 @@
+use rbatis::crud;
 use rbatis::executor::Executor;
 use rbatis::rbdc::Uuid;
-use rbatis::crud;
 use serde::{Deserialize, Serialize};
 
 /// 邮箱登录渠道（1:1 关联 basic_user）
@@ -43,8 +43,14 @@ pub struct EmailSso {
 crud!(EmailSso {});
 
 impl EmailSso {
-    #[rbatis::py_sql("select * from email_sso where email_normalized = #{email_normalized} limit 1")]
-    async fn select_by_email_normalized_inner(rb: &dyn Executor, email_normalized: &str) -> Vec<EmailSso> {}
+    #[rbatis::py_sql(
+        "select * from email_sso where email_normalized = #{email_normalized} limit 1"
+    )]
+    async fn select_by_email_normalized_inner(
+        rb: &dyn Executor,
+        email_normalized: &str,
+    ) -> Vec<EmailSso> {
+    }
 
     pub async fn select_by_email_normalized(
         rb: &dyn Executor,
@@ -56,7 +62,10 @@ impl EmailSso {
     #[rbatis::py_sql("select * from email_sso where uuid = #{uuid} limit 1")]
     async fn select_by_uuid_inner(rb: &dyn Executor, uuid: &Uuid) -> Vec<EmailSso> {}
 
-    pub async fn select_by_uuid(rb: &dyn Executor, uuid: &Uuid) -> rbatis::Result<Option<EmailSso>> {
+    pub async fn select_by_uuid(
+        rb: &dyn Executor,
+        uuid: &Uuid,
+    ) -> rbatis::Result<Option<EmailSso>> {
         Ok(Self::select_by_uuid_inner(rb, uuid).await?.into_iter().next())
     }
 }

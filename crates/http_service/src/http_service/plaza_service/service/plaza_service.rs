@@ -234,11 +234,8 @@ pub async fn get_plaza_list(
     let count = format!(
         "SELECT count(*) as count FROM plaza_user_info pi LEFT JOIN user_info ui ON pi.uuid = ui.uuid WHERE {where_sql}"
     );
-    let count_row: Option<CountRow> = rb
-        .exec_decode::<Vec<CountRow>>(&count, count_args)
-        .await?
-        .into_iter()
-        .next();
+    let count_row: Option<CountRow> =
+        rb.exec_decode::<Vec<CountRow>>(&count, count_args).await?.into_iter().next();
     let total = count_row.map(|r| r.count).unwrap_or(0) as u32;
 
     let page_sql = format!("{base_sql} ORDER BY pi.updated_at DESC LIMIT ? OFFSET ?");

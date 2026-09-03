@@ -1,6 +1,6 @@
+use rbatis::crud;
 use rbatis::executor::Executor;
 use rbatis::rbdc::Uuid;
-use rbatis::crud;
 use serde::{Deserialize, Serialize};
 
 /// 群邀请状态
@@ -23,24 +23,45 @@ pub struct GroupInvitation {
 crud!(GroupInvitation {});
 
 impl GroupInvitation {
-    #[rbatis::py_sql("select * from group_invitation where invitee_uuid = #{invitee_uuid} and status = 1 order by created_at desc")]
-    async fn select_pending_by_invitee(rb: &dyn Executor, invitee_uuid: &Uuid) -> Vec<GroupInvitation> {}
+    #[rbatis::py_sql(
+        "select * from group_invitation where invitee_uuid = #{invitee_uuid} and status = 1 order by created_at desc"
+    )]
+    async fn select_pending_by_invitee(
+        rb: &dyn Executor,
+        invitee_uuid: &Uuid,
+    ) -> Vec<GroupInvitation> {
+    }
 
-    #[rbatis::py_sql("select * from group_invitation where inviter_uuid = #{inviter_uuid} order by created_at desc")]
+    #[rbatis::py_sql(
+        "select * from group_invitation where inviter_uuid = #{inviter_uuid} order by created_at desc"
+    )]
     async fn select_by_inviter(rb: &dyn Executor, inviter_uuid: &Uuid) -> Vec<GroupInvitation> {}
 
-    #[rbatis::py_sql("select * from group_invitation where group_uuid = #{group_uuid} and status = 1 order by created_at desc")]
-    async fn select_pending_by_group(rb: &dyn Executor, group_uuid: &Uuid) -> Vec<GroupInvitation> {}
+    #[rbatis::py_sql(
+        "select * from group_invitation where group_uuid = #{group_uuid} and status = 1 order by created_at desc"
+    )]
+    async fn select_pending_by_group(rb: &dyn Executor, group_uuid: &Uuid) -> Vec<GroupInvitation> {
+    }
 
-    #[rbatis::py_sql("select * from group_invitation where group_uuid = #{group_uuid} and invitee_uuid = #{invitee_uuid} order by created_at desc limit 1")]
-    async fn select_by_group_and_invitee_inner(rb: &dyn Executor, group_uuid: &Uuid, invitee_uuid: &Uuid) -> Vec<GroupInvitation> {}
+    #[rbatis::py_sql(
+        "select * from group_invitation where group_uuid = #{group_uuid} and invitee_uuid = #{invitee_uuid} order by created_at desc limit 1"
+    )]
+    async fn select_by_group_and_invitee_inner(
+        rb: &dyn Executor,
+        group_uuid: &Uuid,
+        invitee_uuid: &Uuid,
+    ) -> Vec<GroupInvitation> {
+    }
 
     pub async fn select_by_group_and_invitee(
         rb: &dyn Executor,
         group_uuid: &Uuid,
         invitee_uuid: &Uuid,
     ) -> rbatis::Result<Option<GroupInvitation>> {
-        Ok(Self::select_by_group_and_invitee_inner(rb, group_uuid, invitee_uuid).await?.into_iter().next())
+        Ok(Self::select_by_group_and_invitee_inner(rb, group_uuid, invitee_uuid)
+            .await?
+            .into_iter()
+            .next())
     }
 
     pub async fn update_by_id(

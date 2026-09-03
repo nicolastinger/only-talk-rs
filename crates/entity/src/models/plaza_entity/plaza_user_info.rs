@@ -1,6 +1,6 @@
+use rbatis::crud;
 use rbatis::executor::Executor;
 use rbatis::rbdc::Uuid;
-use rbatis::crud;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -25,7 +25,10 @@ impl PlazaUserInfo {
     #[rbatis::py_sql("select * from plaza_user_info where uuid = #{uuid} limit 1")]
     async fn select_by_uuid_inner(rb: &dyn Executor, uuid: &Uuid) -> Vec<PlazaUserInfo> {}
 
-    pub async fn select_by_uuid(rb: &dyn Executor, uuid: &Uuid) -> rbatis::Result<Option<PlazaUserInfo>> {
+    pub async fn select_by_uuid(
+        rb: &dyn Executor,
+        uuid: &Uuid,
+    ) -> rbatis::Result<Option<PlazaUserInfo>> {
         Ok(Self::select_by_uuid_inner(rb, uuid).await?.into_iter().next())
     }
 

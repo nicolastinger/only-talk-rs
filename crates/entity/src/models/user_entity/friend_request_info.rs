@@ -1,6 +1,6 @@
+use rbatis::crud;
 use rbatis::executor::Executor;
 use rbatis::rbdc::Uuid;
-use rbatis::crud;
 use serde::{Deserialize, Serialize};
 
 /// 好友请求表
@@ -25,12 +25,33 @@ pub struct FriendRequestInfo {
 crud!(FriendRequestInfo {});
 
 impl FriendRequestInfo {
-    #[rbatis::py_sql("select * from friend_request_info where (accept_user = #{uuid} and request_user = #{last_uuid}) or (accept_user = #{last_uuid} and request_user = #{uuid})")]
-    async fn select_by_uuid(rb: &dyn Executor, uuid: &Uuid, last_uuid: &Uuid) -> Vec<FriendRequestInfo> {}
+    #[rbatis::py_sql(
+        "select * from friend_request_info where (accept_user = #{uuid} and request_user = #{last_uuid}) or (accept_user = #{last_uuid} and request_user = #{uuid})"
+    )]
+    async fn select_by_uuid(
+        rb: &dyn Executor,
+        uuid: &Uuid,
+        last_uuid: &Uuid,
+    ) -> Vec<FriendRequestInfo> {
+    }
 
-    #[rbatis::py_sql("select * from friend_request_info where accept_user = #{uuid} and (case when #{accept_status}::int is null then true else accept_status = #{accept_status}::int end)")]
-    async fn select_by_accept_user_and_status(rb: &dyn Executor, uuid: &Uuid, accept_status: Option<u8>) -> Vec<FriendRequestInfo> {}
+    #[rbatis::py_sql(
+        "select * from friend_request_info where accept_user = #{uuid} and (case when #{accept_status}::int is null then true else accept_status = #{accept_status}::int end)"
+    )]
+    async fn select_by_accept_user_and_status(
+        rb: &dyn Executor,
+        uuid: &Uuid,
+        accept_status: Option<u8>,
+    ) -> Vec<FriendRequestInfo> {
+    }
 
-    #[rbatis::py_sql("select * from friend_request_info where request_user = #{uuid} and (case when #{accept_status}::int is null then true else accept_status = #{accept_status}::int end)")]
-    async fn select_by_request_user_and_status(rb: &dyn Executor, uuid: &Uuid, accept_status: Option<u8>) -> Vec<FriendRequestInfo> {}
+    #[rbatis::py_sql(
+        "select * from friend_request_info where request_user = #{uuid} and (case when #{accept_status}::int is null then true else accept_status = #{accept_status}::int end)"
+    )]
+    async fn select_by_request_user_and_status(
+        rb: &dyn Executor,
+        uuid: &Uuid,
+        accept_status: Option<u8>,
+    ) -> Vec<FriendRequestInfo> {
+    }
 }

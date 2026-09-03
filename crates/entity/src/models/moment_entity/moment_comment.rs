@@ -1,6 +1,6 @@
+use rbatis::crud;
 use rbatis::executor::Executor;
 use rbatis::rbdc::Uuid;
-use rbatis::crud;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -22,6 +22,8 @@ pub struct MomentComment {
 crud!(MomentComment {});
 
 impl MomentComment {
-    #[rbatis::py_sql("select * from moment_comment where moment_uuid = #{moment_uuid} and is_del = false order by created_at asc")]
+    #[rbatis::py_sql(
+        "select * from moment_comment where moment_uuid = #{moment_uuid} and is_del = false order by created_at asc"
+    )]
     async fn select_by_moment(rb: &dyn Executor, moment_uuid: &Uuid) -> Vec<MomentComment> {}
 }

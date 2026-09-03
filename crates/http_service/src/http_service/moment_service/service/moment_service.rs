@@ -221,10 +221,7 @@ pub async fn get_moment_list(
 
     let count_sql = format!("SELECT count(*) as count FROM moment m WHERE {where_sql}");
     let count_row: Option<CountRow> =
-        rb.exec_decode::<Vec<CountRow>>(&count_sql, where_args.clone())
-            .await?
-            .into_iter()
-            .next();
+        rb.exec_decode::<Vec<CountRow>>(&count_sql, where_args.clone()).await?.into_iter().next();
     let total = count_row.map(|r| r.count).unwrap_or(0) as u32;
 
     let select_sql = format!(
@@ -272,11 +269,8 @@ pub async fn get_moment_detail(
         value!(moment_uuid.clone()),
         value!(me.clone()),
     ];
-    let row: Option<MomentRow> = rb
-        .exec_decode::<Vec<MomentRow>>(select_sql, args)
-        .await?
-        .into_iter()
-        .next();
+    let row: Option<MomentRow> =
+        rb.exec_decode::<Vec<MomentRow>>(select_sql, args).await?.into_iter().next();
     let Some(row) = row else {
         return Err(anyhow!("动态不存在"));
     };
@@ -443,8 +437,8 @@ pub async fn get_comments(
     let offset = (page_num as i64 - 1) * page_size as i64;
 
     let count_sql = "SELECT count(*) as count FROM moment_comment c WHERE c.moment_uuid = ? AND c.is_del = false";
-    let count_row: Option<CountRow> =
-        rb.exec_decode::<Vec<CountRow>>(count_sql, vec![value!(moment_uuid.clone())])
+    let count_row: Option<CountRow> = rb
+        .exec_decode::<Vec<CountRow>>(count_sql, vec![value!(moment_uuid.clone())])
         .await?
         .into_iter()
         .next();
@@ -485,8 +479,8 @@ pub async fn get_like_list(
     let offset = (page_num as i64 - 1) * page_size as i64;
 
     let count_sql = "SELECT count(*) as count FROM moment_like ml WHERE ml.moment_uuid = ? AND ml.is_del = false";
-    let count_row: Option<CountRow> =
-        rb.exec_decode::<Vec<CountRow>>(count_sql, vec![value!(moment_uuid.clone())])
+    let count_row: Option<CountRow> = rb
+        .exec_decode::<Vec<CountRow>>(count_sql, vec![value!(moment_uuid.clone())])
         .await?
         .into_iter()
         .next();

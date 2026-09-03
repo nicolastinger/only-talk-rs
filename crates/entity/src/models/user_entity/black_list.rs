@@ -1,6 +1,6 @@
+use rbatis::crud;
 use rbatis::executor::Executor;
 use rbatis::rbdc::Uuid;
-use rbatis::crud;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -15,8 +15,15 @@ pub struct BlackList {
 crud!(BlackList {});
 
 impl BlackList {
-    #[rbatis::py_sql("select * from black_list where me_user = #{me_user} and block_user = #{block_user} limit 1")]
-    async fn select_by_pair_inner(rb: &dyn Executor, me_user: &Uuid, block_user: &Uuid) -> Vec<BlackList> {}
+    #[rbatis::py_sql(
+        "select * from black_list where me_user = #{me_user} and block_user = #{block_user} limit 1"
+    )]
+    async fn select_by_pair_inner(
+        rb: &dyn Executor,
+        me_user: &Uuid,
+        block_user: &Uuid,
+    ) -> Vec<BlackList> {
+    }
 
     pub async fn select_by_pair(
         rb: &dyn Executor,
