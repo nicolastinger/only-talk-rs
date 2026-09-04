@@ -57,7 +57,16 @@ pub async fn get_quic_server_for_user_api(
                 .body(CommonResponseNoDataRef::error_json("Unauthorized"));
         }
     };
-    respond_json_any!(get_quic_server_for_user(state.redis(), &uuid).await)
+    // QUIC 节点未注册/未就绪时返回 503,便于客户端区分"服务未就绪"并退避重试
+    match get_quic_server_for_user(state.redis(), &uuid).await {
+        Ok(t) => HttpResponse::Ok().body(t),
+        Err(t) => {
+            use tracing::error;
+            error!("err_context {:?}", t);
+            HttpResponse::ServiceUnavailable()
+                .body(CommonResponseNoDataRef::error_json(&t.to_string()))
+        }
+    }
 }
 
 /// 获取 NAT UDP 端口配置(需登录)

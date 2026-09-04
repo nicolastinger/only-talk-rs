@@ -168,7 +168,7 @@ pub async fn get_quic_server_for_user(
     use deadpool_redis::redis::AsyncCommands;
     use http_service::utils::http_response::CommonResponseRef;
     use serde::Serialize;
-    use tracing::info;
+    use tracing::{info, warn};
 
     #[derive(Serialize)]
     struct QuicServerInfo {
@@ -183,7 +183,17 @@ pub async fn get_quic_server_for_user(
     let mut conn = redis.get().await?;
 
     let key = format!("{}{}", REDIS_EXTERNAL_QUIC_SERVERS, index);
-    let address: String = conn.get(&key).await?;
+    let address: Option<String> = conn.get(&key).await?;
+    let address = match address {
+        Some(address) => address,
+        None => {
+            warn!(
+                "外网 QUIC 节点不可用: redis key={} 不存在(节点未启动/未注册/注册已过期), server_count={} index={}",
+                key, sc, index
+            );
+            return Err(anyhow!("无可用 QUIC 节点, 请稍后重试"));
+        }
+    };
 
     let info = QuicServerInfo { index, address };
     CommonResponseRef::success_json(&info).map_err(|e| anyhow!("Serialization failed: {}", e))

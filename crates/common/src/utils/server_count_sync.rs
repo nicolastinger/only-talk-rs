@@ -49,9 +49,16 @@ pub fn start_server_count_sync(redis_pool: Pool, server_index: u32, node_address
 /// 刷新本节点外网 QUIC 注册键 TTL
 async fn refresh_external_node_key(pool: &Pool, server_index: u32, node_address: &str) {
     use deadpool_redis::redis::AsyncCommands;
-    if let Ok(mut conn) = pool.get().await {
-        let key = format!("{}{}", REDIS_EXTERNAL_QUIC_SERVERS, server_index);
-        let _: Result<(), _> = conn.set_ex::<&str, &str, ()>(&key, node_address, 120).await;
+    let key = format!("{}{}", REDIS_EXTERNAL_QUIC_SERVERS, server_index);
+    let mut conn = match pool.get().await {
+        Ok(conn) => conn,
+        Err(e) => {
+            warn!("外网 QUIC 节点 key 续期失败(获取连接): key={} err={}", key, e);
+            return;
+        }
+    };
+    if let Err(e) = conn.set_ex::<&str, &str, ()>(&key, node_address, 120).await {
+        warn!("外网 QUIC 节点 key 续期失败: key={} err={}", key, e);
     }
 }
 

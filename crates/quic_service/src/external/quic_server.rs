@@ -336,6 +336,35 @@ async fn handle_conn(
         });
     }
 
+    // 定期续期用户路由 key 的 TTL,避免长连接存活但 Redis 路由 key(7200s)过期失效
+    {
+        let refresh_core = core.clone();
+        let refresh_key = connection_key.clone();
+        let refresh_index = config.server_index.to_string();
+        let shutdown_flag = uni_shutdown.clone();
+        tokio::spawn(async move {
+            let mut refresh_interval = tokio::time::interval(std::time::Duration::from_secs(60));
+            loop {
+                refresh_interval.tick().await;
+                if shutdown_flag.load(Ordering::Relaxed) {
+                    break;
+                }
+                let mut conn = match refresh_core.redis.get().await {
+                    Ok(conn) => conn,
+                    Err(e) => {
+                        warn!("用户路由 key 续期失败(获取连接): key={} err={}", refresh_key, e);
+                        continue;
+                    }
+                };
+                if let Err(e) =
+                    conn.set_ex::<&str, &str, ()>(&refresh_key, &refresh_index, 7200).await
+                {
+                    warn!("用户路由 key 续期失败: key={} err={}", refresh_key, e);
+                }
+            }
+        });
+    }
+
     // 维持原有 bidi 接收循环（处理初始化 + 保持兼容）
     let buffer_msg: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
 
