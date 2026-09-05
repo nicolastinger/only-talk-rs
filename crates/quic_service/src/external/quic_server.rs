@@ -201,6 +201,7 @@ async fn set_conn_info(
     now: i64,
     connections: &Arc<DashMap<String, QuicConnection>>,
     server_index: u32,
+    session_id: String,
 ) -> Result<(), anyhow::Error> {
     let new_connection = QuicConnection {
         is_online: true,
@@ -211,6 +212,7 @@ async fn set_conn_info(
         update_time: now as u64,
         ipv4addr: address,
         ipv6addr: "".to_string(),
+        session_id,
     };
 
     {
@@ -243,10 +245,12 @@ async fn handle_conn(
     let claims = authenticate_connection(&first_quic_msg, &mut send_stream).await?;
     let platform = claims.sub;
     let uuid = claims.uuid;
+    let session_id = claims.jti;
     let online_lock_token = user_online(
         &core,
         &uuid,
         &platform,
+        &session_id,
         &connections,
         config.server_index,
         config.max_connections,
@@ -271,6 +275,7 @@ async fn handle_conn(
         now,
         &connections,
         config.server_index,
+        session_id,
     )
     .await?;
     release_online_lock(&core, &platform, &current_uuid, &online_lock_token).await?;
@@ -591,6 +596,7 @@ async fn user_online(
     core: &CoreState,
     uuid: &str,
     platform: &str,
+    session_id: &str,
     connections: &Arc<DashMap<String, QuicConnection>>,
     server_index: u32,
     max_connections: usize,
@@ -648,9 +654,19 @@ async fn user_online(
 
     if let Some(old) = connections.get(&connection_key) {
         let old_conn = old.conn.clone();
+        // 同一次登录（相同 JWT jti）的重复连接视为“本机重连/顶替”：
+        // 静默关闭旧连接即可，不发送 FORCE_LOGOUT，避免切网重连把自己踢下线。
+        let same_session = !session_id.is_empty() && old.session_id == session_id;
         drop(old);
-        kick_local_connection(core, connections, &connection_key, old_conn, payload.clone())
-            .await?;
+        kick_local_connection(
+            core,
+            connections,
+            &connection_key,
+            old_conn,
+            payload.clone(),
+            !same_session,
+        )
+        .await?;
     } else if let Some(old_index) = old_index.filter(|index| *index != server_index) {
         let mut redis = core.redis.get().await?;
         let node_key = format!("{}{}", REDIS_INTERNAL_QUIC_SERVERS, old_index);
@@ -708,15 +724,22 @@ async fn kick_local_connection(
     connection_key: &str,
     old_conn: Connection,
     payload: Vec<u8>,
+    force_logout: bool,
 ) -> Result<()> {
-    if let Ok(mut send) = old_conn.open_uni().await {
-        if let Err(error) = send.write_all(&payload).await {
-            warn!("发送强制退出消息失败: {}", error);
-        } else if let Err(error) = send.finish().await {
-            warn!("完成强制退出消息失败: {}", error);
+    if force_logout {
+        // 仅在不同登录会话抢登时发送 FORCE_LOGOUT（客户端收到后置 Idle 停止自动重连）。
+        // 同会话顶替则静默关闭，避免“自己踢自己”。
+        if let Ok(mut send) = old_conn.open_uni().await {
+            if let Err(error) = send.write_all(&payload).await {
+                warn!("发送强制退出消息失败: {}", error);
+            } else if let Err(error) = send.finish().await {
+                warn!("完成强制退出消息失败: {}", error);
+            }
+        } else {
+            warn!("旧连接已无法打开单向流，直接关闭连接");
         }
     } else {
-        warn!("旧连接已无法打开单向流，直接关闭连接");
+        info!("同会话连接顶替(静默): key={}，仅关闭旧连接", connection_key);
     }
     old_conn.close(0u32.into(), b"replaced by another login");
 

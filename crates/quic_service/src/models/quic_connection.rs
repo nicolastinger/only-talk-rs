@@ -35,4 +35,7 @@ pub struct QuicConnection {
     pub update_time: u64,
     pub ipv4addr: String,
     pub ipv6addr: String,
+    /// 登录会话 ID（JWT jti）。同一次登录的设备重连会复用旧 token（jti 不变），
+    /// 服务端据此区分“同会话顶替”与“另一台设备抢登录”。
+    pub session_id: String,
 }

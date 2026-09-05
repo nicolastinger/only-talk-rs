@@ -133,6 +133,7 @@ fn make_quic_connection(conn: Connection, user_uuid: &str) -> QuicConnection {
         update_time: 0,
         ipv4addr: String::new(),
         ipv6addr: String::new(),
+        session_id: String::new(),
     }
 }
 
