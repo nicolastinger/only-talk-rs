@@ -233,7 +233,11 @@ async fn refresh_redis_key(core: &CoreState, config: &InternalQuicConfig) {
     };
     match conn.set_ex::<&str, &str, ()>(&key, &value, 7200).await {
         Ok(_) => {
-            info!("[内部 QUIC 服务器] 续期注册 key 成功: key={} value={} TTL=7200s", key, mask_addr(&value));
+            info!(
+                "[内部 QUIC 服务器] 续期注册 key 成功: key={} value={} TTL=7200s",
+                key,
+                mask_addr(&value)
+            );
         }
         Err(e) => {
             warn!("[内部 QUIC 服务器] 续期注册 key 失败: key={} err={}", key, e);

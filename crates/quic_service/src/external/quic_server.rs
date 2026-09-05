@@ -357,10 +357,7 @@ async fn handle_conn(
                         continue;
                     }
                 };
-                match conn
-                    .set_ex::<&str, &str, ()>(&refresh_key, &refresh_index, 7200)
-                    .await
-                {
+                match conn.set_ex::<&str, &str, ()>(&refresh_key, &refresh_index, 7200).await {
                     Ok(_) => {
                         info!("用户路由 key 续期成功: key={} TTL=7200s", refresh_key);
                     }

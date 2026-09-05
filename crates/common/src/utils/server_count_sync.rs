@@ -59,7 +59,11 @@ async fn refresh_external_node_key(pool: &Pool, server_index: u32, node_address:
     };
     match conn.set_ex::<&str, &str, ()>(&key, node_address, 120).await {
         Ok(_) => {
-            info!("外网 QUIC 节点 key 续期成功: key={} value={} TTL=120s", key, mask_addr(node_address));
+            info!(
+                "外网 QUIC 节点 key 续期成功: key={} value={} TTL=120s",
+                key,
+                mask_addr(node_address)
+            );
         }
         Err(e) => {
             warn!("外网 QUIC 节点 key 续期失败: key={} err={}", key, e);
