@@ -14,11 +14,16 @@ use quinn::{Endpoint, RecvStream, SendStream, ServerConfig};
 use rcgen::KeyPair;
 use rustls::{Certificate, PrivateKey};
 use tokio::sync::watch;
+use tokio::time::timeout;
 use tracing::{debug, error, info, warn};
 
 use super::internal_config::InternalQuicConfig;
 use crate::models::quic_connection::{ConnectionType, QuicConnection};
 use crate::msg_service::group_msg_service::process_group_broadcast;
+
+/// 单条连接握手超时：超过该时长未完成 TLS 握手则丢弃。
+/// 避免某条“半握手”连接永久阻塞接受循环（head-of-line blocking）。
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 
 fn generate_self_signed_cert() -> Result<(Vec<Certificate>, PrivateKey), Box<dyn std::error::Error>>
 {
@@ -281,34 +286,39 @@ pub async fn run_internal_server(
             }
         };
 
-        let conn = match incoming_conn.await {
-            Ok(c) => {
-                info!(
-                    "[内部 QUIC 服务器] 新连接已建立 remote_addr={}",
-                    mask_addr(&c.remote_address().to_string())
-                );
-                c
-            }
-            Err(e) => {
-                error!("[内部 QUIC 服务器] 建立连接失败: {}", e);
-                continue;
-            }
-        };
-
+        // 握手移入独立任务并加超时：主循环立即回到 accept()，
+        // 单条连接握手卡住/被恶意拖住时不再阻塞后续所有新连接接入
         let conns = connections.clone();
         let core_clone = core.clone();
+        let idx = server_index;
         tokio::spawn(async move {
+            let conn = match timeout(HANDSHAKE_TIMEOUT, incoming_conn).await {
+                Ok(Ok(c)) => {
+                    info!(
+                        "[内部 QUIC 服务器] 新连接已建立 remote_addr={}",
+                        mask_addr(&c.remote_address().to_string())
+                    );
+                    c
+                }
+                Ok(Err(e)) => {
+                    error!("[内部 QUIC 服务器] 建立连接失败: {}", e);
+                    return;
+                }
+                Err(_) => {
+                    warn!(
+                        "[内部 QUIC 服务器] 握手超时（{}s），丢弃该连接",
+                        HANDSHAKE_TIMEOUT.as_secs()
+                    );
+                    return;
+                }
+            };
+
             match conn.accept_bi().await {
                 Ok((send_stream, recv_stream)) => {
                     info!("[内部 QUIC 服务器] 双向流已打开");
-                    if let Err(e) = handle_internal_request(
-                        &core_clone,
-                        send_stream,
-                        recv_stream,
-                        conns,
-                        server_index,
-                    )
-                    .await
+                    if let Err(e) =
+                        handle_internal_request(&core_clone, send_stream, recv_stream, conns, idx)
+                            .await
                     {
                         error!("[内部 QUIC 服务器] 请求处理异常: {}", e);
                     }

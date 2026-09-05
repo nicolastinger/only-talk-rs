@@ -33,6 +33,10 @@ use crate::models::first_quic_msg::FirstQuicMsg;
 use crate::models::quic_connection::{ConnectionType, QuicConnection};
 use crate::msg_service::process_msg_service::process_rec_msg;
 
+/// 单条连接握手超时：超过该时长未完成 TLS 握手则丢弃。
+/// 避免某条“半握手”连接永久阻塞接受循环（head-of-line blocking）。
+const HANDSHAKE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
 /// 启动并运行 QUIC 服务器，持续监听新连接
 pub(crate) async fn run_server(
     endpoint: Arc<Endpoint>,
@@ -62,21 +66,28 @@ pub(crate) async fn run_server(
             }
         };
 
-        let conn = match incoming_conn.await {
-            Ok(t) => t,
-            Err(e) => {
-                error!("建立连接失败 {}", e);
-                continue;
-            }
-        };
-
-        info!("[server] 已接受连接: address={}", mask_addr(&conn.remote_address().to_string()));
+        // 握手移入独立任务并加超时：主循环立即回到 accept()，
+        // 单条连接握手卡住/被恶意拖住时不再阻塞后续所有新连接接入
         let conns = connections.clone();
         let cfg = config.clone();
         let core_clone = core.clone();
         tokio::spawn(async move {
-            if let Err(e) = handle_connection(conn, conns, cfg, core_clone).await {
-                error!("打开双向流失败: {}", e);
+            match timeout(HANDSHAKE_TIMEOUT, incoming_conn).await {
+                Ok(Ok(conn)) => {
+                    info!(
+                        "[server] 已接受连接: address={}",
+                        mask_addr(&conn.remote_address().to_string())
+                    );
+                    if let Err(e) = handle_connection(conn, conns, cfg, core_clone).await {
+                        error!("打开双向流失败: {}", e);
+                    }
+                }
+                Ok(Err(e)) => {
+                    error!("建立连接失败 {}", e);
+                }
+                Err(_) => {
+                    warn!("握手超时（{}s），丢弃该连接", HANDSHAKE_TIMEOUT.as_secs());
+                }
             }
         });
     }
