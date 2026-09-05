@@ -1,5 +1,6 @@
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
+use std::time::{Duration, Instant};
 
 use anyhow::{Result, anyhow};
 use common::config_str::{
@@ -37,6 +38,65 @@ use crate::msg_service::process_msg_service::process_rec_msg;
 /// 避免某条“半握手”连接永久阻塞接受循环（head-of-line blocking）。
 const HANDSHAKE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
+/// 接受循环 alive tick 周期(秒)
+const ACCEPT_ALIVE_TICK_SECS: u64 = 15;
+/// 接受循环心跳停滞判定阈值(秒)
+const ACCEPT_ALIVE_STALE_SECS: i64 = 60;
+/// 接受循环看门狗扫描周期(秒)
+const ACCEPT_WATCHDOG_SCAN_SECS: u64 = 15;
+/// 持续告警去重间隔(毫秒)
+const ACCEPT_WATCHDOG_ALERT_GAP_MS: i64 = 60_000;
+/// 单条消息处理耗时超过该值时打慢日志(秒)
+const SLOW_MSG_PROCESS_SECS: u64 = 1;
+
+/// 最近一次接受循环 alive 时间戳(Unix 毫秒),由 accept 循环内的 interval tick 刷新
+static ACCEPT_ALIVE_AT_MS: AtomicI64 = AtomicI64::new(0);
+/// 接受循环心跳停滞的告警时间戳(Unix 毫秒); 0 表示当前未在告警
+static ACCEPT_ALERT_AT_MS: AtomicI64 = AtomicI64::new(0);
+
+fn now_millis() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+/// 独立 OS 线程看门狗: 若 accept 循环心跳停止(疑似单线程 runtime 被卡死)则 error 告警。
+/// 只启动一次。
+fn start_accept_watchdog() {
+    use std::sync::OnceLock;
+    static ONCE: OnceLock<()> = OnceLock::new();
+    let _ = ONCE.get_or_init(|| {
+        let builder = std::thread::Builder::new().name("quic-accept-watchdog".to_string());
+        let spawned = builder.spawn(|| loop {
+            std::thread::sleep(Duration::from_secs(ACCEPT_WATCHDOG_SCAN_SECS));
+            let now = now_millis();
+            let last = ACCEPT_ALIVE_AT_MS.load(Ordering::Relaxed);
+            if last <= 0 {
+                continue;
+            }
+            let stale_ms = now - last;
+            if stale_ms > ACCEPT_ALIVE_STALE_SECS * 1000 {
+                let last_alert = ACCEPT_ALERT_AT_MS.load(Ordering::Relaxed);
+                if now - last_alert > ACCEPT_WATCHDOG_ALERT_GAP_MS {
+                    error!(
+                        "QUIC 接受循环心跳停滞: 距上次 alive 已 {}s(>{})s, 疑似单线程 runtime 被同步操作卡死, 新连接将无法接入",
+                        stale_ms / 1000,
+                        ACCEPT_ALIVE_STALE_SECS
+                    );
+                    ACCEPT_ALERT_AT_MS.store(now, Ordering::Relaxed);
+                }
+            } else if ACCEPT_ALERT_AT_MS.load(Ordering::Relaxed) > 0 {
+                info!("QUIC 接受循环心跳已恢复");
+                ACCEPT_ALERT_AT_MS.store(0, Ordering::Relaxed);
+            }
+        });
+        if let Err(e) = spawned {
+            error!("QUIC 接受循环看门狗启动失败: {}", e);
+        }
+    });
+}
+
 /// 启动并运行 QUIC 服务器，持续监听新连接
 pub(crate) async fn run_server(
     endpoint: Arc<Endpoint>,
@@ -47,49 +107,58 @@ pub(crate) async fn run_server(
 ) {
     info!("QUIC 服务器启动成功，地址: {}", config.bind_address);
 
-    loop {
-        let incoming_conn = {
-            tokio::select! {
-                _ = shutdown_rx.changed() => {
-                    info!("收到关闭信号，停止接受新连接");
-                    return;
-                }
-                result = endpoint.accept() => {
-                    match result {
-                        Some(conn) => conn,
-                        None => {
-                            error!("接受新连接失败：endpoint 已关闭");
-                            return;
-                        }
-                    }
-                }
-            }
-        };
+    ACCEPT_ALIVE_AT_MS.store(now_millis(), Ordering::Relaxed);
+    start_accept_watchdog();
 
-        // 握手移入独立任务并加超时：主循环立即回到 accept()，
-        // 单条连接握手卡住/被恶意拖住时不再阻塞后续所有新连接接入
-        let conns = connections.clone();
-        let cfg = config.clone();
-        let core_clone = core.clone();
-        tokio::spawn(async move {
-            match timeout(HANDSHAKE_TIMEOUT, incoming_conn).await {
-                Ok(Ok(conn)) => {
-                    info!(
-                        "[server] 已接受连接: address={}",
-                        mask_addr(&conn.remote_address().to_string())
-                    );
-                    if let Err(e) = handle_connection(conn, conns, cfg, core_clone).await {
-                        error!("打开双向流失败: {}", e);
+    let mut alive_interval = tokio::time::interval(Duration::from_secs(ACCEPT_ALIVE_TICK_SECS));
+    loop {
+        tokio::select! {
+            _ = shutdown_rx.changed() => {
+                info!("收到关闭信号，停止接受新连接");
+                return;
+            }
+            result = endpoint.accept() => {
+                match result {
+                    Some(conn) => {
+                        info!(
+                            "[server] 收到新连接(进入握手): address={}",
+                            mask_addr(&conn.remote_address().to_string())
+                        );
+                        // 握手移入独立任务并加超时：主循环立即回到 accept()，
+                        // 单条连接握手卡住/被恶意拖住时不再阻塞后续所有新连接接入
+                        let conns = connections.clone();
+                        let cfg = config.clone();
+                        let core_clone = core.clone();
+                        tokio::spawn(async move {
+                            match timeout(HANDSHAKE_TIMEOUT, conn).await {
+                                Ok(Ok(conn)) => {
+                                    info!(
+                                        "[server] 已接受连接: address={}",
+                                        mask_addr(&conn.remote_address().to_string())
+                                    );
+                                    if let Err(e) = handle_connection(conn, conns, cfg, core_clone).await {
+                                        error!("打开双向流失败: {}", e);
+                                    }
+                                }
+                                Ok(Err(e)) => {
+                                    error!("建立连接失败 {}", e);
+                                }
+                                Err(_) => {
+                                    warn!("握手超时（{}s），丢弃该连接", HANDSHAKE_TIMEOUT.as_secs());
+                                }
+                            }
+                        });
+                    }
+                    None => {
+                        error!("接受新连接失败：endpoint 已关闭");
+                        return;
                     }
                 }
-                Ok(Err(e)) => {
-                    error!("建立连接失败 {}", e);
-                }
-                Err(_) => {
-                    warn!("握手超时（{}s），丢弃该连接", HANDSHAKE_TIMEOUT.as_secs());
-                }
             }
-        });
+            _ = alive_interval.tick() => {
+                ACCEPT_ALIVE_AT_MS.store(now_millis(), Ordering::Relaxed);
+            }
+        }
     }
 }
 
@@ -328,6 +397,7 @@ async fn handle_conn(
                         }
                         if !msg_data.is_empty() {
                             let msg_len = msg_data.len();
+                            let proc_start = Instant::now();
                             let _ = process_rec_msg(
                                 &core_clone,
                                 &mut msg_data,
@@ -341,6 +411,15 @@ async fn handle_conn(
                                 config.server_index,
                             )
                             .await;
+                            let cost = proc_start.elapsed();
+                            if cost > Duration::from_secs(SLOW_MSG_PROCESS_SECS) {
+                                warn!(
+                                    "[server] uni 消息处理过慢: {}ms len={} key={}",
+                                    cost.as_millis(),
+                                    msg_len,
+                                    conn_key
+                                );
+                            }
                         }
                     }
                     Err(e) => {
@@ -400,6 +479,7 @@ async fn handle_conn(
         let change_buffer = &mut buffer;
         match recv_stream.read(change_buffer).await {
             Ok(Some(length)) => {
+                let proc_start = Instant::now();
                 match process_rec_msg(
                     &core,
                     change_buffer,
@@ -420,6 +500,15 @@ async fn handle_conn(
                     Err(error) => {
                         error!("消息处理失败! {:#}", error.backtrace());
                     }
+                }
+                let cost = proc_start.elapsed();
+                if cost > Duration::from_secs(SLOW_MSG_PROCESS_SECS) {
+                    warn!(
+                        "[server] bidi 消息处理过慢: {}ms len={} key={}",
+                        cost.as_millis(),
+                        length,
+                        connection_key
+                    );
                 }
             }
             Ok(None) => {
@@ -486,6 +575,7 @@ async fn sync_read_messages(
     uuid: &str,
 ) -> std::result::Result<(), anyhow::Error> {
     // TODO
+    info!("同步已读消息开始: uuid={}", uuid);
     let mut redis = core.redis.get().await?;
     let rb = &core.db;
     // 1. 设置 Redis 分布式锁，防止用户频繁上下线切换
@@ -599,6 +689,7 @@ async fn sync_read_messages(
     }
 
     // 3. 清理 Redis 缓存和锁
+    info!("同步已读消息完成: uuid={}", uuid);
     Ok(())
 }
 
@@ -686,6 +777,11 @@ async fn user_online(
 
         let node_addr =
             node_addr.ok_or_else(|| anyhow!("旧连接所在节点不可用: server_index={}", old_index))?;
+        info!(
+            "[user_online] 开始踢远端旧连接: server_index={} addr={}",
+            old_index,
+            mask_addr(&node_addr)
+        );
         let response = send_internal_quic_msg(
             node_addr.parse()?,
             InternalQuicRequest {
@@ -700,6 +796,10 @@ async fn user_online(
             },
         )
         .await?;
+        info!(
+            "[user_online] 踢远端旧连接完成: server_index={} delivered={:?}",
+            old_index, response.delivered
+        );
         if response.delivered != Some(true) {
             return Err(anyhow!(
                 "远程旧连接踢下线失败: {}",
