@@ -36,6 +36,7 @@ pub async fn start_server() -> anyhow::Result<Arc<ChatNode>> {
     let core = CoreState { db, redis };
 
     let config = ChatNodeConfig::from_toml_str(&resolved_content)?;
+    let internal_config = InternalQuicConfig::from_toml_str(&resolved_content)?;
     let mut node = ChatNode::new(config, core.clone());
     node.init().await?;
     let node = Arc::new(node);
@@ -44,7 +45,7 @@ pub async fn start_server() -> anyhow::Result<Arc<ChatNode>> {
     let connections = node.connections();
     let server_index = node.config().server_index;
 
-    // 集群：注册外部节点 + 启动 server_count 后台同步 + 节点密钥续期
+    // 集群：注册外部节点 + 启动 server_count 后台同步
     {
         let node_address = node.config().node_address.clone();
         if let Err(e) = common::utils::server_count_sync::register_external_node(
@@ -56,19 +57,23 @@ pub async fn start_server() -> anyhow::Result<Arc<ChatNode>> {
         {
             tracing::warn!("外部 QUIC 节点注册失败: {}", e);
         }
-        common::utils::server_count_sync::start_server_count_sync(
-            core.redis.clone(),
-            server_index,
-            node_address,
-        );
+        common::utils::server_count_sync::start_server_count_sync(core.redis.clone());
         info!("server_count 后台同步已启动 (server_index={})", server_index);
+
+        // 节点 key 保活与看门狗放到独立线程运行,主 runtime 卡死也不影响续期
+        common::utils::server_count_sync::start_node_key_keeper(
+            read_global_config!("redis", "url"),
+            server_index,
+            node.config().node_address.clone(),
+            internal_config.node_address.clone(),
+        );
+        common::utils::server_count_sync::start_node_key_watchdog();
     }
 
     // 启动 NAT 发现 + 客户端 P2P 请求转发 UDP 服务
     run_udp_server(core.clone(), connections.clone()).await?;
 
     // 启动内部 QUIC 服务
-    let internal_config = InternalQuicConfig::from_toml_str(&resolved_content)?;
     let (internal_shutdown_tx, internal_shutdown_rx) = tokio::sync::watch::channel(false);
     tokio::spawn(async move {
         let _tx = internal_shutdown_tx;

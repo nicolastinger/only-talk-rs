@@ -220,31 +220,6 @@ async fn register_to_redis(core: &CoreState, config: &InternalQuicConfig) -> Res
     Ok(())
 }
 
-/// 续期内网节点注册 key 的 TTL(进程存活期间周期调用,失败仅告警)
-async fn refresh_redis_key(core: &CoreState, config: &InternalQuicConfig) {
-    let key = format!("{}{}", REDIS_INTERNAL_QUIC_SERVERS, config.server_index);
-    let value = config.node_address.clone();
-    let mut conn = match core.redis.get().await {
-        Ok(conn) => conn,
-        Err(e) => {
-            warn!("[内部 QUIC 服务器] 续期注册 key 失败(获取连接): key={} err={}", key, e);
-            return;
-        }
-    };
-    match conn.set_ex::<&str, &str, ()>(&key, &value, 7200).await {
-        Ok(_) => {
-            info!(
-                "[内部 QUIC 服务器] 续期注册 key 成功: key={} value={} TTL=7200s",
-                key,
-                mask_addr(&value)
-            );
-        }
-        Err(e) => {
-            warn!("[内部 QUIC 服务器] 续期注册 key 失败: key={} err={}", key, e);
-        }
-    }
-}
-
 async fn unregister_from_redis(core: &CoreState, config: &InternalQuicConfig) {
     if let Ok(mut conn) = core.redis.get().await {
         let key = format!("{}{}", REDIS_INTERNAL_QUIC_SERVERS, config.server_index);
@@ -281,16 +256,12 @@ pub async fn run_internal_server(
     let server_index = config.server_index;
     info!("[内部 QUIC 服务器] 服务已启动,监听地址: {},索引: {}", config.bind_address, server_index);
 
-    // 进程存活期间周期续期注册 key TTL,避免 2h 后自动过期导致节点失联
-    let mut refresh_interval = tokio::time::interval(Duration::from_secs(60));
+    // 注意: 内网节点注册 key 的周期续期由独立保活线程 common::utils::server_count_sync::start_node_key_keeper 负责,
+    // 已从本 accept 主循环移除,避免主循环异常时节点 key 过期失联。
 
     loop {
         let incoming_conn = {
             tokio::select! {
-                _ = refresh_interval.tick() => {
-                    refresh_redis_key(&core, &config).await;
-                    continue;
-                }
                 _ = shutdown_rx.changed() => {
                     info!("[内部 QUIC 服务器] 收到关闭信号");
                     break;
