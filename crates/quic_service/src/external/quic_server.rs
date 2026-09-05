@@ -343,6 +343,7 @@ async fn handle_conn(
         let refresh_index = config.server_index.to_string();
         let shutdown_flag = uni_shutdown.clone();
         tokio::spawn(async move {
+            info!("用户路由 key 续期任务已启动: key={} 每 60s 续期", refresh_key);
             let mut refresh_interval = tokio::time::interval(std::time::Duration::from_secs(60));
             loop {
                 refresh_interval.tick().await;
@@ -356,10 +357,16 @@ async fn handle_conn(
                         continue;
                     }
                 };
-                if let Err(e) =
-                    conn.set_ex::<&str, &str, ()>(&refresh_key, &refresh_index, 7200).await
+                match conn
+                    .set_ex::<&str, &str, ()>(&refresh_key, &refresh_index, 7200)
+                    .await
                 {
-                    warn!("用户路由 key 续期失败: key={} err={}", refresh_key, e);
+                    Ok(_) => {
+                        info!("用户路由 key 续期成功: key={} TTL=7200s", refresh_key);
+                    }
+                    Err(e) => {
+                        warn!("用户路由 key 续期失败: key={} err={}", refresh_key, e);
+                    }
                 }
             }
         });
