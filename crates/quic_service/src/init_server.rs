@@ -114,22 +114,27 @@ pub fn start_server_in_dedicated_runtime() -> anyhow::Result<()> {
         info!("QUIC 独立 runtime 已创建: worker_threads={}", workers);
 
         let result = runtime.block_on(start_server());
-        match result {
-            Ok(_node) => {
+        // 持有 ChatNode: 其内部保存的关闭 watch::Sender 一旦被 drop,accept 循环与
+        // TLS 监控会把"发送方消失"误判为收到关闭信号而立即退出,导致外部 QUIC 无法接入。
+        let node = match result {
+            Ok(node) => {
                 info!("QUIC 服务已在独立 runtime 上启动完成");
                 let _ = ready_tx.send(Ok(()));
+                node
             }
             Err(e) => {
                 error!("QUIC 服务启动失败: {:?}", e);
                 let _ = ready_tx.send(Err(format!("QUIC 服务启动失败: {:?}", e)));
                 return;
             }
-        }
+        };
 
         // start_server 返回后,各服务任务(accept 循环/连接处理等)仍运行在 runtime 上;
-        // 这里让线程常驻,防止 runtime 随 block_on 返回被 drop 导致任务全部取消。
+        // 这里让线程常驻(同时持有 node),防止 runtime 或 node 随本线程作用域结束被 drop
+        // 导致任务全部取消、关闭通道发送方消失。
         loop {
             std::thread::sleep(std::time::Duration::from_secs(3600));
+            let _ = &node;
         }
     });
 
