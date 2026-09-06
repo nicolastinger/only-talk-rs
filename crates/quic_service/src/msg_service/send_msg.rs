@@ -9,6 +9,7 @@ use dashmap::DashMap;
 use deadpool_redis::redis::AsyncCommands;
 use tracing::warn;
 
+use crate::conn_lookup;
 use crate::models::quic_connection::{ConnectionType, QuicConnection};
 use crate::msg_service::text_msg_service::generate_text_msg;
 
@@ -34,17 +35,15 @@ pub async fn send_quic_system_msg(
         );
         let user_key = user_key.to_uppercase();
 
-        match connections.get(&user_key) {
-            Some(entry) => {
+        match conn_lookup::get_conn_by_key(connections, &user_key) {
+            Some(conn) => {
                 let res = generate_text_msg(
                     msg_type,
                     text.as_bytes().to_vec(),
                     current_user.clone(),
                     SYSTEM.to_string(),
                 )?;
-                let mut send = entry.conn.open_uni().await?;
-                send.write_all(&res).await?;
-                send.finish().await?;
+                conn_lookup::send_uni_frame(&conn, &res).await?;
                 return Ok(());
             }
             None => {

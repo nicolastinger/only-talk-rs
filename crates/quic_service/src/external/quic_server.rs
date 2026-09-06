@@ -30,6 +30,7 @@ use tokio::time::timeout;
 use tracing::{error, info, warn};
 
 use super::config::ChatNodeConfig;
+use crate::conn_lookup;
 use crate::models::first_quic_msg::FirstQuicMsg;
 use crate::models::quic_connection::{ConnectionType, QuicConnection};
 use crate::msg_service::process_msg_service::process_rec_msg;
@@ -539,7 +540,10 @@ async fn end_server(
     connections: &Arc<DashMap<String, QuicConnection>>,
 ) -> Result<(), anyhow::Error> {
     let mut uuid = "".to_string();
+    info!("[server] 断线清理开始: key={}", close_key);
     {
+        // 注意: DashMap guard 不可跨 .await 持有,必须先 drop(book) 再执行任何异步操作,
+        // 否则断线清理与并发推送(同一 shard)会互等造成死锁。
         if let Some(book) = connections.get_mut(close_key) {
             let now = book.update_time;
             if now == close_now as u64 && book.conn.stable_id() == connection_id {
@@ -840,14 +844,8 @@ async fn kick_local_connection(
     if force_logout {
         // 仅在不同登录会话抢登时发送 FORCE_LOGOUT（客户端收到后置 Idle 停止自动重连）。
         // 同会话顶替则静默关闭，避免“自己踢自己”。
-        if let Ok(mut send) = old_conn.open_uni().await {
-            if let Err(error) = send.write_all(&payload).await {
-                warn!("发送强制退出消息失败: {}", error);
-            } else if let Err(error) = send.finish().await {
-                warn!("完成强制退出消息失败: {}", error);
-            }
-        } else {
-            warn!("旧连接已无法打开单向流，直接关闭连接");
+        if let Err(error) = conn_lookup::send_uni_frame(&old_conn, &payload).await {
+            warn!("发送强制退出消息失败: {}", error);
         }
     } else {
         info!("同会话连接顶替(静默): key={}，仅关闭旧连接", connection_key);

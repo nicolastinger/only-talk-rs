@@ -5,6 +5,7 @@ use common::config_str::PC_PLATFORM;
 use dashmap::DashMap;
 use quinn::Connection;
 
+use crate::conn_lookup;
 use crate::models::quic_connection::QuicConnection;
 
 pub mod group_msg_service;
@@ -20,6 +21,6 @@ pub async fn get_connection_by_uuid(
     let connection_key =
         format!("{}{}{}{}{}", PC_PLATFORM, ":QUIC:SERVER:", uuid, ":", connection_type);
     let connection_key = connection_key.to_uppercase();
-    let entry = connections.get(&connection_key).ok_or(anyhow!("Connection unavailable"))?;
-    Ok(entry.conn.clone())
+    conn_lookup::get_conn_by_key(connections, &connection_key)
+        .ok_or(anyhow!("Connection unavailable"))
 }
