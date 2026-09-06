@@ -29,6 +29,14 @@ pub struct InternalQuicRequest {
     /// 投递后关闭目标连接，用于同平台挤下线
     #[serde(default)]
     pub close_after_delivery: bool,
+    /// 发起方(新连接)的登录会话 ID(jti)，供目标节点比较"同会话重连/新旧登录"
+    #[serde(default)]
+    pub incoming_session: String,
+    /// 关闭旧连接时是否先发送 FORCE_LOGOUT 帧：
+    /// - true: 新登录接管，需通知旧客户端置 Idle
+    /// - false: 同会话(相同 jti)重连，静默关闭即可，避免自己踢自己
+    #[serde(default)]
+    pub send_force_logout: bool,
 }
 
 /// 内部 QUIC 服务响应

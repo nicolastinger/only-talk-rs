@@ -28,6 +28,12 @@ fn build_key(platform: &str, uuid: &str, connection_type: &ConnectionType) -> St
         .to_uppercase()
 }
 
+/// 连接 key 对应的"最近在线会话"Redis 键(存放该连接的 JWT jti)。
+/// 随 connection_key 一起写入/清理,用于跨节点判断新旧登录,避免向远端多一次往返查询。
+pub fn session_key_of(connection_key: &str) -> String {
+    format!("{}:SESSION", connection_key)
+}
+
 /// 按完整连接 key 读取连接,返回所有权(guard 在返回前已释放)。
 pub fn get_conn_by_key(connections: &ConnectionsMap, key: &str) -> Option<Connection> {
     connections.get(key).map(|entry| entry.conn.clone())

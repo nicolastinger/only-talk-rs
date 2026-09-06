@@ -67,6 +67,8 @@ async fn push_notification_via_quic(notification: SystemNotification) -> Result<
         source: RequestSource::HttpApi,
         ttl: 3,
         close_after_delivery: false,
+        incoming_session: String::new(),
+        send_force_logout: false,
     };
 
     send_internal_quic_msg(server_addr, request).await.map(|_| ())

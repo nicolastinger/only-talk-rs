@@ -69,6 +69,8 @@ pub async fn send_quic_system_msg(
         source: RequestSource::HttpApi,
         ttl: 3,
         close_after_delivery: false,
+        incoming_session: String::new(),
+        send_force_logout: false,
     };
 
     // 根据 preferred_index 从 Redis 获取目标节点的内部 QUIC 地址

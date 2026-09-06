@@ -93,6 +93,8 @@ pub async fn add_user_with_notify(
         source: RequestSource::HttpApi,
         ttl: 3,
         close_after_delivery: false,
+        incoming_session: String::new(),
+        send_force_logout: false,
     };
     tracing::debug!(
         "准备发送 QUIC 消息: msg_type={}, target_user={}, platform={}, source={:?}, ttl={}",
@@ -152,6 +154,8 @@ pub async fn process_friend_with_notify(
         source: RequestSource::HttpApi,
         ttl: 3,
         close_after_delivery: false,
+        incoming_session: String::new(),
+        send_force_logout: false,
     };
     send_internal_quic_msg(server_addr, request).await?;
 

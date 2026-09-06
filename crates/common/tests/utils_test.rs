@@ -466,6 +466,8 @@ mod internal_quic_msg {
             source: RequestSource::QuicExternal,
             ttl: 3,
             close_after_delivery: false,
+            incoming_session: String::new(),
+            send_force_logout: false,
         }
     }
 

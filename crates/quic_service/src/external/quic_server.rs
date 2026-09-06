@@ -14,10 +14,10 @@ use common::models::group_entity::group_message_record::GroupMessageRecord;
 use common::state::CoreState;
 use common::utils::internal_quic_client::send_internal_quic_msg;
 use common::utils::internal_quic_msg::{InternalQuicRequest, RequestSource};
-use common::utils::jwt_util::{Claims, verify_token};
+use common::utils::jwt_util::{Claims, session_id_ms, verify_token};
 use common::utils::mask::mask_addr;
 use common::utils::message_types::MSG_TYPE_FORCE_LOGOUT;
-use common::utils::text_msg::generate_text_msg;
+use common::utils::text_msg::build_force_logout_msg;
 use common::utils::time::get_now_time_stamp_as_millis;
 use dashmap::DashMap;
 use deadpool_redis::redis::{AsyncCommands, cmd};
@@ -284,6 +284,7 @@ async fn set_conn_info(
     server_index: u32,
     session_id: String,
 ) -> Result<(), anyhow::Error> {
+    let session_id_clone = session_id.clone();
     let new_connection = QuicConnection {
         is_online: true,
         uuid,
@@ -303,6 +304,8 @@ async fn set_conn_info(
         let mut conn = core.redis.get().await?;
         let index_str = server_index.to_string();
         conn.set_ex::<&str, &str, ()>(connection_key, &index_str, 7200).await?;
+        let session_key = conn_lookup::session_key_of(connection_key);
+        conn.set_ex::<&str, &str, ()>(&session_key, &session_id_clone, 7200).await?;
     }
 
     info!("当前在线客户端数: {}", connections.len());
@@ -332,6 +335,7 @@ async fn handle_conn(
         &uuid,
         &platform,
         &session_id,
+        &conn,
         &connections,
         config.server_index,
         config.max_connections,
@@ -697,12 +701,43 @@ async fn sync_read_messages(
     Ok(())
 }
 
+/// 上线时新连接对既有在线连接(同一 platform+uuid)的接管语义
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Takeover {
+    /// 同一次登录重连(相同 jti):静默替换旧连接,不发 FORCE_LOGOUT,避免自己踢自己
+    Same,
+    /// 更新的登录接管:强退旧连接(FORCE_LOGOUT 携带新会话 jti)
+    Newer,
+    /// 更老的登录迟到重连:拒绝本次连接,保住更新的在线会话
+    Stale,
+}
+
+/// 依据 jti 签发先后(uuid v7 的毫秒前缀)判定接管语义。
+/// 存量旧 token(空/非 v7 jti)无法证明先后,退化为"接管"(与历史行为一致)。
+fn classify_takeover(incoming: &str, live: Option<&str>) -> Takeover {
+    let Some(live) = live else {
+        return Takeover::Newer;
+    };
+    if !incoming.is_empty() && incoming == live {
+        return Takeover::Same;
+    }
+    if incoming.is_empty() || live.is_empty() {
+        return Takeover::Newer;
+    }
+    match (session_id_ms(incoming), session_id_ms(live)) {
+        (Some(a), Some(b)) if a < b => Takeover::Stale,
+        _ => Takeover::Newer,
+    }
+}
+
 /// 用户上线
+#[allow(clippy::too_many_arguments)]
 async fn user_online(
     core: &CoreState,
     uuid: &str,
     platform: &str,
     session_id: &str,
+    new_conn: &Connection,
     connections: &Arc<DashMap<String, QuicConnection>>,
     server_index: u32,
     max_connections: usize,
@@ -739,18 +774,15 @@ async fn user_online(
         ConnectionType::Text
     )
     .to_uppercase();
-    let payload = generate_text_msg(
-        MSG_TYPE_FORCE_LOGOUT,
-        "您的账号已在其他设备登录".as_bytes().to_vec(),
-        uuid.to_string(),
-        SYSTEM.to_string(),
-    )?;
 
-    // Redis 中保存旧连接所在节点。没有旧记录时仍检查本机，避免 Redis 短暂丢失造成重复连接。
-    let old_index = {
+    // Redis 中保存旧连接所在节点与最近一次在线会话。没有旧记录时仍检查本机，
+    // 避免 Redis 短暂丢失造成重复连接。
+    let (old_index, live_session) = {
         let mut redis = core.redis.get().await?;
         let index: Option<String> = redis.get(&connection_key).await?;
-        index.and_then(|value| value.parse::<u32>().ok())
+        let session_key = conn_lookup::session_key_of(&connection_key);
+        let live: Option<String> = redis.get(&session_key).await?;
+        (index.and_then(|value| value.parse::<u32>().ok()), live)
     };
 
     let has_old_connection = connections.contains_key(&connection_key) || old_index.is_some();
@@ -758,21 +790,60 @@ async fn user_online(
         return Err(anyhow!("Maximum connections reached: {}", connections.len()));
     }
 
-    if let Some(old) = connections.get(&connection_key) {
-        let old_conn = old.conn.clone();
-        // 同一次登录（相同 JWT jti）的重复连接视为“本机重连/顶替”：
-        // 静默关闭旧连接即可，不发送 FORCE_LOGOUT，避免切网重连把自己踢下线。
-        let same_session = !session_id.is_empty() && old.session_id == session_id;
-        drop(old);
-        kick_local_connection(
-            core,
-            connections,
-            &connection_key,
-            old_conn,
-            payload.clone(),
-            !same_session,
-        )
-        .await?;
+    // 本机 DashMap 中的旧连接比 Redis 会话键更权威(旧版本节点可能未写该键/键已过期)
+    let local_old = {
+        match connections.get(&connection_key) {
+            Some(entry) => Some((entry.conn.clone(), entry.session_id.clone())),
+            None => None,
+        }
+    };
+    let effective_live =
+        local_old.as_ref().map(|(_, session)| session.clone()).or(live_session.clone());
+
+    let takeover = classify_takeover(session_id, effective_live.as_deref());
+    // 仅"更新的登录接管"才发送 FORCE_LOGOUT；同会话重连静默替换；
+    // 过期登录(更老)直接拒绝本次连接(提前 return,不发强退帧到在线连接)。
+    let force_logout = match takeover {
+        Takeover::Newer => true,
+        Takeover::Same => false,
+        Takeover::Stale => {
+            info!(
+                "过期登录重连被拒绝: uuid={} incoming_session={} live_session={:?}",
+                uuid, session_id, effective_live
+            );
+            if let Some(live) = effective_live.as_deref() {
+                let stale_payload = build_force_logout_msg(
+                    "您的账号已在其他设备登录",
+                    live,
+                    uuid.to_string(),
+                    SYSTEM.to_string(),
+                )?;
+                if let Err(error) = conn_lookup::send_uni_frame(new_conn, &stale_payload).await {
+                    warn!("向过期登录的连接发送强制退出消息失败: {}", error);
+                }
+            }
+            new_conn.close(0u32.into(), b"superseded by newer login");
+            release_online_lock(core, platform, uuid, &lock_token).await?;
+            return Err(anyhow!("过期登录重连被拒绝(存在更新的在线会话): uuid={}", uuid));
+        }
+    };
+
+    if let Some((old_conn, _)) = local_old {
+        // 同一次登录(相同 JWT jti)的重复连接视为“本机重连/顶替”：静默关闭旧连接，
+        // 不发送 FORCE_LOGOUT，避免切网重连把自己踢下线。
+        // 仅当更新的登录接管时才发送 FORCE_LOGOUT(客户端收到后置 Idle 停止自动重连)。
+        let payload = if force_logout {
+            build_force_logout_msg(
+                "您的账号已在其他设备登录",
+                session_id,
+                uuid.to_string(),
+                SYSTEM.to_string(),
+            )?
+        } else {
+            Vec::new()
+        };
+        kick_local_connection(core, connections, &connection_key, old_conn, payload, force_logout)
+            .await?;
     } else if let Some(old_index) = old_index.filter(|index| *index != server_index) {
         let mut redis = core.redis.get().await?;
         let node_key = format!("{}{}", REDIS_INTERNAL_QUIC_SERVERS, old_index);
@@ -786,6 +857,16 @@ async fn user_online(
             old_index,
             mask_addr(&node_addr)
         );
+        let payload = if force_logout {
+            build_force_logout_msg(
+                "您的账号已在其他设备登录",
+                session_id,
+                uuid.to_string(),
+                SYSTEM.to_string(),
+            )?
+        } else {
+            Vec::new()
+        };
         let response = send_internal_quic_msg(
             node_addr.parse()?,
             InternalQuicRequest {
@@ -797,6 +878,8 @@ async fn user_online(
                 source: RequestSource::QuicExternal,
                 ttl: 3,
                 close_after_delivery: true,
+                incoming_session: session_id.to_string(),
+                send_force_logout: force_logout,
             },
         )
         .await?;
@@ -860,6 +943,8 @@ async fn kick_local_connection(
         connections.remove(connection_key);
         let mut redis = core.redis.get().await?;
         let _: () = redis.del(connection_key).await?;
+        let session_key = conn_lookup::session_key_of(connection_key);
+        let _: () = redis.del(&session_key).await?;
     }
 
     Ok(())

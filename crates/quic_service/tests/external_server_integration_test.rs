@@ -3,8 +3,11 @@
 //! 启动一个真实 ChatNode（自签名证书 + 测试 Redis），用 QUIC 客户端模拟用户设备，覆盖：
 //! 1. 连接握手 + `FirstQuicMsg` JWT 鉴权 + 连接注册（内存 `connections` 映射 + Redis key）
 //! 2. 心跳：客户端通过 uni 流发送 PING，服务器回推 PONG
-//! 3. 非法 token 被拒绝（服务器直接关闭流）
-//! 4. 同平台重复登录挤下线（通知旧客户端并清理旧连接）
+//! 3. 登录接管三态(依据 JWT jti 的 uuid v7 签发时间):
+//!    3a. 同一次登录重连(相同 jti)静默关闭旧连接,不发 FORCE_LOGOUT
+//!    3b. 新登录(更新的 jti)强退旧连接,FORCE_LOGOUT 携带发起接管的新会话 jti
+//!    3c. 过期登录(更老的 jti)重连被拒绝,在线会话保持不变
+//! 4. 非法 token 被拒绝（服务器直接关闭流）
 //! 5. 用户上线期间将 Redis 已读消息同步到 PostgreSQL
 //! 6. 客户端断开后连接清理（`connections` 映射移除）
 //!
@@ -25,7 +28,7 @@ use common::models::chat_entity::chat_message_read::ChatMessageRecordRead;
 use common::models::chat_entity::chat_message_record::ChatMessageRecord;
 use common::state::CoreState;
 use common::utils::internal_quic_client::make_internal_client_config;
-use common::utils::jwt_util::generate_access_token;
+use common::utils::jwt_util::{generate_access_token, verify_token};
 use common::utils::message_types::{MSG_TYPE_FORCE_LOGOUT, MSG_TYPE_PING};
 use common::utils::text_msg::HeadMsg;
 use deadpool_redis::redis::AsyncCommands;
@@ -227,6 +230,40 @@ async fn wait_connection_changed(
     }
 }
 
+/// 从连接上读取一枚服务端 uni 帧(返回完整帧字节);若连接在收到任何帧前被静默关闭则返回 None。
+/// 用于区分"同会话静默顶替(无帧)"与"新登录强退(FORCE_LOGOUT 帧)"。
+async fn recv_server_uni_or_closed(
+    conn: &Connection,
+    timeout: Duration,
+) -> Result<Option<Vec<u8>>> {
+    let result = tokio::time::timeout(timeout, async {
+        tokio::select! {
+            _ = conn.closed() => None,
+            uni = conn.accept_uni() => match uni {
+                Ok(mut recv) => {
+                    let mut buf = Vec::new();
+                    let mut chunk = [0u8; 4096];
+                    while let Ok(Some(n)) = recv.read(&mut chunk).await {
+                        buf.extend_from_slice(&chunk[..n]);
+                    }
+                    Some(buf)
+                }
+                Err(_) => None,
+            }
+        }
+    })
+    .await
+    .map_err(|_| anyhow!("等待服务端 uni 帧/连接关闭超时"))?;
+    Ok(result)
+}
+
+/// 从 FORCE_LOGOUT 帧的 raw(JSON)中提取发起强退的会话 jti
+fn kick_session(raw: &[u8]) -> Option<String> {
+    serde_json::from_slice::<serde_json::Value>(raw)
+        .ok()
+        .and_then(|value| value.get("session").and_then(|s| s.as_str()).map(|s| s.to_string()))
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "需要本地 Redis 与仓库根目录 .env"]
 async fn external_chat_node_connection_lifecycle() -> Result<()> {
@@ -365,7 +402,7 @@ async fn external_chat_node_connection_lifecycle() -> Result<()> {
         assert_eq!(msgs[0].raw, PONG.as_bytes(), "PONG 的 raw 应为 {}", PONG);
         info!("心跳 PING/PONG 通过");
 
-        // ===== 3. 同平台重复登录：通知并关闭旧连接 =====
+        // ===== 3a. 同一次登录重连(相同 jti):静默关闭旧连接,不发送 FORCE_LOGOUT =====
         let old_server_stable_id = node
             .connections()
             .get(&key)
@@ -374,26 +411,14 @@ async fn external_chat_node_connection_lifecycle() -> Result<()> {
         let (second_endpoint, second_conn) = connect_client(node_addr).await?;
         let (_second_send, _second_recv) =
             send_first_msg(&second_conn, &user_uuid, &access_token, head_len).await?;
-        let old_conn_msg = tokio::time::timeout(Duration::from_secs(5), client_conn.accept_uni())
-            .await
-            .context("等待旧 PC 挤下线通知超时")??;
-        let mut kick_buf = Vec::new();
-        let mut kick_recv = old_conn_msg;
-        let mut kick_chunk = [0u8; 4096];
-        loop {
-            match kick_recv.read(&mut kick_chunk).await {
-                Ok(Some(n)) => kick_buf.extend_from_slice(&kick_chunk[..n]),
-                Ok(None) => break,
-                Err(e) => return Err(anyhow!("读取挤下线通知失败: {}", e)),
-            }
-        }
-        let kick_len = kick_buf.len();
-        let kick_messages =
-            get_text_msg(&mut kick_buf, kick_len, Arc::new(Mutex::new(Vec::new())), head_len)
-                .await?;
-        assert_eq!(kick_messages.len(), 1);
-        assert_eq!(kick_messages[0].text_type, MSG_TYPE_FORCE_LOGOUT);
+        let same_session_frame =
+            recv_server_uni_or_closed(&client_conn, Duration::from_secs(5)).await?;
+        assert!(
+            same_session_frame.is_none(),
+            "相同 token(相同 jti)重连属于同一次登录,应静默关闭旧连接而非强退"
+        );
         wait_connection_changed(&node, &key, old_server_stable_id, Duration::from_secs(5)).await?;
+        info!("同一次登录重连:旧连接已静默关闭并被新连接替换");
 
         let online_lock_key =
             format!("QUIC:ONLINE:LOCK:{}:{}", PC_PLATFORM, user_uuid).to_uppercase();
@@ -412,6 +437,78 @@ async fn external_chat_node_connection_lifecycle() -> Result<()> {
         assert_eq!(read_rows.len(), 1, "上线阶段应将已读消息同步到数据库");
         assert_eq!(read_rows[0].recv_user, read_uuid);
 
+        // 确保新 token 的 jti 严格晚于旧 token(避免同一毫秒内签发导致无法比较先后)
+        tokio::time::sleep(Duration::from_millis(5)).await;
+
+        // ===== 3b. 新登录(更新的 jti)接管:强退旧连接,FORCE_LOGOUT 携带发起会话 jti =====
+        let access_token_newer = generate_access_token(user_uuid.clone(), PC_PLATFORM.to_string())
+            .context("生成更新的 access_token 失败")?;
+        let newer_jti = verify_token(&access_token_newer).context("解析新 token 失败")?.jti;
+        let old_stable_before_takeover = node
+            .connections()
+            .get(&key)
+            .map(|entry| entry.conn.stable_id())
+            .ok_or_else(|| anyhow!("获取接管前连接 stable_id 失败"))?;
+        let (third_endpoint, third_conn) = connect_client(node_addr).await?;
+        let (_third_send, _third_recv) =
+            send_first_msg(&third_conn, &user_uuid, &access_token_newer, head_len).await?;
+        let kick_frame = recv_server_uni_or_closed(&second_conn, Duration::from_secs(5))
+            .await?
+            .ok_or_else(|| anyhow!("新登录接管应发送 FORCE_LOGOUT 强退旧连接"))?;
+        let kick_len = kick_frame.len();
+        let mut kick_buf = kick_frame;
+        let kick_messages =
+            get_text_msg(&mut kick_buf, kick_len, Arc::new(Mutex::new(Vec::new())), head_len)
+                .await?;
+        assert_eq!(kick_messages.len(), 1, "应解析出 1 条 FORCE_LOGOUT");
+        assert_eq!(kick_messages[0].text_type, MSG_TYPE_FORCE_LOGOUT);
+        assert_eq!(
+            kick_session(&kick_messages[0].raw).as_deref(),
+            Some(newer_jti.as_str()),
+            "FORCE_LOGOUT 应携带发起接管的新会话 jti,便于客户端识别本机顶替而忽略"
+        );
+        wait_connection_changed(&node, &key, old_stable_before_takeover, Duration::from_secs(5))
+            .await?;
+        info!("新登录已强退旧连接并接管会话");
+
+        // ===== 3c. 过期登录重连(更老的 jti):拒绝本次连接,保住更新的在线会话 =====
+        let live_stable_id = node
+            .connections()
+            .get(&key)
+            .map(|entry| entry.conn.stable_id())
+            .ok_or_else(|| anyhow!("获取在线连接 stable_id 失败"))?;
+        let live_session_id = node
+            .connections()
+            .get(&key)
+            .map(|entry| entry.session_id.clone())
+            .ok_or_else(|| anyhow!("获取在线会话 jti 失败"))?;
+        let (stale_endpoint, stale_conn) = connect_client(node_addr).await?;
+        // 复用最早的 access_token(其 jti 早于当前在线会话),模拟旧登录复活
+        let (_stale_send, _stale_recv) =
+            send_first_msg(&stale_conn, &user_uuid, &access_token, head_len).await?;
+        let stale_frame = recv_server_uni_or_closed(&stale_conn, Duration::from_secs(5))
+            .await?
+            .ok_or_else(|| anyhow!("过期登录重连应收到 FORCE_LOGOUT 并被拒绝"))?;
+        let stale_len = stale_frame.len();
+        let mut stale_buf = stale_frame;
+        let stale_messages =
+            get_text_msg(&mut stale_buf, stale_len, Arc::new(Mutex::new(Vec::new())), head_len)
+                .await?;
+        assert_eq!(stale_messages.len(), 1, "过期登录应收到 1 条 FORCE_LOGOUT");
+        assert_eq!(stale_messages[0].text_type, MSG_TYPE_FORCE_LOGOUT);
+        assert_eq!(
+            kick_session(&stale_messages[0].raw).as_deref(),
+            Some(live_session_id.as_str()),
+            "拒绝过期登录的 FORCE_LOGOUT 应携带在线会话 jti"
+        );
+        let still_live =
+            node.connections().get(&key).map(|entry| entry.conn.stable_id()).unwrap_or(0);
+        assert_eq!(still_live, live_stable_id, "过期登录不应顶掉更新的在线会话");
+        let still_live_session =
+            node.connections().get(&key).map(|entry| entry.session_id.clone()).unwrap_or_default();
+        assert_eq!(still_live_session, live_session_id, "在线会话 jti 不应被过期登录改写");
+        info!("过期登录重连已被拒绝,更新的在线会话保持不变");
+
         // ===== 4. 非法 token 被拒绝 =====
         let (bad_endpoint, bad_conn) = connect_client(node_addr).await?;
         let (_bad_send, mut bad_recv) =
@@ -428,7 +525,7 @@ async fn external_chat_node_connection_lifecycle() -> Result<()> {
         info!("非法 token 已被拒绝");
 
         // ===== 5. 客户端断开后连接清理 =====
-        second_conn.close(0u32.into(), b"test done");
+        third_conn.close(0u32.into(), b"test done");
         wait_connection_removed(&node, &key, Duration::from_secs(5)).await?;
         info!("断开后连接已从内存映射清理");
 
@@ -441,8 +538,14 @@ async fn external_chat_node_connection_lifecycle() -> Result<()> {
         bad_conn.close(0u32.into(), b"test done");
         bad_endpoint.wait_idle().await;
         drop(bad_endpoint);
+        second_conn.close(0u32.into(), b"test done");
         second_endpoint.wait_idle().await;
         drop(second_endpoint);
+        stale_conn.close(0u32.into(), b"test done");
+        stale_endpoint.wait_idle().await;
+        drop(stale_endpoint);
+        third_endpoint.wait_idle().await;
+        drop(third_endpoint);
         client_endpoint.wait_idle().await;
         drop(client_endpoint);
 

@@ -128,3 +128,31 @@ pub fn generate_text_msg_with_time(
     let text_quic_msg = TextQuicMsg { nano_id, text_type, raw, recv_user, send_user, timestamp };
     build_text(text_quic_msg)
 }
+
+/// 强退帧 raw 的 JSON 结构
+#[derive(Debug, Serialize)]
+struct ForceLogoutRaw<'a> {
+    reason: &'a str,
+    session: &'a str,
+}
+
+/// 生成强制下线帧(类型固定 MSG_TYPE_FORCE_LOGOUT)。
+///
+/// `raw` 内容固定为 JSON: `{"reason": "...", "session": "<发起该次强退的会话 jti>"}`。
+/// `session` 为空串表示旧客户端/历史消息无该信息。
+/// 客户端收到后若 `session` 等于自己当前 token 的 jti,说明是"本机旧连接顶替自己",应忽略,
+/// 避免把自己置为 Idle。
+pub fn build_force_logout_msg(
+    reason: &str,
+    session_id: &str,
+    recv_user: String,
+    send_user: String,
+) -> anyhow::Result<Vec<u8>> {
+    let raw = ForceLogoutRaw { reason, session: session_id };
+    generate_text_msg(
+        crate::utils::message_types::MSG_TYPE_FORCE_LOGOUT,
+        serde_json::to_vec(&raw)?,
+        recv_user,
+        send_user,
+    )
+}

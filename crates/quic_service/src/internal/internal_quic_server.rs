@@ -196,9 +196,18 @@ async fn kick_local_connection(
     conn: quinn::Connection,
     request: &InternalQuicRequest,
 ) -> Result<()> {
-    // 即使向旧连接发送强制退出失败,也必须关闭旧连接并清理路由,避免僵尸连接占位
-    if let Err(e) = conn_lookup::send_uni_frame(&conn, &request.payload).await {
-        warn!("[内部 QUIC 服务器] [单聊] 向旧连接发送强制退出消息失败: {}，仍强制关闭旧连接", e);
+    if request.send_force_logout {
+        // 更新的登录接管,需通知旧客户端置 Idle。
+        // 即使向旧连接发送强制退出失败,也必须关闭旧连接并清理路由,避免僵尸连接占位
+        if let Err(e) = conn_lookup::send_uni_frame(&conn, &request.payload).await {
+            warn!(
+                "[内部 QUIC 服务器] [单聊] 向旧连接发送强制退出消息失败: {}，仍强制关闭旧连接",
+                e
+            );
+        }
+    } else {
+        // 同会话(相同 jti)重连顶替,静默关闭即可,避免切网重连把自己踢下线
+        info!("[内部 QUIC 服务器] 同会话连接顶替(静默): key={},仅关闭旧连接", connection_key);
     }
     conn.close(0u32.into(), b"replaced by another login");
 
@@ -210,6 +219,8 @@ async fn kick_local_connection(
         connections.remove(connection_key);
         let mut redis = core.redis.get().await?;
         let _: () = redis.del(connection_key).await?;
+        let session_key = conn_lookup::session_key_of(connection_key);
+        let _: () = redis.del(&session_key).await?;
     }
     Ok(())
 }
