@@ -2,10 +2,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
-use common::config_str::{
-    GROUP_MEMBERS_CACHE, MOBILE_PLATFORM, PC_PLATFORM, REDIS_INTERNAL_QUIC_SERVERS,
-    REDIS_QUIC_SERVERS, REDIS_SPLIT,
-};
+use common::config_str::{GROUP_MEMBERS_CACHE, REDIS_INTERNAL_QUIC_SERVERS};
 use common::state::CoreState;
 use common::utils::group_msg::{
     BroadcastType, GroupQuicMsg, InternalGroupBroadcast, InternalGroupBroadcastResponse,
@@ -22,8 +19,7 @@ use quinn::Connection;
 use rbatis::rbdc::{Bytes, Uuid};
 use tracing::{debug, error, info, warn};
 
-use crate::ConnectionsMap;
-use crate::models::quic_connection::ConnectionType;
+use crate::{ConnectionsMap, conn_lookup};
 
 static DEDUP: Lazy<BroadcastDedup> = Lazy::new(BroadcastDedup::new);
 
@@ -288,19 +284,9 @@ pub async fn process_group_broadcast_local(
         }
 
         if let Some(conn) = find_online_connection(member, connections) {
-            match conn.open_uni().await {
-                Ok(mut send) => {
-                    if let Err(e) = send.write_all(&broadcast.msg_bytes).await {
-                        warn!("[群聊] 消息投递失败 member={} error={}", member, e);
-                    } else if let Err(e) = send.finish().await {
-                        warn!("[群聊] 结束发送失败 member={} error={}", member, e);
-                    } else {
-                        info!("[群聊] 消息投递成功 member={}", member);
-                    }
-                }
-                Err(e) => {
-                    warn!("[群聊] 打开 uni 流失败 member={} error={}", member, e);
-                }
+            match conn_lookup::send_uni_frame(&conn, &broadcast.msg_bytes).await {
+                Ok(_) => info!("[群聊] 消息投递成功 member={}", member),
+                Err(e) => warn!("[群聊] 消息投递失败 member={} error={}", member, e),
             }
         }
     }
@@ -321,10 +307,10 @@ pub async fn process_group_broadcast(
             continue;
         }
 
-        if let Some(conn) = find_online_connection(member, connections) {
-            let mut send = conn.open_uni().await?;
-            send.write_all(&broadcast.msg_bytes).await?;
-            send.finish().await?;
+        if let Some(conn) = find_online_connection(member, connections)
+            && let Err(e) = conn_lookup::send_uni_frame(&conn, &broadcast.msg_bytes).await
+        {
+            warn!("[群聊] 广播投递失败 member={} error={}", member, e);
         }
     }
 
@@ -332,22 +318,7 @@ pub async fn process_group_broadcast(
 }
 
 pub fn find_online_connection(user_uuid: &str, connections: &ConnectionsMap) -> Option<Connection> {
-    for platform in [PC_PLATFORM, MOBILE_PLATFORM] {
-        let key = format!(
-            "{}:{}{}{}{}",
-            platform,
-            REDIS_QUIC_SERVERS,
-            user_uuid,
-            REDIS_SPLIT,
-            ConnectionType::Text,
-        )
-        .to_uppercase();
-
-        if let Some(entry) = connections.get(&key) {
-            return Some(entry.conn.clone());
-        }
-    }
-    None
+    conn_lookup::get_conn_any_platform(connections, user_uuid)
 }
 
 async fn save_group_message_to_db(rb: &rbatis::RBatis, group_msg: &GroupQuicMsg) -> Result<()> {
@@ -401,10 +372,9 @@ pub async fn sync_offline_group_messages(
 
                     if let Ok(msg_bytes) = serialize_group_msg(&group_msg)
                         && let Some(conn) = find_online_connection(user_uuid, connections)
-                        && let Ok(mut send) = conn.open_uni().await
-                        && send.write_all(&msg_bytes).await.is_ok()
+                        && let Err(e) = conn_lookup::send_uni_frame(&conn, &msg_bytes).await
                     {
-                        let _ = send.finish().await;
+                        warn!("[群聊] 离线消息投递失败 user={} err={}", user_uuid, e);
                     }
                 }
             }

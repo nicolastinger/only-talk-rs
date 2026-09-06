@@ -15,11 +15,11 @@ use common::utils::time::get_now_time_stamp_as_millis;
 use dashmap::DashMap;
 use deadpool_redis::redis::AsyncCommands;
 use nanoid::nanoid;
-use quinn::Connection;
 use rbatis::rbdc::{Bytes, Uuid};
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
 
+use crate::conn_lookup;
 use crate::models::quic_connection::{ConnectionType, QuicConnection};
 use crate::models::text_msg::TextQuicMsg;
 use crate::msg_service::group_msg_service::handle_group_msg_from_client;
@@ -266,18 +266,11 @@ async fn send_msg_to_user_by_platform(
     );
     let user_key = user_key.to_uppercase();
 
-    // 尝试本地投递
-    let conn: Option<Connection> = {
-        match connections.get(&user_key) {
-            Some(s) => Some(s.conn.clone()),
-            None => None,
-        }
-    };
+    // 尝试本地投递(get_conn_by_key 返回后 guard 已释放,不会跨 await 持锁)
+    let conn = conn_lookup::get_conn_by_key(connections, &user_key);
 
     if let Some(conn) = conn {
-        let mut send = conn.open_uni().await?;
-        send.write_all(res).await?;
-        send.finish().await?;
+        conn_lookup::send_uni_frame(&conn, res).await?;
     } else {
         warn!("[单聊] 用户不在本机: {},首选节点索引: {}", user_key, preferred_index);
         // 本地未找到 -> 转发到内部 QUIC 进行两阶段路由
@@ -323,10 +316,8 @@ async fn send_ping(
         SYSTEM.to_string(),
     )?;
 
-    if let Some(entry) = connections.get(connection_key) {
-        let mut send = entry.conn.open_uni().await?;
-        send.write_all(ping_msg.as_ref()).await?;
-        send.finish().await?;
+    if let Some(conn) = conn_lookup::get_conn_by_key(connections, connection_key) {
+        conn_lookup::send_uni_frame(&conn, ping_msg.as_ref()).await?;
     }
     Ok(())
 }
@@ -350,10 +341,8 @@ async fn send_msg_record_success(
         timestamp,
     )?;
 
-    if let Some(entry) = connections.get(connection_key) {
-        let mut send = entry.conn.open_uni().await?;
-        send.write_all(&res).await?;
-        send.finish().await?;
+    if let Some(conn) = conn_lookup::get_conn_by_key(connections, connection_key) {
+        conn_lookup::send_uni_frame(&conn, &res).await?;
     }
     Ok(())
 }
@@ -373,10 +362,8 @@ async fn send_msg_record_failure(
         SYSTEM.to_string(),
     )?;
 
-    if let Some(entry) = connections.get(connection_key) {
-        let mut send = entry.conn.open_uni().await?;
-        send.write_all(&res).await?;
-        send.finish().await?;
+    if let Some(conn) = conn_lookup::get_conn_by_key(connections, connection_key) {
+        conn_lookup::send_uni_frame(&conn, &res).await?;
     }
     Ok(())
 }

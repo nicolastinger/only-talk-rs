@@ -14,6 +14,7 @@ use tokio::net::UdpSocket;
 use tokio::signal;
 use tracing::{error, info, warn};
 
+use crate::conn_lookup;
 use crate::models::quic_connection::{ConnectionType, QuicConnection};
 use crate::msg_service::get_connection_by_uuid;
 use crate::msg_service::text_msg_service::generate_text_msg;
@@ -358,9 +359,7 @@ async fn process_p2p_user_info(
                                 target_user_address_info.uuid.clone(),
                                 SYSTEM.to_string(),
                             )?;
-                            let mut send = conn.open_uni().await?;
-                            send.write_all(&msg_raw).await?;
-                            send.finish().await?;
+                            conn_lookup::send_uni_frame(&conn, &msg_raw).await?;
                         }
 
                         {
@@ -382,9 +381,7 @@ async fn process_p2p_user_info(
                                 user_address_info.uuid.clone(),
                                 SYSTEM.to_string(),
                             )?;
-                            let mut send = conn.open_uni().await?;
-                            send.write_all(&msg_raw).await?;
-                            send.finish().await?;
+                            conn_lookup::send_uni_frame(&conn, &msg_raw).await?;
                         }
                     }
                     info!("P2P 连接信息转发完成");

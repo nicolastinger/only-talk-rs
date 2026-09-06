@@ -18,6 +18,7 @@ use tokio::time::timeout;
 use tracing::{debug, error, info, warn};
 
 use super::internal_config::InternalQuicConfig;
+use crate::conn_lookup;
 use crate::models::quic_connection::{ConnectionType, QuicConnection};
 use crate::msg_service::group_msg_service::process_group_broadcast;
 
@@ -105,13 +106,14 @@ async fn handle_internal_request(
                 let connection_key = connection_key.to_uppercase();
                 debug!("[内部 QUIC 服务器] [单聊] 正在查找本地连接 key={}", connection_key);
 
-                let response = match connections.get(&connection_key) {
-                    Some(entry) => {
+                // get_conn_by_key 返回后 guard 已释放,后续 await 不会持有 DashMap 锁
+                let local_conn = conn_lookup::get_conn_by_key(&connections, &connection_key);
+                let response = match local_conn {
+                    Some(conn) => {
                         info!(
                             "[内部 QUIC 服务器] [单聊] 在本机找到目标用户 {},正在投递...",
                             request.target_user
                         );
-                        let conn = entry.conn.clone();
 
                         let result = if request.close_after_delivery {
                             kick_local_connection(
@@ -182,12 +184,7 @@ async fn deliver_to_local_conn(
         request.payload.len()
     );
 
-    let mut send = conn.open_uni().await?;
-    debug!("[内部 QUIC 服务器] [单聊] 单向流已打开");
-
-    // payload 已经是 bincode 序列化的 TextQuicMsg 二进制，直接透传给客户端
-    send.write_all(&request.payload).await?;
-    send.finish().await?;
+    conn_lookup::send_uni_frame(&conn, &request.payload).await?;
     info!("[内部 QUIC 服务器] [单聊] 投递完成,透传 {} 字节", request.payload.len());
     Ok(())
 }
@@ -199,9 +196,10 @@ async fn kick_local_connection(
     conn: quinn::Connection,
     request: &InternalQuicRequest,
 ) -> Result<()> {
-    let mut send = conn.open_uni().await?;
-    send.write_all(&request.payload).await?;
-    send.finish().await?;
+    // 即使向旧连接发送强制退出失败,也必须关闭旧连接并清理路由,避免僵尸连接占位
+    if let Err(e) = conn_lookup::send_uni_frame(&conn, &request.payload).await {
+        warn!("[内部 QUIC 服务器] [单聊] 向旧连接发送强制退出消息失败: {}，仍强制关闭旧连接", e);
+    }
     conn.close(0u32.into(), b"replaced by another login");
 
     if connections

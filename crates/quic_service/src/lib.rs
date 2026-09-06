@@ -4,6 +4,7 @@ use dashmap::DashMap;
 
 use crate::models::quic_connection::QuicConnection;
 
+pub(crate) mod conn_lookup;
 pub mod external;
 pub mod init_server;
 pub mod internal;
