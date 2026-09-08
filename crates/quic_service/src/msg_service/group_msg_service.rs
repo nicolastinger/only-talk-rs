@@ -8,6 +8,7 @@ use common::utils::group_msg::{
     BroadcastType, GroupQuicMsg, InternalGroupBroadcast, InternalGroupBroadcastResponse,
 };
 use common::utils::internal_quic_client::make_internal_client_config;
+use common::utils::message_types::MSG_TYPE_GROUP_ACK;
 use common::utils::text_msg::{HeadMsg, TextQuicMsg, X25, build_text_msg};
 use common::utils::time::get_now_time_stamp_as_millis;
 use dashmap::DashSet;
@@ -77,6 +78,35 @@ pub fn serialize_group_msg(group_msg: &GroupQuicMsg) -> Result<Vec<u8>> {
         message_type: group_msg.msg_type,
     };
 
+    build_text_msg(&head_msg, &text_msg)
+}
+
+/// 构造回推发送者的群消息 ack(2201)。
+/// 客户端 process_group_ack_type 以 raw 作为 local_nano_id 匹配待确认记录，
+/// 故 nano_id 与 raw 都复用客户端本地的 nano_id，保证发送者本地入库的
+/// group_chat_record 与其他成员收到的广播记录 nano_id 一致。
+fn build_group_ack_bytes(
+    nano_id: &str,
+    group_uuid: &str,
+    send_user: &str,
+    timestamp: i64,
+) -> Result<Vec<u8>> {
+    let text_msg = TextQuicMsg {
+        nano_id: nano_id.to_string(),
+        text_type: MSG_TYPE_GROUP_ACK,
+        raw: nano_id.as_bytes().to_vec(),
+        recv_user: group_uuid.to_string(),
+        send_user: send_user.to_string(),
+        timestamp,
+    };
+    let meta_data = bincode::serialize(&text_msg)?;
+    let crc = X25.checksum(&meta_data);
+    let head_msg = HeadMsg {
+        version: 1,
+        crc,
+        body_len: meta_data.len() as u32,
+        message_type: MSG_TYPE_GROUP_ACK,
+    };
     build_text_msg(&head_msg, &text_msg)
 }
 
@@ -169,6 +199,23 @@ pub async fn handle_group_msg_from_client(
             error!("[群聊] 本地广播处理失败: {}", e);
         }
     });
+
+    // 向发送者回推群消息 ack(2201)，客户端据此把本地临时消息标记为已送达并入库
+    if let Some(conn) = find_online_connection(&broadcast.sender, connections) {
+        match build_group_ack_bytes(
+            &broadcast.broadcast_id,
+            &broadcast.group_uuid,
+            &broadcast.sender,
+            broadcast.timestamp,
+        ) {
+            Ok(ack_bytes) => {
+                if let Err(e) = conn_lookup::send_uni_frame(&conn, &ack_bytes).await {
+                    warn!("[群聊] 群消息 ack 回执发送失败 sender={} error={}", broadcast.sender, e);
+                }
+            }
+            Err(e) => error!("[群聊] 构造群消息 ack 失败: {}", e),
+        }
+    }
 
     let core_clone = core.clone();
     tokio::spawn(async move {
