@@ -52,5 +52,14 @@ jobs:
             git pull --ff-only
             echo "${{ secrets.DEPLOY_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
             cd deploy
+
+            # 应用数据库 DDL: 脚本均已幂等(IF NOT EXISTS / ON CONFLICT DO NOTHING), 可安全重复执行;
+            # 先建表, 再启动新版本镜像, 避免新代码查询不存在的表
+            for f in "$HOME"/only-talk-rs-deploy/crates/entity/ddl/*.sql; do
+              echo "==> 应用 DDL: $f"
+              docker compose exec -T postgres \
+                sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 -q' < "$f"
+            done
+
             docker-compose pull app
             docker-compose up -d app
