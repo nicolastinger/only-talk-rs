@@ -654,11 +654,19 @@ mod jwt_util {
 }
 
 /// utils::server_count_sync 集群节点数 / 哈希取模
+///
+/// 注意: SERVER_COUNT 是进程级全局原子变量, 测试默认并行执行, 两个会改写它的用例
+/// 必须通过 SERVER_COUNT_LOCK 串行化, 否则并发改写会让 compute_preferred_index 读到
+/// 其它用例写入的中间值(如 7), 导致按"当前 server_count=5"断言的越界误报。
 mod server_count_sync {
     use super::*;
+    use std::sync::Mutex;
+
+    static SERVER_COUNT_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn get_server_count_reflects_global() {
+        let _guard = SERVER_COUNT_LOCK.lock().expect("SERVER_COUNT_LOCK 中毒");
         SERVER_COUNT.store(1, Ordering::Relaxed);
         assert_eq!(get_server_count(), 1);
 
@@ -671,6 +679,7 @@ mod server_count_sync {
 
     #[test]
     fn compute_preferred_index_is_deterministic_and_bounded() {
+        let _guard = SERVER_COUNT_LOCK.lock().expect("SERVER_COUNT_LOCK 中毒");
         // 单节点时恒为 0
         SERVER_COUNT.store(1, Ordering::Relaxed);
         assert_eq!(compute_preferred_index("uuid-1"), 0);
