@@ -1,5 +1,6 @@
 pub mod basic_user_dto;
 pub mod complete_profile_dto;
+pub mod fetch_sqlite_key_dto;
 pub mod friend_dto;
 pub mod friend_request_info_dto;
 pub mod refresh_token_dto;

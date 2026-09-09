@@ -2,6 +2,8 @@ use std::str::FromStr;
 
 use actix_web::HttpRequest;
 use actix_web::http::header::USER_AGENT;
+use aes_gcm::aead::Aead;
+use aes_gcm::{Aes256Gcm, Key, KeyInit, Nonce};
 use anyhow::anyhow;
 use common::config_str::{
     EMAIL_VERIFY_CODE, MOBILE_PLATFORM, PC_PLATFORM, REFRESH_TOKEN, REGISTER_SESSION_TOKEN,
@@ -13,6 +15,7 @@ use common::models::user_entity::user_login_log::{
     LOGIN_EVENT_ACCOUNT_NOT_FOUND, LOGIN_EVENT_PASSWORD_FAIL, LOGIN_EVENT_REFRESH,
     LOGIN_EVENT_SUCCESS, LOGIN_TYPE_ACCOUNT, LOGIN_TYPE_REFRESH, UserLoginLog,
 };
+use common::models::user_entity::user_sqlite_key::UserSqliteKey;
 use common::utils::jwt_util::{generate_access_token, generate_token_with_expiry, verify_token};
 use common::utils::rsa_util::{hash_password, verify_password};
 use common::utils::time::get_now_time_stamp_as_millis;
@@ -20,7 +23,7 @@ use common::utils::validators::normalize_email;
 use deadpool_redis::redis::{AsyncCommands, RedisResult, cmd};
 use email_service::manager::EmailManager;
 use email_service::{Email, EmailAddress};
-use rand::Rng;
+use rand::{Rng, RngCore};
 use rbatis::{RBatis, rbdc};
 use rbs::value;
 use tracing::{error, info};
@@ -28,11 +31,13 @@ use uuid::Uuid;
 
 use crate::http_service::user_service::dto::basic_user_dto::SignInBasicUserDTO;
 use crate::http_service::user_service::dto::complete_profile_dto::CompleteProfileDTO;
+use crate::http_service::user_service::dto::fetch_sqlite_key_dto::FetchSqliteKeyDTO;
 use crate::http_service::user_service::dto::refresh_token_dto::RefreshTokenDTO;
 use crate::http_service::user_service::dto::sign_up_step1_dto::SignUpStep1DTO;
 use crate::http_service::user_service::dto::update_user_dto::UpdateUserDTO;
 use crate::http_service::user_service::vo::sign_in_vo::SignInResponseVO;
 use crate::http_service::user_service::vo::sign_up_step1_vo::SignUpStep1ResponseVO;
+use crate::http_service::user_service::vo::sqlite_key_vo::FetchSqliteKeyResponseVO;
 use crate::http_service::user_service::vo::user_info::UserInfoVO;
 use crate::utils::http_response::{CommonResponseNoDataRef, CommonResponseRef};
 
@@ -659,6 +664,115 @@ pub async fn update_user_info_service(
     }
 
     Ok(CommonResponseNoDataRef::success_empty())
+}
+
+/// 从配置读取本地加密库密钥托管主密钥(64 hex = 32字节)
+fn sqlite_key_master_from_config() -> Result<[u8; 32], anyhow::Error> {
+    let hex_str = common::config_manager::get_config("sqlite_key.master_key")
+        .ok_or(anyhow!("未配置 sqlite_key.master_key"))?;
+    let decoded = hex::decode(hex_str.trim())
+        .map_err(|e| anyhow!("sqlite_key.master_key 不是合法的 hex: {}", e))?;
+    let master: [u8; 32] =
+        decoded.try_into().map_err(|_| anyhow!("sqlite_key.master_key 必须为 32 字节(64位hex)"))?;
+    Ok(master)
+}
+
+/// 生成 n 字节安全随机数(用于下发密钥与 GCM nonce)
+fn random_bytes<const N: usize>() -> [u8; N] {
+    let mut buf = [0u8; N];
+    rand::rngs::OsRng.fill_bytes(&mut buf);
+    buf
+}
+
+/// 用主密钥 AES-256-GCM 加密原始密钥, 返回 hex(nonce(12) + 密文含tag)
+fn encrypt_sqlite_db_key(master: &[u8; 32], raw_key: &[u8]) -> Result<String, anyhow::Error> {
+    let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(master));
+    let nonce_bytes = random_bytes::<12>();
+    let nonce = Nonce::from_slice(&nonce_bytes);
+    let ciphertext =
+        cipher.encrypt(nonce, raw_key).map_err(|e| anyhow!("密钥加密失败: {:?}", e))?;
+    let mut combined = Vec::with_capacity(nonce_bytes.len() + ciphertext.len());
+    combined.extend_from_slice(&nonce_bytes);
+    combined.extend_from_slice(&ciphertext);
+    Ok(hex::encode(combined))
+}
+
+/// 解密被主密钥加密的数据库密钥, 返回原始 32 字节密钥
+fn decrypt_sqlite_db_key(master: &[u8; 32], stored_hex: &str) -> Result<Vec<u8>, anyhow::Error> {
+    let decoded = hex::decode(stored_hex).map_err(|e| anyhow!("密钥密文非法 hex: {}", e))?;
+    if decoded.len() <= 12 {
+        return Err(anyhow!("密钥密文格式非法"));
+    }
+    let nonce = Nonce::from_slice(&decoded[..12]);
+    let ciphertext = &decoded[12..];
+    let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(master));
+    let plain = cipher
+        .decrypt(nonce, ciphertext)
+        .map_err(|e| anyhow!("密钥解密失败(主密钥是否变更?): {:?}", e))?;
+    Ok(plain)
+}
+
+/// 将 32 字节明文密钥转为定长数组(长度校验)
+fn sqlite_db_key_bytes(plain: &[u8]) -> Result<[u8; 32], anyhow::Error> {
+    plain.try_into().map_err(|_| anyhow!("密钥长度非法, 期望 32 字节"))
+}
+
+/// 获取/创建用户本地加密库密钥。
+///
+/// 按 (user_id, device_fingerprint) 唯一确认下发。**同一用户复用同一把底层密钥**：
+/// - 本设备/指纹已签发 → 直接解密返回；
+/// - 用户已有任何密钥(其它设备/历史指纹) → 本设备沿用该密钥(新指纹再加密落一行)，
+///   保证设备指纹漂移或换机后仍能打开既有本地库；
+/// - 用户首次签发 → 生成随机 256-bit 密钥落库并返回。
+pub async fn fetch_or_create_sqlite_db_key(
+    rb: &RBatis,
+    uuid: Option<String>,
+    dto: FetchSqliteKeyDTO,
+) -> Result<String, anyhow::Error> {
+    let uuid_str = uuid.ok_or(anyhow!("用户ID为空"))?;
+    let uuid = rbatis::rbdc::Uuid::from_str(&uuid_str)?;
+    let device_fingerprint = dto.device_fingerprint;
+    let master = sqlite_key_master_from_config()?;
+
+    if let Some(record) =
+        UserSqliteKey::select_by_user_device(rb, &uuid, &device_fingerprint).await?
+    {
+        let stored = record.encrypted_key.as_deref().ok_or(anyhow!("密钥记录损坏"))?;
+        let plain = decrypt_sqlite_db_key(&master, stored)?;
+        let vo = FetchSqliteKeyResponseVO {
+            db_key: hex::encode(&plain),
+            key_version: record.key_version.unwrap_or(1),
+            provisioned: false,
+        };
+        return Ok(CommonResponseRef::<FetchSqliteKeyResponseVO>::success_json(&vo)?);
+    }
+
+    // 用户已有密钥(其它设备/历史指纹) → 复用同一把 key, 新指纹也能打开本地库
+    let (raw_key, key_version, provisioned) =
+        match UserSqliteKey::select_one_by_user(rb, &uuid).await? {
+            Some(existing) => {
+                let stored = existing.encrypted_key.as_deref().ok_or(anyhow!("密钥记录损坏"))?;
+                let plain = decrypt_sqlite_db_key(&master, stored)?;
+                (sqlite_db_key_bytes(&plain)?, existing.key_version.unwrap_or(1), false)
+            }
+            None => (random_bytes::<32>(), 1, true),
+        };
+
+    let encrypted_key = encrypt_sqlite_db_key(&master, &raw_key)?;
+    let now = get_now_time_stamp_as_millis()?;
+    let record = UserSqliteKey {
+        id: None,
+        user_id: Some(uuid),
+        device_fingerprint: Some(device_fingerprint.clone()),
+        key_version: Some(key_version),
+        encrypted_key: Some(encrypted_key),
+        created_at: Some(now),
+        updated_at: Some(now),
+    };
+    UserSqliteKey::insert(rb, &record).await?;
+
+    let vo = FetchSqliteKeyResponseVO { db_key: hex::encode(raw_key), key_version, provisioned };
+    Ok(CommonResponseRef::<FetchSqliteKeyResponseVO>::success_json(&vo)?)
 }
 
 /// 校验 refresh_token 绑定的设备指纹是否与请求携带的一致

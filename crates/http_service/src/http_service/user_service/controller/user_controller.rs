@@ -4,14 +4,16 @@ use tracing::info;
 use crate::common::dto::base_dto::AuthAccount;
 use crate::http_service::user_service::dto::basic_user_dto::SignInBasicUserDTO;
 use crate::http_service::user_service::dto::complete_profile_dto::CompleteProfileDTO;
+use crate::http_service::user_service::dto::fetch_sqlite_key_dto::FetchSqliteKeyDTO;
 use crate::http_service::user_service::dto::refresh_token_dto::RefreshTokenDTO;
 use crate::http_service::user_service::dto::send_verify_code_dto::SendVerifyCodeDTO;
 use crate::http_service::user_service::dto::sign_up_step1_dto::SignUpStep1DTO;
 use crate::http_service::user_service::dto::update_user_dto::UpdateUserDTO;
 use crate::http_service::user_service::service::user_service::{
-    complete_profile_service, get_exit_user, get_user_info_by_account, get_user_info_by_uuid,
-    get_user_uuid_by_account_service, refresh_access_token, send_verify_code_service,
-    sign_up_step1_service, update_user_info_service, user_sign_in,
+    complete_profile_service, fetch_or_create_sqlite_db_key, get_exit_user,
+    get_user_info_by_account, get_user_info_by_uuid, get_user_uuid_by_account_service,
+    refresh_access_token, send_verify_code_service, sign_up_step1_service,
+    update_user_info_service, user_sign_in,
 };
 use crate::state::AppState;
 use crate::utils::http_response::{CommonResponse, CommonResponseNoDataRef};
@@ -28,6 +30,7 @@ pub fn user_service(cfg: &mut web::ServiceConfig) {
         .service(query_user_api)
         .service(get_user_by_uuid_api)
         .service(get_user_uuid_by_account_api)
+        .service(fetch_sqlite_db_key_api)
         .service(update_user_info_api);
 }
 
@@ -126,6 +129,19 @@ pub async fn get_user_uuid_by_account_api(
 ) -> impl Responder {
     let account = account.into_inner();
     let res = get_user_uuid_by_account_service(state.db(), state.redis(), account).await;
+    respond_json_any!(res)
+}
+
+/// 获取/创建用户本地加密库密钥(用户+设备指纹唯一)
+#[post("/sqlite_key/fetch")]
+pub async fn fetch_sqlite_db_key_api(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+    dto: web::Json<FetchSqliteKeyDTO>,
+) -> impl Responder {
+    let dto = validate_and_respond!(dto);
+    let uuid = get_uuid_from_header!(req);
+    let res = fetch_or_create_sqlite_db_key(state.db(), uuid, dto).await;
     respond_json_any!(res)
 }
 

@@ -29,6 +29,8 @@ lazy_static = { workspace = true }
 regex = { workspace = true }
 uuid = { workspace = true }
 sha2 = { workspace = true }
+hex = { workspace = true }
+aes-gcm = { workspace = true }
 actix-multipart = { workspace = true }
 futures-util = { workspace = true }
 image = { workspace = true }
