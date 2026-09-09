@@ -659,8 +659,9 @@ mod jwt_util {
 /// 必须通过 SERVER_COUNT_LOCK 串行化, 否则并发改写会让 compute_preferred_index 读到
 /// 其它用例写入的中间值(如 7), 导致按"当前 server_count=5"断言的越界误报。
 mod server_count_sync {
-    use super::*;
     use std::sync::Mutex;
+
+    use super::*;
 
     static SERVER_COUNT_LOCK: Mutex<()> = Mutex::new(());
 
