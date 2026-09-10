@@ -1,0 +1,2 @@
+# Rust 源文件统一使用 LF 换行，避免 Windows 上 cargo fmt --check 报 "Incorrect newline style"
+*.rs text eol=lf
