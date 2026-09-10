@@ -20,6 +20,9 @@ use crate::http_service::moment_service::vo::moment_vo::{
     CountRow, MomentCommentListVO, MomentCommentRow, MomentCommentVO, MomentLikerListVO,
     MomentLikerRow, MomentLikerVO, MomentListVO, MomentRow, MomentVO,
 };
+use crate::http_service::notify_service::service::system_notification::{
+    push_notification_via_quic, send_moment_comment_msg, send_moment_like_msg,
+};
 use crate::utils::http_response::CommonResponseRef;
 
 fn parse_uuid(v: Option<String>) -> Result<Option<Uuid>, anyhow::Error> {
@@ -68,12 +71,12 @@ fn to_liker_vo(row: MomentLikerRow) -> MomentLikerVO {
     }
 }
 
-/// 校验动态存在且当前用户可见(公开或作者本人)
+/// 校验动态存在且当前用户可见(公开或作者本人)，返回该动态
 async fn ensure_moment_visible(
     rb: &RBatis,
     moment_uuid: &Uuid,
     me: &Uuid,
-) -> Result<(), anyhow::Error> {
+) -> Result<Moment, anyhow::Error> {
     let moment = Moment::select_by_uuid(rb, moment_uuid).await?;
     match moment {
         Some(m) => {
@@ -84,9 +87,53 @@ async fn ensure_moment_visible(
             if visibility == 1 && m.author_uuid.as_ref() != Some(me) {
                 return Err(anyhow!("无权访问该动态"));
             }
-            Ok(())
+            Ok(m)
         }
         None => Err(anyhow!("动态不存在")),
+    }
+}
+
+/// 查询用户昵称，缺省返回「有人」
+async fn load_username(rb: &RBatis, uuid: &Uuid) -> Result<String, anyhow::Error> {
+    let rows: Vec<rbs::Value> = rb
+        .exec_decode("select username from basic_user where uuid = ?", vec![value!(uuid.clone())])
+        .await?;
+    Ok(rows
+        .first()
+        .and_then(|v| v.as_map())
+        .and_then(|m| m["username"].as_str())
+        .map(|s| s.to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "有人".to_string()))
+}
+
+/// 动态互动通知(点赞/评论)：仅通知动态作者本人，自赞/自评跳过
+async fn notify_moment_author(
+    rb: &RBatis,
+    author: Option<Uuid>,
+    me: &Uuid,
+    moment_uuid: &Uuid,
+    msg: String,
+    is_like: bool,
+) {
+    let Some(author) = author else {
+        return;
+    };
+    if &author == me {
+        return;
+    }
+    let result = if is_like {
+        send_moment_like_msg(rb, author, msg, Some(moment_uuid.to_string())).await
+    } else {
+        send_moment_comment_msg(rb, author, msg, Some(moment_uuid.to_string())).await
+    };
+    match result {
+        Ok(notification) => {
+            if let Err(e) = push_notification_via_quic(&notification).await {
+                tracing::warn!("动态互动通知实时推送失败: {}", e);
+            }
+        }
+        Err(e) => tracing::warn!("动态互动通知落库失败: {}", e),
     }
 }
 
@@ -285,16 +332,17 @@ pub async fn switch_like(
 ) -> Result<(), anyhow::Error> {
     let me = parse_uuid(my_uuid)?.ok_or_else(|| anyhow!("Failed to get account"))?;
     let moment_uuid = parse_uuid(Some(dto.moment_uuid))?.ok_or_else(|| anyhow!("invalid uuid"))?;
-    ensure_moment_visible(rb, &moment_uuid, &me).await?;
+    let moment = ensure_moment_visible(rb, &moment_uuid, &me).await?;
 
     let now = get_now_time_stamp_as_secs()?;
     let existing = MomentLike::select_by_moment_and_user(rb, &moment_uuid, &me).await?;
-    match existing {
+    let is_on = match existing {
         Some(mut like) => {
-            like.is_del = Some(!like.is_del.unwrap_or(true));
+            let new_state = !like.is_del.unwrap_or(true);
+            like.is_del = Some(new_state);
             let id = like.id.clone().ok_or_else(|| anyhow!("like id missing"))?;
             MomentLike::update_by_map(rb, &like, value! {"id": id}).await?;
-            Ok(())
+            new_state
         }
         None => {
             let id: Uuid = UuidNow::now_v7().to_string().parse()?;
@@ -306,9 +354,18 @@ pub async fn switch_like(
                 created_at: Some(now),
             };
             MomentLike::insert(rb, &like).await?;
-            Ok(())
+            true
         }
+    };
+
+    // 仅在「新点赞成功」时通知动态作者
+    if is_on {
+        let me_name = load_username(rb, &me).await.unwrap_or_else(|_| "有人".to_string());
+        let msg = format!("{me_name} 赞了你的动态");
+        notify_moment_author(rb, moment.author_uuid, &me, &moment_uuid, msg, true).await;
     }
+
+    Ok(())
 }
 
 /// 关注/取消关注(切换)
@@ -381,7 +438,7 @@ pub async fn add_comment(
 ) -> Result<String, anyhow::Error> {
     let me = parse_uuid(my_uuid)?.ok_or_else(|| anyhow!("Failed to get account"))?;
     let moment_uuid = parse_uuid(Some(dto.moment_uuid))?.ok_or_else(|| anyhow!("invalid uuid"))?;
-    ensure_moment_visible(rb, &moment_uuid, &me).await?;
+    let moment = ensure_moment_visible(rb, &moment_uuid, &me).await?;
 
     let content = dto.content.trim().to_string();
     if content.is_empty() {
@@ -389,6 +446,13 @@ pub async fn add_comment(
     }
     let content =
         if content.chars().count() > 1000 { content.chars().take(1000).collect() } else { content };
+
+    // 通知文案使用的评论摘要(截断)
+    let preview: String = if content.chars().count() > 50 {
+        content.chars().take(50).collect()
+    } else {
+        content.clone()
+    };
 
     let now = get_now_time_stamp_as_secs()?;
     let id: Uuid = UuidNow::now_v7().to_string().parse()?;
@@ -401,6 +465,11 @@ pub async fn add_comment(
         created_at: Some(now),
     };
     MomentComment::insert(rb, &comment).await?;
+
+    // 通知动态作者有人评论
+    let me_name = load_username(rb, &me).await.unwrap_or_else(|_| "有人".to_string());
+    let msg = format!("{me_name} 评论了你的动态：{preview}");
+    notify_moment_author(rb, moment.author_uuid, &me, &moment_uuid, msg, false).await;
 
     get_comment_vo(rb, &id).await
 }

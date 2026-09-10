@@ -11,7 +11,7 @@ use rbs::value;
 use uuid::Uuid as UuidNow;
 
 use crate::http_service::notify_service::service::system_notification::{
-    send_plaza_like_msg, send_plaza_match_msg,
+    push_notification_via_quic, send_plaza_like_msg, send_plaza_match_msg,
 };
 use crate::http_service::plaza_service::dto::plaza_dto::{
     PlazaCrushToggleDTO, PlazaListQuery, PlazaUpdateProfileDTO,
@@ -392,17 +392,32 @@ pub async fn switch_crush(
         let target_name = load_username(rb, &target).await.unwrap_or_else(|_| "对方".to_string());
 
         // 通知对方: 有人心动了你
-        let _ =
-            send_plaza_like_msg(rb, target.clone(), format!("{me_name} 在交友广场心动了你"), None)
-                .await;
+        match send_plaza_like_msg(rb, target.clone(), format!("{me_name} 在交友广场心动了你"), None)
+            .await
+        {
+            Ok(notification) => {
+                if let Err(e) = push_notification_via_quic(&notification).await {
+                    tracing::warn!("广场心动通知实时推送失败: {}", e);
+                }
+            }
+            Err(e) => tracing::warn!("广场心动通知落库失败: {}", e),
+        }
 
         // 检测是否互相心动(匹配): 对方是否也心动了你
         let mutual = PlazaLike::select_by_target_and_user(rb, &me, &target).await?;
         let matched = mutual.as_ref().map(|l| !l.is_del.unwrap_or(true)).unwrap_or(false);
         if matched {
             let msg = format!("你和 {target_name} 在交友广场互相心动, 可以开始一段新友谊了");
-            let _ = send_plaza_match_msg(rb, target.clone(), msg.clone(), None).await;
-            let _ = send_plaza_match_msg(rb, me.clone(), msg, None).await;
+            for receiver in [target.clone(), me.clone()] {
+                match send_plaza_match_msg(rb, receiver, msg.clone(), None).await {
+                    Ok(notification) => {
+                        if let Err(e) = push_notification_via_quic(&notification).await {
+                            tracing::warn!("广场互相心动通知实时推送失败: {}", e);
+                        }
+                    }
+                    Err(e) => tracing::warn!("广场互相心动通知落库失败: {}", e),
+                }
+            }
             return Ok(CommonResponseRef::<PlazaCrushResult>::success_json(&PlazaCrushResult {
                 matched: true,
             })?);
