@@ -5,4 +5,5 @@ pub mod group_entity;
 pub mod moment_entity;
 pub mod notify_entity;
 pub mod plaza_entity;
+pub mod report_entity;
 pub mod user_entity;

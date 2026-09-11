@@ -26,6 +26,7 @@ use http_service::http_service::moment_service::dto::moment_dto::{
 use http_service::http_service::moment_service::vo::moment_vo::{
     MomentCommentListVO, MomentCommentVO, MomentListVO, MomentVO,
 };
+use http_service::http_service::report_service::dto::report_dto::CreateReportDTO;
 use http_service::http_service::user_service::dto::basic_user_dto::SignInBasicUserDTO;
 use http_service::http_service::user_service::dto::complete_profile_dto::CompleteProfileDTO;
 use http_service::http_service::user_service::dto::refresh_token_dto::RefreshTokenDTO;
@@ -834,6 +835,38 @@ mod moment {
         assert_eq!(value["total"], 1);
         assert_eq!(value["list"][0]["id"], "c1");
         assert_eq!(value["list"][0]["icon"], "icon-2");
+    }
+}
+
+/// 举报 DTO
+mod report {
+    use super::*;
+
+    #[test]
+    fn create_report_dto_roundtrip() {
+        assert_roundtrip(&CreateReportDTO {
+            target_type: 1,
+            target_uuid: "u1".to_string(),
+            reason: "涉嫌诈骗".to_string(),
+        });
+        assert_roundtrip(&CreateReportDTO {
+            target_type: 5,
+            target_uuid: "c1".to_string(),
+            reason: "辱骂".to_string(),
+        });
+    }
+
+    #[test]
+    fn create_report_dto_serializes_fields() {
+        let dto = CreateReportDTO {
+            target_type: 3,
+            target_uuid: "m1".to_string(),
+            reason: "广告".to_string(),
+        };
+        let value = serde_json::to_value(&dto).expect("序列化失败");
+        assert_eq!(value["target_type"], 3);
+        assert_eq!(value["target_uuid"], "m1");
+        assert_eq!(value["reason"], "广告");
     }
 }
 

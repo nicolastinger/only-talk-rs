@@ -20,6 +20,11 @@ use actix_web::{App, test, web};
 use anyhow::{Context, Result, anyhow};
 use common::config_manager;
 use common::config_str::{EMAIL_VERIFY_CODE, REGISTER_SESSION_TOKEN};
+use common::models::group_entity::group_info::GroupInfo;
+use common::models::moment_entity::moment::Moment;
+use common::models::moment_entity::moment_comment::MomentComment;
+use common::models::plaza_entity::plaza_user_info::PlazaUserInfo;
+use common::models::report_entity::report::Report;
 use common::models::user_entity::basic_user::BasicUser;
 use common::models::user_entity::email_sso::EmailSso;
 use common::models::user_entity::user_info::UserInfo;
@@ -118,7 +123,8 @@ async fn http_service_user_api_integration() -> Result<()> {
         info!("已连接测试数据库 {}", TEST_DATABASE_NAME);
 
         entity::ddl::apply_all_ddl(&test_rb).await.context("应用 DDL 失败")?;
-        for table in ["basic_user", "user_info", "friend_link", "group_info", "email_sso"] {
+        for table in ["basic_user", "user_info", "friend_link", "group_info", "email_sso", "report"]
+        {
             if !table_exists(&test_rb, table).await? {
                 return Err(anyhow!("表 {} 未创建", table));
             }
@@ -532,6 +538,159 @@ async fn http_service_user_api_integration() -> Result<()> {
             "已完成注册的邮箱再次 step1 应返回 400: {json}"
         );
         info!("两步注册流程全部通过");
+
+        // ===== 6. 举报接口 =====
+        // 6.1 种子举报目标：另一用户、群、动态、动态评论、广场资料
+        let target_user_uuid = Uuid::now_v7();
+        let target_user_uuid_rbdc: RbatisUuid =
+            target_user_uuid.to_string().parse().context("解析目标用户 UUID 失败")?;
+        BasicUser::insert(
+            &test_rb,
+            &BasicUser {
+                uuid: Some(target_user_uuid_rbdc.clone()),
+                username: Some("Report Target".to_string()),
+                account: Some("report_target_1".to_string()),
+                icon: None,
+                info: Some(String::new()),
+                password: None,
+                registration_status: Some(1),
+            },
+        )
+        .await
+        .context("写入举报目标用户失败")?;
+
+        let group_uuid = Uuid::now_v7();
+        let group_uuid_rbdc: RbatisUuid =
+            group_uuid.to_string().parse().context("解析群 UUID 失败")?;
+        GroupInfo::insert(
+            &test_rb,
+            &GroupInfo {
+                id: None,
+                group_uuid: Some(group_uuid_rbdc.clone()),
+                group_name: Some("举报测试群".to_string()),
+                avatar: None,
+                owner_uuid: Some(seed_uuid_rbdc.clone()),
+                description: None,
+                max_members: Some(200),
+                created_at: Some(now),
+                updated_at: Some(now),
+                status: Some(1),
+            },
+        )
+        .await
+        .context("写入举报目标群失败")?;
+
+        let moment_uuid = Uuid::now_v7();
+        let moment_uuid_rbdc: RbatisUuid =
+            moment_uuid.to_string().parse().context("解析动态 UUID 失败")?;
+        Moment::insert(
+            &test_rb,
+            &Moment {
+                uuid: Some(moment_uuid_rbdc.clone()),
+                author_uuid: Some(target_user_uuid_rbdc.clone()),
+                content: Some("举报测试动态".to_string()),
+                visibility: Some(0),
+                is_del: Some(false),
+                created_at: Some(now),
+                updated_at: Some(now),
+            },
+        )
+        .await
+        .context("写入举报目标动态失败")?;
+
+        let comment_id = Uuid::now_v7();
+        let comment_id_rbdc: RbatisUuid =
+            comment_id.to_string().parse().context("解析评论 UUID 失败")?;
+        MomentComment::insert(
+            &test_rb,
+            &MomentComment {
+                id: Some(comment_id_rbdc.clone()),
+                moment_uuid: Some(moment_uuid_rbdc.clone()),
+                author_uuid: Some(target_user_uuid_rbdc.clone()),
+                content: Some("举报测试评论".to_string()),
+                is_del: Some(false),
+                created_at: Some(now),
+            },
+        )
+        .await
+        .context("写入举报目标评论失败")?;
+
+        PlazaUserInfo::insert(
+            &test_rb,
+            &PlazaUserInfo {
+                uuid: Some(target_user_uuid_rbdc.clone()),
+                allow_discover: Some(true),
+                motto: None,
+                status: Some(0),
+                created_at: Some(now),
+                updated_at: Some(now),
+            },
+        )
+        .await
+        .context("写入举报目标广场资料失败")?;
+
+        // 构造带数字 target_type 的举报请求体
+        fn report_body(target_type: i16, target_uuid: &str, reason: &str) -> JsonValue {
+            let mut map = serde_json::Map::new();
+            map.insert("target_type".to_string(), JsonValue::from(target_type));
+            map.insert("target_uuid".to_string(), JsonValue::String(target_uuid.to_string()));
+            map.insert("reason".to_string(), JsonValue::String(reason.to_string()));
+            JsonValue::Object(map)
+        }
+
+        // 6.2 五类举报均成功并落库
+        let report_cases: [(&str, i16, String); 5] = [
+            ("用户", 1, target_user_uuid.to_string()),
+            ("群组", 2, group_uuid.to_string()),
+            ("动态", 3, moment_uuid.to_string()),
+            ("卡片匹配", 4, target_user_uuid.to_string()),
+            ("动态评论", 5, comment_id.to_string()),
+        ];
+        for (label, target_type, target_uuid) in &report_cases {
+            let body = report_body(*target_type, target_uuid, "涉嫌违规");
+            let (status, json) =
+                post_json(&app, "/report/create", Some(&body), Some(&access_token)).await;
+            assert_eq!(status, StatusCode::OK, "举报{}应成功: {json}", label);
+            assert_eq!(json["code"], 200, "举报{}响应 code 应为 200: {json}", label);
+            assert_eq!(json["data"], true, "举报{}应返回 true: {json}", label);
+
+            let target_uuid_rbdc: RbatisUuid =
+                target_uuid.parse().context("解析举报目标 UUID 失败")?;
+            let saved = Report::select_pending_by_reporter_target(
+                &test_rb,
+                &seed_uuid_rbdc,
+                *target_type,
+                &target_uuid_rbdc,
+            )
+            .await
+            .context("查询举报记录失败")?;
+            assert!(saved.is_some(), "举报{}记录应落库", label);
+        }
+
+        // 6.3 重复举报同一目标应被拒绝
+        let dup_body = report_body(1, &target_user_uuid.to_string(), "再次举报");
+        let (status, json) =
+            post_json(&app, "/report/create", Some(&dup_body), Some(&access_token)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "重复举报应返回 400: {json}");
+
+        // 6.4 举报自己应被拒绝
+        let self_body = report_body(1, &seed_uuid.to_string(), "举报自己");
+        let (status, json) =
+            post_json(&app, "/report/create", Some(&self_body), Some(&access_token)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "举报自己应返回 400: {json}");
+
+        // 6.5 空原因应被拒绝
+        let empty_reason_body = report_body(3, &moment_uuid.to_string(), "   ");
+        let (status, json) =
+            post_json(&app, "/report/create", Some(&empty_reason_body), Some(&access_token)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "空原因举报应返回 400: {json}");
+
+        // 6.6 目标不存在应被拒绝
+        let missing_body = report_body(2, &Uuid::now_v7().to_string(), "目标不存在");
+        let (status, json) =
+            post_json(&app, "/report/create", Some(&missing_body), Some(&access_token)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "举报不存在目标应返回 400: {json}");
+        info!("举报接口全部通过");
 
         Ok::<(), anyhow::Error>(())
     })

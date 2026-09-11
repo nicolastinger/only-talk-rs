@@ -26,4 +26,14 @@ impl MomentComment {
         "select * from moment_comment where moment_uuid = #{moment_uuid} and is_del = false order by created_at asc"
     )]
     async fn select_by_moment(rb: &dyn Executor, moment_uuid: &Uuid) -> Vec<MomentComment> {}
+
+    #[rbatis::py_sql("select * from moment_comment where id = #{id} limit 1")]
+    async fn select_by_id_inner(rb: &dyn Executor, id: &Uuid) -> Vec<MomentComment> {}
+
+    pub async fn select_by_id(
+        rb: &dyn Executor,
+        id: &Uuid,
+    ) -> rbatis::Result<Option<MomentComment>> {
+        Ok(Self::select_by_id_inner(rb, id).await?.into_iter().next())
+    }
 }
