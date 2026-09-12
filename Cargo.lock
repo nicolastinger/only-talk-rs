@@ -1382,6 +1382,7 @@ dependencies = [
  "anyhow",
  "argon2",
  "bincode",
+ "chrono",
  "crc",
  "crc-catalog",
  "dashmap",
