@@ -15,8 +15,20 @@ CREATE TABLE IF NOT EXISTS basic_user (
     CONSTRAINT basic_user_pk PRIMARY KEY (uuid)
 );
 
--- 兼容已存在的旧库: CREATE TABLE IF NOT EXISTS 不会补列, 这里幂等补上 user_type(旧数据默认 0)
-ALTER TABLE basic_user ADD COLUMN IF NOT EXISTS user_type int2 NOT NULL DEFAULT 0;
+-- 兼容已存在的旧库: CREATE TABLE IF NOT EXISTS 不会补列, 这里幂等补上 user_type(旧数据默认 0)。
+-- 用 DO 块先查系统目录, 仅在缺列时才 ALTER: ADD COLUMN IF NOT EXISTS 即使跳过也会申请
+-- ACCESS EXCLUSIVE 锁, 而 CD 会重放全部 DDL, 会阻塞在线应用(见 .github/workflows/cd.yml)。
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'basic_user'
+          AND column_name = 'user_type'
+    ) THEN
+        ALTER TABLE public.basic_user ADD COLUMN user_type int2 NOT NULL DEFAULT 0;
+    END IF;
+END $$;
 
 -- 表注释
 COMMENT ON TABLE public.basic_user IS '基础用户表';

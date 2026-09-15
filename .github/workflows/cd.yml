@@ -53,10 +53,16 @@ jobs:
             echo "${{ secrets.DEPLOY_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
             cd deploy
 
-            # 应用数据库 DDL: 脚本均已幂等(IF NOT EXISTS / ON CONFLICT DO NOTHING), 可安全重复执行;
-            # 先建表, 再启动新版本镜像, 避免新代码查询不存在的表。
-            # ddl 目录已只读挂载到 postgres 容器 /docker-entrypoint-initdb.d, 在容器内按字典序重放即可。
-            docker-compose exec -T postgres sh -c 'for f in /docker-entrypoint-initdb.d/*.sql; do echo "==> 应用 DDL: $f"; psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 -q -f "$f"; done'
-
+            # 先拉取新镜像, 再停旧应用: 在线应用可能持有 basic_user 等表的锁,
+            # 会阻塞 DDL 中的 ALTER TABLE 直到 SSH action 10 分钟超时。
             docker-compose pull app
-            docker-compose up -d app
+            docker-compose stop app || true
+
+            # 无论 DDL 成败都恢复应用, 避免迁移失败时服务一直下线
+            trap 'docker-compose up -d app' EXIT
+
+            # 应用数据库 DDL: 脚本均已幂等(IF NOT EXISTS / DO 块), 可安全重复执行;
+            # 先建表, 再启动新版本镜像, 避免新代码查询不存在的表。
+            # PGOPTIONS 设置 lock_timeout: 万一仍有锁竞争, 30s 快速失败而不是挂到 10 分钟超时。
+            # ddl 目录已只读挂载到 postgres 容器 /docker-entrypoint-initdb.d, 在容器内按字典序重放即可。
+            docker-compose exec -T -e PGOPTIONS='-c lock_timeout=30s' postgres sh -c 'for f in /docker-entrypoint-initdb.d/*.sql; do echo "==> 应用 DDL: $f"; psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 -q -f "$f"; done'
