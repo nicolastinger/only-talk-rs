@@ -470,6 +470,7 @@ mod user_dto {
             info: Some("oldinfo".to_string()),
             password: None,
             registration_status: Some(1),
+            user_type: Some(0),
         };
         dto.apply_to_basic_user(&mut user);
         assert_eq!(user.username.as_deref(), Some("newname"));
@@ -764,6 +765,7 @@ mod moment {
             author_uuid: "u1".to_string(),
             username: Some("Alice".to_string()),
             icon: Some("icon-1".to_string()),
+            user_type: Some(0),
             content: "内容".to_string(),
             visibility: 0,
             image_count: 3,
@@ -785,6 +787,7 @@ mod moment {
                 author_uuid: "u1".to_string(),
                 username: None,
                 icon: None,
+                user_type: None,
                 content: "内容".to_string(),
                 visibility: 1,
                 image_count: 2,
@@ -812,6 +815,7 @@ mod moment {
             author_uuid: "u2".to_string(),
             username: Some("Bob".to_string()),
             icon: None,
+            user_type: Some(1),
             content: "哈哈".to_string(),
             created_at: 1_700_000_000,
         });
@@ -827,6 +831,7 @@ mod moment {
                 author_uuid: "u2".to_string(),
                 username: None,
                 icon: Some("icon-2".to_string()),
+                user_type: None,
                 content: "哈哈".to_string(),
                 created_at: 1,
             }],

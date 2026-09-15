@@ -29,6 +29,8 @@ pub struct UserInfoVO {
     pub address: Option<String>,
     /// 用户状态 (0: 正常, 1: 禁用, 2: 注销等)
     pub status: Option<u8>,
+    /// 用户类型 (0: 普通用户, 1: 机器人, 2: 企业用户, 其他待补充)
+    pub user_type: Option<i16>,
 }
 
 impl From<(UserInfo, BasicUser)> for UserInfoVO {
@@ -46,6 +48,7 @@ impl From<(UserInfo, BasicUser)> for UserInfoVO {
             email: sources.0.email,
             address: sources.0.address,
             status: sources.0.status,
+            user_type: sources.1.user_type,
         }
     }
 }
@@ -82,6 +85,7 @@ mod tests {
             info: Some("hello".to_string()),
             password: None,
             registration_status: None,
+            user_type: Some(0),
         };
 
         let vo = UserInfoVO::from((user_info, basic_user));
@@ -123,6 +127,7 @@ mod tests {
             info: None,
             password: None,
             registration_status: None,
+            user_type: None,
         };
 
         let vo = UserInfoVO::from((user_info, basic_user));

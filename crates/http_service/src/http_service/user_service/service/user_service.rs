@@ -8,7 +8,7 @@ use anyhow::anyhow;
 use common::config_str::{
     EMAIL_VERIFY_CODE, MOBILE_PLATFORM, PC_PLATFORM, REFRESH_TOKEN, REGISTER_SESSION_TOKEN,
 };
-use common::models::user_entity::basic_user::BasicUser;
+use common::models::user_entity::basic_user::{BasicUser, USER_TYPE_NORMAL};
 use common::models::user_entity::email_sso::EmailSso;
 use common::models::user_entity::user_info::UserInfo;
 use common::models::user_entity::user_login_log::{
@@ -188,6 +188,7 @@ pub async fn sign_up_step1_service(
                 info: Some("".to_string()),
                 password: Some(placeholder_password),
                 registration_status: Some(0),
+                user_type: Some(USER_TYPE_NORMAL),
             };
 
             let user_info = UserInfo {

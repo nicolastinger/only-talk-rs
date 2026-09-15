@@ -24,6 +24,8 @@ pub struct AnnouncementReadUserVO {
     pub uuid: String,
     pub username: Option<String>,
     pub icon: Option<String>,
+    /// 用户类型 (0: 普通用户, 1: 机器人, 2: 企业用户, 其他待补充)
+    pub user_type: Option<i16>,
     pub created_at: i64,
 }
 
@@ -51,6 +53,7 @@ pub struct AnnouncementReadUserRow {
     pub uuid: Option<String>,
     pub username: Option<String>,
     pub icon: Option<String>,
+    pub user_type: Option<i16>,
     pub created_at: Option<i64>,
 }
 

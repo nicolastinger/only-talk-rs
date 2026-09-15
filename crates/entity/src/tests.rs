@@ -40,8 +40,10 @@ use crate::models::plaza_entity::plaza_user_tag::PlazaUserTag;
 use crate::models::user_entity::basic_user::BasicUser;
 use crate::models::user_entity::black_list::BlackList;
 use crate::models::user_entity::email_sso::EmailSso;
+use crate::models::user_entity::enterprise_info::EnterpriseInfo;
 use crate::models::user_entity::friend_link::FriendLink;
 use crate::models::user_entity::friend_request_info::FriendRequestInfo;
+use crate::models::user_entity::robot_info::RobotInfo;
 use crate::models::user_entity::user_info::UserInfo;
 use crate::models::user_entity::user_login_log::UserLoginLog;
 
@@ -113,6 +115,7 @@ mod user_entity {
             info: Some("hello".to_string()),
             password: Some("secret".to_string()),
             registration_status: Some(1),
+            user_type: Some(0),
         };
         assert_roundtrip(&user);
     }
@@ -125,6 +128,7 @@ mod user_entity {
         assert!(user.account.is_none());
         assert!(user.password.is_none());
         assert!(user.registration_status.is_none());
+        assert!(user.user_type.is_none());
     }
 
     #[test]
@@ -137,6 +141,7 @@ mod user_entity {
             info: None,
             password: Some("secret".to_string()),
             registration_status: Some(1),
+            user_type: Some(0),
         };
         assert!(user.validate().is_ok());
     }
@@ -178,6 +183,42 @@ mod user_entity {
             email: Some("u@example.com".to_string()),
             address: Some("addr".to_string()),
             status: Some(0),
+        };
+        assert_roundtrip(&info);
+    }
+
+    #[test]
+    fn robot_info_roundtrip() {
+        let info = RobotInfo {
+            uuid: Some(uuid("00000000-0000-0000-0000-000000000010")),
+            owner_uuid: Some(uuid("00000000-0000-0000-0000-000000000001")),
+            model: Some("gpt-4".to_string()),
+            prompt: Some("你是助手".to_string()),
+            enabled: Some(1),
+            status: Some(0),
+            note: Some("note".to_string()),
+            created_at: Some(1_700_000_000),
+            updated_at: Some(1_700_000_001),
+        };
+        assert_roundtrip(&info);
+    }
+
+    #[test]
+    fn enterprise_info_roundtrip() {
+        let info = EnterpriseInfo {
+            uuid: Some(uuid("00000000-0000-0000-0000-000000000020")),
+            company_name: Some("示例科技".to_string()),
+            credit_code: Some("91310000MA1FL0XXXX".to_string()),
+            legal_person: Some("张三".to_string()),
+            contact_name: Some("李四".to_string()),
+            contact_phone: Some("13800000000".to_string()),
+            contact_email: Some("hr@example.com".to_string()),
+            address: Some("上海市".to_string()),
+            verified: Some(1),
+            status: Some(0),
+            note: Some("note".to_string()),
+            created_at: Some(1_700_000_000),
+            updated_at: Some(1_700_000_001),
         };
         assert_roundtrip(&info);
     }

@@ -36,6 +36,7 @@
 - `info` - 用户信息
 - `icon` - 头像
 - `registration_status` - 注册状态（0=占位未完成，1=已完成）
+- `user_type` - 用户类型（0=普通用户，1=机器人，2=企业用户，其他待补充；默认 0）
 
 （无 `created_at` / `updated_at` 列。邮箱登录渠道已迁移至独立的 `email_sso` 表。）
 
@@ -76,6 +77,28 @@
 - `device` - 设备指纹/名称（预留）
 - `result` - 结果补充（如刷新失败原因）
 - 索引：`(uuid, login_at DESC)`、`(account, login_at DESC)`、`(login_at DESC)`
+
+#### 4. 机器人扩展信息表 `robot_info.sql`
+- `uuid` - 主键（逻辑关联 basic_user.uuid，user_type=1）
+- `owner_uuid` - 归属用户（谁创建的机器人）
+- `model` - 模型标识（如 gpt-4）
+- `prompt` - 人设/系统提示词
+- `enabled` - 是否启用（0=禁用，1=启用）
+- `status` - 状态（0=正常，1=禁用，2=注销等）
+- `note` - 备注
+- `created_at` / `updated_at` - 创建/更新时间
+
+#### 5. 企业扩展信息表 `enterprise_info.sql`
+- `uuid` - 主键（逻辑关联 basic_user.uuid，user_type=2）
+- `company_name` - 企业名称
+- `credit_code` - 统一社会信用代码
+- `legal_person` - 法人代表
+- `contact_name` / `contact_phone` / `contact_email` - 联系人/联系电话/联系邮箱
+- `address` - 企业地址
+- `verified` - 是否认证（0=未认证，1=已认证）
+- `status` - 状态（0=正常，1=禁用，2=注销等）
+- `note` - 备注
+- `created_at` / `updated_at` - 创建/更新时间
 
 ---
 

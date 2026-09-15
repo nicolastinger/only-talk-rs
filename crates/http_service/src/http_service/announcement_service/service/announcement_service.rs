@@ -154,7 +154,7 @@ pub async fn get_announcement_read_users(
         .next();
     let total = count_row.map(|r| r.count).unwrap_or(0) as u32;
 
-    let select_sql = "SELECT bu.uuid, bu.username, bu.icon, ar.created_at \
+    let select_sql = "SELECT bu.uuid, bu.username, bu.icon, bu.user_type, ar.created_at \
         FROM announcement_read ar JOIN basic_user bu ON ar.user_uuid = bu.uuid \
         WHERE ar.announcement_uuid = ? ORDER BY ar.created_at DESC LIMIT ? OFFSET ?";
     let rows: Vec<AnnouncementReadUserRow> = rb
@@ -170,6 +170,7 @@ pub async fn get_announcement_read_users(
             uuid: r.uuid.unwrap_or_default(),
             username: r.username,
             icon: r.icon,
+            user_type: r.user_type,
             created_at: r.created_at.unwrap_or(0),
         })
         .collect();

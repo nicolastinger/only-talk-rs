@@ -38,6 +38,7 @@ fn to_vo(row: MomentRow) -> MomentVO {
         author_uuid: row.author_uuid.unwrap_or_default(),
         username: row.username,
         icon: row.icon,
+        user_type: row.user_type,
         content: row.content.unwrap_or_default(),
         visibility: row.visibility.unwrap_or(0),
         image_count: row.image_count.unwrap_or(0),
@@ -57,6 +58,7 @@ fn to_comment_vo(row: MomentCommentRow) -> MomentCommentVO {
         author_uuid: row.author_uuid.unwrap_or_default(),
         username: row.username,
         icon: row.icon,
+        user_type: row.user_type,
         content: row.content.unwrap_or_default(),
         created_at: row.created_at.unwrap_or(0),
     }
@@ -67,6 +69,7 @@ fn to_liker_vo(row: MomentLikerRow) -> MomentLikerVO {
         uuid: row.uuid.unwrap_or_default(),
         username: row.username,
         icon: row.icon,
+        user_type: row.user_type,
         created_at: row.created_at.unwrap_or(0),
     }
 }
@@ -273,7 +276,7 @@ pub async fn get_moment_list(
 
     let select_sql = format!(
         "SELECT m.uuid, m.author_uuid, m.content, m.visibility::int as visibility, \
-        m.created_at, m.updated_at, bu.username, bu.icon, \
+        m.created_at, m.updated_at, bu.username, bu.icon, bu.user_type, \
         (SELECT count(*) FROM biz_file_link bf WHERE bf.biz_id = m.uuid) as image_count, \
         (SELECT count(*) FROM moment_like ml WHERE ml.moment_uuid = m.uuid AND ml.is_del = false) as like_count, \
         (SELECT count(*) FROM moment_comment mc WHERE mc.moment_uuid = m.uuid AND mc.is_del = false) as comment_count, \
@@ -302,7 +305,7 @@ pub async fn get_moment_detail(
     let moment_uuid = parse_uuid(Some(moment_uuid_str))?.ok_or_else(|| anyhow!("invalid uuid"))?;
 
     let select_sql = "SELECT m.uuid, m.author_uuid, m.content, m.visibility::int as visibility, \
-        m.created_at, m.updated_at, bu.username, bu.icon, \
+        m.created_at, m.updated_at, bu.username, bu.icon, bu.user_type, \
         (SELECT count(*) FROM biz_file_link bf WHERE bf.biz_id = m.uuid) as image_count, \
         (SELECT count(*) FROM moment_like ml WHERE ml.moment_uuid = m.uuid AND ml.is_del = false) as like_count, \
         (SELECT count(*) FROM moment_comment mc WHERE mc.moment_uuid = m.uuid AND mc.is_del = false) as comment_count, \
@@ -476,7 +479,7 @@ pub async fn add_comment(
 
 async fn get_comment_vo(rb: &RBatis, id: &Uuid) -> Result<String, anyhow::Error> {
     let select_sql = "SELECT c.id, c.moment_uuid, c.author_uuid, c.content, c.created_at, \
-        bu.username, bu.icon FROM moment_comment c JOIN basic_user bu ON c.author_uuid = bu.uuid \
+        bu.username, bu.icon, bu.user_type FROM moment_comment c JOIN basic_user bu ON c.author_uuid = bu.uuid \
         WHERE c.id = ?";
     let row: Option<MomentCommentRow> = rb
         .exec_decode::<Vec<MomentCommentRow>>(select_sql, vec![value!(id.clone())])
@@ -514,7 +517,7 @@ pub async fn get_comments(
     let total = count_row.map(|r| r.count).unwrap_or(0) as u32;
 
     let select_sql = "SELECT c.id, c.moment_uuid, c.author_uuid, c.content, c.created_at, \
-        bu.username, bu.icon FROM moment_comment c JOIN basic_user bu ON c.author_uuid = bu.uuid \
+        bu.username, bu.icon, bu.user_type FROM moment_comment c JOIN basic_user bu ON c.author_uuid = bu.uuid \
         WHERE c.moment_uuid = ? AND c.is_del = false \
         ORDER BY c.created_at DESC LIMIT ? OFFSET ?";
     let rows: Vec<MomentCommentRow> = rb
@@ -555,7 +558,7 @@ pub async fn get_like_list(
         .next();
     let total = count_row.map(|r| r.count).unwrap_or(0) as u32;
 
-    let select_sql = "SELECT bu.uuid, bu.username, bu.icon, ml.created_at \
+    let select_sql = "SELECT bu.uuid, bu.username, bu.icon, bu.user_type, ml.created_at \
         FROM moment_like ml JOIN basic_user bu ON ml.user_uuid = bu.uuid \
         WHERE ml.moment_uuid = ? AND ml.is_del = false \
         ORDER BY ml.created_at DESC LIMIT ? OFFSET ?";

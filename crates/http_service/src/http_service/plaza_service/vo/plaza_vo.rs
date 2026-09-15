@@ -6,6 +6,8 @@ pub struct PlazaUserVO {
     pub username: Option<String>,
     pub icon: Option<String>,
     pub info: Option<String>,
+    /// 用户类型 (0: 普通用户, 1: 机器人, 2: 企业用户, 其他待补充)
+    pub user_type: Option<i16>,
     pub gender: Option<i32>,
     pub age: Option<i32>,
     pub address: Option<String>,
@@ -39,6 +41,7 @@ pub struct PlazaUserRow {
     pub username: Option<String>,
     pub icon: Option<String>,
     pub info: Option<String>,
+    pub user_type: Option<i16>,
     pub gender: Option<i32>,
     pub age: Option<i32>,
     pub address: Option<String>,

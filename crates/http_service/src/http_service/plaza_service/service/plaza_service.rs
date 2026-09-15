@@ -34,6 +34,7 @@ fn to_vo(row: PlazaUserRow, tags: Vec<String>) -> PlazaUserVO {
         username: row.username,
         icon: row.icon,
         info: row.info,
+        user_type: row.user_type,
         gender: row.gender,
         age: row.age,
         address: row.address,
@@ -221,7 +222,7 @@ pub async fn get_plaza_list(
     }
 
     let base_sql = format!(
-        "SELECT pi.uuid, bu.username, bu.icon, bu.info, ui.gender, ui.age::int as age, \
+        "SELECT pi.uuid, bu.username, bu.icon, bu.info, bu.user_type, ui.gender, ui.age::int as age, \
          ui.address, pi.motto, \
          (SELECT count(*) FROM plaza_like pl WHERE pl.target_uuid = pi.uuid AND pl.user_uuid = ? AND pl.is_del = false) as liked_by_me \
          FROM plaza_user_info pi \
@@ -270,7 +271,7 @@ pub async fn get_my_liked_list(
         .next();
     let total = count_row.map(|r| r.count).unwrap_or(0) as u32;
 
-    let select_sql = "SELECT bu.uuid, bu.username, bu.icon, bu.info, ui.gender, ui.age::int as age, \
+    let select_sql = "SELECT bu.uuid, bu.username, bu.icon, bu.info, bu.user_type, ui.gender, ui.age::int as age, \
         ui.address, pi.motto, \
         (SELECT count(*) FROM plaza_like pl2 WHERE pl2.target_uuid = bu.uuid AND pl2.user_uuid = ? AND pl2.is_del = false) as liked_by_me \
         FROM plaza_like pl JOIN basic_user bu ON pl.target_uuid = bu.uuid \
@@ -307,7 +308,7 @@ pub async fn get_matched_list(
         .next();
     let total = count_row.map(|r| r.count).unwrap_or(0) as u32;
 
-    let select_sql = "SELECT bu.uuid, bu.username, bu.icon, bu.info, ui.gender, ui.age::int as age, \
+    let select_sql = "SELECT bu.uuid, bu.username, bu.icon, bu.info, bu.user_type, ui.gender, ui.age::int as age, \
         ui.address, pi.motto, \
         (SELECT count(*) FROM plaza_like pl2 WHERE pl2.target_uuid = bu.uuid AND pl2.user_uuid = ? AND pl2.is_del = false) as liked_by_me \
         FROM plaza_like ml \
@@ -335,7 +336,7 @@ pub async fn get_plaza_user(
 
     let row: Option<PlazaUserRow> = rb
         .exec_decode::<Vec<PlazaUserRow>>(
-            "SELECT pi.uuid, bu.username, bu.icon, bu.info, ui.gender, ui.age::int as age, \
+            "SELECT pi.uuid, bu.username, bu.icon, bu.info, bu.user_type, ui.gender, ui.age::int as age, \
              ui.address, pi.motto, \
              (SELECT count(*) FROM plaza_like pl WHERE pl.target_uuid = pi.uuid AND pl.user_uuid = ? AND pl.is_del = false) as liked_by_me \
              FROM plaza_user_info pi \

@@ -148,6 +148,7 @@ async fn http_service_user_api_integration() -> Result<()> {
                 info: Some(String::new()),
                 password: Some(hashed),
                 registration_status: Some(1),
+                user_type: Some(0),
             },
         )
         .await
@@ -554,6 +555,7 @@ async fn http_service_user_api_integration() -> Result<()> {
                 info: Some(String::new()),
                 password: None,
                 registration_status: Some(1),
+                user_type: Some(0),
             },
         )
         .await

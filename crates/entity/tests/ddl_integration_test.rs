@@ -61,13 +61,15 @@ async fn apply_all_ddl_to_test_database() -> Result<()> {
             "group_member",
             "system_notification",
             "user_login_log",
+            "robot_info",
+            "enterprise_info",
         ] {
             if !table_exists(&test_rb, table).await? {
                 return Err(anyhow!("表 {} 未创建", table));
             }
             info!("表 {} 校验通过", table);
         }
-        info!("全部 {} 张关键表校验通过", 12);
+        info!("全部 {} 张关键表校验通过", 14);
         Ok(())
     }
     .await;

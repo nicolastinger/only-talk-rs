@@ -6,6 +6,8 @@ pub struct MomentVO {
     pub author_uuid: String,
     pub username: Option<String>,
     pub icon: Option<String>,
+    /// 作者用户类型 (0: 普通用户, 1: 机器人, 2: 企业用户, 其他待补充)
+    pub user_type: Option<i16>,
     pub content: String,
     pub visibility: i32,
     pub image_count: i64,
@@ -30,6 +32,8 @@ pub struct MomentCommentVO {
     pub author_uuid: String,
     pub username: Option<String>,
     pub icon: Option<String>,
+    /// 作者用户类型 (0: 普通用户, 1: 机器人, 2: 企业用户, 其他待补充)
+    pub user_type: Option<i16>,
     pub content: String,
     pub created_at: i64,
 }
@@ -45,6 +49,8 @@ pub struct MomentLikerVO {
     pub uuid: String,
     pub username: Option<String>,
     pub icon: Option<String>,
+    /// 用户类型 (0: 普通用户, 1: 机器人, 2: 企业用户, 其他待补充)
+    pub user_type: Option<i16>,
     pub created_at: i64,
 }
 
@@ -64,6 +70,7 @@ pub struct MomentRow {
     pub updated_at: Option<i64>,
     pub username: Option<String>,
     pub icon: Option<String>,
+    pub user_type: Option<i16>,
     pub image_count: Option<i64>,
     pub like_count: Option<i64>,
     pub comment_count: Option<i64>,
@@ -80,6 +87,7 @@ pub struct MomentCommentRow {
     pub created_at: Option<i64>,
     pub username: Option<String>,
     pub icon: Option<String>,
+    pub user_type: Option<i16>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -92,5 +100,6 @@ pub struct MomentLikerRow {
     pub uuid: Option<String>,
     pub username: Option<String>,
     pub icon: Option<String>,
+    pub user_type: Option<i16>,
     pub created_at: Option<i64>,
 }

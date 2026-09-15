@@ -4,6 +4,11 @@ use rbatis::{RBatis, crud};
 use serde::{Deserialize, Serialize};
 use validator::Validate;
 
+/// 用户类型
+pub const USER_TYPE_NORMAL: i16 = 0;
+pub const USER_TYPE_ROBOT: i16 = 1;
+pub const USER_TYPE_ENTERPRISE: i16 = 2;
+
 /// 作为登录注册的基本用户信息
 #[derive(Clone, Deserialize, Serialize, Debug, Validate)]
 pub struct BasicUser {
@@ -15,6 +20,8 @@ pub struct BasicUser {
     pub password: Option<String>,
     /// 注册状态: 0=占位未完成(邮箱已验证但资料未补全,不可登录) 1=已完成
     pub registration_status: Option<i16>,
+    /// 用户类型: 0=普通用户 1=机器人 2=企业用户 (其他待补充), 空值按普通用户处理
+    pub user_type: Option<i16>,
 }
 
 crud!(BasicUser {}); //crud = 插入+按列查询+按列更新+按列删除
