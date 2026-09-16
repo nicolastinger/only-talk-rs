@@ -545,6 +545,9 @@ async fn http_service_user_api_integration() -> Result<()> {
         let target_user_uuid = Uuid::now_v7();
         let target_user_uuid_rbdc: RbatisUuid =
             target_user_uuid.to_string().parse().context("解析目标用户 UUID 失败")?;
+        // basic_user.password 为 NOT NULL, 目标用户同样需要哈希密码(与 sign_up_step1 占位用户同款做法)
+        let target_hashed =
+            hash_password(&target_user_uuid.to_string()).context("生成目标用户密码哈希失败")?;
         BasicUser::insert(
             &test_rb,
             &BasicUser {
@@ -553,7 +556,7 @@ async fn http_service_user_api_integration() -> Result<()> {
                 account: Some("report_target_1".to_string()),
                 icon: None,
                 info: Some(String::new()),
-                password: None,
+                password: Some(target_hashed),
                 registration_status: Some(1),
                 user_type: Some(0),
             },

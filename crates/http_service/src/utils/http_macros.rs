@@ -6,7 +6,7 @@ macro_rules! validate_and_respond {
         use validator::Validate;
         let value = $model.into_inner();
         if let Err(errors) = value.validate() {
-            return HttpResponse::NotAcceptable().body(
+            return HttpResponse::BadRequest().body(
                 serde_json::to_string(&CommonResponse::error(errors, "errorValidate".to_string()))
                     .unwrap_or_else(|e| format!("{{\"error\":\"JSON序列化失败: {}\"}}", e)),
             );
@@ -20,12 +20,12 @@ macro_rules! validate_and_respond {
         match &value.data {
             Some(data) => {
                 if let Err(errors) = data.validate() {
-                    return actix_web::HttpResponse::NotAcceptable().json(errors);
+                    return actix_web::HttpResponse::BadRequest().json(errors);
                 }
                 value
             }
             None => {
-                return actix_web::HttpResponse::NotAcceptable().finish();
+                return actix_web::HttpResponse::BadRequest().finish();
             }
         }
     }};

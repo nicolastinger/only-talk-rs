@@ -21,6 +21,11 @@ CREATE TABLE IF NOT EXISTS system_notification (
     CONSTRAINT system_notification_pkey PRIMARY KEY (id)
 );
 
+-- 兼容旧库: biz_id 列在 52a05c9 引入, 此前创建的库无此列;
+-- CREATE TABLE IF NOT EXISTS 对已存在表静默跳过, 必须幂等补列后再执行列注释。
+-- 幂等: 列已存在时跳过, 可安全重复执行。
+ALTER TABLE system_notification ADD COLUMN IF NOT EXISTS biz_id varchar NULL;
+
 -- 索引
 CREATE INDEX IF NOT EXISTS idx_system_notification_is_read ON public.system_notification USING btree (is_read);
 CREATE INDEX IF NOT EXISTS idx_system_notification_user_id_created_at ON public.system_notification USING btree (user_id, created_at);
