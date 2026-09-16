@@ -11,6 +11,7 @@ use common::models::chat_entity::chat_message_read::ChatMessageRecordRead;
 use common::models::chat_entity::chat_message_record::ChatMessageRecord;
 use common::models::group_entity::group_member::GroupMember;
 use common::models::group_entity::group_message_record::GroupMessageRecord;
+use common::models::session_entity::aggregate::aggregate_user_sessions;
 use common::state::CoreState;
 use common::utils::internal_quic_client::send_internal_quic_msg;
 use common::utils::internal_quic_msg::{InternalQuicRequest, RequestSource};
@@ -574,7 +575,28 @@ async fn end_server(
 
 /// 用户离线
 async fn user_offline(core: &CoreState, uuid: String) -> std::result::Result<(), anyhow::Error> {
-    sync_read_messages(core, &uuid).await
+    let result = sync_read_messages(core, &uuid).await;
+    // 断连时再聚合一次, 保证下次上线前 session.last_message_* 尽量新(§6.1)
+    spawn_session_aggregate(core, &uuid);
+    result
+}
+
+/// 异步聚合用户会话状态(§6.1): 不阻塞调用链路, 失败仅打日志。
+///
+/// 在用户上线/下线时触发, 把消息表的最新状态收敛进 `session` / `user_session`。
+fn spawn_session_aggregate(core: &CoreState, uuid: &str) {
+    let rb = core.db.clone();
+    let user = uuid.to_string();
+    tokio::spawn(async move {
+        match user.parse::<rbatis::rbdc::Uuid>() {
+            Ok(u) => {
+                if let Err(e) = aggregate_user_sessions(&rb, &u).await {
+                    warn!("[session] 聚合失败: user={}, err={:?}", u, e);
+                }
+            }
+            Err(e) => warn!("[session] 聚合: uuid 解析失败 {}", e),
+        }
+    });
 }
 
 /// 将 Redis 中缓存的已读消息同步到数据库。
@@ -894,6 +916,9 @@ async fn user_online(
             ));
         }
     }
+
+    // 上线后异步聚合该用户的会话状态(§6.1): 不阻塞登录链路, 失败仅打日志
+    spawn_session_aggregate(core, uuid);
 
     Ok(lock_token)
 }

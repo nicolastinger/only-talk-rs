@@ -54,4 +54,26 @@ impl ChatMessageRecord {
         time: i64,
     ) -> Vec<ChatMessageRecord> {
     }
+
+    /// 每个相关会话的最新一条消息(distinct on 按会话取 id 最大行)。
+    ///
+    /// ⚠️ 不含 `session_uuid` 等值条件, 分区表上跨全分区扫描 —— 开发期可接受,
+    /// 数据量上来后由任务 09 评估(见任务书 §8 性能注记)。
+    #[rbatis::py_sql(
+        "select distinct on (session_uuid) * from chat_message_record
+         where recv_user = #{me} or send_user = #{me}
+         order by session_uuid, id desc"
+    )]
+    async fn select_latest_per_session_for_user(
+        rb: &dyn Executor,
+        me: &Uuid,
+    ) -> Vec<ChatMessageRecord> {
+    }
+
+    pub async fn latest_per_session_for_user(
+        rb: &dyn Executor,
+        me: &Uuid,
+    ) -> rbatis::Result<Vec<ChatMessageRecord>> {
+        Self::select_latest_per_session_for_user(rb, me).await
+    }
 }

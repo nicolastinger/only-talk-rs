@@ -1,5 +1,7 @@
 use rbatis::crud;
+use rbatis::executor::Executor;
 use rbatis::rbdc::Uuid;
+use rbs::value;
 use serde::{Deserialize, Serialize};
 
 /// 会话类型常量与 common::config_str 保持一致(避免 entity 反向依赖 common)。
@@ -28,3 +30,53 @@ pub struct Session {
 }
 
 crud!(Session {});
+
+impl Session {
+    /// 懒创建会话行(幂等): 已存在时不覆盖任何字段。
+    ///
+    /// 用于聚合任务与控制信息变更前确保行存在。`created_at` / `updated_at`
+    /// 取 DB 端时钟(`clock_timestamp()`), 避免多节点时钟差异(决策 A)。
+    pub async fn upsert(rb: &dyn Executor, s: &Session) -> Result<(), rbatis::Error> {
+        rb.exec(
+            "INSERT INTO session (session_uuid, session_type, created_at, updated_at)
+             VALUES ($1, $2,
+                     (extract(epoch from clock_timestamp()) * 1000)::bigint,
+                     (extract(epoch from clock_timestamp()) * 1000)::bigint)
+             ON CONFLICT (session_uuid) DO NOTHING",
+            vec![value!(&s.session_uuid), value!(&s.session_type)],
+        )
+        .await?;
+        Ok(())
+    }
+
+    /// 单调更新最后一条消息: 仅当新 id 更大时生效(§6.2)。
+    ///
+    /// `last_preview` 可为 `None`: NULL 不覆盖已有值(见任务书 §3.4)。
+    /// 返回受影响行数 —— 0 表示会话行不存在(调用方应先 `upsert`)或 id 未前进。
+    pub async fn update_last_message(
+        rb: &dyn Executor,
+        session_uuid: &Uuid,
+        last_message_id: i64,
+        last_message_at: i64,
+        last_preview: Option<&str>,
+    ) -> Result<u64, rbatis::Error> {
+        let res = rb
+            .exec(
+                "UPDATE session
+                 SET last_message_id = $1,
+                     last_message_at = $2,
+                     last_preview    = COALESCE($3, last_preview),
+                     updated_at      = (extract(epoch from clock_timestamp()) * 1000)::bigint
+                 WHERE session_uuid = $4
+                   AND (last_message_id IS NULL OR last_message_id < $1)",
+                vec![
+                    value!(last_message_id),
+                    value!(last_message_at),
+                    value!(last_preview),
+                    value!(session_uuid),
+                ],
+            )
+            .await?;
+        Ok(res.rows_affected)
+    }
+}

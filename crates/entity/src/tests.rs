@@ -342,6 +342,21 @@ mod chat_entity {
         let dto: AddReadChatRecordDTO = serde_json::from_value(json).expect("反序列化失败");
         assert_eq!(dto.chat_type, Some(2));
     }
+
+    #[test]
+    fn select_latest_per_session_sql_text() {
+        // 任务03 回归: 聚合发现查询必须按会话 distinct 取 id 最大行
+        // 直接断言 py_sql 宏内 SQL 文本, 防止未来把 distinct on / 排序改坏
+        let src = include_str!("models/chat_entity/chat_message_record.rs");
+        assert!(
+            src.contains("distinct on (session_uuid)"),
+            "select_latest_per_session_for_user 必须按 session_uuid 去重, 实际 SQL 文本被改"
+        );
+        assert!(
+            src.contains("order by session_uuid, id desc"),
+            "select_latest_per_session_for_user 必须 order by session_uuid, id desc, 实际 SQL 文本被改"
+        );
+    }
 }
 
 /// 文件模块
@@ -544,10 +559,20 @@ mod group_entity {
 /// 会话模块
 mod session_entity {
     use super::*;
+    use crate::models::session_entity::aggregate::AggregateReport;
     use crate::models::session_entity::session::{
         SESSION_TYPE_GROUP, SESSION_TYPE_SINGLE, Session,
     };
     use crate::models::session_entity::user_session::UserSession;
+
+    #[test]
+    fn aggregate_report_default() {
+        // 防误删 derive(Default): 聚合主函数依赖它初始化报告
+        let report = AggregateReport::default();
+        assert_eq!(report.single_sessions, 0);
+        assert_eq!(report.group_sessions, 0);
+        assert_eq!(report.user_session_upserted, 0);
+    }
 
     #[test]
     fn session_roundtrip() {

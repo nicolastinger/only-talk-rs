@@ -63,4 +63,21 @@ impl GroupMessageRecord {
         size: u32,
     ) -> Vec<GroupMessageRecord> {
     }
+
+    /// 指定群的最新一条消息。
+    #[rbatis::py_sql(
+        "select * from group_message_record where group_uuid = #{group_uuid} order by id desc limit 1"
+    )]
+    async fn select_latest_by_group_inner(
+        rb: &dyn Executor,
+        group_uuid: &Uuid,
+    ) -> Vec<GroupMessageRecord> {
+    }
+
+    pub async fn select_latest_by_group(
+        rb: &dyn Executor,
+        group_uuid: &Uuid,
+    ) -> rbatis::Result<Option<GroupMessageRecord>> {
+        Ok(Self::select_latest_by_group_inner(rb, group_uuid).await?.into_iter().next())
+    }
 }

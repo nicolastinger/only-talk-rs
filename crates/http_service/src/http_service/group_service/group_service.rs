@@ -3,6 +3,7 @@ use std::net::SocketAddr;
 use anyhow::{Result, anyhow};
 use common::config_str::GROUP_MEMBERS_CACHE;
 use common::models::notify_entity::system_notification::SystemNotification;
+use common::models::session_entity::user_session::UserSession;
 use common::read_global_config;
 use common::utils::internal_quic_client::send_internal_quic_msg;
 use common::utils::internal_quic_msg::{InternalQuicRequest, RequestSource};
@@ -404,6 +405,9 @@ pub async fn accept_group_invitation_service(
             GroupMember::insert(rb, &member).await?;
 
             sync_group_members_to_redis(rb, redis, &dto.group_uuid).await?;
+
+            // 入群初始化会话游标(§7.4): 避免新成员把全部群历史视为未读
+            UserSession::init_for_group_join(rb, &u_uuid, &group_uuid).await?;
 
             // 通知邀请者
             let group = GroupInfo::select_by_group_uuid(rb, &group_uuid).await?;
