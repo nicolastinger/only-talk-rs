@@ -6,6 +6,7 @@ use common::models::user_entity::basic_user::BasicUser;
 use common::models::user_entity::user_info::UserInfo;
 use http_service::common::dto::base_dto::ReqList;
 use http_service::common::dto::base_page_dto::BasePageDTO;
+use http_service::http_service::chat_service::service::text_msg_service::page_range;
 use http_service::http_service::file_service::vo::biz_file_link_vo::BizFileLinkVO;
 use http_service::http_service::file_service::vo::biz_record_vo::BizRecordVO;
 use http_service::http_service::group_service::group_dto::add_member_dto::AddMemberDTO;
@@ -711,6 +712,7 @@ mod serde_roundtrip {
             raw: b"hello".to_vec(),
             msg_type: 2001,
             recalled: false,
+            has_more: Some(false),
         });
         assert_roundtrip(&UnreadCountVO {
             group_uuid: "g1".to_string(),
@@ -872,6 +874,24 @@ mod report {
         assert_eq!(value["target_type"], 3);
         assert_eq!(value["target_uuid"], "m1");
         assert_eq!(value["reason"], "广告");
+    }
+}
+
+/// 聊天记录分页参数(任务02 缺陷 I 回归)
+mod chat_page_range {
+    use super::*;
+
+    #[test]
+    fn size_takes_page_size_not_page_num() {
+        // 历史缺陷: start 与 size 都读 page_num, page_size 被忽略
+        let dto = BasePageDTO { page_num: Some(2), page_size: Some(30), total: None };
+        assert_eq!(page_range(&dto), (2, 30));
+    }
+
+    #[test]
+    fn defaults_when_absent() {
+        let dto = BasePageDTO { page_num: None, page_size: None, total: None };
+        assert_eq!(page_range(&dto), (0, 10));
     }
 }
 

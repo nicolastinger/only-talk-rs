@@ -43,6 +43,10 @@ const TABLES: &[&str] = &[
     "user_session",
 ];
 
+/// 哈希分区表与其期望的分区数（任务02：两张消息表各 16 个分区）
+const PARTITIONED_TABLES: &[(&str, i64)] =
+    &[("chat_message_record", 16), ("group_message_record", 16)];
+
 #[tokio::test]
 #[ignore = "需要本地 PostgreSQL 与仓库根目录 .env"]
 async fn apply_all_ddl_to_test_database() -> Result<()> {
@@ -55,8 +59,8 @@ async fn apply_all_ddl_to_test_database() -> Result<()> {
 
     let admin = build_pool(&admin_url).await?;
     info!("已连接管理员数据库");
-    ensure_database(&admin, &test_db_name).await?;
-    info!("测试库 {} 已就绪", test_db_name);
+    recreate_database(&admin, &test_db_name).await?;
+    info!("测试库 {} 已重建为空库", test_db_name);
 
     // 执行 DDL 并校验关键表，结果暂存，最后统一交给删除清理
     let result = async {
@@ -74,6 +78,14 @@ async fn apply_all_ddl_to_test_database() -> Result<()> {
             info!("表 {} 校验通过", table);
         }
         info!("全部 {} 张关键表校验通过", TABLES.len());
+
+        for (table, expected) in PARTITIONED_TABLES {
+            let actual = partition_count(&test_rb, table).await?;
+            if actual != *expected {
+                return Err(anyhow!("分区表 {} 期望 {} 个分区, 实际 {}", table, expected, actual));
+            }
+            info!("分区表 {} 校验通过: {} 个分区", table, actual);
+        }
         Ok(())
     }
     .await;
@@ -164,25 +176,20 @@ fn test_database_url(admin_url: &str, db_name: &str) -> Result<String> {
     Ok(format!("{}{}/{}", head, &tail[..slash], db_name))
 }
 
-/// 若测试库不存在则创建（仅允许字母数字下划线，防注入）
-async fn ensure_database(admin: &RBatis, db_name: &str) -> Result<()> {
+/// 删除并重建测试库（若不存在则直接创建）。
+///
+/// 每次运行都必须从空库开始：分区表无法由普通表原地转换
+/// （`CREATE TABLE IF NOT EXISTS ... PARTITION BY HASH` 遇到已存在的普通表会静默跳过，
+/// 随后 `CREATE TABLE ... PARTITION OF` 因父表不是分区表而失败）。复用旧库会让 DDL 必失败。
+async fn recreate_database(admin: &RBatis, db_name: &str) -> Result<()> {
     validate_db_name(db_name)?;
-    let check_sql = format!("SELECT 1 FROM pg_database WHERE datname = '{}'", db_name);
-    let result: rbs::Value = admin
-        .query(&check_sql, vec![])
+    drop_test_database(admin, db_name).await?;
+    let create_sql = format!("CREATE DATABASE \"{}\"", db_name);
+    admin
+        .exec(&create_sql, vec![])
         .await
-        .map_err(|e| anyhow!("查询 pg_database 失败: {}", e))?;
-    let exists = result.as_array().map_or(0, |rows| rows.len()) > 0;
-    if !exists {
-        let create_sql = format!("CREATE DATABASE \"{}\"", db_name);
-        admin
-            .exec(&create_sql, vec![])
-            .await
-            .map_err(|e| anyhow!("创建测试库 {} 失败: {}", db_name, e))?;
-        info!("已创建测试库 {}", db_name);
-    } else {
-        info!("测试库 {} 已存在（复用，说明上次运行保留了它）", db_name);
-    }
+        .map_err(|e| anyhow!("创建测试库 {} 失败: {}", db_name, e))?;
+    info!("已创建测试库 {}", db_name);
     Ok(())
 }
 
@@ -195,6 +202,21 @@ async fn table_exists(rb: &RBatis, table: &str) -> Result<bool> {
     let result: rbs::Value =
         rb.query(&sql, vec![]).await.map_err(|e| anyhow!("查询表信息失败: {}", e))?;
     Ok(result.as_array().map_or(0, |rows| rows.len()) > 0)
+}
+
+/// 查询父表的分区数（pg_inherits 中该父表的分区子表条数）
+async fn partition_count(rb: &RBatis, table: &str) -> Result<i64> {
+    let sql = format!("SELECT count(*) FROM pg_inherits WHERE inhparent = '{}'::regclass", table);
+    let result: rbs::Value =
+        rb.query(&sql, vec![]).await.map_err(|e| anyhow!("查询分区数失败: {}", e))?;
+    let rows = result.as_array().cloned().unwrap_or_default();
+    let count = rows
+        .first()
+        .and_then(|row| row.as_map())
+        .map(|map| map.get(&rbs::Value::from("count")))
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+    Ok(count)
 }
 
 /// 校验库名只能包含字母、数字、下划线

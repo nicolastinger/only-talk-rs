@@ -29,8 +29,9 @@ use common::models::chat_entity::chat_message_record::ChatMessageRecord;
 use common::state::CoreState;
 use common::utils::internal_quic_client::make_internal_client_config;
 use common::utils::jwt_util::{generate_access_token, verify_token};
-use common::utils::message_types::{MSG_TYPE_FORCE_LOGOUT, MSG_TYPE_PING};
-use common::utils::text_msg::HeadMsg;
+use common::utils::message_types::{MSG_TYPE_FORCE_LOGOUT, MSG_TYPE_PING, MSG_TYPE_TEXT};
+use common::utils::session_uuid::single_session_uuid;
+use common::utils::text_msg::{HeadMsg, generate_text_msg_with_id};
 use deadpool_redis::redis::AsyncCommands;
 use deadpool_redis::{Config as RedisConfig, Pool, Runtime};
 use futures_util::FutureExt;
@@ -51,6 +52,17 @@ use rsa::pkcs8::EncodePrivateKey;
 use tokio::sync::Mutex;
 use tracing::info;
 use uuid::Uuid;
+
+/// 同文件内集成测试的串行锁。
+///
+/// 这些用例共用同一个 Redis（都会 FLUSHALL）与同一个开发库（都会迁移表结构），
+/// 并行执行会互相清空 Redis 状态、破坏表结构，导致偶发失败。
+static TEST_SERIAL: std::sync::OnceLock<tokio::sync::Mutex<()>> = std::sync::OnceLock::new();
+
+/// 获取串行锁（首个调用者初始化）
+fn test_serial() -> &'static tokio::sync::Mutex<()> {
+    TEST_SERIAL.get_or_init(|| tokio::sync::Mutex::new(()))
+}
 
 /// 初始化日志输出，默认 info 级别，可用 RUST_LOG 覆盖
 fn init_logging() {
@@ -115,6 +127,42 @@ async fn build_db_pool(url: &str) -> Result<RBatis> {
     pool.set_timeout(Some(Duration::from_secs(5))).await;
     rb.pool.set(Box::new(pool)).map_err(|_| anyhow!("设置 PostgreSQL 连接池失败"))?;
     Ok(rb)
+}
+
+/// 判断表是否为分区父表（存在分区子表）
+async fn is_partitioned(db: &RBatis, table: &str) -> Result<bool> {
+    let sql =
+        format!("SELECT count(*) AS c FROM pg_inherits WHERE inhparent = '{}'::regclass", table);
+    let result: rbs::Value =
+        db.query(&sql, vec![]).await.map_err(|e| anyhow!("查询分区信息失败: {}", e))?;
+    let rows = result.as_array().cloned().unwrap_or_default();
+    let count = rows
+        .first()
+        .and_then(|row| row.as_map())
+        .map(|map| map.get(&rbs::Value::from("c")))
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+    Ok(count > 0)
+}
+
+/// 确保目标库的消息表为分区版本（任务02）。
+///
+/// 分区表无法由普通表原地转换（`CREATE TABLE IF NOT EXISTS ... PARTITION BY HASH`
+/// 遇到已存在的普通表会静默跳过，随后创建分区子表失败），因此检测到旧的非分区
+/// 消息表时先 DROP 再重放 DDL；已是分区表则直接返回，不重复销毁数据。
+async fn ensure_partitioned_message_tables(db: &RBatis) -> Result<()> {
+    if is_partitioned(db, "chat_message_record").await? {
+        return Ok(());
+    }
+    for table in ["chat_message_record", "group_message_record", "chat_message_record_fail"] {
+        db.exec(&format!("DROP TABLE IF EXISTS {} CASCADE", table), vec![])
+            .await
+            .map_err(|e| anyhow!("DROP TABLE {} 失败: {}", table, e))?;
+        info!("已删除旧的非分区表 {}", table);
+    }
+    entity::ddl::apply_all_ddl(db).await.context("重放 DDL 失败")?;
+    info!("消息表已迁移为分区版本");
+    Ok(())
 }
 
 /// 构建 Redis 连接池
@@ -268,6 +316,7 @@ fn kick_session(raw: &[u8]) -> Option<String> {
 #[ignore = "需要本地 Redis 与仓库根目录 .env"]
 async fn external_chat_node_connection_lifecycle() -> Result<()> {
     init_logging();
+    let _serial = test_serial().lock().await;
     dotenvy::dotenv().ok();
     let _ = dotenvy::from_path(concat!(env!("CARGO_MANIFEST_DIR"), "/../../.env"));
 
@@ -280,6 +329,7 @@ async fn external_chat_node_connection_lifecycle() -> Result<()> {
     let redis_pool = build_redis_pool(&redis_url)?;
     flush_redis(&redis_pool).await?;
     let db = build_db_pool(&database_url).await?;
+    ensure_partitioned_message_tables(&db).await?;
 
     // JWT 密钥：注入 config_manager，确保客户端签名与服务器校验一致
     setup_jwt_keys()?;
@@ -318,8 +368,17 @@ async fn external_chat_node_connection_lifecycle() -> Result<()> {
             other_uuid.to_string().parse().context("解析发送者 UUID 失败")?;
         let recv_user: RbatisUuid =
             user_uuid.to_string().parse().context("解析接收者 UUID 失败")?;
+        // 会话标识现算派生, 与生产落库路径(add_user_chat_record)同源
+        let session_uuid: RbatisUuid = single_session_uuid(
+            &Uuid::parse_str(&send_user.to_string()).context("解析发送者 UUID 失败")?,
+            &Uuid::parse_str(&recv_user.to_string()).context("解析接收者 UUID 失败")?,
+        )
+        .to_string()
+        .parse()
+        .context("解析会话标识失败")?;
         let message = ChatMessageRecord {
             id: None,
+            session_uuid,
             nano_id: Some(message_uuid.to_string()),
             timestamp: Some(1_700_000_000_000),
             raw: b"integration-test".to_vec().into(),
@@ -559,6 +618,175 @@ async fn external_chat_node_connection_lifecycle() -> Result<()> {
     .await;
 
     // 清理：无论测试成功与否，清空测试 Redis 并删除临时证书
+    if let Err(e) = flush_redis(&redis_pool).await {
+        info!("清空测试 Redis 失败（不影响测试结果）: {}", e);
+    }
+    let _ = std::fs::remove_dir_all(&temp_dir);
+
+    match outcome {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(e)) => Err(e),
+        Err(panic) => std::panic::resume_unwind(panic),
+    }
+}
+
+/// 发送一条单聊文本消息（复用生产同款封帧: head + bincode 正文 + CRC）
+async fn send_single_chat(
+    conn: &Connection,
+    text_type: u16,
+    recv_user: &str,
+    send_user: &str,
+) -> Result<()> {
+    let bytes = generate_text_msg_with_id(
+        format!("session-uuid-{}", Uuid::new_v4()),
+        text_type,
+        b"session-uuid-test".to_vec(),
+        recv_user.to_string(),
+        send_user.to_string(),
+    )
+    .context("构造单聊消息失败")?;
+    let mut uni = conn.open_uni().await.context("打开 uni 流失败")?;
+    uni.write_all(&bytes).await.context("发送单聊消息失败")?;
+    uni.finish().await.context("结束 uni 流失败")?;
+    Ok(())
+}
+
+/// 轮询数据库, 返回涉及 uuid 的最新一条落库消息
+async fn wait_last_chat(db: &RBatis, uuid: &str, timeout: Duration) -> Result<ChatMessageRecord> {
+    let rbdc: RbatisUuid = uuid.to_string().parse().context("解析查询 UUID 失败")?;
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        if let Some(msg) = ChatMessageRecord::select_last_by_column(db, &rbdc).await? {
+            return Ok(msg);
+        }
+        if std::time::Instant::now() >= deadline {
+            return Err(anyhow!("等待用户 {} 的落库消息超时", uuid));
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+/// 轮询数据库, 返回涉及 uuid 的最新一条落库消息, 且其 id 不等于 last_id（等待新消息落地）
+async fn wait_next_chat(
+    db: &RBatis,
+    uuid: &str,
+    last_id: Option<i64>,
+    timeout: Duration,
+) -> Result<ChatMessageRecord> {
+    let rbdc: RbatisUuid = uuid.to_string().parse().context("解析查询 UUID 失败")?;
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        if let Some(msg) = ChatMessageRecord::select_last_by_column(db, &rbdc).await?
+            && msg.id != last_id
+        {
+            return Ok(msg);
+        }
+        if std::time::Instant::now() >= deadline {
+            return Err(anyhow!("等待用户 {} 的新落库消息超时", uuid));
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+/// 任务02 落库会话标识校验: 走 QUIC 发单聊消息, 库内 session_uuid 必须等于派生值且双向对称
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "需要本地 Redis/PostgreSQL 与仓库根目录 .env"]
+async fn single_chat_message_persists_session_uuid() -> Result<()> {
+    init_logging();
+    let _serial = test_serial().lock().await;
+    dotenvy::dotenv().ok();
+    let _ = dotenvy::from_path(concat!(env!("CARGO_MANIFEST_DIR"), "/../../.env"));
+
+    let redis_url = std::env::var("TEST_REDIS_URL").map_err(|_| {
+        anyhow!("未找到 TEST_REDIS_URL，请在仓库根目录 .env 中配置（建议独立 DB index，如 redis://127.0.0.1:6379/15）")
+    })?;
+    let database_url = std::env::var("DATABASE_URL")
+        .map_err(|_| anyhow!("未找到 DATABASE_URL，请在仓库根目录 .env 中配置 PostgreSQL"))?;
+    let redis_pool = build_redis_pool(&redis_url)?;
+    flush_redis(&redis_pool).await?;
+    let db = build_db_pool(&database_url).await?;
+    ensure_partitioned_message_tables(&db).await?;
+
+    setup_jwt_keys()?;
+
+    let temp_dir = std::env::temp_dir().join(format!("quic_session_test_{}", Uuid::new_v4()));
+    std::fs::create_dir_all(&temp_dir).context("创建临时证书目录失败")?;
+    let (cert_path, key_path) = make_cert_files(&temp_dir);
+
+    let outcome = std::panic::AssertUnwindSafe(async {
+        let addr = free_udp_addr();
+        let mut config = ChatNodeConfig::new(addr);
+        config.cert_path = cert_path;
+        config.key_path = key_path;
+        config.server_name = "localhost".to_string();
+
+        let core = make_core(db.clone(), redis_pool.clone());
+        let mut node = ChatNode::new(config, core);
+        node.init().await.context("ChatNode 初始化失败")?;
+        node.start().await.context("ChatNode 启动失败")?;
+        let node_addr = node.config().bind_address;
+        info!("ChatNode 已启动，监听: {}", node_addr);
+
+        // 两个随机用户 A/B, 期望会话标识由用户对 v5 派生
+        let user_a = Uuid::new_v4().to_string();
+        let user_b = Uuid::new_v4().to_string();
+        let expected = single_session_uuid(
+            &Uuid::parse_str(&user_a).context("解析 A 失败")?,
+            &Uuid::parse_str(&user_b).context("解析 B 失败")?,
+        );
+        let expected_rbdc: RbatisUuid =
+            expected.to_string().parse().context("解析期望会话标识失败")?;
+        info!("期望会话标识: {}", expected);
+
+        let token_a = generate_access_token(user_a.clone(), PC_PLATFORM.to_string())
+            .context("生成 A token 失败")?;
+        let token_b = generate_access_token(user_b.clone(), PC_PLATFORM.to_string())
+            .context("生成 B token 失败")?;
+        let head_len = head_size();
+
+        let (endpoint_a, conn_a) = connect_client(node_addr).await?;
+        let (_sa, _ra) = send_first_msg(&conn_a, &user_a, &token_a, head_len).await?;
+        let (endpoint_b, conn_b) = connect_client(node_addr).await?;
+        let (_sb, _rb) = send_first_msg(&conn_b, &user_b, &token_b, head_len).await?;
+
+        wait_connection_registered(&node, &conn_key(PC_PLATFORM, &user_a), Duration::from_secs(5))
+            .await?;
+        wait_connection_registered(&node, &conn_key(PC_PLATFORM, &user_b), Duration::from_secs(5))
+            .await?;
+
+        // A -> B
+        send_single_chat(&conn_a, MSG_TYPE_TEXT, &user_b, &user_a).await?;
+        let m_ab = wait_last_chat(&db, &user_a, Duration::from_secs(5)).await?;
+        assert_eq!(
+            m_ab.session_uuid, expected_rbdc,
+            "A->B 落库 session_uuid 应与派生值一致, 实际: {}",
+            m_ab.session_uuid
+        );
+        info!("A->B 落库会话标识校验通过: {}", m_ab.session_uuid);
+
+        // B -> A (反向)
+        send_single_chat(&conn_b, MSG_TYPE_TEXT, &user_a, &user_b).await?;
+        let m_ba = wait_next_chat(&db, &user_b, m_ab.id, Duration::from_secs(5)).await?;
+        assert_eq!(
+            m_ba.session_uuid, expected_rbdc,
+            "B->A 落库 session_uuid 应与派生值一致(双向对称), 实际: {}",
+            m_ba.session_uuid
+        );
+        assert_eq!(m_ab.session_uuid, m_ba.session_uuid, "双向落库会话标识应相同");
+        info!("B->A 落库会话标识校验通过: {}", m_ba.session_uuid);
+
+        conn_a.close(0u32.into(), b"done");
+        conn_b.close(0u32.into(), b"done");
+        endpoint_a.wait_idle().await;
+        endpoint_b.wait_idle().await;
+        node.stop().await.context("ChatNode 停止失败")?;
+        info!("ChatNode 已停止");
+
+        Ok::<(), anyhow::Error>(())
+    })
+    .catch_unwind()
+    .await;
+
     if let Err(e) = flush_redis(&redis_pool).await {
         info!("清空测试 Redis 失败（不影响测试结果）: {}", e);
     }

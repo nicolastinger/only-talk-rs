@@ -305,6 +305,7 @@ mod chat_entity {
     fn chat_message_record_roundtrip_and_raw_bytes_serialize_as_array() {
         let record = ChatMessageRecord {
             id: Some(1),
+            session_uuid: uuid("00000000-0000-0000-0000-0000000000aa"),
             nano_id: Some("nano-1".to_string()),
             timestamp: Some(1_700_000_000),
             raw: Bytes::from(vec![0x48, 0x69]),
@@ -526,6 +527,17 @@ mod group_entity {
             recalled: Some(false),
         };
         assert_roundtrip(&record);
+    }
+
+    #[test]
+    fn select_unread_orders_by_id_and_parametrizes_limit() {
+        // 任务02 缺陷 O 回归: 游标列(id)与排序列必须同列, limit 参数化
+        // 直接断言 py_sql 宏内 SQL 文本, 防止未来把排序改回 timestamp / 把 limit 硬编码
+        let src = include_str!("models/group_entity/group_message_record.rs");
+        assert!(
+            src.contains("order by id asc limit #{size}"),
+            "select_unread 必须是 order by id asc + 参数化 limit, 实际 SQL 文本被改"
+        );
     }
 }
 

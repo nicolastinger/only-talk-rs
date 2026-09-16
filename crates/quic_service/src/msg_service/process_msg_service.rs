@@ -11,6 +11,7 @@ use common::utils::internal_quic_client::send_internal_quic_msg;
 use common::utils::internal_quic_msg::{InternalQuicRequest, RequestSource};
 use common::utils::message_types;
 use common::utils::server_count_sync::compute_preferred_index;
+use common::utils::session_uuid::single_session_uuid;
 use common::utils::time::get_now_time_stamp_as_millis;
 use dashmap::DashMap;
 use deadpool_redis::redis::AsyncCommands;
@@ -377,14 +378,22 @@ pub async fn add_user_chat_record(
 ) -> Result<(), anyhow::Error> {
     // TODO kafka转发消息ck批量写入
     let rb = &core.db;
+    let send_user = text_quic_msg.send_user.parse::<Uuid>()?;
+    let recv_user = text_quic_msg.recv_user.parse::<Uuid>()?;
+    // rbdc::Uuid 与 uuid::Uuid 是不同类型, 此处做边界转换后派生会话标识(双向对称)
+    let session_uuid = single_session_uuid(
+        &uuid::Uuid::parse_str(&send_user.to_string())?,
+        &uuid::Uuid::parse_str(&recv_user.to_string())?,
+    );
     let chat_msg = ChatMessageRecord {
         id: None,
+        session_uuid: session_uuid.to_string().parse()?,
         nano_id: Some(text_quic_msg.nano_id),
         timestamp: Some(text_quic_msg.timestamp),
         raw: Bytes::from(text_quic_msg.raw),
         text_type: Some(text_quic_msg.text_type as u32),
-        send_user: text_quic_msg.send_user.parse::<Uuid>()?,
-        recv_user: text_quic_msg.recv_user.parse::<Uuid>()?,
+        send_user,
+        recv_user,
     };
     ChatMessageRecord::insert(rb, &chat_msg).await?;
     Ok(())

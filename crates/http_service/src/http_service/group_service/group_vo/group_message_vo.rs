@@ -9,6 +9,8 @@ pub struct GroupMessageVO {
     pub raw: Vec<u8>,
     pub msg_type: i16,
     pub recalled: bool,
+    /// 是否还有更多消息(新增字段, Option 向后兼容, 老客户端可忽略)
+    pub has_more: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

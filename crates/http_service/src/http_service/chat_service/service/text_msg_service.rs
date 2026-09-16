@@ -12,6 +12,14 @@ use tracing::info;
 use crate::common::dto::base_page_dto::BasePageDTO;
 use crate::utils::http_response::{CommonResponseNoDataRef, CommonResponseRef};
 
+/// 计算分页参数: start 取 page_num, size 取 page_size。
+/// 历史缺陷: 两参数都读 page_num, page_size 被忽略(任务02 修复 I)。
+pub fn page_range(base_page: &BasePageDTO) -> (u32, u32) {
+    let start = base_page.page_num.unwrap_or(0);
+    let size = base_page.page_size.unwrap_or(10);
+    (start, size)
+}
+
 /// 获取聊天记录
 pub async fn get_chat_by_limit(
     rb: &RBatis,
@@ -21,8 +29,7 @@ pub async fn get_chat_by_limit(
 ) -> Result<String, anyhow::Error> {
     let uuid = uuid.ok_or(anyhow!("账号序列化失败"))?.parse::<Uuid>()?;
     let friend_uuid = friend_uuid.parse::<Uuid>()?;
-    let start = base_page.page_num.unwrap_or(0);
-    let size = base_page.page_num.unwrap_or(10);
+    let (start, size) = page_range(&base_page);
     let res = ChatMessageRecord::select_chat_by_limit(rb, uuid, friend_uuid, start, size).await?;
 
     let chat = res.first().ok_or(anyhow!("没有数据"))?;

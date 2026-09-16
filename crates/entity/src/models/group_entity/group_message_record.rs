@@ -54,12 +54,13 @@ impl GroupMessageRecord {
     }
 
     #[rbatis::py_sql(
-        "select * from group_message_record where group_uuid = #{group_uuid} and id > #{last_read_msg_id} order by timestamp asc limit 100"
+        "select * from group_message_record where group_uuid = #{group_uuid} and id > #{last_read_msg_id} order by id asc limit #{size}"
     )]
     async fn select_unread(
         rb: &dyn Executor,
         group_uuid: &Uuid,
         last_read_msg_id: i64,
+        size: u32,
     ) -> Vec<GroupMessageRecord> {
     }
 }

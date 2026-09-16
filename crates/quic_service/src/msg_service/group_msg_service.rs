@@ -402,7 +402,7 @@ pub async fn sync_offline_group_messages(
             (group_member.group_uuid, group_member.last_read_msg_id)
         {
             let unread: Vec<GroupMessageRecord> =
-                GroupMessageRecord::select_unread(rb, &g_uuid, last_read_msg_id).await?;
+                GroupMessageRecord::select_unread(rb, &g_uuid, last_read_msg_id, 100).await?;
 
             for msg in unread {
                 if let (Some(nano_id), Some(send_user), Some(timestamp), Some(msg_type)) =

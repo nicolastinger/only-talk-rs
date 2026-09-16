@@ -2,7 +2,7 @@
 
 ## 概述
 
-本文档说明 `ddl/` 目录下的建表脚本（共 24 个 `.sql`：根目录 22 个 + `migrations/` 2 个）及其执行方式。
+本文档说明 `ddl/` 目录下的建表脚本（共 23 个 `.sql`：根目录 21 个 + `migrations/` 2 个）及其执行方式。
 
 **执行顺序**：由文件名（`00_` / `01_` 前缀 + 字母序）决定，与「外键依赖」无关——除群表外，其余表之间**没有任何外键约束**（全目录仅 `01_group_tables.sql` 2 处、`group_invitation.sql` 1 处 `REFERENCES` 指向 `group_info`）。
 
@@ -20,6 +20,8 @@
 - `chat_message_record_read_status_id_seq`
 
 （其余如 `chat_message_record_id_seq`、`friend_request_info_id_seq` 等由 `serial4`/`bigserial` 隐式创建。）
+
+> 分区表上的 `bigserial` 序列：分区表本体仍是普通表结构，`id BIGSERIAL` 正常隐式建序列并分配，无需特殊处理。
 
 ---
 
@@ -174,36 +176,29 @@
 ### 6. 聊天相关表
 
 #### 1. 聊天消息记录表 `chat_message_record.sql`
-- `id` - 自增id
-- `nano_id` - 消息主键
+- `id` - 自增id（`bigserial`，按会话哈希分区，16 个分区）
+- `session_uuid` - 会话标识（单聊由用户对 v5 派生，双向对称）
+- `nano_id` - 消息主键（会话内唯一）
 - `send_user` - 发送人id（逻辑关联 basic_user.uuid）
 - `recv_user` - 接收用户id（逻辑关联 basic_user.uuid）
 - `text_type` - 消息类型
 - `timestamp` - 创建时间
 - `raw` - 二进制数据
 
-#### 2. 聊天消息失败记录表 `chat_message_record_fail.sql`
-- `id` - 自增主键
-- `send_user` - 发送者id（逻辑关联 basic_user.uuid）
-- `recv_user` - 接收者id（逻辑关联 basic_user.uuid）
-- `reason` - 失败原因
-- `created_at`（varchar）- 创建时间
-- `nano_id` - 消息ID
-
-#### 3. 聊天消息已读状态表 `chat_message_record_read.sql`
+#### 2. 聊天消息已读状态表 `chat_message_record_read.sql`
 - `id` - 自增id
 - `send_user` - 发送人id（逻辑关联 basic_user.uuid）
 - `recv_user` - 接收人id（逻辑关联 basic_user.uuid）
 - `timestamp` - 创建时间
 - `nano_id` - 消息ID
 
-#### 4. 会话本体表 `session.sql`
+#### 3. 会话本体表 `session.sql`
 - `session_uuid` - 会话标识（单聊由用户对 v5 派生，群聊即 group_uuid）
 - `session_type` - 1-单聊 2-群聊 3-系统 4-公众号
 - `last_message_id` / `last_message_at` / `last_preview` - 最后一条消息聚合信息（后台任务维护）
 - `created_at` / `updated_at` - 创建/更新时间
 
-#### 5. 用户会话状态表 `user_session.sql`
+#### 4. 用户会话状态表 `user_session.sql`
 - `id` - 自增主键（`bigserial`）
 - `user_uuid` - 谁的会话列表
 - `session_uuid` - 关联 session
@@ -287,7 +282,6 @@ psql -U username -d database_name -f friend_request_info.sql
 
 # 6. 聊天相关表
 psql -U username -d database_name -f chat_message_record.sql
-psql -U username -d database_name -f chat_message_record_fail.sql
 psql -U username -d database_name -f chat_message_record_read.sql
 psql -U username -d database_name -f session.sql
 psql -U username -d database_name -f user_session.sql
@@ -406,8 +400,7 @@ basic_user.sql (基础用户表)
     ├─→ friend_link.sql (好友关系表)
     ├─→ friend_list.sql (好友列表缓存表)
     ├─→ friend_request_info.sql (好友请求表)
-    ├─→ chat_message_record.sql (聊天消息记录表)
-    ├─→ chat_message_record_fail.sql (聊天消息失败记录表)
+    ├─→ chat_message_record.sql (聊天消息记录表, 按会话哈希分区)
     ├─→ chat_message_record_read.sql (聊天消息已读状态表)
     ├─→ session.sql (会话本体表)
     ├─→ user_session.sql (用户会话状态表)

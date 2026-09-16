@@ -103,8 +103,7 @@ async fn http_service_user_api_integration() -> Result<()> {
 
     let admin = build_db_pool(&admin_url).await?;
     info!("已连接管理员数据库");
-    ensure_database(&admin, TEST_DATABASE_NAME).await?;
-
+    recreate_database(&admin, TEST_DATABASE_NAME).await?;
     let redis_pool = build_redis_pool(&test_redis_url)?;
     verify_redis_pool(&redis_pool).await?;
 
@@ -791,25 +790,20 @@ fn test_database_url(admin_url: &str, db_name: &str) -> Result<String> {
     Ok(format!("{}{}/{}", head, &tail[..slash], db_name))
 }
 
-/// 若测试库不存在则创建（仅允许字母数字下划线，防注入）
-async fn ensure_database(admin: &RBatis, db_name: &str) -> Result<()> {
+/// 删除并重建测试库（若不存在则直接创建）。
+///
+/// 每次运行都必须从空库开始：分区表无法由普通表原地转换
+/// （`CREATE TABLE IF NOT EXISTS ... PARTITION BY HASH` 遇到已存在的普通表会静默跳过，
+/// 随后 `CREATE TABLE ... PARTITION OF` 因父表不是分区表而失败）。复用旧库会让 DDL 必失败。
+async fn recreate_database(admin: &RBatis, db_name: &str) -> Result<()> {
     validate_db_name(db_name)?;
-    let check_sql = format!("SELECT 1 FROM pg_database WHERE datname = '{}'", db_name);
-    let result: rbs::Value = admin
-        .query(&check_sql, vec![])
+    drop_test_database(admin, db_name).await?;
+    let create_sql = format!("CREATE DATABASE \"{}\"", db_name);
+    admin
+        .exec(&create_sql, vec![])
         .await
-        .map_err(|e| anyhow!("查询 pg_database 失败: {}", e))?;
-    let exists = result.as_array().map_or(0, |rows| rows.len()) > 0;
-    if !exists {
-        let create_sql = format!("CREATE DATABASE \"{}\"", db_name);
-        admin
-            .exec(&create_sql, vec![])
-            .await
-            .map_err(|e| anyhow!("创建测试库 {} 失败: {}", db_name, e))?;
-        info!("已创建测试库 {}", db_name);
-    } else {
-        info!("测试库 {} 已存在（将复用并重放 DDL）", db_name);
-    }
+        .map_err(|e| anyhow!("创建测试库 {} 失败: {}", db_name, e))?;
+    info!("已创建测试库 {}", db_name);
     Ok(())
 }
 

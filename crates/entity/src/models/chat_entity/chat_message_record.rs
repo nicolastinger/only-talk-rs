@@ -1,12 +1,12 @@
+use rbatis::crud;
 use rbatis::executor::Executor;
 use rbatis::rbdc::{Bytes, Uuid};
-use rbatis::{RBatis, crud};
-use rbs::value;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Deserialize, Serialize, Debug)]
 pub struct ChatMessageRecord {
     pub id: Option<i64>,
+    pub session_uuid: Uuid,
     pub nano_id: Option<String>,
     pub timestamp: Option<i64>,
     pub raw: Bytes,
@@ -19,7 +19,7 @@ crud!(ChatMessageRecord {});
 
 impl ChatMessageRecord {
     #[rbatis::py_sql(
-        "select * from chat_message_record where ((send_user = #{send_user} and recv_user = #{recv_user}) or (send_user = #{recv_user} and recv_user = #{send_user})) order by created_at limit #{size} offset #{start}"
+        "select * from chat_message_record where ((send_user = #{send_user} and recv_user = #{recv_user}) or (send_user = #{recv_user} and recv_user = #{send_user})) order by id limit #{size} offset #{start}"
     )]
     async fn select_chat_by_limit(
         rb: &dyn Executor,
@@ -54,33 +54,4 @@ impl ChatMessageRecord {
         time: i64,
     ) -> Vec<ChatMessageRecord> {
     }
-}
-
-// rbatis::raw_sql!(chat_message_recordraw_insert(rb: &dyn Executor, nano_id: String, created_at: i64, send_user: Uuid, recv_user: Uuid, raw: Vec<u8>, msg_type: u32)  -> Result<rbs::Value, rbatis::Error> =>
-// "INSERT INTO public.chat_message_record
-// (nano_id, created_at, send_user, recv_user,raw, text_type)
-// VALUES(?, ?, ?, ?, ?, ?);"
-// );
-
-pub async fn raw_insert(
-    rbatis: &RBatis,
-    chat_message_record: ChatMessageRecord,
-) -> Result<(), rbatis::Error> {
-    let bytes = value!(chat_message_record.raw);
-    rbatis
-        .exec(
-            "INSERT INTO public.chat_message_record
-(nano_id, timestamp, send_user, recv_user,raw, text_type)
-VALUES($1,$2,$3,$4,$5,$6)",
-            vec![
-                value!(chat_message_record.nano_id),
-                value!(chat_message_record.timestamp),
-                value!(chat_message_record.send_user),
-                value!(chat_message_record.recv_user),
-                bytes,
-                value!(chat_message_record.text_type),
-            ],
-        )
-        .await?;
-    Ok(())
 }

@@ -35,6 +35,7 @@ rcgen = { workspace = true }
 dotenvy = { workspace = true }
 thiserror = { workspace = true }
 once_cell = { workspace = true }
+uuid = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
@@ -51,7 +52,6 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 rsa = { workspace = true }
 rand = { workspace = true }
-uuid = { workspace = true }
 rbdc-pg = { workspace = true }
 rbdc-pool-fast = { workspace = true }
 

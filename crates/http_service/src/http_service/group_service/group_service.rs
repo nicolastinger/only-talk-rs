@@ -644,14 +644,26 @@ pub async fn get_group_message_history_service(
     }
 
     // 游标模式：按群成员已读游标拉取未读消息（id > last_read_msg_id）
-    let messages: Vec<GroupMessageRecord> = match dto.last_read_msg_id {
-        Some(cursor) => GroupMessageRecord::select_unread(rb, &group_uuid, cursor).await?,
+    // 两分支统一以 size + 1 探测是否还有下一页, has_more 显式返回
+    let dto_size = dto.size.unwrap_or(20);
+    let (mut messages, has_more): (Vec<GroupMessageRecord>, bool) = match dto.last_read_msg_id {
+        Some(cursor) => {
+            let fetched =
+                GroupMessageRecord::select_unread(rb, &group_uuid, cursor, dto_size + 1).await?;
+            let has_more = fetched.len() > dto_size as usize;
+            (fetched, has_more)
+        }
         None => {
             let start = dto.start.unwrap_or(0);
-            let size = dto.size.unwrap_or(20);
-            GroupMessageRecord::select_by_group(rb, &group_uuid, start, size).await?
+            let fetched =
+                GroupMessageRecord::select_by_group(rb, &group_uuid, start, dto_size + 1).await?;
+            let has_more = fetched.len() > dto_size as usize;
+            (fetched, has_more)
         }
     };
+    if has_more {
+        messages.truncate(dto_size as usize);
+    }
 
     Ok(messages
         .into_iter()
@@ -663,6 +675,7 @@ pub async fn get_group_message_history_service(
             raw: m.raw.0.to_vec(),
             msg_type: m.msg_type.unwrap_or(1),
             recalled: m.recalled.unwrap_or(false),
+            has_more: Some(has_more),
         })
         .collect())
 }
@@ -680,7 +693,7 @@ pub async fn get_unread_group_messages_service(
             (membership.group_uuid, membership.last_read_msg_id)
         {
             let unread: Vec<GroupMessageRecord> =
-                GroupMessageRecord::select_unread(rb, &g_uuid, last_read_msg_id).await?;
+                GroupMessageRecord::select_unread(rb, &g_uuid, last_read_msg_id, 100).await?;
             if !unread.is_empty() {
                 result.push(UnreadCountVO {
                     group_uuid: g_uuid.to_string(),
