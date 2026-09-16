@@ -3,14 +3,13 @@
 //!
 //! - 测试数据库：复用仓库根目录 `.env` 的 `DATABASE_URL`（管理员连接）创建 `only_talk_http_test`，
 //!   执行 `entity/ddl` 全部建表脚本，测试结束后 **删除** 该测试库。
-//! - 测试 Redis：读取 `config/app_config.toml` 的 `redis.test_url`（对应 `TEST_REDIS_URL`），
+//! - 测试 Redis：读取 `.env` 的 `TEST_REDIS_URL`（建议独立 DB index/实例），
 //!   测试结束后 **清空该测试 Redis 的所有 key**（FLUSHALL）。
 //!
 //! 运行方式：
 //!   cargo test -p http_service --test http_service_integration_test -- --ignored
 //! 前提：本地 PostgreSQL、Redis 可用，且仓库根目录存在 `.env`。
 
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -18,7 +17,6 @@ use actix_web::http::StatusCode;
 use actix_web::middleware::from_fn;
 use actix_web::{App, test, web};
 use anyhow::{Context, Result, anyhow};
-use common::config_manager;
 use common::config_str::{EMAIL_VERIFY_CODE, REGISTER_SESSION_TOKEN};
 use common::models::group_entity::group_info::GroupInfo;
 use common::models::moment_entity::moment::Moment;
@@ -90,22 +88,17 @@ async fn http_service_user_api_integration() -> Result<()> {
     // cargo 运行集成测试时 cwd 是包目录(crates/http_service)，dotenv() 可能找不到仓库根目录的 .env，
     // 这里用绝对路径兜底加载（.env 不在时返回 Err，可忽略）
     let _ = dotenvy::from_path(concat!(env!("CARGO_MANIFEST_DIR"), "/../../.env"));
-    // cargo 运行集成测试时 cwd 是包目录，不能依赖相对路径，
-    // 故从仓库根目录的绝对路径加载 app_config.toml（行为与 common::init_app_config 一致）。
-    let config_path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../config/app_config.toml");
-    let content = std::fs::read_to_string(config_path)
-        .with_context(|| format!("读取配置文件失败: {}", config_path))?;
-    let content = common::substitute_env_vars(content);
-    let config_value: toml::Value = content.parse().context("解析 app_config.toml 失败")?;
-    let config_map: HashMap<String, toml::Value> = config_value.try_into()?;
-    common::init_global_config!(&config_map);
-    info!("已加载 app_config.toml 全局配置");
-
-    let admin_url = config_manager::get_config("database.url")
-        .ok_or_else(|| anyhow!("未找到 database.url，请确认仓库根目录存在 .env 文件"))?;
+    // 测试专用连接一律直接读 .env（不落入 app_config.toml）：
+    // 管理员连接优先 TEST_DATABASE_URL, 缺省回退 DATABASE_URL; 测试 Redis 用 TEST_REDIS_URL。
+    let admin_url =
+        std::env::var("TEST_DATABASE_URL").or_else(|_| std::env::var("DATABASE_URL")).map_err(
+            |_| anyhow!("未找到 TEST_DATABASE_URL / DATABASE_URL，请确认仓库根目录存在 .env 文件"),
+        )?;
+    let admin_url = common::substitute_env_vars(admin_url);
     info!("管理员数据库连接: {}", mask_url(&admin_url));
-    let test_redis_url = config_manager::get_config("redis.test_url")
-        .ok_or_else(|| anyhow!("未找到 redis.test_url，请确认 .env 配置了 TEST_REDIS_URL"))?;
+    let test_redis_url = std::env::var("TEST_REDIS_URL").map_err(|_| {
+        anyhow!("未找到 TEST_REDIS_URL，请在仓库根目录 .env 中配置（建议独立 DB index，如 redis://127.0.0.1:6379/15）")
+    })?;
     info!("测试 Redis 连接: {}", mask_url(&test_redis_url));
 
     let admin = build_db_pool(&admin_url).await?;
