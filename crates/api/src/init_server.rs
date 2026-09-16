@@ -9,7 +9,7 @@ use common::{init_app_config, init_redis, init_sql_pool, read_global_config, ver
 use email_service::config::{AliyunConfig, EmailServiceConfig, ProviderConfig};
 use http_service;
 use http_service::middleware::TraceIdMiddleware;
-use http_service::utils::record_bad_http::error_record_middleware;
+use http_service::utils::auth_middleware::auth_middleware;
 use rustls::{Certificate, PrivateKey, ServerConfig};
 use rustls_pemfile::{certs, ec_private_keys, pkcs8_private_keys, rsa_private_keys};
 use s3_service::client::GlobalS3Client;
@@ -192,7 +192,7 @@ pub async fn start_server() -> anyhow::Result<()> {
     HttpServer::new(move || {
         App::new()
             .wrap(TraceIdMiddleware)
-            .wrap(from_fn(error_record_middleware))
+            .wrap(from_fn(auth_middleware))
             .app_data(web::Data::new(state.clone()))
             .wrap(middleware::Logger::default())
             .configure(http_service::http_service::configure_routes)

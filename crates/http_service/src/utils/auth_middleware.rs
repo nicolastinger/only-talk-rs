@@ -23,7 +23,7 @@ lazy_static! {
     };
 }
 
-pub async fn error_record_middleware(
+pub async fn auth_middleware(
     req: ServiceRequest,
     next: Next<impl MessageBody>,
 ) -> Result<ServiceResponse<impl MessageBody>, Error> {

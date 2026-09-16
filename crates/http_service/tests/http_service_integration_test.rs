@@ -37,7 +37,7 @@ use futures_util::FutureExt;
 use http_service::http_service::configure_routes;
 use http_service::middleware::TraceIdMiddleware;
 use http_service::state::AppState;
-use http_service::utils::record_bad_http::error_record_middleware;
+use http_service::utils::auth_middleware::auth_middleware;
 use rbatis::RBatis;
 use rbatis::rbdc::Uuid as RbatisUuid;
 use rbatis::rbdc::db::ConnectOptions;
@@ -204,7 +204,7 @@ async fn http_service_user_api_integration() -> Result<()> {
         let app = test::init_service(
             App::new()
                 .wrap(TraceIdMiddleware)
-                .wrap(from_fn(error_record_middleware))
+                .wrap(from_fn(auth_middleware))
                 .app_data(web::Data::new(state))
                 .configure(configure_routes),
         )

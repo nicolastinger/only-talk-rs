@@ -7,7 +7,7 @@ HTTP REST 服务层（actix-web），实现所有面向客户端的业务 API：
 - 提供 actix `configure_routes` 路由注册入口（`/user` `/friend` `/group` `/msg` `/file` `/notify` 六个 scope）
 - controller 层：接收 `web::Data<AppState>` 依赖注入，解析请求 DTO/路径/Header，调用 service
 - service 层：业务逻辑，通过窄签名（`rb: &RBatis` / `redis: &Pool` / `s3: Arc<S3Client>`）使用基础设施
-- 中间件：`TraceIdMiddleware`（全链路 TraceId）、`error_record_middleware`（全局 JWT 鉴权 + 错误记录）
+- 中间件：`TraceIdMiddleware`（全链路 TraceId）、`auth_middleware`（全局 JWT 鉴权 + 错误记录）
 - 依赖注入宿主：定义 `AppState { core, s3, email }`（组合 `common::CoreState`），供 controller 统一取用
 
 ## 依赖
@@ -21,7 +21,7 @@ HTTP REST 服务层（actix-web），实现所有面向客户端的业务 API：
 http_service/src/
 ├── lib.rs                # pub mod 声明（common / http_service / middleware / state / utils）
 ├── state.rs              # AppState（core + s3 + email）及 db()/redis()/s3() 访问器
-├── middleware/           # trace_id.rs（TraceId）、record_bad_http.rs（JWT 鉴权）
+├── middleware/           # trace_id.rs（TraceId）、auth_middleware.rs（JWT 鉴权）
 ├── utils/                # http_response.rs（统一响应）、http_macros.rs（validate/respond 宏）、file_utils.rs
 ├── common/dto/           # 跨模块 DTO（AuthAccount、BasePageDTO、ReqList）
 └── http_service/
