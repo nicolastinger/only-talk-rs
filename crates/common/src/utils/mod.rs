@@ -8,6 +8,7 @@ pub mod message_types;
 pub mod redis_utils;
 pub mod rsa_util;
 pub mod server_count_sync;
+pub mod session_uuid;
 pub mod sql_utils;
 pub mod text_msg;
 pub mod time;

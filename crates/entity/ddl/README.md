@@ -16,11 +16,10 @@
 
 **说明**：仅显式创建建表时通过 `nextval(...)` 引用的序列；使用 `serial4/bigserial` 的表由 PostgreSQL 自动创建同名序列，无需在此定义。
 
-**显式创建的序列（2 个）：**
+**显式创建的序列（1 个）：**
 - `chat_message_record_read_status_id_seq`
-- `group_message_record_read_id_seq`
 
-（其余如 `chat_list_link_id_seq`、`chat_message_record_id_seq`、`friend_request_info_id_seq` 等由 `serial4`/`bigserial` 隐式创建。）
+（其余如 `chat_message_record_id_seq`、`friend_request_info_id_seq` 等由 `serial4`/`bigserial` 隐式创建。）
 
 ---
 
@@ -174,14 +173,7 @@
 
 ### 6. 聊天相关表
 
-#### 1. 聊天列表表 `chat_list_link.sql`
-- `id` - 自增主键（`serial4`）
-- `uuid` - 用户id（逻辑关联 basic_user.uuid）
-- `friend_uuid` - 朋友id（逻辑关联 basic_user.uuid）
-- `enable` - 是否显示
-- `created_at` - 创建时间
-
-#### 2. 聊天消息记录表 `chat_message_record.sql`
+#### 1. 聊天消息记录表 `chat_message_record.sql`
 - `id` - 自增id
 - `nano_id` - 消息主键
 - `send_user` - 发送人id（逻辑关联 basic_user.uuid）
@@ -190,7 +182,7 @@
 - `timestamp` - 创建时间
 - `raw` - 二进制数据
 
-#### 3. 聊天消息失败记录表 `chat_message_record_fail.sql`
+#### 2. 聊天消息失败记录表 `chat_message_record_fail.sql`
 - `id` - 自增主键
 - `send_user` - 发送者id（逻辑关联 basic_user.uuid）
 - `recv_user` - 接收者id（逻辑关联 basic_user.uuid）
@@ -198,12 +190,29 @@
 - `created_at`（varchar）- 创建时间
 - `nano_id` - 消息ID
 
-#### 4. 聊天消息已读状态表 `chat_message_record_read.sql`
+#### 3. 聊天消息已读状态表 `chat_message_record_read.sql`
 - `id` - 自增id
 - `send_user` - 发送人id（逻辑关联 basic_user.uuid）
 - `recv_user` - 接收人id（逻辑关联 basic_user.uuid）
 - `timestamp` - 创建时间
 - `nano_id` - 消息ID
+
+#### 4. 会话本体表 `session.sql`
+- `session_uuid` - 会话标识（单聊由用户对 v5 派生，群聊即 group_uuid）
+- `session_type` - 1-单聊 2-群聊 3-系统 4-公众号
+- `last_message_id` / `last_message_at` / `last_preview` - 最后一条消息聚合信息（后台任务维护）
+- `created_at` / `updated_at` - 创建/更新时间
+
+#### 5. 用户会话状态表 `user_session.sql`
+- `id` - 自增主键（`bigserial`）
+- `user_uuid` - 谁的会话列表
+- `session_uuid` - 关联 session
+- `session_type` - 冗余会话类型，免 join
+- `peer_uuid` - 单聊：对方；群聊：NULL
+- `last_read_id` - 已读游标（角标口径，只前进）
+- `synced_id` - 同步游标（拉取起点，只前进，恒 >= last_read_id）
+- `pinned` / `muted` / `deleted_at` - 控制信息
+- `created_at` / `updated_at` - 创建/更新时间
 
 ---
 
@@ -228,16 +237,6 @@
 **文件：** `01_group_tables.sql`（包含 `group_info`、`group_member`、`group_message_record` 三张表；其中 `group_member`、`group_message_record` 有 `REFERENCES group_info(group_uuid)` 外键）
 
 **文件：** `group_invitation.sql`（群邀请表；`group_uuid` 有 `REFERENCES group_info(group_uuid)` 外键）
-
-**文件：** `group_message_record_read.sql`（群消息已读状态表）
-
-**`group_message_record_read` 主要字段：**
-- `id` - 自增id
-- `nano_id` - 消息主键
-- `send_user` - 发送人id
-- `group_uuid` - 群组id
-- `read_user` - 已读用户id
-- `timestamp` - 消息创建时间
 
 ---
 
@@ -287,17 +286,17 @@ psql -U username -d database_name -f friend_list.sql
 psql -U username -d database_name -f friend_request_info.sql
 
 # 6. 聊天相关表
-psql -U username -d database_name -f chat_list_link.sql
 psql -U username -d database_name -f chat_message_record.sql
 psql -U username -d database_name -f chat_message_record_fail.sql
 psql -U username -d database_name -f chat_message_record_read.sql
+psql -U username -d database_name -f session.sql
+psql -U username -d database_name -f user_session.sql
 
 # 7. 系统通知表
 psql -U username -d database_name -f system_notification.sql
 
 # 8. 群聊相关表
 psql -U username -d database_name -f group_invitation.sql
-psql -U username -d database_name -f group_message_record_read.sql
 ```
 
 （数据修复与迁移脚本 `fix_file_path_stored_name_inconsistency.sql`、`migrations/*.sql` 按需执行；修复脚本有 SELECT 确认语句，迁移脚本幂等。）
@@ -407,13 +406,14 @@ basic_user.sql (基础用户表)
     ├─→ friend_link.sql (好友关系表)
     ├─→ friend_list.sql (好友列表缓存表)
     ├─→ friend_request_info.sql (好友请求表)
-    ├─→ chat_list_link.sql (聊天列表表)
     ├─→ chat_message_record.sql (聊天消息记录表)
     ├─→ chat_message_record_fail.sql (聊天消息失败记录表)
     ├─→ chat_message_record_read.sql (聊天消息已读状态表)
+    ├─→ session.sql (会话本体表)
+    ├─→ user_session.sql (用户会话状态表)
     ├─→ system_notification.sql (系统通知表)
     ├─→ group_invitation.sql (群邀请表，REFERENCES group_info)
-    └─→ group_message_record_read.sql (群消息已读状态表)
+    └─→ (群消息表见 01_group_tables.sql)
 ```
 
 > 注：除 `01_group_tables.sql` 与 `group_invitation.sql` 指向 `group_info` 的 3 处外键外，所有「用户/文件/聊天/通知」表的 `uuid` 关联均为**逻辑关联（无外键约束）**。实际执行顺序由文件名字典序决定（`migrations/*.sql` 最后）。

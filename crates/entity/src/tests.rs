@@ -9,7 +9,6 @@ use rbatis::rbdc::{Bytes, Uuid};
 use validator::Validate;
 
 use crate::models::chat_entity::add_read_chat_record::AddReadChatRecordDTO;
-use crate::models::chat_entity::chat_list_link::ChatListLink;
 use crate::models::chat_entity::chat_message_read::{
     CHAT_TYPE_GROUP, CHAT_TYPE_SINGLE, ChatMessageRecordRead,
 };
@@ -26,7 +25,6 @@ use crate::models::group_entity::group_invitation::{
 use crate::models::group_entity::group_member::{
     GroupMember, ROLE_ADMIN, ROLE_MEMBER, ROLE_OWNER, STATUS_KICKED, STATUS_NORMAL, STATUS_QUIT,
 };
-use crate::models::group_entity::group_message_read::GroupMessageRecordRead;
 use crate::models::group_entity::group_message_record::{
     GroupMessageRecord, MSG_TYPE_FILE, MSG_TYPE_IMAGE, MSG_TYPE_TEXT,
 };
@@ -292,18 +290,6 @@ mod chat_entity {
     use super::*;
 
     #[test]
-    fn chat_list_link_roundtrip() {
-        let link = ChatListLink {
-            id: Some(1),
-            uuid: uuid("00000000-0000-0000-0000-000000000010"),
-            friend_uuid: uuid("00000000-0000-0000-0000-000000000011"),
-            created_at: Some(1_700_000_000),
-            enable: Some(true),
-        };
-        assert_roundtrip(&link);
-    }
-
-    #[test]
     fn chat_message_read_roundtrip() {
         let record = ChatMessageRecordRead {
             id: Some(1),
@@ -528,19 +514,6 @@ mod group_entity {
     }
 
     #[test]
-    fn group_message_read_roundtrip() {
-        let record = GroupMessageRecordRead {
-            id: Some(1),
-            nano_id: Some("nano-1".to_string()),
-            timestamp: Some(1_700_000_000),
-            send_user: uuid("00000000-0000-0000-0000-000000000001"),
-            group_uuid: uuid("00000000-0000-0000-0000-000000000030"),
-            read_user: uuid("00000000-0000-0000-0000-000000000002"),
-        };
-        assert_roundtrip(&record);
-    }
-
-    #[test]
     fn group_message_record_roundtrip() {
         let record = GroupMessageRecord {
             id: Some(1),
@@ -553,6 +526,48 @@ mod group_entity {
             recalled: Some(false),
         };
         assert_roundtrip(&record);
+    }
+}
+
+/// 会话模块
+mod session_entity {
+    use super::*;
+    use crate::models::session_entity::session::{
+        SESSION_TYPE_GROUP, SESSION_TYPE_SINGLE, Session,
+    };
+    use crate::models::session_entity::user_session::UserSession;
+
+    #[test]
+    fn session_roundtrip() {
+        let s = Session {
+            session_uuid: uuid("00000000-0000-0000-0000-0000000000a0"),
+            session_type: Some(SESSION_TYPE_SINGLE),
+            last_message_id: Some(100),
+            last_message_at: Some(1_700_000_000),
+            last_preview: Some("你好".to_string()),
+            created_at: Some(1_700_000_000),
+            updated_at: Some(1_700_000_000),
+        };
+        assert_roundtrip(&s);
+    }
+
+    #[test]
+    fn user_session_roundtrip() {
+        let u = UserSession {
+            id: Some(1),
+            user_uuid: uuid("00000000-0000-0000-0000-000000000001"),
+            session_uuid: uuid("00000000-0000-0000-0000-0000000000a0"),
+            session_type: Some(SESSION_TYPE_GROUP),
+            peer_uuid: None,
+            last_read_id: Some(0),
+            synced_id: Some(0),
+            pinned: Some(0),
+            muted: Some(0),
+            deleted_at: None,
+            created_at: Some(1_700_000_000),
+            updated_at: Some(1_700_000_000),
+        };
+        assert_roundtrip(&u);
     }
 }
 

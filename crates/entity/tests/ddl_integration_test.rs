@@ -24,13 +24,32 @@ use tracing_subscriber::{EnvFilter, fmt};
 /// 独立测试库名（可用环境变量 `TEST_DATABASE_NAME` 覆盖）
 const DEFAULT_TEST_DATABASE: &str = "only_talk_test";
 
+/// 关键表清单：DDL 应用后逐一校验存在性
+const TABLES: &[&str] = &[
+    "basic_user",
+    "user_info",
+    "friend_link",
+    "friend_list",
+    "black_list",
+    "chat_message_record",
+    "file_upload_record",
+    "group_info",
+    "group_member",
+    "system_notification",
+    "user_login_log",
+    "robot_info",
+    "enterprise_info",
+    "session",
+    "user_session",
+];
+
 #[tokio::test]
 #[ignore = "需要本地 PostgreSQL 与仓库根目录 .env"]
 async fn apply_all_ddl_to_test_database() -> Result<()> {
     init_tracing();
 
     let admin_url = admin_database_url()?;
-    info!("已从 .env 读取 DATABASE_URL（管理员连接，库名将替换为测试库）");
+    info!("已读取测试数据库管理员连接（库名将替换为测试库）");
     let test_db_name = test_database_name();
     info!("测试库名: {}", test_db_name);
 
@@ -48,28 +67,13 @@ async fn apply_all_ddl_to_test_database() -> Result<()> {
         entity::ddl::apply_all_ddl(&test_rb).await.context("应用 DDL 失败")?;
         info!("DDL 应用完成，开始校验关键表");
 
-        for table in [
-            "basic_user",
-            "user_info",
-            "friend_link",
-            "friend_list",
-            "black_list",
-            "chat_list_link",
-            "chat_message_record",
-            "file_upload_record",
-            "group_info",
-            "group_member",
-            "system_notification",
-            "user_login_log",
-            "robot_info",
-            "enterprise_info",
-        ] {
+        for table in TABLES {
             if !table_exists(&test_rb, table).await? {
                 return Err(anyhow!("表 {} 未创建", table));
             }
             info!("表 {} 校验通过", table);
         }
-        info!("全部 {} 张关键表校验通过", 14);
+        info!("全部 {} 张关键表校验通过", TABLES.len());
         Ok(())
     }
     .await;
@@ -124,12 +128,16 @@ fn init_tracing() {
     let _ = fmt().with_env_filter(filter).with_writer(std::io::stdout).try_init();
 }
 
-/// 读取 `.env` 中的 `DATABASE_URL`（支持 `${VAR}` 占位符展开）
+/// 读取测试数据库管理员连接（支持 `${VAR}` 占位符展开）。
+/// 优先使用 `TEST_DATABASE_URL`（可指向独立的测试 PG 实例，与开发库隔离）；
+/// 未设置时回退到 `DATABASE_URL`。
 fn admin_database_url() -> Result<String> {
     dotenvy::dotenv().ok();
-    let raw = std::env::var("DATABASE_URL")
-        .map_err(|_| anyhow!("未找到 DATABASE_URL，请确认仓库根目录存在 .env 文件"))?;
-    info!("数据库连接信息: {}", mask_database_url(&raw));
+    let raw =
+        std::env::var("TEST_DATABASE_URL").or_else(|_| std::env::var("DATABASE_URL")).map_err(
+            |_| anyhow!("未找到 DATABASE_URL / TEST_DATABASE_URL，请确认仓库根目录存在 .env 文件"),
+        )?;
+    info!("测试数据库连接信息: {}", mask_database_url(&raw));
     Ok(expand_env_vars(&raw))
 }
 
