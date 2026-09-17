@@ -26,10 +26,12 @@ use common::models::moment_entity::moment_comment::MomentComment;
 use common::models::plaza_entity::plaza_user_info::PlazaUserInfo;
 use common::models::report_entity::report::Report;
 use common::models::session_entity::aggregate::aggregate_user_sessions;
-use common::models::session_entity::session::{SESSION_TYPE_GROUP, SESSION_TYPE_SINGLE};
+use common::models::session_entity::session::{SESSION_TYPE_GROUP, SESSION_TYPE_SINGLE, Session};
 use common::models::session_entity::user_session::UserSession;
 use common::models::user_entity::basic_user::BasicUser;
 use common::models::user_entity::email_sso::EmailSso;
+use common::models::user_entity::friend_link::FriendLink;
+use common::models::user_entity::friend_request_info::FriendRequestInfo;
 use common::models::user_entity::user_info::UserInfo;
 use common::state::CoreState;
 use common::utils::rsa_util::hash_password;
@@ -40,7 +42,13 @@ use deadpool_redis::{Config as RedisConfig, Pool, Runtime};
 use email_service::config::EmailServiceConfig;
 use email_service::manager::EmailManager;
 use futures_util::FutureExt;
+use http_service::http_service::chat_service::service::text_msg_service::get_unread_chat_record;
 use http_service::http_service::configure_routes;
+use http_service::http_service::user_service::dto::friend_request_info_dto::FriendRequestInfoDTO;
+use http_service::http_service::user_service::service::friend_service::{
+    FRIEND_ACCEPT_DEFAULT_MSG, FRIEND_REQUEST_DEFAULT_MSG, add_friend, delete_friend_service,
+    process_friend,
+};
 use http_service::middleware::TraceIdMiddleware;
 use http_service::state::AppState;
 use http_service::utils::auth_middleware::auth_middleware;
@@ -975,6 +983,169 @@ async fn http_service_user_api_integration() -> Result<()> {
         assert_eq!(us_d2[0].last_read_id, Some(150), "synced 放宽后已读应前进到 150");
         info!("任务04 已读桥接 / 缺陷A / session 接口全部通过");
 
+        // ===== 8. 任务04b: 好友通过即建会话 =====
+        // 直接调 service 函数(免二次登录), 新建临时用户
+        let (user_a, user_a_rbdc) = seed_friend_user(&test_rb, "a").await?;
+        let (user_b, user_b_rbdc) = seed_friend_user(&test_rb, "b").await?;
+        let session_ab: RbatisUuid = single_session_uuid(&user_a, &user_b).to_string().parse()?;
+
+        // 8.1 接受好友 → session + 双方 user_session + 两条前置消息
+        let request = add_friend(
+            &test_rb,
+            friend_dto(&user_a, &user_b, Some("我是老王，群里的"), None, None),
+        )
+        .await
+        .context("发起好友申请失败")?;
+        assert_eq!(request.accept_status, Some(0), "新申请应为待处理");
+        let accepted = process_friend(
+            &test_rb,
+            friend_dto(&user_a, &user_b, None, Some("你好，通过了"), Some(1)),
+        )
+        .await
+        .context("通过好友申请失败")?;
+        assert_eq!(accepted.accept_status, Some(1), "接受后请求状态应为 1");
+
+        let sessions = Session::select_by_map(&test_rb, rbs::value! {"session_uuid": &session_ab})
+            .await
+            .context("查询 session 失败")?;
+        assert_eq!(sessions.len(), 1, "接受好友应创建 1 条 session");
+        assert_eq!(sessions[0].session_type, Some(SESSION_TYPE_SINGLE));
+        assert_eq!(sessions[0].last_preview.as_deref(), Some("你好，通过了"), "摘要应为通过留言");
+        let last_id = sessions[0].last_message_id.context("session.last_message_id 应非空")?;
+
+        let us_a = UserSession::select_by_map(
+            &test_rb,
+            rbs::value! {"user_uuid": &user_a_rbdc, "session_uuid": &session_ab},
+        )
+        .await
+        .context("查询 A user_session 失败")?;
+        assert_eq!(us_a.len(), 1, "A 应有 1 条 user_session");
+        assert_eq!(us_a[0].peer_uuid, Some(user_b_rbdc.clone()), "A 的 peer 应为 B");
+        assert_eq!(us_a[0].last_read_id, Some(0), "A 游标应初始化为 0(upsert COALESCE)");
+        assert_eq!(us_a[0].synced_id, Some(0), "A synced 应为 0");
+        let us_b = UserSession::select_by_map(
+            &test_rb,
+            rbs::value! {"user_uuid": &user_b_rbdc, "session_uuid": &session_ab},
+        )
+        .await
+        .context("查询 B user_session 失败")?;
+        assert_eq!(us_b.len(), 1, "B 应有 1 条 user_session");
+        assert_eq!(us_b[0].peer_uuid, Some(user_a_rbdc.clone()), "B 的 peer 应为 A");
+
+        let msgs = select_session_messages(&test_rb, &session_ab).await?;
+        assert_eq!(msgs.len(), 2, "接受好友应写 2 条前置消息");
+        assert_eq!(msgs[0].send_user, user_a_rbdc.clone(), "第 1 条应为 A→B");
+        assert_eq!(msgs[0].recv_user, user_b_rbdc.clone());
+        assert_eq!(msg_text(&msgs[0])?, "我是老王，群里的");
+        assert_eq!(msgs[1].send_user, user_b_rbdc.clone(), "第 2 条应为 B→A");
+        assert_eq!(msgs[1].recv_user, user_a_rbdc.clone());
+        assert_eq!(msg_text(&msgs[1])?, "你好，通过了");
+        assert_eq!(msgs[1].id, Some(last_id), "摘要应指向最新一条(B 条)");
+        assert_eq!(msgs[0].text_type, Some(0));
+        assert_eq!(msgs[1].text_type, Some(0));
+
+        // 8.2 双向未读归属: A 拉到 B 条, B 拉到 A 条
+        let unread_a: JsonValue = serde_json::from_str(
+            &get_unread_chat_record(&test_rb, Some(user_a.to_string())).await?,
+        )
+        .context("解析 A 未读响应失败")?;
+        let data_a = unread_a["data"].as_array().cloned().unwrap_or_default();
+        assert_eq!(data_a.len(), 1, "A 应恰好 1 条未读(B 的通过提示): {unread_a}");
+        assert_eq!(data_a[0]["recv_user"].clone(), JsonValue::String(user_a.to_string()));
+        assert_eq!(data_a[0]["send_user"].clone(), JsonValue::String(user_b.to_string()));
+
+        let unread_b: JsonValue = serde_json::from_str(
+            &get_unread_chat_record(&test_rb, Some(user_b.to_string())).await?,
+        )
+        .context("解析 B 未读响应失败")?;
+        let data_b = unread_b["data"].as_array().cloned().unwrap_or_default();
+        assert_eq!(data_b.len(), 1, "B 应恰好 1 条未读(A 的申请留言): {unread_b}");
+        assert_eq!(data_b[0]["recv_user"].clone(), JsonValue::String(user_b.to_string()));
+        assert_eq!(data_b[0]["send_user"].clone(), JsonValue::String(user_a.to_string()));
+        info!("任务04b 好友通过即建会话 / 双向未读 通过");
+
+        // 8.3 删好友后带道歉重加 → 道歉留言进入会话, 消息数=4
+        delete_friend_service(&test_rb, Some(user_a.to_string()), user_b.to_string())
+            .await
+            .context("删除好友失败")?;
+        add_friend(
+            &test_rb,
+            friend_dto(&user_a, &user_b, Some("对不起，之前是我不对"), None, None),
+        )
+        .await
+        .context("重加好友申请失败")?;
+        process_friend(&test_rb, friend_dto(&user_a, &user_b, None, None, Some(1)))
+            .await
+            .context("重加好友通过失败")?;
+        let msgs = select_session_messages(&test_rb, &session_ab).await?;
+        assert_eq!(msgs.len(), 4, "重加后应为 4 条消息(旧 2 + 新 2)");
+        assert_eq!(msgs[2].send_user, user_a_rbdc.clone(), "第 3 条应为道歉 A→B");
+        assert_eq!(msg_text(&msgs[2])?, "对不起，之前是我不对", "重加应保留本次道歉留言");
+        assert_eq!(msg_text(&msgs[3])?, FRIEND_ACCEPT_DEFAULT_MSG, "第 4 条应为通过模板");
+
+        // 8.4 事务原子性(缺陷R): FriendLink 主键冲突 → 全部回滚
+        let (user_c, user_c_rbdc) = seed_friend_user(&test_rb, "c").await?;
+        let (user_d, user_d_rbdc) = seed_friend_user(&test_rb, "d").await?;
+        let session_cd: RbatisUuid = single_session_uuid(&user_c, &user_d).to_string().parse()?;
+        let req_cd =
+            add_friend(&test_rb, friend_dto(&user_c, &user_d, Some("hi"), None, None)).await?;
+        let req_cd_uuid = req_cd.uuid.clone().context("请求 uuid 缺失")?;
+        // 预插一条同 uuid 但不同用户对的 friend_link → 接受时 FriendLink::insert 主键冲突
+        FriendLink::insert(
+            &test_rb,
+            &FriendLink {
+                uuid: Some(req_cd_uuid.clone()),
+                request_user: Some(RbatisUuid::new()),
+                accept_user: Some(RbatisUuid::new()),
+                is_del: Some(false),
+                created_at: Some(0),
+                updated_at: Some(0),
+                version: Some(0),
+            },
+        )
+        .await
+        .context("预插冲突 friend_link 失败")?;
+        let failed =
+            process_friend(&test_rb, friend_dto(&user_c, &user_d, None, None, Some(1))).await;
+        assert!(failed.is_err(), "FriendLink 主键冲突应导致接受失败");
+        // 申请状态必须回滚为待处理(缺陷R: 语句在同一事务)
+        let reqs = FriendRequestInfo::select_by_uuid(&test_rb, &user_c_rbdc, &user_d_rbdc)
+            .await
+            .context("查询好友请求失败")?;
+        let target = reqs
+            .iter()
+            .find(|r| r.uuid == Some(req_cd_uuid.clone()))
+            .context("未找到目标好友请求")?;
+        assert_eq!(target.accept_status, Some(0), "失败后申请状态应回滚为待处理");
+        assert!(
+            Session::select_by_map(&test_rb, rbs::value! {"session_uuid": &session_cd})
+                .await?
+                .is_empty(),
+            "失败后不应残留 session 行"
+        );
+        assert!(
+            UserSession::select_by_map(&test_rb, rbs::value! {"session_uuid": &session_cd})
+                .await?
+                .is_empty(),
+            "失败后不应残留 user_session 行"
+        );
+        assert!(
+            select_session_messages(&test_rb, &session_cd).await?.is_empty(),
+            "失败后不应残留消息"
+        );
+
+        // 8.5 申请/通过均无留言 → 两条默认文案
+        let (user_e, _user_e_rbdc) = seed_friend_user(&test_rb, "e").await?;
+        let (user_f, _user_f_rbdc) = seed_friend_user(&test_rb, "f").await?;
+        let session_ef: RbatisUuid = single_session_uuid(&user_e, &user_f).to_string().parse()?;
+        add_friend(&test_rb, friend_dto(&user_e, &user_f, None, None, None)).await?;
+        process_friend(&test_rb, friend_dto(&user_e, &user_f, None, None, Some(1))).await?;
+        let msgs = select_session_messages(&test_rb, &session_ef).await?;
+        assert_eq!(msgs.len(), 2, "无留言也应恒写两条默认文案");
+        assert_eq!(msg_text(&msgs[0])?, FRIEND_REQUEST_DEFAULT_MSG);
+        assert_eq!(msg_text(&msgs[1])?, FRIEND_ACCEPT_DEFAULT_MSG);
+        info!("任务04b 好友通过即建会话 全部通过");
+
         Ok::<(), anyhow::Error>(())
     })
     .catch_unwind()
@@ -991,6 +1162,64 @@ async fn http_service_user_api_integration() -> Result<()> {
         Ok(Err(e)) => Err(e),
         Err(panic) => std::panic::resume_unwind(panic),
     }
+}
+
+/// 任务04b: 直接写入一个可被好友流程引用的最小用户(basic_user 即满足 is_exist_user_by_uuid)。
+async fn seed_friend_user(rb: &RBatis, tag: &str) -> Result<(Uuid, RbatisUuid)> {
+    let uuid = Uuid::now_v7();
+    let rbdc: RbatisUuid = uuid.to_string().parse().context("解析用户 UUID 失败")?;
+    BasicUser::insert(
+        rb,
+        &BasicUser {
+            uuid: Some(rbdc.clone()),
+            username: Some(format!("friend_{tag}")),
+            account: Some(format!("friend_{tag}")),
+            icon: None,
+            info: Some(String::new()),
+            password: Some("FriendSeedPass123456".to_string()),
+            registration_status: Some(1),
+            user_type: Some(0),
+        },
+    )
+    .await
+    .context("写入好友测试用户失败")?;
+    Ok((uuid, rbdc))
+}
+
+/// 好友流程 DTO 构造(申请与接受共用)。
+fn friend_dto(
+    request_user: &Uuid,
+    accept_user: &Uuid,
+    request_message: Option<&str>,
+    accept_message: Option<&str>,
+    accept_status: Option<u8>,
+) -> FriendRequestInfoDTO {
+    FriendRequestInfoDTO {
+        request_message: request_message.map(str::to_string),
+        accept_message: accept_message.map(str::to_string),
+        request_user: Some(request_user.to_string()),
+        accept_user: Some(accept_user.to_string()),
+        add_type: Some("search".to_string()),
+        version: None,
+        accept_status,
+    }
+}
+
+/// 某会话的全部消息, 按 id 升序(会话内对话顺序)。
+async fn select_session_messages(
+    rb: &RBatis,
+    session_uuid: &RbatisUuid,
+) -> Result<Vec<ChatMessageRecord>> {
+    let mut msgs = ChatMessageRecord::select_by_map(rb, rbs::value! {"session_uuid": session_uuid})
+        .await
+        .context("查询会话消息失败")?;
+    msgs.sort_by_key(|m| m.id.unwrap_or(0));
+    Ok(msgs)
+}
+
+/// 消息 raw 内容(UTF-8)。
+fn msg_text(msg: &ChatMessageRecord) -> Result<String> {
+    Ok(String::from_utf8(msg.raw.clone().into_inner())?)
 }
 
 /// 构造字符串键值对的 JSON 对象（不使用 `serde_json::json!` 宏，因其内部调用 `unwrap` 违反仓库规范）

@@ -2625,6 +2625,7 @@ dependencies = [
  "hex",
  "image",
  "lazy_static",
+ "nanoid",
  "rand 0.8.5",
  "rbatis",
  "rbdc-pg",

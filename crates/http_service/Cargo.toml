@@ -37,6 +37,7 @@ image = { workspace = true }
 webp = { workspace = true }
 tokio = { workspace = true }
 rand = { workspace = true }
+nanoid = { workspace = true }
 
 [dev-dependencies]
 actix-http = { workspace = true }
