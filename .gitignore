@@ -5,3 +5,9 @@ resources/
 jwt/
 ssl/
 .env
+
+# 独立方案/参考文档(不纳入版本控制)
+docs/API网关边界方案.md
+docs/QUIC消息类型常量重命名方案.md
+docs/QUIC消息魔术字段对照.md
+docs/quic_service锁范围审计.md
