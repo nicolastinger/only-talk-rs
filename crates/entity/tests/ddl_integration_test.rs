@@ -93,6 +93,23 @@ async fn apply_all_ddl_to_test_database() -> Result<()> {
             }
             info!("{} 唯一约束含分区键 {} 校验通过", table, key_col);
         }
+
+        // 任务11 §7: PK 必须含分区键, 且带 INCLUDE 列(免回表)
+        for (table, key_col, include_col) in [
+            ("chat_message_record", "session_uuid", "timestamp"),
+            ("group_message_record", "group_uuid", "timestamp"),
+        ] {
+            let def = primary_key_def(&test_rb, table)
+                .await?
+                .ok_or_else(|| anyhow!("{} 无主键约束", table))?;
+            if !def.contains(key_col) {
+                return Err(anyhow!("{} PK 应含分区键 {}: {}", table, key_col, def));
+            }
+            if !def.contains("INCLUDE") || !def.contains(include_col) {
+                return Err(anyhow!("{} PK 应带 INCLUDE {}: {}", table, include_col, def));
+            }
+            info!("{} PK 校验通过: {}", table, def);
+        }
         Ok(())
     }
     .await;
@@ -143,15 +160,26 @@ async fn unique_constraint_has_column(
     table: &str,
     column: &str,
 ) -> Result<bool> {
+    let defs = constraint_defs(rb, table, "u").await?;
+    Ok(defs.iter().any(|d| d.contains(column)))
+}
+
+/// 该表主键约束定义(任务11 §7: PK 含分区键 + INCLUDE)
+async fn primary_key_def(rb: &rbatis::RBatis, table: &str) -> Result<Option<String>> {
+    Ok(constraint_defs(rb, table, "p").await?.into_iter().next())
+}
+
+/// 查询某表指定类型(contype: p=主键 / u=唯一)的约束定义
+async fn constraint_defs(rb: &rbatis::RBatis, table: &str, contype: &str) -> Result<Vec<String>> {
     let sql = format!(
         "SELECT pg_get_constraintdef(c.oid) AS def FROM pg_constraint c \
          JOIN pg_class t ON t.oid = c.conrelid \
-         WHERE t.relname = '{}' AND c.contype = 'u'",
-        table
+         WHERE t.relname = '{}' AND c.contype = '{}'",
+        table, contype
     );
     let result: rbs::Value =
-        rb.query(&sql, vec![]).await.map_err(|e| anyhow!("查询唯一约束失败: {}", e))?;
-    let defs: Vec<String> = result
+        rb.query(&sql, vec![]).await.map_err(|e| anyhow!("查询约束定义失败: {}", e))?;
+    Ok(result
         .as_array()
         .map(|rows| {
             rows.iter()
@@ -162,6 +190,5 @@ async fn unique_constraint_has_column(
                 })
                 .collect::<Vec<String>>()
         })
-        .unwrap_or_default();
-    Ok(defs.iter().any(|d| d.contains(column)))
+        .unwrap_or_default())
 }

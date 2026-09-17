@@ -209,7 +209,7 @@ pub async fn start_server() -> anyhow::Result<()> {
                     )
                     .await
                     {
-                        Ok((s, g)) if s + g > 0 => total += s + g,
+                        Ok(n) if n > 0 => total += n,
                         Ok(_) => break,
                         Err(e) => {
                             error!("[cleanup] 清理批次失败: {}", e);

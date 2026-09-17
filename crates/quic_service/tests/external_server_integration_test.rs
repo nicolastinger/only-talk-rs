@@ -636,12 +636,25 @@ async fn send_single_chat(
     Ok(())
 }
 
+/// 轮询数据库, 返回涉及 uuid 的最新一条落库消息(按 id 降序)。
+///
+/// 任务11 起不再有 `select_last_by_column`(死函数), 测试本地实现, 不新增生产代码。
+async fn latest_chat_involving(db: &RBatis, uuid: &str) -> Result<Option<ChatMessageRecord>> {
+    let rbdc: RbatisUuid = uuid.to_string().parse().context("解析查询 UUID 失败")?;
+    let sql = "select * from chat_message_record \
+               where recv_user = $1 or send_user = $1 order by id desc limit 1";
+    let result = db.query(sql, vec![rbs::value!(&rbdc)]).await.context("查询最新消息失败")?;
+    match result.as_array().and_then(|rows| rows.first()).cloned() {
+        Some(v) => Ok(Some(rbs::from_value(v).map_err(|e| anyhow!("反序列化消息失败: {}", e))?)),
+        None => Ok(None),
+    }
+}
+
 /// 轮询数据库, 返回涉及 uuid 的最新一条落库消息
 async fn wait_last_chat(db: &RBatis, uuid: &str, timeout: Duration) -> Result<ChatMessageRecord> {
-    let rbdc: RbatisUuid = uuid.to_string().parse().context("解析查询 UUID 失败")?;
     let deadline = std::time::Instant::now() + timeout;
     loop {
-        if let Some(msg) = ChatMessageRecord::select_last_by_column(db, &rbdc).await? {
+        if let Some(msg) = latest_chat_involving(db, uuid).await? {
             return Ok(msg);
         }
         if std::time::Instant::now() >= deadline {
@@ -658,10 +671,9 @@ async fn wait_next_chat(
     last_id: Option<i64>,
     timeout: Duration,
 ) -> Result<ChatMessageRecord> {
-    let rbdc: RbatisUuid = uuid.to_string().parse().context("解析查询 UUID 失败")?;
     let deadline = std::time::Instant::now() + timeout;
     loop {
-        if let Some(msg) = ChatMessageRecord::select_last_by_column(db, &rbdc).await?
+        if let Some(msg) = latest_chat_involving(db, uuid).await?
             && msg.id != last_id
         {
             return Ok(msg);

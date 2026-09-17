@@ -43,8 +43,9 @@ impl GroupMessageRecord {
         Ok(Self::select_by_nano_id_inner(rb, nano_id).await?.into_iter().next())
     }
 
+    /// 群聊翻历史(任务11: 排序统一到 `id`, 与同步/未读一致, 由 PK 支持, 不再依赖 timestamp 索引)。
     #[rbatis::py_sql(
-        "select * from group_message_record where group_uuid = #{group_uuid} order by timestamp desc limit #{size} offset #{start}"
+        "select * from group_message_record where group_uuid = #{group_uuid} order by id desc limit #{size} offset #{start}"
     )]
     async fn select_by_group(
         rb: &dyn Executor,

@@ -58,8 +58,11 @@ CREATE TABLE IF NOT EXISTS group_message_record (
     raw BYTEA NOT NULL,
     msg_type SMALLINT DEFAULT 1,
     recalled BOOLEAN DEFAULT FALSE,
-    PRIMARY KEY (id, group_uuid),
-    UNIQUE (nano_id, group_uuid)
+    -- 任务11: PK 以分区键打头, 承担同步/最大id/翻历史三类热读;
+    --         INCLUDE 使窗口过滤(timestamp)与群未读计数(send_user)免回表。
+    CONSTRAINT group_message_record_pk
+        PRIMARY KEY (group_uuid, id) INCLUDE ("timestamp", send_user),
+    CONSTRAINT group_message_record_nano_uk UNIQUE (nano_id, group_uuid)
 ) PARTITION BY HASH (group_uuid);
 
 -- 16 个哈希分区
@@ -88,8 +91,7 @@ COMMENT ON COLUMN group_message_record.recalled IS '是否撤回';
 CREATE INDEX IF NOT EXISTS idx_group_member_group ON group_member(group_uuid);
 CREATE INDEX IF NOT EXISTS idx_group_member_user ON group_member(user_uuid);
 CREATE INDEX IF NOT EXISTS idx_group_member_status ON group_member(status);
--- 与单聊对称的拉取索引(游标+排序同列, 7天窗口免回表)
-CREATE INDEX IF NOT EXISTS idx_group_msg_pull ON group_message_record (group_uuid, id) INCLUDE ("timestamp");
--- 保留原索引(会话内按时间翻历史, offset 分页)
-CREATE INDEX IF NOT EXISTS idx_group_msg_group_time ON group_message_record(group_uuid, timestamp DESC);
-CREATE INDEX IF NOT EXISTS idx_group_msg_send_user ON group_message_record(send_user);
+-- 任务11: 群消息表不再有任何独立索引
+--   (原 idx_group_msg_pull       (group_uuid,id) INCLUDE(timestamp) → PK)
+--   (原 idx_group_msg_group_time (group_uuid,timestamp DESC)        → PK, 翻历史排序统一到 id)
+--   (原 idx_group_msg_send_user  (send_user)                        → PK 的 INCLUDE 列, 且原无查询使用)
