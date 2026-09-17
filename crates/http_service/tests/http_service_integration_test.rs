@@ -42,7 +42,6 @@ use deadpool_redis::{Config as RedisConfig, Pool, Runtime};
 use email_service::config::EmailServiceConfig;
 use email_service::manager::EmailManager;
 use futures_util::FutureExt;
-use http_service::http_service::chat_service::service::text_msg_service::get_unread_chat_record;
 use http_service::http_service::configure_routes;
 use http_service::http_service::session_service::dto::{
     SessionControlDTO, SessionListCursor, SessionListDTO, SyncRequestDTO,
@@ -709,8 +708,8 @@ async fn http_service_user_api_integration() -> Result<()> {
         assert_eq!(status, StatusCode::BAD_REQUEST, "举报不存在目标应返回 400: {json}");
         info!("举报接口全部通过");
 
-        // ===== 7. 任务04: 已读桥接 / 缺陷A / session 接口 =====
-        // 7.1 桥接单聊: 旧 DTO 上报 → 直写 user_session 游标(读到底, synced 同步推进)
+        // ===== 7. 任务08: 历史接口 session_uuid 化 + 旧接口 404 =====
+        // 7.1 get_chat_record: 旧 path 参数(friend_uuid) 与新 Body 参数(session_uuid) 结果一致
         let peer_a = Uuid::new_v4();
         let peer_a_rbdc: RbatisUuid = peer_a.to_string().parse()?;
         let session_a: RbatisUuid = single_session_uuid(&seed_uuid, &peer_a).to_string().parse()?;
@@ -720,7 +719,7 @@ async fn http_service_user_api_integration() -> Result<()> {
                 &ChatMessageRecord {
                     id: None,
                     session_uuid: session_a.clone(),
-                    nano_id: Some(format!("bridge-a-{ts}")),
+                    nano_id: Some(format!("hist-a-{ts}")),
                     timestamp: Some(ts),
                     raw: b"hi".to_vec().into(),
                     text_type: Some(1),
@@ -729,201 +728,59 @@ async fn http_service_user_api_integration() -> Result<()> {
                 },
             )
             .await
-            .context("插入桥接单聊消息失败")?;
+            .context("插入历史测试消息失败")?;
         }
-        let expected_a = ChatMessageRecord::max_id_by_session(&test_rb, &session_a).await?;
-
-        // 构造旧契约已读上报体(单聊: send/recv + chat_type=1; 群聊 chat_type=2)
-        let bridge_read_body = |peer: &Uuid, nano: &str, ts: i64, chat_type: i64| {
+        let old_body = {
             let mut m = serde_json::Map::new();
-            m.insert("nano_id".into(), JsonValue::String(nano.to_string()));
-            m.insert("timestamp".into(), JsonValue::from(ts));
-            m.insert("send_user".into(), JsonValue::String(peer.to_string()));
-            m.insert("recv_user".into(), JsonValue::String(seed_uuid.to_string()));
-            m.insert("chat_type".into(), JsonValue::from(chat_type));
-            JsonValue::Array(vec![JsonValue::Object(m)])
+            m.insert("page_num".into(), JsonValue::from(0));
+            m.insert("page_size".into(), JsonValue::from(10));
+            JsonValue::Object(m)
         };
-
-        let (status, json) = post_json(
+        let (status, old_json) = post_json(
             &app,
-            "/msg/add_read_chat_record",
-            Some(&bridge_read_body(&peer_a, "bridge-a-2000", 2_000, 1)),
+            &format!("/msg/get_chat_record/{}", peer_a),
+            Some(&old_body),
             Some(&access_token),
         )
         .await;
-        assert_eq!(status, StatusCode::OK, "桥接单聊已读上报应成功: {json}");
-
-        let us_a = UserSession::select_by_map(
-            &test_rb,
-            rbs::value! {"user_uuid": &seed_uuid_rbdc, "session_uuid": &session_a},
-        )
-        .await
-        .context("查询桥接 user_session 失败")?;
-        assert_eq!(us_a.len(), 1, "桥接应建立 user_session 行");
-        assert_eq!(us_a[0].last_read_id, Some(expected_a), "桥接应把已读游标推到 max");
-        assert_eq!(us_a[0].synced_id, Some(expected_a), "桥接应同步推进 synced_id");
-        assert_eq!(us_a[0].peer_uuid, Some(peer_a_rbdc.clone()), "桥接应记录对方 uuid");
-
-        // 再发一条新消息 → 二次上报 → 游标前进
-        ChatMessageRecord::insert(
-            &test_rb,
-            &ChatMessageRecord {
-                id: None,
-                session_uuid: session_a.clone(),
-                nano_id: Some("bridge-a-3000".to_string()),
-                timestamp: Some(3_000),
-                raw: b"hi2".to_vec().into(),
-                text_type: Some(1),
-                send_user: peer_a_rbdc.clone(),
-                recv_user: seed_uuid_rbdc.clone(),
-            },
-        )
-        .await
-        .context("插入第二条桥接消息失败")?;
-        let expected_a2 = ChatMessageRecord::max_id_by_session(&test_rb, &session_a).await?;
-        assert!(expected_a2 > expected_a, "新消息 id 应更大");
-        let (status, _json) = post_json(
+        assert_eq!(status, StatusCode::OK, "旧参数查历史应成功: {old_json}");
+        let new_body = {
+            let mut m = serde_json::Map::new();
+            m.insert("session_uuid".into(), JsonValue::String(session_a.to_string()));
+            m.insert("page_num".into(), JsonValue::from(0));
+            m.insert("page_size".into(), JsonValue::from(10));
+            JsonValue::Object(m)
+        };
+        let (status, new_json) = post_json(
             &app,
-            "/msg/add_read_chat_record",
-            Some(&bridge_read_body(&peer_a, "bridge-a-3000", 3_000, 1)),
+            &format!("/msg/get_chat_record/{}", Uuid::now_v7()),
+            Some(&new_body),
             Some(&access_token),
         )
         .await;
-        assert_eq!(status, StatusCode::OK, "二次桥接上报应成功");
-        let us_a2 = UserSession::select_by_map(
-            &test_rb,
-            rbs::value! {"user_uuid": &seed_uuid_rbdc, "session_uuid": &session_a},
-        )
-        .await
-        .context("二次查询桥接 user_session 失败")?;
-        assert_eq!(us_a2[0].last_read_id, Some(expected_a2), "二次上报游标应前进");
-
-        // 7.2 桥接群聊: 旧 DTO(chat_type=2) → 群会话游标推进
-        let group_uuid = Uuid::new_v4();
-        let group_uuid_rbdc: RbatisUuid = group_uuid.to_string().parse()?;
-        let owner = Uuid::new_v4();
-        let owner_rbdc: RbatisUuid = owner.to_string().parse()?;
-        GroupInfo::insert(
-            &test_rb,
-            &GroupInfo {
-                id: None,
-                group_uuid: Some(group_uuid_rbdc.clone()),
-                group_name: Some("桥接测试群".to_string()),
-                avatar: None,
-                owner_uuid: Some(owner_rbdc.clone()),
-                description: None,
-                max_members: Some(200),
-                created_at: Some(0),
-                updated_at: Some(0),
-                status: Some(1),
-            },
-        )
-        .await
-        .context("插入桥接群信息失败")?;
-        for ts in [1_000i64, 2_000] {
-            GroupMessageRecord::insert(
-                &test_rb,
-                &GroupMessageRecord {
-                    id: None,
-                    nano_id: Some(format!("bridge-g-{ts}")),
-                    group_uuid: Some(group_uuid_rbdc.clone()),
-                    send_user: Some(owner_rbdc.clone()),
-                    timestamp: Some(ts),
-                    raw: b"gm".to_vec().into(),
-                    msg_type: Some(MSG_TYPE_TEXT),
-                    recalled: Some(false),
-                },
-            )
-            .await
-            .context("插入桥接群消息失败")?;
-        }
-        let expected_g = GroupMessageRecord::max_id_by_group(&test_rb, &group_uuid_rbdc).await?;
-        let (status, json) = post_json(
-            &app,
-            "/msg/add_read_chat_record",
-            Some(&bridge_read_body(&owner, "bridge-g-2000", 2_000, 2)),
-            Some(&access_token),
-        )
-        .await;
-        assert_eq!(status, StatusCode::OK, "桥接群聊已读上报应成功: {json}");
-        let us_g = UserSession::select_by_map(
-            &test_rb,
-            rbs::value! {"user_uuid": &seed_uuid_rbdc, "session_uuid": &group_uuid_rbdc},
-        )
-        .await
-        .context("查询桥接群 user_session 失败")?;
-        assert_eq!(us_g.len(), 1, "群桥接应建立 user_session 行");
-        assert_eq!(us_g[0].session_type, Some(SESSION_TYPE_GROUP));
-        assert_eq!(us_g[0].last_read_id, Some(expected_g), "群桥接游标应到 max");
-        assert_eq!(us_g[0].synced_id, Some(expected_g));
-
-        // 7.3 缺陷A回归: 读取 C 会话不应丢掉 B 会话的未读(旧全局时间戳会丢)
-        let peer_b = Uuid::new_v4();
-        let peer_c = Uuid::new_v4();
-        let peer_b_rbdc: RbatisUuid = peer_b.to_string().parse()?;
-        let peer_c_rbdc: RbatisUuid = peer_c.to_string().parse()?;
-        let session_ab: RbatisUuid =
-            single_session_uuid(&seed_uuid, &peer_b).to_string().parse()?;
-        let session_ac: RbatisUuid =
-            single_session_uuid(&seed_uuid, &peer_c).to_string().parse()?;
-        ChatMessageRecord::insert(
-            &test_rb,
-            &ChatMessageRecord {
-                id: None,
-                session_uuid: session_ab.clone(),
-                nano_id: Some("defect-a-b".to_string()),
-                timestamp: Some(1_000),
-                raw: b"b".to_vec().into(),
-                text_type: Some(1),
-                send_user: peer_b_rbdc.clone(),
-                recv_user: seed_uuid_rbdc.clone(),
-            },
-        )
-        .await
-        .context("插入缺陷A B 消息失败")?;
-        ChatMessageRecord::insert(
-            &test_rb,
-            &ChatMessageRecord {
-                id: None,
-                session_uuid: session_ac.clone(),
-                nano_id: Some("defect-a-c".to_string()),
-                timestamp: Some(2_000),
-                raw: b"c".to_vec().into(),
-                text_type: Some(1),
-                send_user: peer_c_rbdc.clone(),
-                recv_user: seed_uuid_rbdc.clone(),
-            },
-        )
-        .await
-        .context("插入缺陷A C 消息失败")?;
-        // 聚合建立两个会话的 user_session 行(与上线触发同源)
-        aggregate_user_sessions(&test_rb, &seed_uuid_rbdc).await.context("聚合失败")?;
-        // A 读取 C 会话
-        let (status, json) = post_json(
-            &app,
-            "/msg/add_read_chat_record",
-            Some(&bridge_read_body(&peer_c, "defect-a-c", 2_000, 1)),
-            Some(&access_token),
-        )
-        .await;
-        assert_eq!(status, StatusCode::OK, "C 会话上报应成功: {json}");
-        // 拉未读: B 的消息必须仍返回, C 的已读不应返回
-        let (status, json) =
-            post_json(&app, "/msg/get_unread_chat_record", None, Some(&access_token)).await;
-        assert_eq!(status, StatusCode::OK, "拉未读应成功: {json}");
-        let nanos: Vec<String> = json["data"]
+        assert_eq!(status, StatusCode::OK, "新参数查历史应成功: {new_json}");
+        let old_nanos: Vec<String> = old_json["data"]
             .as_array()
-            .map(|arr| {
-                arr.iter().filter_map(|v| v["nano_id"].as_str().map(|s| s.to_string())).collect()
-            })
+            .map(|a| a.iter().filter_map(|v| v["nano_id"].as_str().map(str::to_string)).collect())
             .unwrap_or_default();
-        assert!(
-            nanos.iter().any(|n| n == "defect-a-b"),
-            "缺陷A: B 的未读不应因读取 C 会话而丢失: {json}"
+        let new_nanos: Vec<String> = new_json["data"]
+            .as_array()
+            .map(|a| a.iter().filter_map(|v| v["nano_id"].as_str().map(str::to_string)).collect())
+            .unwrap_or_default();
+        assert_eq!(
+            old_nanos,
+            vec!["hist-a-1000", "hist-a-2000"],
+            "旧参数应返回该会话消息: {old_json}"
         );
-        assert!(!nanos.iter().any(|n| n == "defect-a-c"), "C 会话已读后不应再出现在未读: {json}");
+        assert_eq!(old_nanos, new_nanos, "新参数与旧参数派生应返回同一会话: {new_json}");
 
-        // 7.4 /session/read 钳制到 synced_id + /session/synced 推进
+        // 7.2 旧接口 404 回归(任务08 已删除路由)
+        for uri in ["/msg/get_unread_chat_record", "/msg/add_read_chat_record"] {
+            let (status, _) = post_json(&app, uri, None, Some(&access_token)).await;
+            assert_eq!(status, StatusCode::NOT_FOUND, "{uri} 应 404(路由已删)");
+        }
+        info!("任务08 历史接口 session_uuid 化 / 旧接口 404 通过");
+        // 7.3 /session/read 钳制到 synced_id + /session/synced 推进
         let session_d: RbatisUuid = Uuid::new_v4().to_string().parse()?;
         UserSession::upsert(
             &test_rb,
@@ -1050,25 +907,45 @@ async fn http_service_user_api_integration() -> Result<()> {
         assert_eq!(msgs[0].text_type, Some(0));
         assert_eq!(msgs[1].text_type, Some(0));
 
-        // 8.2 双向未读归属: A 拉到 B 条, B 拉到 A 条
-        let unread_a: JsonValue = serde_json::from_str(
-            &get_unread_chat_record(&test_rb, Some(user_a.to_string())).await?,
-        )
-        .context("解析 A 未读响应失败")?;
-        let data_a = unread_a["data"].as_array().cloned().unwrap_or_default();
-        assert_eq!(data_a.len(), 1, "A 应恰好 1 条未读(B 的通过提示): {unread_a}");
-        assert_eq!(data_a[0]["recv_user"].clone(), JsonValue::String(user_a.to_string()));
-        assert_eq!(data_a[0]["send_user"].clone(), JsonValue::String(user_b.to_string()));
-
-        let unread_b: JsonValue = serde_json::from_str(
-            &get_unread_chat_record(&test_rb, Some(user_b.to_string())).await?,
-        )
-        .context("解析 B 未读响应失败")?;
-        let data_b = unread_b["data"].as_array().cloned().unwrap_or_default();
-        assert_eq!(data_b.len(), 1, "B 应恰好 1 条未读(A 的申请留言): {unread_b}");
-        assert_eq!(data_b[0]["recv_user"].clone(), JsonValue::String(user_b.to_string()));
-        assert_eq!(data_b[0]["send_user"].clone(), JsonValue::String(user_a.to_string()));
-        info!("任务04b 好友通过即建会话 / 双向未读 通过");
+        // 8.2 双向投递(经 /session/sync): 会话内双向消息都同步, 未读归属由客户端按 recv_user 计算
+        let has_pair = |msgs: &[(String, String)], send: &str, recv: &str| {
+            msgs.iter().any(|(s, r)| s == send && r == recv)
+        };
+        let sync_a = sync_sessions(&test_rb, Some(user_a.to_string()), sync_req(None, None, None))
+            .await
+            .context("A 同步失败")?;
+        let msgs_a: Vec<(String, String)> = sync_a
+            .sessions
+            .iter()
+            .flat_map(|s| {
+                s.messages
+                    .iter()
+                    .map(|m| (m.send_user.clone(), m.recv_user.clone()))
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        assert!(
+            has_pair(&msgs_a, &user_b.to_string(), &user_a.to_string()),
+            "A 同步应含 B→A 的通过提示: {msgs_a:?}"
+        );
+        let sync_b = sync_sessions(&test_rb, Some(user_b.to_string()), sync_req(None, None, None))
+            .await
+            .context("B 同步失败")?;
+        let msgs_b: Vec<(String, String)> = sync_b
+            .sessions
+            .iter()
+            .flat_map(|s| {
+                s.messages
+                    .iter()
+                    .map(|m| (m.send_user.clone(), m.recv_user.clone()))
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        assert!(
+            has_pair(&msgs_b, &user_a.to_string(), &user_b.to_string()),
+            "B 同步应含 A→B 的申请留言: {msgs_b:?}"
+        );
+        info!("任务04b 好友通过即建会话 / 双向投递 通过");
 
         // 8.3 删好友后带道歉重加 → 道歉留言进入会话, 消息数=4
         delete_friend_service(&test_rb, Some(user_a.to_string()), user_b.to_string())

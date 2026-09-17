@@ -19,18 +19,6 @@ pub struct ChatMessageRecord {
 crud!(ChatMessageRecord {});
 
 impl ChatMessageRecord {
-    #[rbatis::py_sql(
-        "select * from chat_message_record where ((send_user = #{send_user} and recv_user = #{recv_user}) or (send_user = #{recv_user} and recv_user = #{send_user})) order by id limit #{size} offset #{start}"
-    )]
-    async fn select_chat_by_limit(
-        rb: &dyn Executor,
-        send_user: Uuid,
-        recv_user: Uuid,
-        start: u32,
-        size: u32,
-    ) -> Vec<ChatMessageRecord> {
-    }
-
     // 获取最新一条消息
     #[rbatis::py_sql(
         "select * from chat_message_record where recv_user = #{uuid} or send_user = #{uuid} order by timestamp desc limit 1"
@@ -45,19 +33,27 @@ impl ChatMessageRecord {
         Ok(Self::select_last_by_column_inner(rb, uuid).await?.into_iter().next())
     }
 
-    /// 按会话游标拉取"我收到的"未读消息(缺陷A修复的核心查询: 游标与排序同列 id)。
+    /// 按会话分页翻历史(任务08): 分区剪枝 + 索引扫描, 取代双向 OR 全分区扫描。
     #[rbatis::py_sql(
         "select * from chat_message_record
-         where session_uuid = #{session_uuid} and id > #{cursor} and recv_user = #{me}
-         order by id asc limit #{size}"
+         where session_uuid = #{session_uuid}
+         order by id limit #{size} offset #{start}"
     )]
-    async fn select_unread_by_cursor(
+    async fn select_by_session_paged_inner(
         rb: &dyn Executor,
         session_uuid: &Uuid,
-        me: &Uuid,
-        cursor: i64,
+        start: u32,
         size: u32,
     ) -> Vec<ChatMessageRecord> {
+    }
+
+    pub async fn select_by_session_paged(
+        rb: &dyn Executor,
+        session_uuid: &Uuid,
+        start: u32,
+        size: u32,
+    ) -> rbatis::Result<Vec<ChatMessageRecord>> {
+        Self::select_by_session_paged_inner(rb, session_uuid, start, size).await
     }
 
     /// 会话当前最大消息 id(桥接"读到底"用; 单分区索引扫描, 便宜)。

@@ -13,8 +13,8 @@ use crate::http_service::group_service::group_service::{
     accept_group_invitation_service, create_group_service, decline_group_invitation_service,
     dissolve_group_service, get_group_info_service, get_group_members_service,
     get_group_message_history_service, get_my_groups_service, get_pending_invitations_service,
-    get_sent_invitations_service, get_unread_group_messages_service, invite_group_members_service,
-    quit_group_service, remove_group_member_service, set_member_role_service, update_group_service,
+    get_sent_invitations_service, invite_group_members_service, quit_group_service,
+    remove_group_member_service, set_member_role_service, update_group_service,
 };
 use crate::state::AppState;
 use crate::utils::http_response::CommonResponse;
@@ -35,8 +35,7 @@ pub fn group_service(cfg: &mut web::ServiceConfig) {
         .service(remove_group_member)
         .service(quit_group)
         .service(set_member_role)
-        .service(get_group_message_history)
-        .service(get_unread_group_messages);
+        .service(get_group_message_history);
 }
 
 fn get_uuid(req: &HttpRequest) -> String {
@@ -233,15 +232,5 @@ pub async fn get_group_message_history(
     let dto = validate_and_respond!(body);
     let uuid = get_uuid(&req);
     let res = get_group_message_history_service(state.db(), &uuid, dto).await;
-    respond_json(res)
-}
-
-#[get("/message/unread")]
-pub async fn get_unread_group_messages(
-    state: web::Data<AppState>,
-    req: HttpRequest,
-) -> impl Responder {
-    let uuid = get_uuid(&req);
-    let res = get_unread_group_messages_service(state.db(), &uuid).await;
     respond_json(res)
 }

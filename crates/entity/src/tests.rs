@@ -8,9 +8,6 @@ use std::str::FromStr;
 use rbatis::rbdc::{Bytes, Uuid};
 use validator::Validate;
 
-use crate::models::chat_entity::add_read_chat_record::{
-    AddReadChatRecordDTO, CHAT_TYPE_GROUP, CHAT_TYPE_SINGLE,
-};
 use crate::models::chat_entity::chat_message_record::ChatMessageRecord;
 use crate::models::file_entity::biz_file_link::BizFileLink;
 use crate::models::file_entity::biz_record::BizRecord;
@@ -62,12 +59,6 @@ where
 /// 常量定义
 mod constants {
     use super::*;
-
-    #[test]
-    fn chat_type_constants() {
-        assert_eq!(CHAT_TYPE_SINGLE, 1);
-        assert_eq!(CHAT_TYPE_GROUP, 2);
-    }
 
     #[test]
     fn group_invitation_constants() {
@@ -310,27 +301,6 @@ mod chat_entity {
     }
 
     #[test]
-    fn add_read_chat_record_dto_chat_type_defaults_to_none() {
-        let json: serde_json::Value = serde_json::from_str(
-            r#"{"nano_id":"nano-1","timestamp":1700000000000,"send_user":"00000000-0000-0000-0000-000000000001","recv_user":"00000000-0000-0000-0000-000000000002"}"#,
-        )
-        .expect("解析 JSON 失败");
-        let dto: AddReadChatRecordDTO = serde_json::from_value(json).expect("反序列化失败");
-        assert_eq!(dto.nano_id.as_deref(), Some("nano-1"));
-        assert_eq!(dto.chat_type, None);
-    }
-
-    #[test]
-    fn add_read_chat_record_dto_with_chat_type() {
-        let json: serde_json::Value = serde_json::from_str(
-            r#"{"send_user":"00000000-0000-0000-0000-000000000001","recv_user":"00000000-0000-0000-0000-000000000002","chat_type":2}"#,
-        )
-        .expect("解析 JSON 失败");
-        let dto: AddReadChatRecordDTO = serde_json::from_value(json).expect("反序列化失败");
-        assert_eq!(dto.chat_type, Some(2));
-    }
-
-    #[test]
     fn select_latest_per_session_sql_text() {
         // 任务03 回归: 聚合发现查询必须按会话 distinct 取 id 最大行
         // 直接断言 py_sql 宏内 SQL 文本, 防止未来把 distinct on / 排序改坏
@@ -346,16 +316,16 @@ mod chat_entity {
     }
 
     #[test]
-    fn select_unread_by_cursor_sql_text() {
-        // 任务04 缺陷A回归: 未读拉取必须按会话游标 + 只取"我收到的" + id 升序
+    fn select_by_session_paged_sql_text() {
+        // 任务08 回归: 历史查询必须按 session_uuid 等值 + id 排序(分区剪枝)
         let src = include_str!("models/chat_entity/chat_message_record.rs");
         assert!(
-            src.contains("session_uuid = #{session_uuid} and id > #{cursor} and recv_user = #{me}"),
-            "select_unread_by_cursor 必须按会话游标 + recv_user 过滤, 实际 SQL 文本被改"
+            src.contains("where session_uuid = #{session_uuid}"),
+            "select_by_session_paged 必须带 session_uuid 等值条件, 实际 SQL 文本被改"
         );
         assert!(
-            src.contains("order by id asc limit #{size}"),
-            "select_unread_by_cursor 必须 order by id asc + 参数化 limit, 实际 SQL 文本被改"
+            src.contains("order by id limit #{size} offset #{start}"),
+            "select_by_session_paged 必须 order by id + 参数化分页, 实际 SQL 文本被改"
         );
     }
 }

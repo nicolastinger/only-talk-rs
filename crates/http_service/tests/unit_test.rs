@@ -18,9 +18,7 @@ use http_service::http_service::group_service::group_dto::update_group_dto::Upda
 use http_service::http_service::group_service::group_vo::group_info_vo::GroupInfoVO;
 use http_service::http_service::group_service::group_vo::group_invitation_vo::GroupInvitationVO;
 use http_service::http_service::group_service::group_vo::group_member_vo::GroupMemberVO;
-use http_service::http_service::group_service::group_vo::group_message_vo::{
-    GroupMessageVO, UnreadCountVO,
-};
+use http_service::http_service::group_service::group_vo::group_message_vo::GroupMessageVO;
 use http_service::http_service::moment_service::dto::moment_dto::{
     AddCommentDTO, CommentListQuery, CreateMomentDTO, DeleteMomentDTO, LikeToggleDTO,
 };
@@ -658,8 +656,18 @@ mod serde_roundtrip {
 
     #[test]
     fn base_dto_roundtrip() {
-        assert_roundtrip(&BasePageDTO { page_num: Some(1), page_size: Some(20), total: Some(99) });
-        assert_roundtrip(&BasePageDTO { page_num: None, page_size: None, total: None });
+        assert_roundtrip(&BasePageDTO {
+            page_num: Some(1),
+            page_size: Some(20),
+            total: Some(99),
+            session_uuid: None,
+        });
+        assert_roundtrip(&BasePageDTO {
+            page_num: None,
+            page_size: None,
+            total: None,
+            session_uuid: None,
+        });
     }
 
     #[test]
@@ -713,11 +721,6 @@ mod serde_roundtrip {
             msg_type: 2001,
             recalled: false,
             has_more: Some(false),
-        });
-        assert_roundtrip(&UnreadCountVO {
-            group_uuid: "g1".to_string(),
-            unread_count: 3,
-            last_read_msg_id: 9,
         });
     }
 
@@ -884,13 +887,14 @@ mod chat_page_range {
     #[test]
     fn size_takes_page_size_not_page_num() {
         // 历史缺陷: start 与 size 都读 page_num, page_size 被忽略
-        let dto = BasePageDTO { page_num: Some(2), page_size: Some(30), total: None };
+        let dto =
+            BasePageDTO { page_num: Some(2), page_size: Some(30), total: None, session_uuid: None };
         assert_eq!(page_range(&dto), (2, 30));
     }
 
     #[test]
     fn defaults_when_absent() {
-        let dto = BasePageDTO { page_num: None, page_size: None, total: None };
+        let dto = BasePageDTO { page_num: None, page_size: None, total: None, session_uuid: None };
         assert_eq!(page_range(&dto), (0, 10));
     }
 }

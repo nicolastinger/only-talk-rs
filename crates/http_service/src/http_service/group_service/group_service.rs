@@ -3,7 +3,6 @@ use std::net::SocketAddr;
 use anyhow::{Result, anyhow};
 use common::config_str::GROUP_MEMBERS_CACHE;
 use common::models::notify_entity::system_notification::SystemNotification;
-use common::models::session_entity::session::SESSION_TYPE_GROUP;
 use common::models::session_entity::user_session::UserSession;
 use common::read_global_config;
 use common::utils::internal_quic_client::send_internal_quic_msg;
@@ -33,9 +32,7 @@ use crate::http_service::group_service::group_dto::update_group_dto::UpdateGroup
 use crate::http_service::group_service::group_vo::group_info_vo::{GroupInfoVO, GroupListItemVO};
 use crate::http_service::group_service::group_vo::group_invitation_vo::GroupInvitationVO;
 use crate::http_service::group_service::group_vo::group_member_vo::GroupMemberVO;
-use crate::http_service::group_service::group_vo::group_message_vo::{
-    GroupMessageVO, UnreadCountVO,
-};
+use crate::http_service::group_service::group_vo::group_message_vo::GroupMessageVO;
 use crate::http_service::notify_service::service::system_notification::{
     send_group_invite_msg, send_group_invite_result_msg,
 };
@@ -681,34 +678,6 @@ pub async fn get_group_message_history_service(
             has_more: Some(has_more),
         })
         .collect())
-}
-
-pub async fn get_unread_group_messages_service(
-    rb: &RBatis,
-    user_uuid: &str,
-) -> Result<Vec<UnreadCountVO>> {
-    let uuid = user_uuid.parse::<Uuid>()?;
-    let sessions = UserSession::select_by_user(rb, &uuid).await?;
-
-    let mut result = Vec::new();
-    for s in sessions {
-        if s.session_type != Some(SESSION_TYPE_GROUP) {
-            continue;
-        }
-        // 群聊 session_uuid 即 group_uuid; 游标来源已由 group_member.last_read_msg_id 归一
-        let cursor = s.last_read_id.unwrap_or(0);
-        let unread: Vec<GroupMessageRecord> =
-            GroupMessageRecord::select_unread(rb, &s.session_uuid, cursor, 100).await?;
-        if !unread.is_empty() {
-            result.push(UnreadCountVO {
-                group_uuid: s.session_uuid.to_string(),
-                unread_count: unread.len() as i64,
-                last_read_msg_id: cursor, // 字段名保留(客户端契约), 值来源已换
-            });
-        }
-    }
-
-    Ok(result)
 }
 
 async fn sync_group_members_to_redis(
