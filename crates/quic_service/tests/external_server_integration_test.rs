@@ -8,8 +8,7 @@
 //!    3b. 新登录(更新的 jti)强退旧连接,FORCE_LOGOUT 携带发起接管的新会话 jti
 //!    3c. 过期登录(更老的 jti)重连被拒绝,在线会话保持不变
 //! 4. 非法 token 被拒绝（服务器直接关闭流）
-//! 5. 用户上线期间将 Redis 已读消息同步到 PostgreSQL
-//! 6. 客户端断开后连接清理（`connections` 映射移除）
+//! 5. 客户端断开后连接清理（`connections` 映射移除）
 //!
 //! 依赖：本地 Redis（`TEST_REDIS_URL`，建议独立 DB index）与仓库根目录 `.env`；
 //! 需要 PostgreSQL（使用 `DATABASE_URL`，仅写入随机 UUID 测试数据）。
@@ -22,9 +21,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow};
-use common::config_str::{PC_PLATFORM, PONG, SYSTEM, USER_READ_MSG};
-use common::models::chat_entity::add_read_chat_record::AddReadChatRecordDTO;
-use common::models::chat_entity::chat_message_read::ChatMessageRecordRead;
+use common::config_str::{PC_PLATFORM, PONG, SYSTEM};
 use common::models::chat_entity::chat_message_record::ChatMessageRecord;
 use common::state::CoreState;
 use common::utils::internal_quic_client::make_internal_client_config;
@@ -162,6 +159,41 @@ async fn ensure_partitioned_message_tables(db: &RBatis) -> Result<()> {
     }
     entity::ddl::apply_all_ddl(db).await.context("重放 DDL 失败")?;
     info!("消息表已迁移为分区版本");
+    Ok(())
+}
+
+/// 确保目标库完成"任务04 游标归一"迁移：
+/// - `chat_message_record_read` 表已废弃，直接删除（不再重建，DDL 文件已移除）
+/// - `group_member` 若仍含 `last_read_msg_id` 列，删表并重放 DDL（游标已归一）
+///
+/// 幂等：迁移完成后再次调用为空操作。
+async fn ensure_task04_dev_db(db: &RBatis) -> Result<()> {
+    db.exec("DROP TABLE IF EXISTS chat_message_record_read CASCADE", vec![])
+        .await
+        .map_err(|e| anyhow!("DROP chat_message_record_read 失败: {}", e))?;
+
+    let has_col_sql = "SELECT count(*) AS c FROM information_schema.columns \
+         WHERE table_schema = 'public' AND table_name = 'group_member' \
+         AND column_name = 'last_read_msg_id'";
+    let result: rbs::Value = db
+        .query(has_col_sql, vec![])
+        .await
+        .map_err(|e| anyhow!("查询 group_member 列失败: {}", e))?;
+    let has_col = result
+        .as_array()
+        .and_then(|rows| rows.first())
+        .and_then(|row| row.as_map())
+        .map(|map| map.get(&rbs::Value::from("c")))
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0)
+        > 0;
+    if has_col {
+        db.exec("DROP TABLE IF EXISTS group_member CASCADE", vec![])
+            .await
+            .map_err(|e| anyhow!("DROP group_member 失败: {}", e))?;
+        entity::ddl::apply_all_ddl(db).await.context("重放 DDL 失败")?;
+        info!("group_member 已重建(移除 last_read_msg_id 列)");
+    }
     Ok(())
 }
 
@@ -330,6 +362,7 @@ async fn external_chat_node_connection_lifecycle() -> Result<()> {
     flush_redis(&redis_pool).await?;
     let db = build_db_pool(&database_url).await?;
     ensure_partitioned_message_tables(&db).await?;
+    ensure_task04_dev_db(&db).await?;
 
     // JWT 密钥：注入 config_manager，确保客户端签名与服务器校验一致
     setup_jwt_keys()?;
@@ -361,46 +394,8 @@ async fn external_chat_node_connection_lifecycle() -> Result<()> {
             .context("生成 access_token 失败")?;
         let key = conn_key(PC_PLATFORM, &user_uuid);
 
-        // 写入唯一测试消息，并将对应已读状态放入 Redis，验证上线阶段同步到数据库。
-        let other_uuid = Uuid::new_v4();
-        let message_uuid = Uuid::new_v4();
-        let send_user: RbatisUuid =
-            other_uuid.to_string().parse().context("解析发送者 UUID 失败")?;
-        let recv_user: RbatisUuid =
-            user_uuid.to_string().parse().context("解析接收者 UUID 失败")?;
-        // 会话标识现算派生, 与生产落库路径(add_user_chat_record)同源
-        let session_uuid: RbatisUuid = single_session_uuid(
-            &Uuid::parse_str(&send_user.to_string()).context("解析发送者 UUID 失败")?,
-            &Uuid::parse_str(&recv_user.to_string()).context("解析接收者 UUID 失败")?,
-        )
-        .to_string()
-        .parse()
-        .context("解析会话标识失败")?;
-        let message = ChatMessageRecord {
-            id: None,
-            session_uuid,
-            nano_id: Some(message_uuid.to_string()),
-            timestamp: Some(1_700_000_000_000),
-            raw: b"integration-test".to_vec().into(),
-            text_type: Some(1),
-            send_user: send_user.clone(),
-            recv_user: recv_user.clone(),
-        };
-        ChatMessageRecord::insert(&db, &message).await.context("写入测试聊天消息失败")?;
-        let read_item = AddReadChatRecordDTO {
-            nano_id: message.nano_id.clone(),
-            timestamp: message.timestamp,
-            send_user,
-            recv_user,
-            chat_type: Some(1),
-        };
-        let read_key = format!("{}{}", USER_READ_MSG, user_uuid).to_uppercase();
-        {
-            let mut conn = redis_pool.get().await.context("获取 Redis 连接失败")?;
-            conn.set::<&str, String, ()>(&read_key, serde_json::to_string(&[read_item])?)
-                .await
-                .context("预置已读消息失败")?;
-        }
+        // 注: 旧的"Redis 已读 → 上线同步"场景随 sync_read_messages 删除(任务04),
+        // 已读游标直写改由 http_service 集成测试覆盖。
 
         // ===== 1. 正常连接：握手 + 鉴权 + 注册 =====
         let head_len = head_size();
@@ -485,16 +480,6 @@ async fn external_chat_node_connection_lifecycle() -> Result<()> {
         let lock_value: Option<String> = redis.get(&online_lock_key).await?;
         assert!(lock_value.is_none(), "上线成功后应释放分布式锁");
         drop(redis);
-
-        let read_uuid: RbatisUuid = user_uuid.to_string().parse().context("解析查询 UUID 失败")?;
-        let read_rows = ChatMessageRecordRead::select_by_map(
-            &db,
-            rbs::value! { "nano_id": message_uuid.to_string() },
-        )
-        .await
-        .context("查询已读消息失败")?;
-        assert_eq!(read_rows.len(), 1, "上线阶段应将已读消息同步到数据库");
-        assert_eq!(read_rows[0].recv_user, read_uuid);
 
         // 确保新 token 的 jti 严格晚于旧 token(避免同一毫秒内签发导致无法比较先后)
         tokio::time::sleep(Duration::from_millis(5)).await;
@@ -706,6 +691,7 @@ async fn single_chat_message_persists_session_uuid() -> Result<()> {
     flush_redis(&redis_pool).await?;
     let db = build_db_pool(&database_url).await?;
     ensure_partitioned_message_tables(&db).await?;
+    ensure_task04_dev_db(&db).await?;
 
     setup_jwt_keys()?;
 

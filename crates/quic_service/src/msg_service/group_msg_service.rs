@@ -386,51 +386,6 @@ async fn save_group_message_to_db(rb: &rbatis::RBatis, group_msg: &GroupQuicMsg)
     Ok(())
 }
 
-pub async fn sync_offline_group_messages(
-    core: &CoreState,
-    user_uuid: &str,
-    connections: &ConnectionsMap,
-) -> Result<()> {
-    let rb = &core.db;
-    use entity::models::group_entity::group_member::GroupMember;
-
-    let uuid = user_uuid.parse::<Uuid>()?;
-    let groups: Vec<GroupMember> = GroupMember::select_groups_by_user(rb, &uuid).await?;
-
-    for group_member in groups {
-        if let (Some(g_uuid), Some(last_read_msg_id)) =
-            (group_member.group_uuid, group_member.last_read_msg_id)
-        {
-            let unread: Vec<GroupMessageRecord> =
-                GroupMessageRecord::select_unread(rb, &g_uuid, last_read_msg_id, 100).await?;
-
-            for msg in unread {
-                if let (Some(nano_id), Some(send_user), Some(timestamp), Some(msg_type)) =
-                    (msg.nano_id, msg.send_user, msg.timestamp, msg.msg_type)
-                {
-                    let group_msg = GroupQuicMsg {
-                        nano_id,
-                        msg_type: msg_type as u16,
-                        group_uuid: g_uuid.to_string(),
-                        send_user: send_user.to_string(),
-                        raw: msg.raw.0.to_vec(),
-                        timestamp,
-                    };
-
-                    if let Ok(msg_bytes) = serialize_group_msg(&group_msg)
-                        && let Some(conn) = find_online_connection(user_uuid, connections)
-                        && let Err(e) = conn_lookup::send_uni_frame(&conn, &msg_bytes).await
-                    {
-                        warn!("[群聊] 离线消息投递失败 user={} err={}", user_uuid, e);
-                    }
-                }
-            }
-        }
-    }
-
-    Ok(())
-}
-
 pub fn generate_group_msg(
     msg_type: u16,
     raw: Vec<u8>,

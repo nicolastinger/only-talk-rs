@@ -6,6 +6,7 @@ pub mod moment_service;
 pub mod notify_service;
 pub mod plaza_service;
 pub mod report_service;
+pub mod session_service;
 pub mod user_service;
 
 use actix_web::web;
@@ -15,6 +16,7 @@ use group_service::init_group_service;
 use moment_service::init_moment_service;
 use plaza_service::init_plaza_service;
 use report_service::init_report_service;
+use session_service::init_session_service;
 use user_service::{init_friend_service, init_user_service};
 
 use crate::http_service::file_service::init_file_service;
@@ -29,6 +31,7 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
         .service(web::scope("/msg").configure(init_chat_service))
         .service(web::scope("/file").configure(init_file_service))
         .service(web::scope("/group").configure(init_group_service))
+        .service(web::scope("/session").configure(init_session_service))
         .service(web::scope("/announcement").configure(init_announcement_service))
         .service(web::scope("/report").configure(init_report_service));
 }

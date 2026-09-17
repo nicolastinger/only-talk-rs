@@ -3,14 +3,7 @@ use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::time::{Duration, Instant};
 
 use anyhow::{Result, anyhow};
-use common::config_str::{
-    REDIS_INTERNAL_QUIC_SERVERS, REDIS_QUIC_SERVERS, REDIS_SPLIT, SYSTEM, USER_READ_MSG,
-};
-use common::models::chat_entity::add_read_chat_record::AddReadChatRecordDTO;
-use common::models::chat_entity::chat_message_read::ChatMessageRecordRead;
-use common::models::chat_entity::chat_message_record::ChatMessageRecord;
-use common::models::group_entity::group_member::GroupMember;
-use common::models::group_entity::group_message_record::GroupMessageRecord;
+use common::config_str::{REDIS_INTERNAL_QUIC_SERVERS, REDIS_QUIC_SERVERS, REDIS_SPLIT, SYSTEM};
 use common::models::session_entity::aggregate::aggregate_user_sessions;
 use common::state::CoreState;
 use common::utils::internal_quic_client::send_internal_quic_msg;
@@ -22,10 +15,7 @@ use common::utils::text_msg::build_force_logout_msg;
 use common::utils::time::get_now_time_stamp_as_millis;
 use dashmap::DashMap;
 use deadpool_redis::redis::{AsyncCommands, cmd};
-use entity::models::chat_entity::chat_message_read::CHAT_TYPE_GROUP;
 use quinn::{Connection, Endpoint, RecvStream, SendStream};
-use rbatis::dark_std::err;
-use rbs::value;
 use tokio::sync::{Mutex, watch};
 use tokio::time::timeout;
 use tracing::{error, info, warn};
@@ -575,10 +565,9 @@ async fn end_server(
 
 /// 用户离线
 async fn user_offline(core: &CoreState, uuid: String) -> std::result::Result<(), anyhow::Error> {
-    let result = sync_read_messages(core, &uuid).await;
     // 断连时再聚合一次, 保证下次上线前 session.last_message_* 尽量新(§6.1)
     spawn_session_aggregate(core, &uuid);
-    result
+    Ok(())
 }
 
 /// 异步聚合用户会话状态(§6.1): 不阻塞调用链路, 失败仅打日志。
@@ -597,130 +586,6 @@ fn spawn_session_aggregate(core: &CoreState, uuid: &str) {
             Err(e) => warn!("[session] 聚合: uuid 解析失败 {}", e),
         }
     });
-}
-
-/// 将 Redis 中缓存的已读消息同步到数据库。
-async fn sync_read_messages(
-    core: &CoreState,
-    uuid: &str,
-) -> std::result::Result<(), anyhow::Error> {
-    // TODO
-    info!("同步已读消息开始: uuid={}", uuid);
-    let mut redis = core.redis.get().await?;
-    let rb = &core.db;
-    // 1. 设置 Redis 分布式锁，防止用户频繁上下线切换
-    // 2. 将 Redis 缓存同步到数据库，记录用户操作
-    // 将已读消息从 Redis 持久化到数据库
-    let read_key = format!("{}{}", USER_READ_MSG, uuid).to_uppercase();
-    let read_record: Option<String> = redis.get(&read_key).await?;
-    let Some(read_record) = read_record else {
-        info!("用户没有待同步的已读消息: {}", uuid);
-        return Ok(());
-    };
-    drop(redis);
-    info!("读取已读消息，来源: {}", read_record);
-    let last_chat_message_read: Vec<AddReadChatRecordDTO> = serde_json::from_str(&read_record)?;
-    info!("读取已读消息，转换后: {:?}", last_chat_message_read);
-    // TODO: 校验已读消息的有效性
-
-    for item in last_chat_message_read.into_iter() {
-        // 群聊已读消息：校验群消息与群成员，更新群成员已读游标
-        if item.chat_type == Some(CHAT_TYPE_GROUP) {
-            let group_msg = match GroupMessageRecord::select_by_nano_id(
-                rb,
-                item.nano_id.as_deref().unwrap_or(""),
-            )
-            .await
-            {
-                Ok(Some(msg)) => msg,
-                _ => {
-                    err!("群已读消息无效 {:?}", item);
-                    continue;
-                }
-            };
-            let group_uuid = match group_msg.group_uuid {
-                Some(u) => u,
-                None => {
-                    err!("群已读消息缺少群UUID {:?}", item);
-                    continue;
-                }
-            };
-            // 读者必须是群成员，且已读游标只推进不回退
-            let mut member =
-                match GroupMember::select_by_group_and_user(rb, &group_uuid, &item.recv_user)
-                    .await?
-                {
-                    Some(m) => m,
-                    None => {
-                        err!("群已读消息无效，用户不在群中 {:?}", item);
-                        continue;
-                    }
-                };
-            let msg_id = group_msg.id.unwrap_or(0);
-            if member.last_read_msg_id.unwrap_or(0) < msg_id {
-                member.last_read_msg_id = Some(msg_id);
-                GroupMember::update_by_group_and_user(rb, &member, &group_uuid, &item.recv_user)
-                    .await?;
-                info!("群已读消息更新成功 {:?}", item);
-            }
-            continue;
-        }
-
-        // 单聊已读消息：校验后写入 chat_message_record_read 表
-        let record = ChatMessageRecordRead {
-            id: None,
-            nano_id: item.nano_id.clone(),
-            timestamp: item.timestamp,
-            send_user: item.send_user,
-            recv_user: item.recv_user,
-        };
-
-        let is_exist =
-            ChatMessageRecord::select_by_map(rb, value! {"nano_id": &record.nano_id}).await?;
-        if is_exist.is_empty() || is_exist.len() > 1 {
-            continue;
-        }
-        let exit_item = match is_exist.first() {
-            Some(item) => item,
-            None => {
-                error!("已读消息列表异常: is_exist 为空");
-                continue;
-            }
-        };
-        if exit_item.recv_user.to_string() != record.recv_user.to_string()
-            && exit_item.send_user.to_string() != record.recv_user.to_string()
-        {
-            err!("已读消息无效 {:?}", record);
-            continue;
-        }
-
-        let insert_item = async |e| match ChatMessageRecordRead::insert(rb, &record).await {
-            Ok(_) => {}
-            Err(x) => {
-                err!("更新已读消息失败 {} {}", e, x);
-            }
-        };
-        match ChatMessageRecordRead::update_by_map(
-            rb,
-            &record,
-            value! {"send_user": &record.send_user, "recv_user": &record.recv_user},
-        )
-        .await
-        {
-            Ok(d) => {
-                if d.rows_affected < 1u64 {
-                    insert_item(d.to_string()).await;
-                }
-            }
-            Err(e) => {
-                insert_item(e.to_string()).await;
-            }
-        };
-    }
-
-    // 3. 清理 Redis 缓存和锁
-    info!("同步已读消息完成: uuid={}", uuid);
-    Ok(())
 }
 
 /// 上线时新连接对既有在线连接(同一 platform+uuid)的接管语义
@@ -781,11 +646,6 @@ async fn user_online(
         return Err(anyhow!("用户正在处理上线: {}", uuid));
     }
     drop(redis);
-
-    // 在上线锁保护期间先持久化上一次连接产生的已读状态。
-    timeout(std::time::Duration::from_secs(25), sync_read_messages(core, uuid))
-        .await
-        .map_err(|_| anyhow!("同步用户已读消息超时: {}", uuid))??;
 
     let connection_key = format!(
         "{}:{}{}{}{}",

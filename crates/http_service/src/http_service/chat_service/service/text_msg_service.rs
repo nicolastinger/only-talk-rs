@@ -1,13 +1,13 @@
 use anyhow::anyhow;
-use common::config_str::USER_READ_MSG;
-use common::models::chat_entity::add_read_chat_record::AddReadChatRecordDTO;
-use common::models::chat_entity::chat_message_read::ChatMessageRecordRead;
+use common::models::chat_entity::add_read_chat_record::{AddReadChatRecordDTO, CHAT_TYPE_GROUP};
 use common::models::chat_entity::chat_message_record::ChatMessageRecord;
-use deadpool_redis::redis::AsyncCommands;
+use common::models::group_entity::group_message_record::GroupMessageRecord;
+use common::models::session_entity::session::SESSION_TYPE_SINGLE;
+use common::models::session_entity::user_session::UserSession;
+use common::utils::session_uuid::single_session_uuid;
 use rbatis::RBatis;
 use rbatis::rbdc::Uuid;
-use rbs::value;
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::common::dto::base_page_dto::BasePageDTO;
 use crate::utils::http_response::{CommonResponseNoDataRef, CommonResponseRef};
@@ -39,99 +39,107 @@ pub async fn get_chat_by_limit(
     Ok(CommonResponseRef::<Vec<ChatMessageRecord>>::success_json(&res)?)
 }
 
-/// 获取未读消息
+/// 获取未读消息(临时重写, 修复缺陷A: 全局时间戳 → 按会话游标)。
+///
+/// 任务05 由 `/session/sync` 正式取代后废弃。
+/// 依赖 `user_session` 行存在(上线聚合建立); 无行/无未读返回空。
 pub async fn get_unread_chat_record(
     rb: &RBatis,
     uuid: Option<String>,
 ) -> Result<String, anyhow::Error> {
-    info!("收到请求");
-    let uuid = uuid.ok_or(anyhow!("账号获取失败"))?.parse::<Uuid>()?;
+    let me = uuid.ok_or(anyhow!("账号获取失败"))?.parse::<Uuid>()?;
+    let sessions = UserSession::select_by_user(rb, &me).await?;
 
-    let empty_vec = CommonResponseNoDataRef::success_empty();
-    // 1、获取最新消息id
-    let last_msg = ChatMessageRecord::select_last_by_column(rb, &uuid).await?;
-    if last_msg.is_none() {
-        return Ok(empty_vec);
+    let mut unread: Vec<ChatMessageRecord> = Vec::new();
+    for s in sessions {
+        // 只处理单聊(群聊走 /group/chat/message/unread, 与客户端现状一致)
+        if s.session_type != Some(SESSION_TYPE_SINGLE) {
+            continue;
+        }
+        let cursor = s.last_read_id.unwrap_or(0);
+        let msgs =
+            ChatMessageRecord::select_unread_by_cursor(rb, &s.session_uuid, &me, cursor, 500)
+                .await?;
+        unread.extend(msgs);
     }
-    // 2、获取已读消息列表
-    let read_msg = ChatMessageRecordRead::select_all_read_by_column(rb, &uuid, 200).await?;
-    if read_msg.is_empty() {
-        // 3、返回最新消息，最大9999
-        let last_read = 0;
-        let unread_msg = ChatMessageRecord::select_unread_by_time(rb, &uuid, last_read).await?;
-        info!("未读消息数量 {}", unread_msg.len());
-        return Ok(CommonResponseRef::<Vec<ChatMessageRecord>>::success_json(&unread_msg)?);
+
+    if unread.is_empty() {
+        return Ok(CommonResponseNoDataRef::success_empty());
     }
-    // 4、查找已读消息有没有最新消息
-    let last_msg_ref = last_msg.as_ref().ok_or(anyhow!("获取最新消息失败"))?;
-    let res = read_msg.iter().find(|x| x.nano_id == last_msg_ref.nano_id);
-    if res.is_some() {
-        info!("请求处理完成");
-        return Ok(empty_vec);
-    }
-    // 5、获取未读消息
-    let last_read = read_msg
-        .first()
-        .ok_or(anyhow!("failed to get read messages"))?
-        .nano_id
-        .clone()
-        .ok_or(anyhow!("failed to get read message timestamp"))?;
-    let last_record = ChatMessageRecord::select_by_map(rb, value! {"nano_id": &last_read}).await?;
-    if !last_record.is_empty() {
-        let last_read = last_record
-            .last()
-            .ok_or(anyhow!("failed to get read message"))?
-            .timestamp
-            .ok_or(anyhow!("failed to get read message timestamp"))?;
-        let unread_msg = ChatMessageRecord::select_unread_by_time(rb, &uuid, last_read).await?;
-        let unread_msg: Vec<ChatMessageRecord> = unread_msg
-            .into_iter()
-            .map(|mut x| {
-                x.id = None;
-                x
-            })
-            .collect();
-        info!("请求处理完成");
-        return Ok(CommonResponseRef::<Vec<ChatMessageRecord>>::success_json(&unread_msg)?);
-    }
-    info!("请求处理完成");
-    Ok(empty_vec)
+    Ok(CommonResponseRef::<Vec<ChatMessageRecord>>::success_json(&unread)?)
 }
 
-// 用户新增已读消息
+/// 用户已读上报(桥接): 旧 DTO 契约保留, 内部直写 `user_session` 游标。
+///
+/// Redis 缓冲路径删除(缺陷J: 24h TTL 丢失窗口)。
+/// 语义为"读到底" —— 把该会话的 `synced_id` 与 `last_read_id` 都推进到当前最大消息 id
+/// (先推 synced 再推 read, 维持 `last_read_id <= synced_id` 不变式)。
 pub async fn add_user_chat_read(
-    redis: &deadpool_redis::Pool,
+    rb: &RBatis,
     uuid: Option<String>,
     chat_message_read: Vec<AddReadChatRecordDTO>,
 ) -> Result<String, anyhow::Error> {
-    let uuid = uuid.ok_or(anyhow!("账号获取失败"))?;
-    let chat_message_read_str = serde_json::to_string(&chat_message_read)?;
-    // 写入到redis
-    let key = format!("{}{}", USER_READ_MSG, uuid).to_uppercase();
-    let mut redis = redis.get().await?;
-    let res: Result<String, _> = redis.get(&key).await;
-
-    if res.is_err() {
-        let _: () = redis.set_ex(&key, chat_message_read_str, 60 * 60 * 24).await?;
-    } else {
-        let mut last_chat_message_read: Vec<AddReadChatRecordDTO> = serde_json::from_str(&res?)?;
-        for item in chat_message_read.into_iter() {
-            let new_item =
-                last_chat_message_read.iter_mut().find(|x| x.send_user == item.send_user);
-            if let Some(new_item) = new_item {
-                new_item.timestamp = item.timestamp;
-                new_item.nano_id = item.nano_id.clone();
-                new_item.chat_type = item.chat_type;
-                info!("更新 last_chat_message_read: {:?}", new_item);
+    let me: Uuid = uuid.ok_or(anyhow!("账号获取失败"))?.parse()?;
+    for item in chat_message_read {
+        if item.chat_type == Some(CHAT_TYPE_GROUP) {
+            // 群聊: nano_id 反查群消息拿 group_uuid(旧路径同款, 频率低可接受)
+            let nano_id = item.nano_id.unwrap_or_default();
+            let group_uuid = match GroupMessageRecord::select_by_nano_id(rb, &nano_id).await? {
+                Some(m) => match m.group_uuid {
+                    Some(g) => g,
+                    None => continue,
+                },
+                None => {
+                    warn!("[已读桥接] 群消息不存在: {}", nano_id);
+                    continue;
+                }
+            };
+            // init 幂等: 新成员一步"建行 + 游标到 max"; 老成员 no-op
+            UserSession::init_for_group_join(rb, &me, &group_uuid).await?;
+            let max_id = GroupMessageRecord::max_id_by_group(rb, &group_uuid).await?;
+            UserSession::update_synced_id(rb, &me, &group_uuid, max_id).await?;
+            UserSession::update_last_read_id(rb, &me, &group_uuid, max_id).await?;
+        } else {
+            // 单聊: 由用户对派生会话(不依赖 nano_id 反查, 零扫描)
+            let peer_str = if item.send_user == me {
+                item.recv_user.to_string()
             } else {
-                last_chat_message_read.push(item)
-            }
-        }
-
-        let _: () = redis
-            .set_ex(&key, serde_json::to_string(&last_chat_message_read)?, 60 * 60 * 24)
+                item.send_user.to_string()
+            };
+            let Ok(peer) = peer_str.parse::<Uuid>() else {
+                warn!("[已读桥接] 对方 uuid 非法: {}", peer_str);
+                continue;
+            };
+            // rbdc::Uuid 与 uuid::Uuid 是不同类型, 边界转换后派生会话标识
+            let session_uuid = single_session_uuid(
+                &uuid::Uuid::parse_str(&me.to_string())?,
+                &uuid::Uuid::parse_str(&peer.to_string())?,
+            )
+            .to_string()
+            .parse::<Uuid>()?;
+            // 行不存在(未聚合)则先建 0 游标行, 保证已读不丢
+            UserSession::upsert(
+                rb,
+                &UserSession {
+                    id: None,
+                    user_uuid: me.clone(),
+                    session_uuid: session_uuid.clone(),
+                    session_type: Some(SESSION_TYPE_SINGLE),
+                    peer_uuid: Some(peer),
+                    last_read_id: None,
+                    synced_id: None,
+                    pinned: None,
+                    muted: None,
+                    deleted_at: None,
+                    created_at: None,
+                    updated_at: None,
+                },
+            )
             .await?;
+            let max_id = ChatMessageRecord::max_id_by_session(rb, &session_uuid).await?;
+            UserSession::update_synced_id(rb, &me, &session_uuid, max_id).await?;
+            UserSession::update_last_read_id(rb, &me, &session_uuid, max_id).await?;
+        }
     }
-
     Ok(CommonResponseNoDataRef::success_empty())
 }

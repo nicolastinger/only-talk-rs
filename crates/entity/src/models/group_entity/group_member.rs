@@ -28,8 +28,6 @@ pub struct GroupMember {
     pub nickname: Option<String>,
     /// 入群时间 (Unix 时间戳，单位：毫秒)
     pub join_time: Option<i64>,
-    /// 已读消息 ID
-    pub last_read_msg_id: Option<i64>,
     /// 是否禁言
     pub muted: Option<bool>,
     /// 成员状态 (1: 正常, 2: 已退出, 3: 被踢出)

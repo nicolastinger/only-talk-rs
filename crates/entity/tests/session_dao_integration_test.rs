@@ -160,7 +160,6 @@ async fn insert_group_member(rb: &RBatis, group_uuid: &Uuid, user: &Uuid) {
         role: Some(ROLE_MEMBER),
         nickname: None,
         join_time: Some(0),
-        last_read_msg_id: Some(0),
         muted: Some(false),
         status: Some(STATUS_NORMAL),
     };

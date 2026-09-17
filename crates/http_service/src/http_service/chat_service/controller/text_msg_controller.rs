@@ -50,5 +50,5 @@ pub async fn add_read_chat_record_api(
     chat_message_read: web::Json<Vec<AddReadChatRecordDTO>>,
 ) -> impl Responder {
     let uuid = get_uuid_from_header!(req);
-    respond_json_any!(add_user_chat_read(state.redis(), uuid, chat_message_read.into_inner()).await)
+    respond_json_any!(add_user_chat_read(state.db(), uuid, chat_message_read.into_inner()).await)
 }

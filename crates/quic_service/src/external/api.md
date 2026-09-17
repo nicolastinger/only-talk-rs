@@ -162,9 +162,10 @@ if claims.uuid != first_quic_msg.uuid {
 1. 从 DashMap 取连接，**校验 `update_time == close_now`**（防止"同一 key 的新连接刚注册，旧连接才退出"误删新连接）；
 2. `connections.remove(key)`；
 3. Redis `DEL {connection_key}`；
-4. `user_offline(core, uuid)`：把 Redis 中缓存的该用户已读消息（`USER:READ:MSG:{uuid}`）持久化到数据库：
-   - 群聊已读（`chat_type == CHAT_TYPE_GROUP`）：校验群消息存在、读者是群成员、游标只推进不回退，更新 `group_member.last_read_msg_id`；
-   - 单聊已读：校验 `chat_message_record` 中收发双方与记录匹配，`chat_message_record_read` 表 upsert。
+4. `user_offline(core, uuid)`：触发会话聚合（任务03，异步，失败仅打日志）。
+
+> 任务04：原先"把 Redis 缓存的已读消息（`USER:READ:MSG:{uuid}`）持久化到数据库"的 `sync_read_messages` 已整体删除；
+> 已读游标改为客户端经 HTTP `/session/read`、`/session/synced`（或旧桥接 `/msg/add_read_chat_record`）直写 `user_session`。
 
 ---
 

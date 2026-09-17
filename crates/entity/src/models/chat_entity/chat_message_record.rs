@@ -1,6 +1,7 @@
 use rbatis::crud;
 use rbatis::executor::Executor;
 use rbatis::rbdc::{Bytes, Uuid};
+use rbs::value;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Deserialize, Serialize, Debug)]
@@ -44,15 +45,27 @@ impl ChatMessageRecord {
         Ok(Self::select_last_by_column_inner(rb, uuid).await?.into_iter().next())
     }
 
-    // 获取未读消息，最大9999
+    /// 按会话游标拉取"我收到的"未读消息(缺陷A修复的核心查询: 游标与排序同列 id)。
     #[rbatis::py_sql(
-        "select * from chat_message_record where (send_user = #{uuid} or recv_user = #{uuid}) and timestamp > #{time} order by timestamp desc limit 9999"
+        "select * from chat_message_record
+         where session_uuid = #{session_uuid} and id > #{cursor} and recv_user = #{me}
+         order by id asc limit #{size}"
     )]
-    async fn select_unread_by_time(
+    async fn select_unread_by_cursor(
         rb: &dyn Executor,
-        uuid: &Uuid,
-        time: i64,
+        session_uuid: &Uuid,
+        me: &Uuid,
+        cursor: i64,
+        size: u32,
     ) -> Vec<ChatMessageRecord> {
+    }
+
+    /// 会话当前最大消息 id(桥接"读到底"用; 单分区索引扫描, 便宜)。
+    pub async fn max_id_by_session(rb: &dyn Executor, session_uuid: &Uuid) -> rbatis::Result<i64> {
+        let sql =
+            "select COALESCE(max(id), 0) AS v from chat_message_record where session_uuid = $1";
+        let result = rb.query(sql, vec![value!(session_uuid)]).await?;
+        Ok(crate::models::scalar_i64(&result))
     }
 
     /// 每个相关会话的最新一条消息(distinct on 按会话取 id 最大行)。

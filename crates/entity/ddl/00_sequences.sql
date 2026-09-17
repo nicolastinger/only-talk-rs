@@ -1,12 +1,6 @@
 -- v1.0.0 序列
 -- 仅保留建表时通过 nextval(...) 显式引用的序列；
 -- 使用 serial4/bigserial 的表会由 PostgreSQL 自动创建同名序列，无需在此定义。
-
--- chat_message_record_read.id 使用 nextval('chat_message_record_read_status_id_seq'::regclass)
-CREATE SEQUENCE IF NOT EXISTS chat_message_record_read_status_id_seq
-    INCREMENT BY 1
-    MINVALUE 1
-    MAXVALUE 2147483647
-    START 1
-    CACHE 1
-    NO CYCLE;
+--
+-- 任务04: 已读三处存储归一, chat_message_record_read 表删除,
+-- 其 chat_message_record_read_status_id_seq 序列一并移除 —— 当前无显式序列。

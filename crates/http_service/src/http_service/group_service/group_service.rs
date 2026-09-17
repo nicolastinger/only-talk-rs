@@ -3,6 +3,7 @@ use std::net::SocketAddr;
 use anyhow::{Result, anyhow};
 use common::config_str::GROUP_MEMBERS_CACHE;
 use common::models::notify_entity::system_notification::SystemNotification;
+use common::models::session_entity::session::SESSION_TYPE_GROUP;
 use common::models::session_entity::user_session::UserSession;
 use common::read_global_config;
 use common::utils::internal_quic_client::send_internal_quic_msg;
@@ -107,7 +108,6 @@ pub async fn create_group_service(
         role: Some(ROLE_OWNER),
         nickname: None,
         join_time: Some(now),
-        last_read_msg_id: Some(0),
         muted: Some(false),
         status: Some(STATUS_NORMAL),
     };
@@ -398,7 +398,6 @@ pub async fn accept_group_invitation_service(
                 role: Some(ROLE_MEMBER),
                 nickname: None,
                 join_time: Some(now),
-                last_read_msg_id: Some(0),
                 muted: Some(false),
                 status: Some(STATUS_NORMAL),
             };
@@ -689,22 +688,23 @@ pub async fn get_unread_group_messages_service(
     user_uuid: &str,
 ) -> Result<Vec<UnreadCountVO>> {
     let uuid = user_uuid.parse::<Uuid>()?;
-    let memberships: Vec<GroupMember> = GroupMember::select_groups_by_user(rb, &uuid).await?;
+    let sessions = UserSession::select_by_user(rb, &uuid).await?;
 
     let mut result = Vec::new();
-    for membership in memberships {
-        if let (Some(g_uuid), Some(last_read_msg_id)) =
-            (membership.group_uuid, membership.last_read_msg_id)
-        {
-            let unread: Vec<GroupMessageRecord> =
-                GroupMessageRecord::select_unread(rb, &g_uuid, last_read_msg_id, 100).await?;
-            if !unread.is_empty() {
-                result.push(UnreadCountVO {
-                    group_uuid: g_uuid.to_string(),
-                    unread_count: unread.len() as i64,
-                    last_read_msg_id,
-                });
-            }
+    for s in sessions {
+        if s.session_type != Some(SESSION_TYPE_GROUP) {
+            continue;
+        }
+        // 群聊 session_uuid 即 group_uuid; 游标来源已由 group_member.last_read_msg_id 归一
+        let cursor = s.last_read_id.unwrap_or(0);
+        let unread: Vec<GroupMessageRecord> =
+            GroupMessageRecord::select_unread(rb, &s.session_uuid, cursor, 100).await?;
+        if !unread.is_empty() {
+            result.push(UnreadCountVO {
+                group_uuid: s.session_uuid.to_string(),
+                unread_count: unread.len() as i64,
+                last_read_msg_id: cursor, // 字段名保留(客户端契约), 值来源已换
+            });
         }
     }
 

@@ -32,7 +32,6 @@ CREATE TABLE IF NOT EXISTS group_member (
     role SMALLINT DEFAULT 0,
     nickname VARCHAR(50),
     join_time BIGINT NOT NULL,
-    last_read_msg_id BIGINT DEFAULT 0,
     muted BOOLEAN DEFAULT FALSE,
     status SMALLINT DEFAULT 1,
     UNIQUE(group_uuid, user_uuid)
@@ -45,7 +44,6 @@ COMMENT ON COLUMN group_member.user_uuid IS '用户UUID';
 COMMENT ON COLUMN group_member.role IS '角色: 0-成员, 1-管理员, 2-群主';
 COMMENT ON COLUMN group_member.nickname IS '群内昵称';
 COMMENT ON COLUMN group_member.join_time IS '入群时间(毫秒时间戳)';
-COMMENT ON COLUMN group_member.last_read_msg_id IS '已读消息ID';
 COMMENT ON COLUMN group_member.muted IS '是否禁言';
 COMMENT ON COLUMN group_member.status IS '成员状态: 1-正常, 2-已退出, 3-踢出';
 

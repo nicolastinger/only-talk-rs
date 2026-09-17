@@ -8,9 +8,8 @@ use std::str::FromStr;
 use rbatis::rbdc::{Bytes, Uuid};
 use validator::Validate;
 
-use crate::models::chat_entity::add_read_chat_record::AddReadChatRecordDTO;
-use crate::models::chat_entity::chat_message_read::{
-    CHAT_TYPE_GROUP, CHAT_TYPE_SINGLE, ChatMessageRecordRead,
+use crate::models::chat_entity::add_read_chat_record::{
+    AddReadChatRecordDTO, CHAT_TYPE_GROUP, CHAT_TYPE_SINGLE,
 };
 use crate::models::chat_entity::chat_message_record::ChatMessageRecord;
 use crate::models::file_entity::biz_file_link::BizFileLink;
@@ -290,18 +289,6 @@ mod chat_entity {
     use super::*;
 
     #[test]
-    fn chat_message_read_roundtrip() {
-        let record = ChatMessageRecordRead {
-            id: Some(1),
-            nano_id: Some("nano-1".to_string()),
-            timestamp: Some(1_700_000_000),
-            send_user: uuid("00000000-0000-0000-0000-000000000001"),
-            recv_user: uuid("00000000-0000-0000-0000-000000000002"),
-        };
-        assert_roundtrip(&record);
-    }
-
-    #[test]
     fn chat_message_record_roundtrip_and_raw_bytes_serialize_as_array() {
         let record = ChatMessageRecord {
             id: Some(1),
@@ -355,6 +342,20 @@ mod chat_entity {
         assert!(
             src.contains("order by session_uuid, id desc"),
             "select_latest_per_session_for_user 必须 order by session_uuid, id desc, 实际 SQL 文本被改"
+        );
+    }
+
+    #[test]
+    fn select_unread_by_cursor_sql_text() {
+        // 任务04 缺陷A回归: 未读拉取必须按会话游标 + 只取"我收到的" + id 升序
+        let src = include_str!("models/chat_entity/chat_message_record.rs");
+        assert!(
+            src.contains("session_uuid = #{session_uuid} and id > #{cursor} and recv_user = #{me}"),
+            "select_unread_by_cursor 必须按会话游标 + recv_user 过滤, 实际 SQL 文本被改"
+        );
+        assert!(
+            src.contains("order by id asc limit #{size}"),
+            "select_unread_by_cursor 必须 order by id asc + 参数化 limit, 实际 SQL 文本被改"
         );
     }
 }
@@ -522,7 +523,6 @@ mod group_entity {
             role: Some(ROLE_OWNER),
             nickname: Some("alice".to_string()),
             join_time: Some(1_700_000_000),
-            last_read_msg_id: Some(0),
             muted: Some(false),
             status: Some(STATUS_NORMAL),
         };
@@ -547,11 +547,14 @@ mod group_entity {
     #[test]
     fn select_unread_orders_by_id_and_parametrizes_limit() {
         // 任务02 缺陷 O 回归: 游标列(id)与排序列必须同列, limit 参数化
+        // 任务04: 游标参数改名为 cursor
         // 直接断言 py_sql 宏内 SQL 文本, 防止未来把排序改回 timestamp / 把 limit 硬编码
         let src = include_str!("models/group_entity/group_message_record.rs");
         assert!(
-            src.contains("order by id asc limit #{size}"),
-            "select_unread 必须是 order by id asc + 参数化 limit, 实际 SQL 文本被改"
+            src.contains(
+                "group_uuid = #{group_uuid} and id > #{cursor} order by id asc limit #{size}"
+            ),
+            "select_unread 必须是 id > 游标 + order by id asc + 参数化 limit, 实际 SQL 文本被改"
         );
     }
 }

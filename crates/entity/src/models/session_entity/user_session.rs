@@ -151,4 +151,8 @@ impl UserSession {
         .await?;
         Ok(())
     }
+
+    /// 某用户的全部会话行(由上线聚合建立; 未读/列表读侧驱动)。
+    #[rbatis::py_sql("select * from user_session where user_uuid = #{me} order by id")]
+    async fn select_by_user(rb: &dyn Executor, me: &Uuid) -> Vec<UserSession> {}
 }

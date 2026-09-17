@@ -1,6 +1,7 @@
 use rbatis::crud;
 use rbatis::executor::Executor;
 use rbatis::rbdc::{Bytes, Uuid};
+use rbs::value;
 use serde::{Deserialize, Serialize};
 
 /// 群消息类型
@@ -54,14 +55,22 @@ impl GroupMessageRecord {
     }
 
     #[rbatis::py_sql(
-        "select * from group_message_record where group_uuid = #{group_uuid} and id > #{last_read_msg_id} order by id asc limit #{size}"
+        "select * from group_message_record where group_uuid = #{group_uuid} and id > #{cursor} order by id asc limit #{size}"
     )]
     async fn select_unread(
         rb: &dyn Executor,
         group_uuid: &Uuid,
-        last_read_msg_id: i64,
+        cursor: i64,
         size: u32,
     ) -> Vec<GroupMessageRecord> {
+    }
+
+    /// 群当前最大消息 id(桥接"读到底"用; 单分区索引扫描, 便宜)。
+    pub async fn max_id_by_group(rb: &dyn Executor, group_uuid: &Uuid) -> rbatis::Result<i64> {
+        let sql =
+            "select COALESCE(max(id), 0) AS v from group_message_record where group_uuid = $1";
+        let result = rb.query(sql, vec![value!(group_uuid)]).await?;
+        Ok(crate::models::scalar_i64(&result))
     }
 
     /// 指定群的最新一条消息。
