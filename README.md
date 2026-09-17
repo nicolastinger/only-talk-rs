@@ -89,7 +89,7 @@ S3_SECRET_KEY=your-secret-key
 
 ```toml
 [server]
-address = "0.0.0.0:8443"        # HTTPS API 监听地址
+address = "0.0.0.0:8443"        # HTTP API 监听地址(明文; 生产经 nginx 443 终止 TLS, 裸机改 127.0.0.1)
 log_level = "info"              # 日志级别：debug / info / warn / error
 
 [quic_server]
@@ -132,7 +132,7 @@ cargo run --release
 ```
 
 服务启动后将同时运行：
-- **HTTPS API**：`https://0.0.0.0:8443`
+- **HTTP API**：`http://0.0.0.0:8443`（明文，仅本机/内网；生产由 nginx 在 443 终止 TLS 后反代）
 - **QUIC 外网服务**：`0.0.0.0:4433`
 - **QUIC 内网服务**：`127.0.0.1:4434`
 
@@ -161,7 +161,7 @@ api ──► http_service ──► common
 |------|------|------|------|
 | **独立模式** | `src/main.rs` | 8443 + 4433 + 4434 + 19562-19565 | QUIC + HTTP 同进程运行 |
 | **QUIC 网关** | `crates/quic_service/src/bin/quic_server.rs` | 4433 + 4434 + 19562-19565 | 仅 QUIC 连接管理 |
-| **API 服务** | `crates/api/src/bin/api_server.rs` | 8443 | 仅 HTTP REST API |
+| **API 服务** | `crates/api/src/bin/api_server.rs` | 8443 | 仅 HTTP REST API（明文，生产经 nginx 443 终止 TLS） |
 
 ### 独立模式（默认）
 
@@ -223,7 +223,7 @@ QUIC 服务与 HTTP 服务在同一进程中启动，适合中小型部署。
 - JWT Token 认证
 - Argon2 密码哈希
 - RSA 公钥加密传输敏感数据
-- HTTPS (TLS 1.3) API 传输加密
+- HTTPS (TLS 1.2/1.3) API 传输加密（由 nginx 网关终止 TLS，app 侧为明文 HTTP）
 - QUIC 内置 TLS 加密
 
 ### 日志与监控
@@ -251,7 +251,7 @@ server_index = 0                # 集群节点编号
 domain = "${APP_DOMAIN}"        # 应用域名
 
 [server]
-address = "0.0.0.0:8443"        # HTTPS 监听地址
+address = "0.0.0.0:8443"        # HTTP 监听地址(明文; 生产经 nginx 443 终止 TLS, 裸机改 127.0.0.1)
 locales = "zh-CN"               # 国际化语言
 log_level = "info"              # 日志级别
 

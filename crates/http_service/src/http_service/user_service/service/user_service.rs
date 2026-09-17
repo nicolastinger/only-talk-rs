@@ -1,3 +1,4 @@
+use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
 
 use actix_web::HttpRequest;
@@ -304,11 +305,26 @@ pub async fn complete_profile_service(
 }
 
 /// 从 HttpRequest 提取客户端 IP(ipv4/ipv6)与 User-Agent
+///
+/// 网关方案: nginx 以 `$remote_addr` **覆写**(非追加) `X-Forwarded-For`,
+/// 故取首个 IP 可信, 客户端伪造的 XFF 头不会透传; 无该头(裸机直连/本地开发)时回退 `peer_addr`。
 fn extract_client_info(req: &HttpRequest) -> (Option<String>, Option<String>, Option<String>) {
-    let (ipv4, ipv6) = match req.peer_addr() {
-        Some(addr) if addr.ip().is_ipv4() => (Some(addr.ip().to_string()), None),
-        Some(addr) if addr.ip().is_ipv6() => (None, Some(addr.ip().to_string())),
-        _ => (None, None),
+    let forwarded_ip = req
+        .headers()
+        .get("X-Forwarded-For")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.split(',').next())
+        .and_then(|s| s.trim().parse::<IpAddr>().ok())
+        .map(|ip| ip.to_string());
+
+    let (ipv4, ipv6) = match forwarded_ip {
+        Some(ip) if ip.parse::<Ipv4Addr>().is_ok() => (Some(ip), None),
+        Some(ip) => (None, Some(ip)),
+        None => match req.peer_addr() {
+            Some(addr) if addr.ip().is_ipv4() => (Some(addr.ip().to_string()), None),
+            Some(addr) if addr.ip().is_ipv6() => (None, Some(addr.ip().to_string())),
+            _ => (None, None),
+        },
     };
     let user_agent =
         req.headers().get(USER_AGENT).and_then(|v| v.to_str().ok()).map(|s| s.to_string());

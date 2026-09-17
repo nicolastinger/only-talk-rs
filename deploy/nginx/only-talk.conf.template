@@ -1,0 +1,78 @@
+# only-talk HTTP 网关: TLS 终止 + per-IP 限流, 反代到 app 明文 HTTP(:8443)。
+# - 仅监听 443; 80 保留给 certbot ACME(standalone), 本网关不监听、不发布、不代理 80
+# - ${DOMAIN} 由 nginx 镜像 entrypoint 用 envsubst 注入(见 compose 的 NGINX_ENVSUBST_FILTER)
+# - 证书由 certbot 容器写入 ../config/ssl, 与 QUIC 面共用; 续签后 `nginx -s reload` 生效
+# - 限流阈值是初始值(从宽到紧): 上线后观察 $request_time / 429 比例再收紧
+
+# 限流 zone(key=客户端IP, 二进制省内存)
+limit_req_zone  $binary_remote_addr  zone=signin:10m   rate=10r/s;
+limit_req_zone  $binary_remote_addr  zone=vcode:10m    rate=1r/m;
+limit_req_zone  $binary_remote_addr  zone=refresh:10m  rate=5r/s;
+limit_req_zone  $binary_remote_addr  zone=global:10m   rate=30r/s;
+limit_conn_zone $binary_remote_addr  zone=perip:10m;
+
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name ${DOMAIN};
+
+    ssl_certificate     /app/config/ssl/fullchain.pem;
+    ssl_certificate_key /app/config/ssl/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    server_tokens off;
+
+    # 请求体积: file_upload 上限 20MB + multipart 开销余量
+    client_max_body_size 25m;
+
+    # XFF 覆写(非追加): 客户端伪造的 XFF 不透传, 应用侧据此取真实 IP
+    proxy_set_header Host              $host;
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Forwarded-For   $remote_addr;
+    proxy_set_header X-Forwarded-Proto https;
+
+    proxy_connect_timeout 5s;
+    proxy_read_timeout    300s;            # 对齐客户端 300s 上传档
+    proxy_send_timeout    300s;
+    proxy_http_version 1.1;
+
+    # ---- 匿名端点: 严格限流(与 auth_middleware IGNORED_PATHS 对齐) ----
+
+    # 登录: 单 IP 10r/s + burst 20(容纳 NAT 办公网), 防密码爆破 + Argon2 CPU 耗尽
+    location = /user/sign_in {
+        limit_req  zone=signin  burst=20 nodelay;
+        limit_conn perip 20;
+        proxy_pass http://app:8443;
+    }
+
+    # 验证码发送: 1r/m + burst 3, 保护邮件成本(核心防护目标)
+    location = /user/send_verify_code {
+        limit_req  zone=vcode   burst=3  nodelay;
+        limit_conn perip 5;
+        proxy_pass http://app:8443;
+    }
+
+    # refresh_token: 30 天有效期, 正常流量极低
+    location = /user/refresh_token {
+        limit_req  zone=refresh burst=10 nodelay;
+        proxy_pass http://app:8443;
+    }
+
+    # 注册两步: 与 global 同档(nginx location 不继承 limit_req, 必须显式写), 单列便于日后独立调参
+    location = /user/sign_up_step1 {
+        limit_req  zone=global burst=60 nodelay;
+        limit_conn perip 20;
+        proxy_pass http://app:8443;
+    }
+    location = /user/complete_profile {
+        limit_req  zone=global burst=60 nodelay;
+        limit_conn perip 20;
+        proxy_pass http://app:8443;
+    }
+
+    # ---- 其余全部端点: 兜底档 ----
+    location / {
+        limit_req  zone=global burst=60 nodelay;
+        limit_conn perip 20;
+        proxy_pass http://app:8443;
+    }
+}

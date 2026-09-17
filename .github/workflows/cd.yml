@@ -58,11 +58,20 @@ jobs:
             docker-compose pull app
             docker-compose stop app || true
 
-            # 无论 DDL 成败都恢复应用, 避免迁移失败时服务一直下线
-            trap 'docker-compose up -d app' EXIT
+            # 无论 DDL 成败都恢复应用与网关, 避免迁移失败时服务一直下线
+            trap 'docker-compose up -d app nginx' EXIT
 
             # 应用数据库 DDL: 脚本均已幂等(IF NOT EXISTS / DO 块), 可安全重复执行;
             # 先建表, 再启动新版本镜像, 避免新代码查询不存在的表。
             # PGOPTIONS 设置 lock_timeout: 万一仍有锁竞争, 30s 快速失败而不是挂到 10 分钟超时。
             # ddl 目录已只读挂载到 postgres 容器 /docker-entrypoint-initdb.d, 在容器内按字典序重放即可。
             docker-compose exec -T -e PGOPTIONS='-c lock_timeout=30s' postgres sh -c 'for f in /docker-entrypoint-initdb.d/*.sql; do echo "==> 应用 DDL: $f"; psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 -q -f "$f"; done'
+
+            # 启动新版本应用
+            docker-compose up -d app
+
+            # 网关(nginx): 首次部署创建; bind-mount 的 conf 变更不会触发容器重建, 故显式校验并 reload。
+            # nginx -t 失败即 set -e 中止, 保留旧配置继续服务(不会把网关打挂)。
+            docker-compose up -d nginx
+            docker-compose exec -T nginx nginx -t
+            docker-compose exec -T nginx nginx -s reload

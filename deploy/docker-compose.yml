@@ -5,7 +5,7 @@ services:
     restart: unless-stopped
     env_file: .env
     ports:
-      - "8443:8443/tcp"
+      # 网关方案: 8443 明文 HTTP 不再对外发布, 仅 compose 内网经 nginx 可达
       - "4433:4433/tcp"
       - "4433:4433/udp"
       - "4434:4434/tcp"
@@ -24,6 +24,27 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+
+  # HTTP 网关: TLS 终止 + per-IP 限流, 反代到 app 明文 HTTP(:8443, 仅内网)。
+  # 只发布 443; 80 保留给 certbot ACME, 本容器不监听、不发布、不代理 80。
+  # 证书与 QUIC 面共用 certbot 写入的 config/ssl, 续签后 nginx -s reload 即可生效(app 不再因证书重启)。
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: only-talk-nginx
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN}
+      # 只对 DOMAIN 做 envsubst, 避免误替换配置里的 nginx 变量($host/$remote_addr 等)
+      NGINX_ENVSUBST_FILTER: DOMAIN
+    ports:
+      - "443:443"
+    volumes:
+      - ../config/ssl:/app/config/ssl:ro
+      - ./nginx/only-talk.conf.template:/etc/nginx/templates/only-talk.conf.template:ro
+      # 覆盖官方镜像自带的 default.conf(监听 80), 确保网关不监听 80
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - app
 
   postgres:
     image: postgres:17-alpine

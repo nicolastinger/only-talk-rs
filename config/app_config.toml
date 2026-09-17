@@ -15,6 +15,9 @@ server_index = 0
 domain = "${APP_DOMAIN}"
 
 [server]
+# 网关方案: HTTP 面 TLS 终止在 nginx(443), actix 只监听明文 HTTP。
+# compose 部署: 8443 不再对外发布, 容器网络内可达即可;
+# 裸机部署(systemd 单体/拆分): 必须改 127.0.0.1:8443, 防止明文端口暴露公网。
 address="0.0.0.0:8443"
 locales="zh-CN"
 log_level="info"

@@ -89,7 +89,7 @@ Edit `config/app_config.toml` and adjust key settings:
 
 ```toml
 [server]
-address = "0.0.0.0:8443"        # HTTPS API listen address
+address = "0.0.0.0:8443"        # HTTP API listen address (plaintext; nginx terminates TLS on 443 in production, use 127.0.0.1 on bare metal)
 log_level = "info"              # Log level: debug / info / warn / error
 
 [quic_server]
@@ -132,7 +132,7 @@ cargo run --release
 ```
 
 After startup, the server runs:
-- **HTTPS API**: `https://0.0.0.0:8443`
+- **HTTP API**: `http://0.0.0.0:8443` (plaintext, local/internal only; nginx terminates TLS on 443 in production)
 - **QUIC External**: `0.0.0.0:4433`
 - **QUIC Internal**: `127.0.0.1:4434`
 
@@ -161,7 +161,7 @@ api ──► http_service ──► common
 |------|-------|-------|-------------|
 | **Standalone** | `src/main.rs` | 8443 + 4433 + 4434 + 19562-19565 | QUIC + HTTP in a single process |
 | **QUIC Gateway** | `crates/quic_service/src/bin/quic_server.rs` | 4433 + 4434 + 19562-19565 | QUIC connection management only |
-| **API Service** | `crates/api/src/bin/api_server.rs` | 8443 | HTTP REST API only |
+| **API Service** | `crates/api/src/bin/api_server.rs` | 8443 | HTTP REST API only (plaintext; nginx terminates TLS on 443 in production) |
 
 ### Standalone Mode (Default)
 
@@ -250,7 +250,7 @@ server_index = 0                # Cluster node index
 domain = "${APP_DOMAIN}"        # Application domain
 
 [server]
-address = "0.0.0.0:8443"        # HTTPS listen address
+address = "0.0.0.0:8443"        # HTTP listen address (plaintext; nginx terminates TLS on 443 in production, use 127.0.0.1 on bare metal)
 locales = "zh-CN"               # Internationalization language
 log_level = "info"              # Log level
 

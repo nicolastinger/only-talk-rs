@@ -1,4 +1,5 @@
 use actix_web::{HttpRequest, HttpResponse, Responder, get, post, web};
+use rand::Rng;
 use tracing::info;
 
 use crate::common::dto::base_dto::AuthAccount;
@@ -34,6 +35,17 @@ pub fn user_service(cfg: &mut web::ServiceConfig) {
         .service(update_user_info_api);
 }
 
+/// 登录/发码端点的人为延迟(tarpit): 无条件随机 3-5s, 抬高爆破/刷码的每尝试成本。
+///
+/// 红线:
+/// - 必须 `tokio::time::sleep`(async 挂起 task), 绝不可 `std::thread::sleep`(会阻塞 actix worker)
+/// - `rand::thread_rng()` 是 `!Send`, 必须先取值后 await, 不可跨 await 持有
+/// - 放在 handler 最前且无条件: 账号存在与否的 Argon2 时延差被随机量淹没, 防止账号枚举
+async fn apply_auth_tarpit() {
+    let delay_ms = rand::thread_rng().gen_range(3000..=5000);
+    tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+}
+
 #[post("/get_exit_user_flag/is_exit")]
 pub async fn get_exit_user_flag(state: web::Data<AppState>, account: String) -> impl Responder {
     info!("接收到的账号: {}", account);
@@ -66,6 +78,7 @@ pub async fn send_verify_code(
     state: web::Data<AppState>,
     dto: web::Json<SendVerifyCodeDTO>,
 ) -> impl Responder {
+    apply_auth_tarpit().await;
     let dto = validate_and_respond!(dto);
     let email = dto.email.unwrap_or_default();
     let res = send_verify_code_service(state.db(), state.redis(), &state.email, &email).await;
@@ -78,6 +91,7 @@ pub async fn sign_in(
     req: HttpRequest,
     basic_user_dto: web::Json<SignInBasicUserDTO>,
 ) -> impl Responder {
+    apply_auth_tarpit().await;
     let basic_user_dto: SignInBasicUserDTO = validate_and_respond!(basic_user_dto);
     let res = user_sign_in(state.db(), state.redis(), basic_user_dto, &req).await;
     respond_json_any!(res)
