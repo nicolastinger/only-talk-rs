@@ -21,7 +21,14 @@ pub async fn run_client(server_addr: SocketAddr) {
     let mut endpoint =
         Endpoint::client("0.0.0.0:0".parse().expect("client bind address should be valid"))
             .expect("failed to create quic client endpoint");
-    endpoint.set_default_client_config(configure_client()); // 设置默认客户端配置
+    let client_config = match configure_client() {
+        Ok(c) => c,
+        Err(e) => {
+            error!("构建客户端 QUIC 配置失败: {}", e);
+            return;
+        }
+    };
+    endpoint.set_default_client_config(client_config); // 设置默认客户端配置
 
     // 尝试连接服务器
     let connection = match endpoint.connect(server_addr, "onlytalk.cn") {

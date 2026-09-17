@@ -170,6 +170,8 @@ impl ServiceLifecycle for ChatNode {
     }
 
     fn status(&self) -> ServiceState {
-        self.state.try_read().map(|s| *s).unwrap_or(ServiceState::Running)
+        // try_read 失败 = 有写锁在途(状态正在转换, 如 stop 进行中)。
+        // 此时绝不能兜底成 Running —— 会让监控/巡检误判服务健康; 返回 Uninitialized(非运行态)更安全。
+        self.state.try_read().map(|s| *s).unwrap_or(ServiceState::Uninitialized)
     }
 }

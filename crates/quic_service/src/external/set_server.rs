@@ -11,7 +11,7 @@ use rustls_pemfile::{certs, ec_private_keys, pkcs8_private_keys, rsa_private_key
 
 /// 为客户端使用配置 QUIC 设置。
 #[allow(dead_code)]
-pub fn configure_client() -> ClientConfig {
+pub fn configure_client() -> Result<ClientConfig, Box<dyn Error>> {
     let mut root_store = RootCertStore::empty();
     root_store.add_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.iter().map(|ta| {
         rustls::OwnedTrustAnchor::from_subject_spki_name_constraints(
@@ -28,12 +28,13 @@ pub fn configure_client() -> ClientConfig {
 
     let mut config = ClientConfig::new(Arc::new(crypto));
     let mut time_out_config = TransportConfig::default();
+    // 失败上抛(与 create_server_config 一致), 不用 panic/expect
     let idle_timeout =
-        Duration::from_secs(60).try_into().unwrap_or_else(|_| panic!("failed to set timeout"));
+        Duration::from_secs(60).try_into().map_err(|_| "Failed to set idle timeout")?;
     time_out_config.max_idle_timeout(Some(idle_timeout));
     time_out_config.max_concurrent_uni_streams(32_u8.into());
     config.transport_config(Arc::from(time_out_config));
-    config
+    Ok(config)
 }
 
 pub fn make_server_endpoint(
