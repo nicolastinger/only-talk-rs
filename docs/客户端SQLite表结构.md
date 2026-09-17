@@ -14,7 +14,7 @@
 | 同步域 | `session_sync_state`★ / `sync_task`★ / `chat_record_read` / `group_message_read` | 拉取水位与批次记录 + 已读上报事件 |
 | 发送域 | `chat_record_send` / `chat_record_ack` / `group_message_ack` | 出站队列、ACK 跟踪、重试 |
 | 资料域 | `user_info` / `friend` / `group_info` / `group_member` | 用户 / 好友 / 群 / 群成员资料缓存 |
-| 功能域 | `system_notification` / `user_token` / `file_record` / `webrtc_signal` / `app_log` | 通知 / 凭据 / 文件 / RTC 信令 / 日志 |
+| 功能域 | `system_notification` / `user_token` / `file_record` / `client_config`★ / `webrtc_signal` / `app_log` | 通知 / 凭据 / 文件 / 客户端配置 / RTC 信令 / 日志 |
 
 ---
 
@@ -328,6 +328,23 @@ CREATE TABLE IF NOT EXISTS file_record (
     created_at           INTEGER, updated_at INTEGER
 );
 ```
+
+### `client_config` —— 客户端持久化配置(key-value, 公共库)
+
+承载客户端运行状态，随版本可扩展键位。首版四个键：`server.api_base`(HTTP API 地址)、`server.domain`(QUIC/NAT 域名)、`app.theme`(默认主题)、`app.language`(默认语言)。
+
+```sql
+CREATE TABLE IF NOT EXISTS client_config (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    config_key   TEXT NOT NULL UNIQUE,
+    config_value TEXT NOT NULL,
+    updated_at   INTEGER
+);
+```
+
+- **启动种子**：`init_app` 初始化公共库后调用 `config::init_persisted_config()`——仅缺省键写默认值（`server.api_base`/`server.domain` 按 `ONLY_TALK_ENV`：dev → `http://127.0.0.1:8443`/`127.0.0.1`，prod → `https://onlytalk.cn`/`onlytalk.cn`；`app.theme=light`、`app.language=zh-CN`），再将整表加载进内存 `GLOBAL_CONFIG`。
+- **运行时解析**：Rust 侧 `talk_api_base()`/`talk_api_domain()` 先读内存配置、无则按环境兜底；HTTP 调用已全部改为 `talk_api_base()`（TALK_API 常量仅作 prod 兜底）。
+- **命令**：`get_client_config` / `set_client_config` / `get_all_client_config` / `reset_client_config`（TS 侧 `appConfig` 模块封装，前端启动 `initAppConfig()` 后经 `getApiBase()` 取地址）。
 
 ### `webrtc_signal` —— RTC 信令暂存
 
