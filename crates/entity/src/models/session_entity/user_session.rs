@@ -44,7 +44,7 @@ impl UserSession {
                  (user_uuid, session_uuid, session_type, peer_uuid,
                   last_read_id, synced_id, created_at, updated_at)
              VALUES ($1, $2, $3, $4,
-                     COALESCE($5, 0), COALESCE($6, 0),
+                     COALESCE($5::bigint, 0), COALESCE($6::bigint, 0),
                      (extract(epoch from clock_timestamp()) * 1000)::bigint,
                      (extract(epoch from clock_timestamp()) * 1000)::bigint)
              ON CONFLICT (user_uuid, session_uuid) DO NOTHING",
@@ -155,4 +155,23 @@ impl UserSession {
     /// 某用户的全部会话行(由上线聚合建立; 未读/列表读侧驱动)。
     #[rbatis::py_sql("select * from user_session where user_uuid = #{me} order by id")]
     async fn select_by_user(rb: &dyn Executor, me: &Uuid) -> Vec<UserSession> {}
+
+    /// 指定用户与会话的单行(任务05: 指定会话同步; 不存在返回 None)。
+    #[rbatis::py_sql(
+        "select * from user_session where user_uuid = #{me} and session_uuid = #{s} limit 1"
+    )]
+    async fn select_by_user_and_session_inner(
+        rb: &dyn Executor,
+        me: &Uuid,
+        s: &Uuid,
+    ) -> Vec<UserSession> {
+    }
+
+    pub async fn select_by_user_and_session(
+        rb: &dyn Executor,
+        me: &Uuid,
+        s: &Uuid,
+    ) -> rbatis::Result<Option<UserSession>> {
+        Ok(Self::select_by_user_and_session_inner(rb, me, s).await?.into_iter().next())
+    }
 }
