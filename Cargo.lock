@@ -4016,6 +4016,7 @@ dependencies = [
  "lazy_static",
  "nanoid",
  "once_cell",
+ "parking_lot",
  "quinn",
  "rand 0.8.5",
  "rbatis",

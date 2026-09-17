@@ -1,4 +1,4 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
@@ -16,6 +16,7 @@ use deadpool_redis::redis::AsyncCommands;
 use entity::models::group_entity::group_message_record::GroupMessageRecord;
 use nanoid::nanoid;
 use once_cell::sync::Lazy;
+use parking_lot::Mutex;
 use quinn::Connection;
 use rbatis::rbdc::{Bytes, Uuid};
 use tracing::{debug, error, info, warn};
@@ -240,12 +241,12 @@ pub async fn handle_group_msg_from_client(
 async fn get_all_internal_node_addresses(
     core: &CoreState,
 ) -> Result<Vec<(u32, std::net::SocketAddr)>> {
-    // 若缓存可用则直接返回
+    // 若缓存可用则直接返回。
+    //
+    // 锁纪律: 用 `parking_lot::Mutex`(无中毒概念) —— 临界区仅 clone 取值, 不存在 panic 路径;
+    // 禁止任何 `unwrap` / `process::exit`(节点级退出与「5s TTL 缓存」的爆炸半径完全不成比例)。
     {
-        let cache_read = NODE_CACHE.lock().unwrap_or_else(|e| {
-            error!("NODE_CACHE 锁中毒: {}", e);
-            std::process::exit(1);
-        });
+        let cache_read = NODE_CACHE.lock();
         if let Some((ts, nodes)) = cache_read.as_ref()
             && ts.elapsed() < Duration::from_secs(5)
         {
@@ -284,12 +285,7 @@ async fn get_all_internal_node_addresses(
         }
     }
 
-    let mut cache_write = NODE_CACHE.lock().unwrap_or_else(|e| {
-        error!("NODE_CACHE 写锁中毒: {}", e);
-        std::process::exit(1);
-    });
-    *cache_write = Some((Instant::now(), nodes.clone()));
-    drop(cache_write);
+    *NODE_CACHE.lock() = Some((Instant::now(), nodes.clone()));
     Ok(nodes)
 }
 
