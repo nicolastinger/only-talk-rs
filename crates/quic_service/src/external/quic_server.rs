@@ -102,6 +102,9 @@ pub(crate) async fn run_server(
     ACCEPT_ALIVE_AT_MS.store(now_millis(), Ordering::Relaxed);
     start_accept_watchdog();
 
+    // 任务09 §4: 定时兜底聚合, 覆盖"持续在线"用户(上线/下线触发覆盖不到)
+    start_periodic_aggregate(core.clone(), connections.clone());
+
     let mut alive_interval = tokio::time::interval(Duration::from_secs(ACCEPT_ALIVE_TICK_SECS));
     loop {
         tokio::select! {
@@ -588,6 +591,40 @@ fn spawn_session_aggregate(core: &CoreState, uuid: &str) {
     });
 }
 
+/// 定时兜底聚合(任务09 §4): 每 30s 对本机在线用户跑一次 aggregate(幂等)。
+///
+/// 上线/下线触发覆盖不了"持续在线"用户; 每节点只处理自己 DashMap 上的连接,
+/// 集群天然分担、不跨节点。
+///
+/// ⚠️ 频率与 V4 聚合发现查询实测相关(任务09 §2.2): 若 V4 为百毫秒级且在线用户上百,
+/// 需下调频率或改走 §2.4 的 LATERAL 升级路径 —— 默认 30s 仅是起点。
+fn start_periodic_aggregate(core: CoreState, connections: Arc<DashMap<String, QuicConnection>>) {
+    tokio::spawn(async move {
+        let mut tick = tokio::time::interval(Duration::from_secs(30));
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        loop {
+            tick.tick().await;
+            // 连接键形如 "PLATFORM:...:UUID:TEXT", 以 connection.uuid 去重
+            let mut users: Vec<String> = Vec::new();
+            for entry in connections.iter() {
+                let u = entry.value().uuid.clone();
+                if !u.is_empty() && !users.contains(&u) {
+                    users.push(u);
+                }
+            }
+            for u in users {
+                match u.parse::<rbatis::rbdc::Uuid>() {
+                    Ok(uuid) => {
+                        if let Err(e) = aggregate_user_sessions(&core.db, &uuid).await {
+                            warn!("[session] 兜底聚合失败: user={}, err={:?}", uuid, e);
+                        }
+                    }
+                    Err(e) => warn!("[session] 兜底聚合: uuid 解析失败 {}", e),
+                }
+            }
+        }
+    });
+}
 /// 上线时新连接对既有在线连接(同一 platform+uuid)的接管语义
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Takeover {

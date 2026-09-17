@@ -6,7 +6,7 @@
 
 ## 项目简介
 
-OnlyTalk RS 是一个基于 Rust 构建的高性能即时通讯（IM）后端服务器，采用 Actix-web 提供 RESTful API，QUIC 协议处理实时消息传输，支持 P2P 打洞、NAT 穿透、群聊广播等高级 IM 功能。
+OnlyTalk RS 是一个基于 Rust 构建的高性能即时通讯（IM）后端服务器，采用 Actix-web 提供 RESTful API，QUIC 协议处理实时消息传输，支持 P2P 打洞、NAT 穿透、群聊广播等高级 IM 功能。会话体系支持**按会话游标的离线同步与会话列表**（`/session/*`，7 天回溯窗口，消息表按会话哈希分区）。
 
 ## 技术栈
 

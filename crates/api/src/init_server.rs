@@ -189,6 +189,39 @@ pub async fn start_server() -> anyhow::Result<()> {
 
     let address = read_global_config!("server", "address");
 
+    // 任务09 §3.3: 每日清理窗口外消息(启动即跑一轮, 之后每 24h; 分批 10000 循环至清空)
+    {
+        let db = state.core.db.clone();
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(std::time::Duration::from_secs(24 * 3600));
+            tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            loop {
+                tick.tick().await;
+                let Ok(now) = common::utils::time::get_now_time_stamp_as_millis() else {
+                    error!("[cleanup] 获取时间戳失败, 跳过本轮清理");
+                    continue;
+                };
+                let boundary = now - common::config_str::SYNC_WINDOW_DAYS * 24 * 3600 * 1000;
+                let mut total = 0u64;
+                loop {
+                    match common::models::session_entity::cleanup::delete_messages_before(
+                        &db, boundary, 10_000,
+                    )
+                    .await
+                    {
+                        Ok((s, g)) if s + g > 0 => total += s + g,
+                        Ok(_) => break,
+                        Err(e) => {
+                            error!("[cleanup] 清理批次失败: {}", e);
+                            break;
+                        }
+                    }
+                }
+                info!("[cleanup] 窗口外消息清理完成: {} 行, boundary={}", total, boundary);
+            }
+        });
+    }
+
     HttpServer::new(move || {
         App::new()
             .wrap(TraceIdMiddleware)

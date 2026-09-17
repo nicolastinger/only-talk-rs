@@ -83,6 +83,16 @@ async fn apply_all_ddl_to_test_database() -> Result<()> {
             }
             info!("分区表 {} 校验通过: {} 个分区", table, actual);
         }
+
+        // 任务09 §2.3: 分区表唯一约束必须含分区键(session_uuid / group_uuid)
+        for (table, key_col) in
+            [("chat_message_record", "session_uuid"), ("group_message_record", "group_uuid")]
+        {
+            if !unique_constraint_has_column(&test_rb, table, key_col).await? {
+                return Err(anyhow!("{} 的唯一约束应含分区键 {}", table, key_col));
+            }
+            info!("{} 唯一约束含分区键 {} 校验通过", table, key_col);
+        }
         Ok(())
     }
     .await;
@@ -125,4 +135,33 @@ async fn partition_count(rb: &rbatis::RBatis, table: &str) -> Result<i64> {
         .and_then(|v| v.as_i64())
         .unwrap_or(0);
     Ok(count)
+}
+
+/// 该表是否存在含指定列的唯一约束(任务09 §2.3: 分区表唯一约束必须含分区键)
+async fn unique_constraint_has_column(
+    rb: &rbatis::RBatis,
+    table: &str,
+    column: &str,
+) -> Result<bool> {
+    let sql = format!(
+        "SELECT pg_get_constraintdef(c.oid) AS def FROM pg_constraint c \
+         JOIN pg_class t ON t.oid = c.conrelid \
+         WHERE t.relname = '{}' AND c.contype = 'u'",
+        table
+    );
+    let result: rbs::Value =
+        rb.query(&sql, vec![]).await.map_err(|e| anyhow!("查询唯一约束失败: {}", e))?;
+    let defs: Vec<String> = result
+        .as_array()
+        .map(|rows| {
+            rows.iter()
+                .filter_map(|row| {
+                    row.as_map()
+                        .map(|m| m.get(&rbs::Value::from("def")))
+                        .and_then(|v| v.as_str().map(str::to_string))
+                })
+                .collect::<Vec<String>>()
+        })
+        .unwrap_or_default();
+    Ok(defs.iter().any(|d| d.contains(column)))
 }

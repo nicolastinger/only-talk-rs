@@ -59,3 +59,6 @@ pub static S3_PROVIDER_AWS_S3: &str = "aws_s3";
 // ⚠️ 生成一次后永久固化, 任何修改都会导致全部 session_uuid 变化, 一致性直接崩塌。
 // 值见生成记录(commit message: CONV_NAMESPACE=27a23a8a-b493-4e7e-8b06-991e8d69672c)。
 pub static CONV_NAMESPACE_STR: &str = "27a23a8a-b493-4e7e-8b06-991e8d69672c";
+
+/// 离线消息最大回溯窗口(天)。`/session/sync` 窗口过滤与每日清理共用一处定义(任务09 §3.3)。
+pub const SYNC_WINDOW_DAYS: i64 = 7;

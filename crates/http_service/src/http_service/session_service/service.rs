@@ -21,7 +21,8 @@ const SESSION_LIST_DEFAULT_SIZE: u32 = 50;
 const SESSION_LIST_MAX_SIZE: u32 = 100;
 
 /// 离线消息最大回溯窗口(天)。服务端计算, 不信任客户端时间(主方案 §8.1)。
-const SYNC_WINDOW_DAYS: i64 = 7;
+/// 与每日清理共用 `common::config_str::SYNC_WINDOW_DAYS`(任务09 §3.3, 避免双源漂移)。
+const SYNC_WINDOW_DAYS: i64 = common::config_str::SYNC_WINDOW_DAYS;
 /// 单会话单次同步默认条数。
 const SYNC_DEFAULT_LIMIT: u32 = 100;
 /// 单会话单次同步硬上限(防客户端传大值)。
