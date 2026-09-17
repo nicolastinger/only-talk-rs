@@ -280,7 +280,7 @@ pub struct ChatNodeConfig {
     pub bind_address: SocketAddr,            // 监听地址（[quic_server].address，如 "0.0.0.0:4433"）
     pub cert_path: String,                   // TLS 证书链（默认 ./config/ssl/fullchain.pem）
     pub key_path: String,                    // TLS 私钥（默认 ./config/ssl/privkey.pem）
-    pub max_connections: usize,              // 最大在线连接数（默认 1000）
+    pub max_connections: usize,              // 最大并发连接数（[quic_server].max_connections，默认 10000；仅限新建连接，重连不受限）
     pub max_buffer_length: usize,            // 残包缓冲上限（默认 10MB，超限断开）
     pub idle_timeout_secs: u64,              // QUIC 空闲超时（默认 190s，代码未实际注入）
     pub max_concurrent_uni_streams: u8,      // 并发单向流数（默认 0，实际由 set_server.rs 固定 32）
@@ -305,9 +305,10 @@ cert_path = "./config/ssl/fullchain.pem"   # 可选，有默认值
 key_path  = "./config/ssl/privkey.pem"     # 可选
 server_name = "127.0.0.1:4433" # 可选
 node_address = "127.0.0.1:4433"# 可选
+max_connections = 10000        # 可选，默认 10000；<=0 视为非法回退默认
 ```
 
-其余字段（max_connections 等）**只能走默认值**，TOML 中不读取。
+其余字段（`max_buffer_length`、`idle_timeout_secs` 等）**只能走默认值**，TOML 中不读取。
 
 ### 4.5 `ServiceState` —— 生命周期状态机（`external/state.rs`）
 

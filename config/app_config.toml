@@ -25,6 +25,8 @@ cert_path="./config/ssl/fullchain.pem"
 key_path="./config/ssl/privkey.pem"
 server_name="${QUIC_SERVER_NAME}"
 node_address="${QUIC_NODE_ADDRESS}"
+# 最大并发连接数(新建连接准入上限, 已存在连接的重连不受限); 未配置/非法(<=0)默认 10000
+max_connections=10000
 
 [internal_quic_server]
 address="${INTERNAL_QUIC_SERVER_ADDRESS}"
