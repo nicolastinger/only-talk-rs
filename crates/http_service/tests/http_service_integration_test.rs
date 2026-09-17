@@ -44,8 +44,12 @@ use email_service::manager::EmailManager;
 use futures_util::FutureExt;
 use http_service::http_service::chat_service::service::text_msg_service::get_unread_chat_record;
 use http_service::http_service::configure_routes;
-use http_service::http_service::session_service::dto::SyncRequestDTO;
-use http_service::http_service::session_service::service::sync_sessions;
+use http_service::http_service::session_service::dto::{
+    SessionControlDTO, SessionListCursor, SessionListDTO, SyncRequestDTO,
+};
+use http_service::http_service::session_service::service::{
+    delete_session, list_sessions, mute_session, pin_session, sync_sessions,
+};
 use http_service::http_service::user_service::dto::friend_request_info_dto::FriendRequestInfoDTO;
 use http_service::http_service::user_service::service::friend_service::{
     FRIEND_ACCEPT_DEFAULT_MSG, FRIEND_REQUEST_DEFAULT_MSG, add_friend, delete_friend_service,
@@ -1526,6 +1530,258 @@ async fn http_service_user_api_integration() -> Result<()> {
         assert!(json["data"]["sessions"].as_array().is_some(), "应返回 sessions 数组: {json}");
         info!("任务05 离线同步 /session/sync 全部通过");
 
+        // ===== 10. 任务06: 会话列表与控制信息 =====
+        let base = sync_now;
+
+        // 10.1 排序: 置顶最前, 其余按 last_message_at 降序
+        let (u1, u1r) = seed_friend_user(&test_rb, "l1").await?;
+        let p1a = Uuid::now_v7();
+        let p1b = Uuid::now_v7();
+        let p1c = Uuid::now_v7();
+        let p1ar: RbatisUuid = p1a.to_string().parse()?;
+        let p1br: RbatisUuid = p1b.to_string().parse()?;
+        let p1cr: RbatisUuid = p1c.to_string().parse()?;
+        let s1a: RbatisUuid = single_session_uuid(&u1, &p1a).to_string().parse()?;
+        let s1b: RbatisUuid = single_session_uuid(&u1, &p1b).to_string().parse()?;
+        let s1c: RbatisUuid = single_session_uuid(&u1, &p1c).to_string().parse()?;
+        // s1a 置顶(时间最早); s1b 最新; s1c 居中
+        upsert_session_row(&test_rb, &s1a, SESSION_TYPE_SINGLE, 1, base - 2000, "a").await?;
+        upsert_user_session_ex(&test_rb, &u1r, &s1a, SESSION_TYPE_SINGLE, Some(&p1ar), 0, 1, 1, 0)
+            .await?;
+        upsert_session_row(&test_rb, &s1b, SESSION_TYPE_SINGLE, 1, base - 100, "b").await?;
+        upsert_user_session_ex(&test_rb, &u1r, &s1b, SESSION_TYPE_SINGLE, Some(&p1br), 0, 1, 0, 0)
+            .await?;
+        upsert_session_row(&test_rb, &s1c, SESSION_TYPE_SINGLE, 1, base - 1000, "c").await?;
+        upsert_user_session_ex(&test_rb, &u1r, &s1c, SESSION_TYPE_SINGLE, Some(&p1cr), 0, 1, 0, 0)
+            .await?;
+        let resp = list_sessions(&test_rb, Some(u1.to_string()), list_req(None, Some(10))).await?;
+        let order1: Vec<String> = resp.sessions.iter().map(|s| s.session_uuid.clone()).collect();
+        assert_eq!(
+            order1,
+            vec![s1a.to_string(), s1b.to_string(), s1c.to_string()],
+            "置顶最前, 其余按时间降序"
+        );
+        assert!(!resp.has_more);
+        assert!(resp.next_cursor.is_none());
+
+        // 10.2 keyset 分页无漏无重(12 会话 / size=5 → 3 页)
+        let (u2, u2r) = seed_friend_user(&test_rb, "l2").await?;
+        let mut expect2 = Vec::new();
+        for i in 0..12i64 {
+            let peer = Uuid::now_v7();
+            let pr: RbatisUuid = peer.to_string().parse()?;
+            let s: RbatisUuid = single_session_uuid(&u2, &peer).to_string().parse()?;
+            upsert_session_row(&test_rb, &s, SESSION_TYPE_SINGLE, i + 1, base - i * 1000, "k")
+                .await?;
+            upsert_user_session_ex(&test_rb, &u2r, &s, SESSION_TYPE_SINGLE, Some(&pr), 0, 0, 0, 0)
+                .await?;
+            expect2.push(s.to_string());
+        }
+        let mut got2 = Vec::new();
+        let mut cursor2: Option<SessionListCursor> = None;
+        loop {
+            let resp =
+                list_sessions(&test_rb, Some(u2.to_string()), list_req(cursor2, Some(5))).await?;
+            got2.extend(resp.sessions.iter().map(|s| s.session_uuid.clone()));
+            if !resp.has_more {
+                break;
+            }
+            cursor2 = resp.next_cursor;
+        }
+        assert_eq!(got2.len(), 12, "翻页合并应 12 行");
+        let mut uniq2 = got2.clone();
+        uniq2.sort();
+        uniq2.dedup();
+        assert_eq!(uniq2.len(), 12, "翻页不应有重复");
+        let mut exp2 = expect2.clone();
+        exp2.sort();
+        assert_eq!(uniq2, exp2, "翻页集合应与预期一致");
+
+        // 10.3 未读数排除自己发的(单聊 recv=me / 群 send<>me)
+        let (u3, u3r) = seed_friend_user(&test_rb, "l3").await?;
+        let p3 = Uuid::now_v7();
+        let p3r: RbatisUuid = p3.to_string().parse()?;
+        let s3: RbatisUuid = single_session_uuid(&u3, &p3).to_string().parse()?;
+        for i in 0..3i64 {
+            insert_single_msg(&test_rb, &s3, &format!("u3-me-{i}"), base + i, &u3r, &p3r).await?;
+        }
+        for i in 0..2i64 {
+            insert_single_msg(&test_rb, &s3, &format!("u3-peer-{i}"), base + 10 + i, &p3r, &u3r)
+                .await?;
+        }
+        let max3 = ChatMessageRecord::max_id_by_session(&test_rb, &s3).await?;
+        upsert_session_row(&test_rb, &s3, SESSION_TYPE_SINGLE, max3, base, "u3").await?;
+        upsert_user_session_ex(&test_rb, &u3r, &s3, SESSION_TYPE_SINGLE, Some(&p3r), 0, max3, 0, 0)
+            .await?;
+
+        let g3 = Uuid::now_v7();
+        let g3r: RbatisUuid = g3.to_string().parse()?;
+        GroupInfo::insert(
+            &test_rb,
+            &GroupInfo {
+                id: None,
+                group_uuid: Some(g3r.clone()),
+                group_name: Some("列表测试群".to_string()),
+                avatar: None,
+                owner_uuid: Some(u3r.clone()),
+                description: None,
+                max_members: Some(200),
+                created_at: Some(0),
+                updated_at: Some(0),
+                status: Some(1),
+            },
+        )
+        .await
+        .context("插入列表测试群失败")?;
+        insert_group_msg(&test_rb, &g3r, "g3-me-0", base, &u3r).await?;
+        let other3 = Uuid::now_v7();
+        let other3r: RbatisUuid = other3.to_string().parse()?;
+        for i in 0..4i64 {
+            insert_group_msg(&test_rb, &g3r, &format!("g3-o-{i}"), base + 10 + i, &other3r).await?;
+        }
+        let gmax3 = GroupMessageRecord::max_id_by_group(&test_rb, &g3r).await?;
+        upsert_session_row(&test_rb, &g3r, SESSION_TYPE_GROUP, gmax3, base, "g3").await?;
+        upsert_user_session_ex(&test_rb, &u3r, &g3r, SESSION_TYPE_GROUP, None, 0, gmax3, 0, 0)
+            .await?;
+
+        let resp = list_sessions(&test_rb, Some(u3.to_string()), list_req(None, Some(10))).await?;
+        let single3 = resp
+            .sessions
+            .iter()
+            .find(|s| s.session_uuid == s3.to_string())
+            .context("应有单聊会话")?;
+        assert_eq!(single3.unread, 2, "单聊未读=对方发的 2 条");
+        let group3 = resp
+            .sessions
+            .iter()
+            .find(|s| s.session_uuid == g3.to_string())
+            .context("应有群会话")?;
+        assert_eq!(group3.unread, 4, "群未读=他人发的 4 条");
+
+        // 10.4 软删后新消息复活, 未读=新到条数
+        let (u4, u4r) = seed_friend_user(&test_rb, "l4").await?;
+        let p4 = Uuid::now_v7();
+        let p4r: RbatisUuid = p4.to_string().parse()?;
+        let s4: RbatisUuid = single_session_uuid(&u4, &p4).to_string().parse()?;
+        insert_single_msg(&test_rb, &s4, "r4-0", base, &p4r, &u4r).await?;
+        insert_single_msg(&test_rb, &s4, "r4-1", base + 1, &p4r, &u4r).await?;
+        let max4 = ChatMessageRecord::max_id_by_session(&test_rb, &s4).await?;
+        upsert_session_row(&test_rb, &s4, SESSION_TYPE_SINGLE, max4, base, "r4").await?;
+        upsert_user_session_ex(&test_rb, &u4r, &s4, SESSION_TYPE_SINGLE, Some(&p4r), 0, max4, 0, 0)
+            .await?;
+        delete_session(&test_rb, Some(u4.to_string()), control_req(&s4, None))
+            .await
+            .context("软删失败")?;
+        let us4 = UserSession::select_by_map(
+            &test_rb,
+            rbs::value! {"user_uuid": &u4r, "session_uuid": &s4},
+        )
+        .await?;
+        let deleted_at4 = us4[0].deleted_at.context("软删后 deleted_at 应非空")?;
+        assert_eq!(us4[0].last_read_id, Some(max4), "软删应推到底");
+        let resp = list_sessions(&test_rb, Some(u4.to_string()), list_req(None, None)).await?;
+        assert!(resp.sessions.iter().all(|s| s.session_uuid != s4.to_string()), "软删后不应出现");
+        // 新消息 + 聚合 → 复活
+        insert_single_msg(&test_rb, &s4, "r4-2", deleted_at4 + 1000, &p4r, &u4r).await?;
+        aggregate_user_sessions(&test_rb, &u4r).await.context("复活聚合失败")?;
+        let resp = list_sessions(&test_rb, Some(u4.to_string()), list_req(None, None)).await?;
+        let row4 =
+            resp.sessions.iter().find(|s| s.session_uuid == s4.to_string()).context("应复活")?;
+        assert_eq!(row4.unread, 1, "复活后未读=新到 1 条");
+
+        // 10.5 软删后无新消息保持隐藏
+        let (u5, u5r) = seed_friend_user(&test_rb, "l5").await?;
+        let p5 = Uuid::now_v7();
+        let p5r: RbatisUuid = p5.to_string().parse()?;
+        let s5: RbatisUuid = single_session_uuid(&u5, &p5).to_string().parse()?;
+        insert_single_msg(&test_rb, &s5, "h5-0", base, &p5r, &u5r).await?;
+        let max5 = ChatMessageRecord::max_id_by_session(&test_rb, &s5).await?;
+        upsert_session_row(&test_rb, &s5, SESSION_TYPE_SINGLE, max5, base, "h5").await?;
+        upsert_user_session_ex(&test_rb, &u5r, &s5, SESSION_TYPE_SINGLE, Some(&p5r), 0, max5, 0, 0)
+            .await?;
+        delete_session(&test_rb, Some(u5.to_string()), control_req(&s5, None)).await?;
+        let resp = list_sessions(&test_rb, Some(u5.to_string()), list_req(None, None)).await?;
+        assert!(resp.sessions.is_empty(), "软删且无新消息应始终隐藏");
+
+        // 10.6 preview 生成: 300 汉字 → 256 字符, UTF-8 安全
+        let (u6, u6r) = seed_friend_user(&test_rb, "l6").await?;
+        let p6 = Uuid::now_v7();
+        let p6r: RbatisUuid = p6.to_string().parse()?;
+        let s6: RbatisUuid = single_session_uuid(&u6, &p6).to_string().parse()?;
+        let long6 = "汉".repeat(300);
+        ChatMessageRecord::insert(
+            &test_rb,
+            &ChatMessageRecord {
+                id: None,
+                session_uuid: s6.clone(),
+                nano_id: Some("preview6".to_string()),
+                timestamp: Some(base),
+                raw: long6.as_bytes().to_vec().into(),
+                text_type: Some(0),
+                send_user: p6r.clone(),
+                recv_user: u6r.clone(),
+            },
+        )
+        .await
+        .context("插入长消息失败")?;
+        aggregate_user_sessions(&test_rb, &u6r).await.context("preview 聚合失败")?;
+        let resp = list_sessions(&test_rb, Some(u6.to_string()), list_req(None, None)).await?;
+        let row6 =
+            resp.sessions.iter().find(|s| s.session_uuid == s6.to_string()).context("应有会话")?;
+        assert_eq!(row6.last_preview.chars().count(), 256, "preview 应截断到 256 字符");
+        assert!(row6.last_preview.chars().all(|c| c == '汉'), "preview 应无乱码(UTF-8 安全)");
+
+        // 10.7 pin/mute/delete 落库
+        let (u7, u7r) = seed_friend_user(&test_rb, "l7").await?;
+        let p7 = Uuid::now_v7();
+        let p7r: RbatisUuid = p7.to_string().parse()?;
+        let s7: RbatisUuid = single_session_uuid(&u7, &p7).to_string().parse()?;
+        insert_single_msg(&test_rb, &s7, "pmd7", base, &p7r, &u7r).await?;
+        let max7 = ChatMessageRecord::max_id_by_session(&test_rb, &s7).await?;
+        upsert_session_row(&test_rb, &s7, SESSION_TYPE_SINGLE, max7, base, "pmd7").await?;
+        upsert_user_session_ex(&test_rb, &u7r, &s7, SESSION_TYPE_SINGLE, Some(&p7r), 0, max7, 0, 0)
+            .await?;
+        pin_session(&test_rb, Some(u7.to_string()), control_req(&s7, Some(1)))
+            .await
+            .context("置顶失败")?;
+        mute_session(&test_rb, Some(u7.to_string()), control_req(&s7, Some(1)))
+            .await
+            .context("免打扰失败")?;
+        let us7 = UserSession::select_by_map(
+            &test_rb,
+            rbs::value! {"user_uuid": &u7r, "session_uuid": &s7},
+        )
+        .await?;
+        assert_eq!(us7[0].pinned, Some(1), "置顶应落库");
+        assert_eq!(us7[0].muted, Some(1), "免打扰应落库");
+        delete_session(&test_rb, Some(u7.to_string()), control_req(&s7, None))
+            .await
+            .context("软删失败")?;
+        let us7 = UserSession::select_by_map(
+            &test_rb,
+            rbs::value! {"user_uuid": &u7r, "session_uuid": &s7},
+        )
+        .await?;
+        assert!(us7[0].deleted_at.is_some(), "软删应落 deleted_at");
+        assert_eq!(us7[0].last_read_id, Some(max7), "软删应把 last_read 推到 last_message_id");
+
+        // 10.8 无会话用户返回空
+        let (u8, _u8r) = seed_friend_user(&test_rb, "l8").await?;
+        let resp = list_sessions(&test_rb, Some(u8.to_string()), list_req(None, None)).await?;
+        assert!(resp.sessions.is_empty());
+        assert!(!resp.has_more);
+        assert!(resp.next_cursor.is_none());
+
+        // 10.9 HTTP 冒烟: 路由与响应结构
+        let list_body = json_obj(&[]);
+        let (status, json) =
+            post_json(&app, "/session/list", Some(&list_body), Some(&access_token)).await;
+        assert_eq!(status, StatusCode::OK, "/session/list 应成功: {json}");
+        assert_eq!(json["code"], 200, "/session/list code 应为 200: {json}");
+        assert!(json["data"]["sessions"].as_array().is_some(), "应返回 sessions 数组: {json}");
+        assert!(json["data"]["has_more"].as_bool().is_some(), "应返回 has_more: {json}");
+        info!("任务06 会话列表与控制信息 全部通过");
+
         Ok::<(), anyhow::Error>(())
     })
     .catch_unwind()
@@ -1638,6 +1894,22 @@ async fn upsert_user_session(
     peer: Option<&RbatisUuid>,
     synced_id: i64,
 ) -> Result<()> {
+    upsert_user_session_ex(rb, me, session, session_type, peer, 0, synced_id, 0, 0).await
+}
+
+/// 任务06: 建/取用户会话行(游标 + 置顶 + 免打扰全量可控)。
+#[allow(clippy::too_many_arguments)]
+async fn upsert_user_session_ex(
+    rb: &RBatis,
+    me: &RbatisUuid,
+    session: &RbatisUuid,
+    session_type: i16,
+    peer: Option<&RbatisUuid>,
+    last_read_id: i64,
+    synced_id: i64,
+    pinned: i16,
+    muted: i16,
+) -> Result<()> {
     UserSession::upsert(
         rb,
         &UserSession {
@@ -1646,18 +1918,90 @@ async fn upsert_user_session(
             session_uuid: session.clone(),
             session_type: Some(session_type),
             peer_uuid: peer.cloned(),
-            last_read_id: None,
+            last_read_id: Some(last_read_id),
             synced_id: Some(synced_id),
-            pinned: None,
-            muted: None,
+            pinned: Some(pinned),
+            muted: Some(muted),
             deleted_at: None,
             created_at: None,
             updated_at: None,
         },
     )
     .await
-    .context("写入同步测试 user_session 失败")?;
+    .context("写入测试 user_session 失败")?;
+    // UserSession::upsert 是懒创建(仅 8 列, 不写 pinned/muted), 这里按需补控制字段
+    if pinned != 0 {
+        UserSession::update_pinned(rb, me, session, pinned).await.context("设置测试置顶失败")?;
+    }
+    if muted != 0 {
+        UserSession::update_muted(rb, me, session, muted).await.context("设置测试免打扰失败")?;
+    }
     Ok(())
+}
+
+/// 任务06: 建 session 行并设置最后一条消息(列表排序/摘要依赖)。
+async fn upsert_session_row(
+    rb: &RBatis,
+    session: &RbatisUuid,
+    session_type: i16,
+    last_id: i64,
+    last_at: i64,
+    preview: &str,
+) -> Result<()> {
+    Session::upsert(
+        rb,
+        &Session {
+            session_uuid: session.clone(),
+            session_type: Some(session_type),
+            last_message_id: None,
+            last_message_at: None,
+            last_preview: None,
+            created_at: None,
+            updated_at: None,
+        },
+    )
+    .await
+    .context("写入测试 session 失败")?;
+    Session::update_last_message(rb, session, last_id, last_at, Some(preview))
+        .await
+        .context("更新测试 session 摘要失败")?;
+    Ok(())
+}
+
+/// 任务06: 插入一条群聊测试消息, 返回群当前最大 id。
+async fn insert_group_msg(
+    rb: &RBatis,
+    group_uuid: &RbatisUuid,
+    nano: &str,
+    ts: i64,
+    send: &RbatisUuid,
+) -> Result<i64> {
+    GroupMessageRecord::insert(
+        rb,
+        &GroupMessageRecord {
+            id: None,
+            nano_id: Some(nano.to_string()),
+            group_uuid: Some(group_uuid.clone()),
+            send_user: Some(send.clone()),
+            timestamp: Some(ts),
+            raw: b"g".to_vec().into(),
+            msg_type: Some(MSG_TYPE_TEXT),
+            recalled: Some(false),
+        },
+    )
+    .await
+    .context("插入群测试消息失败")?;
+    GroupMessageRecord::max_id_by_group(rb, group_uuid).await.context("取群最大 id 失败")
+}
+
+/// 任务06: 会话列表请求构造。
+fn list_req(cursor: Option<SessionListCursor>, size: Option<u32>) -> SessionListDTO {
+    SessionListDTO { cursor, size }
+}
+
+/// 任务06: 控制信息请求构造。
+fn control_req(session: &RbatisUuid, value: Option<i16>) -> SessionControlDTO {
+    SessionControlDTO { session_uuid: session.to_string(), value }
 }
 
 /// 任务05: 同步请求构造。

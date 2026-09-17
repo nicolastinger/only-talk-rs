@@ -152,6 +152,46 @@ impl UserSession {
         Ok(())
     }
 
+    /// 置顶/取消置顶(任务06 控制信息, 直接写)。
+    ///
+    /// 返回受影响行数(0 = 行不存在)。
+    pub async fn update_pinned(
+        rb: &dyn Executor,
+        user_uuid: &Uuid,
+        session_uuid: &Uuid,
+        pinned: i16,
+    ) -> Result<u64, rbatis::Error> {
+        let res = rb
+            .exec(
+                "UPDATE user_session
+                 SET pinned = $3,
+                     updated_at = (extract(epoch from clock_timestamp()) * 1000)::bigint
+                 WHERE user_uuid = $1 AND session_uuid = $2",
+                vec![value!(user_uuid), value!(session_uuid), value!(pinned)],
+            )
+            .await?;
+        Ok(res.rows_affected)
+    }
+
+    /// 免打扰/取消(任务06 控制信息, 同构于置顶)。
+    pub async fn update_muted(
+        rb: &dyn Executor,
+        user_uuid: &Uuid,
+        session_uuid: &Uuid,
+        muted: i16,
+    ) -> Result<u64, rbatis::Error> {
+        let res = rb
+            .exec(
+                "UPDATE user_session
+                 SET muted = $3,
+                     updated_at = (extract(epoch from clock_timestamp()) * 1000)::bigint
+                 WHERE user_uuid = $1 AND session_uuid = $2",
+                vec![value!(user_uuid), value!(session_uuid), value!(muted)],
+            )
+            .await?;
+        Ok(res.rows_affected)
+    }
+
     /// 某用户的全部会话行(由上线聚合建立; 未读/列表读侧驱动)。
     #[rbatis::py_sql("select * from user_session where user_uuid = #{me} order by id")]
     async fn select_by_user(rb: &dyn Executor, me: &Uuid) -> Vec<UserSession> {}

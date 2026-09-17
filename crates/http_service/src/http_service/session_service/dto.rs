@@ -74,3 +74,51 @@ pub struct SyncResponseVO {
     pub server_time: i64,
     pub sessions: Vec<SyncSessionVO>,
 }
+
+// ===== 任务06: 会话列表与控制信息 =====
+
+/// keyset 游标(首页整体省略)
+#[derive(Debug, Deserialize, Serialize)]
+pub struct SessionListCursor {
+    pub pinned: i16,
+    pub last_message_at: i64,
+    pub session_uuid: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct SessionListDTO {
+    pub cursor: Option<SessionListCursor>,
+    /// 每页条数, 服务端 clamp [1, 100], 默认 50
+    pub size: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct SessionVO {
+    pub session_uuid: String,
+    pub session_type: i16,
+    /// 单聊: 对方; 群聊: None —— 客户端据此补齐资料
+    pub peer_uuid: Option<String>,
+    pub last_message_id: i64,
+    pub last_message_at: i64,
+    pub last_preview: String,
+    pub pinned: i16,
+    pub muted: i16,
+    pub unread: i64,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct SessionListResponseVO {
+    pub sessions: Vec<SessionVO>,
+    pub has_more: bool,
+    /// 下一页游标(客户端原样回传)
+    pub next_cursor: Option<SessionListCursor>,
+}
+
+/// 控制信息通用 DTO(pin/mute/delete 共用)
+#[derive(Debug, Deserialize, Serialize)]
+pub struct SessionControlDTO {
+    pub session_uuid: String,
+    /// pin/mute: 目标值(0/1); delete 忽略
+    #[serde(default)]
+    pub value: Option<i16>,
+}

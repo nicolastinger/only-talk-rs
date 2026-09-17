@@ -1,7 +1,8 @@
 use anyhow::anyhow;
 use common::models::chat_entity::chat_message_record::ChatMessageRecord;
 use common::models::group_entity::group_message_record::GroupMessageRecord;
-use common::models::session_entity::session::{SESSION_TYPE_GROUP, SESSION_TYPE_SINGLE};
+use common::models::session_entity::aggregate::aggregate_user_sessions;
+use common::models::session_entity::session::{SESSION_TYPE_GROUP, SESSION_TYPE_SINGLE, Session};
 use common::models::session_entity::user_session::UserSession;
 use common::utils::time::get_now_time_stamp_as_millis;
 use rbatis::RBatis;
@@ -9,9 +10,15 @@ use rbatis::rbdc::Uuid;
 use tracing::{info, warn};
 
 use crate::http_service::session_service::dto::{
-    SessionReadDTO, SessionSyncedDTO, SyncMessageVO, SyncRequestDTO, SyncResponseVO, SyncSessionVO,
+    SessionControlDTO, SessionListCursor, SessionListDTO, SessionListResponseVO, SessionReadDTO,
+    SessionSyncedDTO, SessionVO, SyncMessageVO, SyncRequestDTO, SyncResponseVO, SyncSessionVO,
 };
 use crate::utils::http_response::CommonResponseNoDataRef;
+
+/// 会话列表默认页大小。
+const SESSION_LIST_DEFAULT_SIZE: u32 = 50;
+/// 会话列表页大小硬上限。
+const SESSION_LIST_MAX_SIZE: u32 = 100;
 
 /// 离线消息最大回溯窗口(天)。服务端计算, 不信任客户端时间(主方案 §8.1)。
 const SYNC_WINDOW_DAYS: i64 = 7;
@@ -239,4 +246,116 @@ pub async fn sync_sessions(
         sessions_out.len()
     );
     Ok(SyncResponseVO { server_time: now, sessions: sessions_out })
+}
+
+/// 会话列表(任务06 §9.1): keyset 分页 + 未读现算 + 软删复活。
+pub async fn list_sessions(
+    rb: &RBatis,
+    me: Option<String>,
+    dto: SessionListDTO,
+) -> Result<SessionListResponseVO, anyhow::Error> {
+    let me_uuid: Uuid = me.ok_or_else(|| anyhow!("账号获取失败"))?.parse()?;
+    let size = dto.size.unwrap_or(SESSION_LIST_DEFAULT_SIZE).clamp(1, SESSION_LIST_MAX_SIZE);
+
+    // 解析游标(首页为 None); 非法 uuid 用 uuid::Uuid 校验(rbdc::Uuid::from_str 不校验)
+    let cursor = match dto.cursor {
+        Some(c) => {
+            let Ok(parsed) = uuid::Uuid::parse_str(&c.session_uuid) else {
+                return Err(anyhow!("游标 session_uuid 非法: {}", c.session_uuid));
+            };
+            Some((c.pinned, c.last_message_at, parsed.to_string().parse()?))
+        }
+        None => None,
+    };
+
+    // size+1 探测 has_more(与 /session/sync 同款手法)
+    let mut rows = Session::select_list(rb, &me_uuid, cursor, size + 1).await?;
+    let has_more = rows.len() > size as usize;
+    rows.truncate(size as usize);
+
+    let sessions: Vec<SessionVO> = rows
+        .into_iter()
+        .map(|r| SessionVO {
+            session_uuid: r.session_uuid.to_string(),
+            session_type: r.session_type.unwrap_or(SESSION_TYPE_SINGLE),
+            peer_uuid: r.peer_uuid.map(|p| p.to_string()),
+            last_message_id: r.last_message_id.unwrap_or(0),
+            last_message_at: r.last_message_at.unwrap_or(0),
+            last_preview: r.last_preview.unwrap_or_default(),
+            pinned: r.pinned.unwrap_or(0),
+            muted: r.muted.unwrap_or(0),
+            unread: r.unread.unwrap_or(0),
+        })
+        .collect();
+
+    // next_cursor = 本页最后一行(客户端原样回传三元组)
+    let next_cursor = if has_more {
+        sessions.last().map(|s| SessionListCursor {
+            pinned: s.pinned,
+            last_message_at: s.last_message_at,
+            session_uuid: s.session_uuid.clone(),
+        })
+    } else {
+        None
+    };
+
+    info!("[session/list] user={}, 返回 {} 个会话, has_more={}", me_uuid, sessions.len(), has_more);
+    Ok(SessionListResponseVO { sessions, has_more, next_cursor })
+}
+
+/// 控制信息公共前置: 解析 me / session_uuid, 并顺带聚合(§6.1 触发表, 保证行存在; 失败不阻塞)。
+async fn prepare_control(
+    rb: &RBatis,
+    me: Option<String>,
+    dto: &SessionControlDTO,
+) -> Result<(Uuid, Uuid), anyhow::Error> {
+    let me_uuid: Uuid = me.ok_or_else(|| anyhow!("账号获取失败"))?.parse()?;
+    let Ok(parsed) = uuid::Uuid::parse_str(&dto.session_uuid) else {
+        return Err(anyhow!("session_uuid 非法: {}", dto.session_uuid));
+    };
+    let s: Uuid = parsed.to_string().parse()?;
+    let _ = aggregate_user_sessions(rb, &me_uuid).await;
+    Ok((me_uuid, s))
+}
+
+/// 置顶/取消置顶(控制信息)。
+pub async fn pin_session(
+    rb: &RBatis,
+    me: Option<String>,
+    dto: SessionControlDTO,
+) -> Result<(), anyhow::Error> {
+    let (me_uuid, s) = prepare_control(rb, me, &dto).await?;
+    let affected = UserSession::update_pinned(rb, &me_uuid, &s, dto.value.unwrap_or(1)).await?;
+    if affected == 0 {
+        return Err(anyhow!("会话不存在: {}", dto.session_uuid));
+    }
+    Ok(())
+}
+
+/// 免打扰/取消(控制信息)。
+pub async fn mute_session(
+    rb: &RBatis,
+    me: Option<String>,
+    dto: SessionControlDTO,
+) -> Result<(), anyhow::Error> {
+    let (me_uuid, s) = prepare_control(rb, me, &dto).await?;
+    let affected = UserSession::update_muted(rb, &me_uuid, &s, dto.value.unwrap_or(1)).await?;
+    if affected == 0 {
+        return Err(anyhow!("会话不存在: {}", dto.session_uuid));
+    }
+    Ok(())
+}
+
+/// 软删会话(控制信息): `deleted_at` 置当前时刻并把 `last_read_id` 推到底。
+pub async fn delete_session(
+    rb: &RBatis,
+    me: Option<String>,
+    dto: SessionControlDTO,
+) -> Result<(), anyhow::Error> {
+    let (me_uuid, s) = prepare_control(rb, me, &dto).await?;
+    let affected = UserSession::soft_delete(rb, &me_uuid, &s).await?;
+    if affected == 0 {
+        return Err(anyhow!("会话不存在: {}", dto.session_uuid));
+    }
+    Ok(())
 }

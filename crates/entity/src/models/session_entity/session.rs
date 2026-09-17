@@ -31,6 +31,20 @@ pub struct Session {
 
 crud!(Session {});
 
+/// 会话列表行(entity 层形态, http_service 转 VO)。
+#[derive(Clone, Deserialize, Serialize, Debug)]
+pub struct SessionListRow {
+    pub session_uuid: Uuid,
+    pub session_type: Option<i16>,
+    pub peer_uuid: Option<Uuid>,
+    pub last_message_id: Option<i64>,
+    pub last_message_at: Option<i64>,
+    pub last_preview: Option<String>,
+    pub pinned: Option<i16>,
+    pub muted: Option<i16>,
+    pub unread: Option<i64>,
+}
+
 impl Session {
     /// 懒创建会话行(幂等): 已存在时不覆盖任何字段。
     ///
@@ -78,5 +92,55 @@ impl Session {
             )
             .await?;
         Ok(res.rows_affected)
+    }
+
+    /// 会话列表(任务06 §9.1): 未读现算 + 软删复活 + keyset 分页。
+    ///
+    /// `cursor` 为 `None`(首页)时跳过分页条件。
+    /// ⚠️ 游标占位符显式转型(`::int2` / `::int8` / `::uuid`): 首页传 NULL 会把参数类型
+    /// 定为 UNKNOWN, 后续页传具体值复用同连接语句缓存时会 `22P03`(任务05 缺陷 T 同源)。
+    ///
+    /// 已知局限(主方案 §4.3 注): 排序键在 join 的 session 表上, 索引只帮过滤不帮排序,
+    /// 实际为该用户会话行的内存排序 —— 单用户几百会话可接受, 列入任务 09 实测项。
+    #[rbatis::py_sql(
+        "select s.session_uuid, s.session_type, s.peer_uuid,
+                c.last_message_id, c.last_message_at, c.last_preview, s.pinned, s.muted,
+                (case s.session_type
+                   when 1 then (select count(*) from chat_message_record m
+                                where m.session_uuid = s.session_uuid and m.id > s.last_read_id
+                                  and m.recv_user = #{me})
+                   else (select count(*) from group_message_record m
+                         where m.group_uuid = s.session_uuid and m.id > s.last_read_id
+                           and m.send_user <> #{me})
+                 end) as unread
+         from user_session s
+         join session c on c.session_uuid = s.session_uuid
+         where s.user_uuid = #{me}
+           and (s.deleted_at is null or c.last_message_at > s.deleted_at)
+           and (#{cur_pinned}::int2 is null
+                or (s.pinned, coalesce(c.last_message_at, 0), s.session_uuid)
+                   < (#{cur_pinned}::int2, #{cur_at}::int8, #{cur_uuid}::uuid))
+         order by s.pinned desc, c.last_message_at desc nulls last, s.session_uuid desc
+         limit #{size}"
+    )]
+    async fn select_list_inner(
+        rb: &dyn Executor,
+        me: &Uuid,
+        cur_pinned: Option<i16>,
+        cur_at: Option<i64>,
+        cur_uuid: Option<Uuid>,
+        size: u32,
+    ) -> Vec<SessionListRow> {
+    }
+
+    pub async fn select_list(
+        rb: &dyn Executor,
+        me: &Uuid,
+        cursor: Option<(i16, i64, Uuid)>,
+        size: u32,
+    ) -> rbatis::Result<Vec<SessionListRow>> {
+        let (p, a, u) =
+            cursor.map(|(p, a, u)| (Some(p), Some(a), Some(u))).unwrap_or((None, None, None));
+        Self::select_list_inner(rb, me, p, a, u, size).await
     }
 }

@@ -5,7 +5,7 @@
 //! 重复执行/多节点并发执行结果一致。
 
 use rbatis::executor::Executor;
-use rbatis::rbdc::Uuid;
+use rbatis::rbdc::{Bytes, Uuid};
 use tracing::info;
 
 use crate::models::chat_entity::chat_message_record::ChatMessageRecord;
@@ -13,6 +13,14 @@ use crate::models::group_entity::group_member::GroupMember;
 use crate::models::group_entity::group_message_record::GroupMessageRecord;
 use crate::models::session_entity::session::{SESSION_TYPE_GROUP, SESSION_TYPE_SINGLE, Session};
 use crate::models::session_entity::user_session::UserSession;
+
+/// 列表摘要最大字符数。
+const PREVIEW_MAX_CHARS: usize = 256;
+
+/// 由消息 raw 生成列表摘要(任务06 §2): 内容即 UTF-8 文本, `chars().take` 保证不切半个多字节字符。
+fn preview_from_raw(raw: &Bytes) -> String {
+    String::from_utf8_lossy(raw.as_ref()).chars().take(PREVIEW_MAX_CHARS).collect()
+}
 
 /// 聚合结果(仅用于日志观测)。
 #[derive(Debug, Default)]
@@ -59,7 +67,7 @@ pub async fn aggregate_user_sessions(
             &session_uuid,
             msg.id.unwrap_or(0),
             msg.timestamp.unwrap_or(0),
-            None, // preview 生成策略见任务 06(§3.4)
+            Some(&preview_from_raw(&msg.raw)), // preview 生成策略见任务 06 §2
         )
         .await?;
 
@@ -110,7 +118,7 @@ pub async fn aggregate_user_sessions(
                 &group_uuid,
                 latest_msg.id.unwrap_or(0),
                 latest_msg.timestamp.unwrap_or(0),
-                None,
+                Some(&preview_from_raw(&latest_msg.raw)),
             )
             .await?;
         }
