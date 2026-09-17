@@ -26,15 +26,25 @@ pub struct SessionSyncedDTO {
     pub sessions: Vec<SessionSyncedItem>,
 }
 
-// ===== 任务05: 离线同步 /session/sync =====
+// ===== 任务12: 离线同步 /session/sync(无状态窗口查询) =====
 
-/// 同步请求
+/// 单个待拉取会话(任务12): 客户端显式携带拉取起点。
+#[derive(Debug, Deserialize, Serialize)]
+pub struct SyncSessionReq {
+    pub session_uuid: String,
+    /// 续拉: 窗口内 `id < before_id` 的最新 limit 条; 缺省 = 无上界(首拉)
+    #[serde(default)]
+    pub before_id: Option<i64>,
+}
+
+/// 同步请求(任务12): 删除 `mode`(客户端游标驱动), `sessions` 元素对象化。
+///
+/// 旧客户端的 `mode` 字段因 serde 默认忽略未知字段而被静默兼容。
 #[derive(Debug, Deserialize, Serialize)]
 pub struct SyncRequestDTO {
-    /// "incremental"(默认) | "initial"; 非法值按 incremental 处理
-    pub mode: Option<String>,
-    /// 指定会话(可空); 元素为 session_uuid 字符串
-    pub sessions: Option<Vec<String>>,
+    /// 要拉的会话(客户端缺口检测的产物); 空/缺省 → 空响应
+    #[serde(default)]
+    pub sessions: Option<Vec<SyncSessionReq>>,
     /// 单会话上限, 服务端 clamp [1, SYNC_MAX_LIMIT]
     pub limit: Option<u32>,
 }

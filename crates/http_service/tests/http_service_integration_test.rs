@@ -44,7 +44,7 @@ use email_service::manager::EmailManager;
 use futures_util::FutureExt;
 use http_service::http_service::configure_routes;
 use http_service::http_service::session_service::dto::{
-    SessionControlDTO, SessionListCursor, SessionListDTO, SyncRequestDTO,
+    SessionControlDTO, SessionListCursor, SessionListDTO, SyncRequestDTO, SyncSessionReq,
 };
 use http_service::http_service::session_service::service::{
     delete_session, list_sessions, mute_session, pin_session, sync_sessions,
@@ -911,9 +911,13 @@ async fn http_service_user_api_integration() -> Result<()> {
         let has_pair = |msgs: &[(String, String)], send: &str, recv: &str| {
             msgs.iter().any(|(s, r)| s == send && r == recv)
         };
-        let sync_a = sync_sessions(&test_rb, Some(user_a.to_string()), sync_req(None, None, None))
-            .await
-            .context("A 同步失败")?;
+        let sync_a = sync_sessions(
+            &test_rb,
+            Some(user_a.to_string()),
+            sync_req(Some(vec![sync_session_req(&session_ab)]), None),
+        )
+        .await
+        .context("A 同步失败")?;
         let msgs_a: Vec<(String, String)> = sync_a
             .sessions
             .iter()
@@ -928,9 +932,13 @@ async fn http_service_user_api_integration() -> Result<()> {
             has_pair(&msgs_a, &user_b.to_string(), &user_a.to_string()),
             "A 同步应含 B→A 的通过提示: {msgs_a:?}"
         );
-        let sync_b = sync_sessions(&test_rb, Some(user_b.to_string()), sync_req(None, None, None))
-            .await
-            .context("B 同步失败")?;
+        let sync_b = sync_sessions(
+            &test_rb,
+            Some(user_b.to_string()),
+            sync_req(Some(vec![sync_session_req(&session_ab)]), None),
+        )
+        .await
+        .context("B 同步失败")?;
         let msgs_b: Vec<(String, String)> = sync_b
             .sessions
             .iter()
@@ -1029,320 +1037,218 @@ async fn http_service_user_api_integration() -> Result<()> {
         assert_eq!(msg_text(&msgs[1])?, FRIEND_ACCEPT_DEFAULT_MSG);
         info!("任务04b 好友通过即建会话 全部通过");
 
-        // ===== 9. 任务05: 离线同步 /session/sync =====
+        // ===== 9. 任务12: 离线同步 /session/sync(无状态窗口查询) =====
         let (sync_user, sync_user_rbdc) = seed_friend_user(&test_rb, "sync").await?;
         let sync_now = get_now_time_stamp_as_millis()?;
         let boundary_8d = sync_now - 8 * 24 * 3600 * 1000;
 
-        // 9.1 只返回未同步会话(A 已同步到底 → 不出现; B 未同步 → 出现)
+        // 9.1 首拉: 无 before_id, limit=10 → 窗口内最新 10 条(升序), has_more=true
         let peer_a = Uuid::now_v7();
-        let peer_b = Uuid::now_v7();
         let peer_a_rbdc: RbatisUuid = peer_a.to_string().parse()?;
-        let peer_b_rbdc: RbatisUuid = peer_b.to_string().parse()?;
         let session_a: RbatisUuid = single_session_uuid(&sync_user, &peer_a).to_string().parse()?;
-        let session_b: RbatisUuid = single_session_uuid(&sync_user, &peer_b).to_string().parse()?;
-        for i in 0..3 {
-            insert_single_msg(
-                &test_rb,
-                &session_a,
-                &format!("sync-a-{i}"),
-                sync_now + i,
-                &peer_a_rbdc,
-                &sync_user_rbdc,
-            )
-            .await?;
-            insert_single_msg(
-                &test_rb,
-                &session_b,
-                &format!("sync-b-{i}"),
-                sync_now + i,
-                &peer_b_rbdc,
-                &sync_user_rbdc,
-            )
-            .await?;
+        let mut ids_a = Vec::new();
+        for i in 0..25 {
+            ids_a.push(
+                insert_single_msg(
+                    &test_rb,
+                    &session_a,
+                    &format!("sync-a-{i:02}"),
+                    sync_now + i,
+                    &peer_a_rbdc,
+                    &sync_user_rbdc,
+                )
+                .await?,
+            );
         }
-        let max_a = ChatMessageRecord::max_id_by_session(&test_rb, &session_a).await?;
-        upsert_user_session(
-            &test_rb,
-            &sync_user_rbdc,
-            &session_b,
-            SESSION_TYPE_SINGLE,
-            Some(&peer_b_rbdc),
-            0,
-        )
-        .await?;
         upsert_user_session(
             &test_rb,
             &sync_user_rbdc,
             &session_a,
             SESSION_TYPE_SINGLE,
             Some(&peer_a_rbdc),
-            max_a,
-        )
-        .await?;
-
-        let resp = sync_sessions(&test_rb, Some(sync_user.to_string()), sync_req(None, None, None))
-            .await
-            .context("同步(9.1)失败")?;
-        assert_eq!(resp.sessions.len(), 1, "只应返回未同步的 B 会话: {resp:?}");
-        assert_eq!(resp.sessions[0].session_uuid, session_b.to_string());
-        assert_eq!(resp.sessions[0].messages.len(), 3);
-        assert!(!resp.sessions[0].has_more);
-        assert!(!resp.sessions[0].truncated_by_window);
-
-        // 9.2 会话内按 id 升序(timestamp 乱序)
-        let peer_c = Uuid::now_v7();
-        let peer_c_rbdc: RbatisUuid = peer_c.to_string().parse()?;
-        let session_c: RbatisUuid = single_session_uuid(&sync_user, &peer_c).to_string().parse()?;
-        insert_single_msg(
-            &test_rb,
-            &session_c,
-            "sync-c-0",
-            sync_now + 3000,
-            &peer_c_rbdc,
-            &sync_user_rbdc,
-        )
-        .await?;
-        insert_single_msg(
-            &test_rb,
-            &session_c,
-            "sync-c-1",
-            sync_now + 1000,
-            &peer_c_rbdc,
-            &sync_user_rbdc,
-        )
-        .await?;
-        insert_single_msg(
-            &test_rb,
-            &session_c,
-            "sync-c-2",
-            sync_now + 2000,
-            &peer_c_rbdc,
-            &sync_user_rbdc,
-        )
-        .await?;
-        upsert_user_session(
-            &test_rb,
-            &sync_user_rbdc,
-            &session_c,
-            SESSION_TYPE_SINGLE,
-            Some(&peer_c_rbdc),
             0,
         )
         .await?;
         let resp = sync_sessions(
             &test_rb,
             Some(sync_user.to_string()),
-            sync_req(None, Some(vec![session_c.to_string()]), None),
+            sync_req(Some(vec![sync_session_req(&session_a)]), Some(10)),
         )
         .await
-        .context("同步(9.2)失败")?;
-        assert_eq!(resp.sessions.len(), 1);
-        let ids: Vec<i64> = resp.sessions[0].messages.iter().map(|m| m.id).collect();
-        let mut sorted = ids.clone();
-        sorted.sort();
-        assert_eq!(ids, sorted, "会话内应按 id 升序: {ids:?}");
-        assert_eq!(resp.sessions[0].messages[0].nano_id, "sync-c-0");
+        .context("同步(9.1)失败")?;
+        assert_eq!(resp.sessions.len(), 1, "应返回请求的会话: {resp:?}");
+        assert_eq!(resp.sessions[0].messages.len(), 10);
+        assert!(resp.sessions[0].has_more, "还有更旧 15 条 → has_more=true");
+        assert_eq!(resp.sessions[0].next_cursor, ids_a[24], "next_cursor=本批最大 id");
+        assert_eq!(resp.sessions[0].messages[0].nano_id, "sync-a-15", "本批最旧");
+        assert_eq!(resp.sessions[0].messages[9].nano_id, "sync-a-24", "本批最新");
+        let batch_ids: Vec<i64> = resp.sessions[0].messages.iter().map(|m| m.id).collect();
+        assert!(batch_ids.windows(2).all(|w| w[0] < w[1]), "响应内 id 升序: {batch_ids:?}");
 
-        // 9.3 has_more 与分批(limit+1 探测)
-        let peer_d = Uuid::now_v7();
-        let peer_d_rbdc: RbatisUuid = peer_d.to_string().parse()?;
-        let session_d: RbatisUuid = single_session_uuid(&sync_user, &peer_d).to_string().parse()?;
-        for i in 0..3 {
-            insert_single_msg(
+        // 9.2 续拉: before_id=上批最小 id → 紧邻更旧 10 条, 无重无漏; 翻至 has_more=false, 并集=全部 25
+        let mut all_ids = batch_ids.clone();
+        let mut before = batch_ids[0];
+        let mut last_has_more = resp.sessions[0].has_more;
+        while last_has_more {
+            let resp = sync_sessions(
                 &test_rb,
-                &session_d,
-                &format!("sync-d-{i}"),
-                sync_now + i,
-                &peer_d_rbdc,
-                &sync_user_rbdc,
+                Some(sync_user.to_string()),
+                sync_req(Some(vec![sync_session_req_before(&session_a, before)]), Some(10)),
             )
-            .await?;
+            .await
+            .context("同步(9.2)失败")?;
+            let page: Vec<i64> = resp.sessions[0].messages.iter().map(|m| m.id).collect();
+            assert!(!page.is_empty(), "has_more=true 时不应空批");
+            assert!(page.iter().all(|id| *id < before), "续拉应严格更旧: {page:?} vs {before}");
+            all_ids.extend(page.iter().copied());
+            before = page[0];
+            last_has_more = resp.sessions[0].has_more;
         }
-        upsert_user_session(
-            &test_rb,
-            &sync_user_rbdc,
-            &session_d,
-            SESSION_TYPE_SINGLE,
-            Some(&peer_d_rbdc),
-            0,
-        )
-        .await?;
-        let resp = sync_sessions(
-            &test_rb,
-            Some(sync_user.to_string()),
-            sync_req(None, Some(vec![session_d.to_string()]), Some(2)),
-        )
-        .await
-        .context("同步(9.3 首批)失败")?;
-        assert_eq!(resp.sessions[0].messages.len(), 2, "limit=2 应只回 2 条");
-        assert!(resp.sessions[0].has_more, "还有第 3 条 → has_more=true");
-        let cursor_d = resp.sessions[0].next_cursor;
-        UserSession::update_synced_id(&test_rb, &sync_user_rbdc, &session_d, cursor_d).await?;
-        let resp = sync_sessions(
-            &test_rb,
-            Some(sync_user.to_string()),
-            sync_req(None, Some(vec![session_d.to_string()]), Some(2)),
-        )
-        .await
-        .context("同步(9.3 续拉)失败")?;
-        assert_eq!(resp.sessions[0].messages.len(), 1, "第二批应剩 1 条");
-        assert!(!resp.sessions[0].has_more);
+        all_ids.sort();
+        all_ids.dedup();
+        let mut expect_ids = ids_a.clone();
+        expect_ids.sort();
+        assert_eq!(all_ids, expect_ids, "翻页并集应等于全部 25 条且无重复");
 
-        // 9.4 7 天窗口过滤 + truncated_by_window
-        let peer_e = Uuid::now_v7();
-        let peer_e_rbdc: RbatisUuid = peer_e.to_string().parse()?;
-        let session_e: RbatisUuid = single_session_uuid(&sync_user, &peer_e).to_string().parse()?;
+        // 9.3 截断探测: 窗口外有更旧消息 → has_more=false 时 truncated=true
+        let peer_t = Uuid::now_v7();
+        let peer_t_rbdc: RbatisUuid = peer_t.to_string().parse()?;
+        let session_t: RbatisUuid = single_session_uuid(&sync_user, &peer_t).to_string().parse()?;
         insert_single_msg(
             &test_rb,
-            &session_e,
-            "sync-e-old",
+            &session_t,
+            "sync-t-old",
             boundary_8d,
-            &peer_e_rbdc,
+            &peer_t_rbdc,
             &sync_user_rbdc,
         )
         .await?;
         insert_single_msg(
             &test_rb,
-            &session_e,
-            "sync-e-0",
+            &session_t,
+            "sync-t-0",
             sync_now,
-            &peer_e_rbdc,
-            &sync_user_rbdc,
-        )
-        .await?;
-        insert_single_msg(
-            &test_rb,
-            &session_e,
-            "sync-e-1",
-            sync_now + 1,
-            &peer_e_rbdc,
+            &peer_t_rbdc,
             &sync_user_rbdc,
         )
         .await?;
         upsert_user_session(
             &test_rb,
             &sync_user_rbdc,
-            &session_e,
+            &session_t,
             SESSION_TYPE_SINGLE,
-            Some(&peer_e_rbdc),
+            Some(&peer_t_rbdc),
             0,
         )
         .await?;
         let resp = sync_sessions(
             &test_rb,
             Some(sync_user.to_string()),
-            sync_req(None, Some(vec![session_e.to_string()]), None),
+            sync_req(Some(vec![sync_session_req(&session_t)]), Some(100)),
+        )
+        .await
+        .context("同步(9.3)失败")?;
+        assert_eq!(resp.sessions[0].messages.len(), 1, "窗口外消息应被过滤");
+        assert!(!resp.sessions[0].has_more);
+        assert!(resp.sessions[0].truncated_by_window, "窗口外有更旧消息 → truncated=true");
+
+        // 9.4 窗口内取尽且无更旧消息 → truncated=false
+        let peer_n = Uuid::now_v7();
+        let peer_n_rbdc: RbatisUuid = peer_n.to_string().parse()?;
+        let session_n: RbatisUuid = single_session_uuid(&sync_user, &peer_n).to_string().parse()?;
+        insert_single_msg(
+            &test_rb,
+            &session_n,
+            "sync-n-0",
+            sync_now,
+            &peer_n_rbdc,
+            &sync_user_rbdc,
+        )
+        .await?;
+        upsert_user_session(
+            &test_rb,
+            &sync_user_rbdc,
+            &session_n,
+            SESSION_TYPE_SINGLE,
+            Some(&peer_n_rbdc),
+            0,
+        )
+        .await?;
+        let resp = sync_sessions(
+            &test_rb,
+            Some(sync_user.to_string()),
+            sync_req(Some(vec![sync_session_req(&session_n)]), Some(100)),
         )
         .await
         .context("同步(9.4)失败")?;
-        assert_eq!(resp.sessions.len(), 1);
-        assert_eq!(resp.sessions[0].messages.len(), 2, "窗口外消息应被过滤");
-        assert!(resp.sessions[0].truncated_by_window, "应显式告知窗口截断");
-        UserSession::update_synced_id(
-            &test_rb,
-            &sync_user_rbdc,
-            &session_e,
-            resp.sessions[0].next_cursor,
-        )
-        .await?;
-        let resp = sync_sessions(
-            &test_rb,
-            Some(sync_user.to_string()),
-            sync_req(None, Some(vec![session_e.to_string()]), None),
-        )
-        .await
-        .context("同步(9.4 回报后)失败")?;
-        assert!(resp.sessions.is_empty(), "同步完成后不应再输出该会话: {resp:?}");
+        assert!(!resp.sessions[0].truncated_by_window, "无更旧消息不应报截断");
 
-        // 9.5 全部在窗口内 → 无截断
-        let peer_f = Uuid::now_v7();
-        let peer_f_rbdc: RbatisUuid = peer_f.to_string().parse()?;
-        let session_f: RbatisUuid = single_session_uuid(&sync_user, &peer_f).to_string().parse()?;
-        insert_single_msg(
-            &test_rb,
-            &session_f,
-            "sync-f-0",
-            sync_now,
-            &peer_f_rbdc,
-            &sync_user_rbdc,
-        )
-        .await?;
-        insert_single_msg(
-            &test_rb,
-            &session_f,
-            "sync-f-1",
-            sync_now + 1,
-            &peer_f_rbdc,
-            &sync_user_rbdc,
-        )
-        .await?;
+        // 9.5 归属校验: 不属于我的会话静默跳过, 非法 uuid 跳过, 其余正常
+        let (other_user, other_rbdc) = seed_friend_user(&test_rb, "syncother").await?;
+        let peer_o = Uuid::now_v7();
+        let peer_o_rbdc: RbatisUuid = peer_o.to_string().parse()?;
+        let session_o: RbatisUuid =
+            single_session_uuid(&other_user, &peer_o).to_string().parse()?;
+        insert_single_msg(&test_rb, &session_o, "sync-o-0", sync_now, &peer_o_rbdc, &other_rbdc)
+            .await?;
         upsert_user_session(
             &test_rb,
-            &sync_user_rbdc,
-            &session_f,
+            &other_rbdc,
+            &session_o,
             SESSION_TYPE_SINGLE,
-            Some(&peer_f_rbdc),
+            Some(&peer_o_rbdc),
             0,
         )
         .await?;
         let resp = sync_sessions(
             &test_rb,
             Some(sync_user.to_string()),
-            sync_req(None, Some(vec![session_f.to_string()]), None),
+            sync_req(
+                Some(vec![
+                    sync_session_req(&session_n),
+                    sync_session_req(&session_o),
+                    SyncSessionReq { session_uuid: "not-a-uuid".to_string(), before_id: None },
+                ]),
+                None,
+            ),
         )
         .await
         .context("同步(9.5)失败")?;
-        assert!(!resp.sessions[0].truncated_by_window, "全部在窗口内不应报截断");
+        assert_eq!(resp.sessions.len(), 1, "只返回属于我的会话: {resp:?}");
+        assert_eq!(resp.sessions[0].session_uuid, session_n.to_string());
 
-        // 9.6 initial 模式: 最新 limit 条、has_more 恒 false
-        let peer_g = Uuid::now_v7();
-        let peer_g_rbdc: RbatisUuid = peer_g.to_string().parse()?;
-        let session_g: RbatisUuid = single_session_uuid(&sync_user, &peer_g).to_string().parse()?;
-        for i in 0..3 {
-            insert_single_msg(
-                &test_rb,
-                &session_g,
-                &format!("sync-g-{i}"),
-                sync_now + i,
-                &peer_g_rbdc,
-                &sync_user_rbdc,
-            )
-            .await?;
-        }
-        upsert_user_session(
-            &test_rb,
-            &sync_user_rbdc,
-            &session_g,
-            SESSION_TYPE_SINGLE,
-            Some(&peer_g_rbdc),
-            0,
-        )
-        .await?;
-        let resp = sync_sessions(
+        // 9.6 before_id 缺省 ≡ i64::MAX(无上界)
+        let resp_default = sync_sessions(
             &test_rb,
             Some(sync_user.to_string()),
-            sync_req(Some("initial"), Some(vec![session_g.to_string()]), Some(2)),
+            sync_req(Some(vec![sync_session_req(&session_a)]), Some(10)),
         )
         .await
-        .context("同步(9.6)失败")?;
-        assert_eq!(resp.sessions[0].messages.len(), 2, "initial 取最新 limit 条");
-        assert!(!resp.sessions[0].has_more, "initial has_more 恒 false");
-        assert!(!resp.sessions[0].truncated_by_window);
-        assert_eq!(resp.sessions[0].messages[0].nano_id, "sync-g-1", "initial 应升序");
-        assert_eq!(resp.sessions[0].messages[1].nano_id, "sync-g-2");
-
-        // 9.7 空响应终止
-        let max_b = ChatMessageRecord::max_id_by_session(&test_rb, &session_b).await?;
-        UserSession::update_synced_id(&test_rb, &sync_user_rbdc, &session_b, max_b).await?;
-        let resp = sync_sessions(
+        .context("同步(9.6a)失败")?;
+        let resp_max = sync_sessions(
             &test_rb,
             Some(sync_user.to_string()),
-            sync_req(None, Some(vec![session_b.to_string()]), None),
+            sync_req(Some(vec![sync_session_req_before(&session_a, i64::MAX)]), Some(10)),
         )
         .await
-        .context("同步(9.7)失败")?;
-        assert!(resp.sessions.is_empty(), "同步完成后应空响应: {resp:?}");
+        .context("同步(9.6b)失败")?;
+        assert_eq!(
+            resp_default.sessions[0].next_cursor, resp_max.sessions[0].next_cursor,
+            "缺省 before_id 应等价无上界"
+        );
+        assert_eq!(resp_default.sessions[0].messages.len(), resp_max.sessions[0].messages.len());
+
+        // 9.7 旧协议兼容: 多余 mode 字段被 serde 静默忽略
+        let legacy: SyncRequestDTO = serde_json::from_str(
+            r#"{"mode":"incremental","sessions":[{"session_uuid":"x"}],"limit":10}"#,
+        )
+        .context("旧协议请求应可反序列化(mode 被忽略)")?;
+        assert_eq!(legacy.sessions.as_ref().map(|v| v.len()), Some(1));
+        assert_eq!(
+            legacy.sessions.as_ref().and_then(|v| v.first()).map(|s| s.before_id),
+            Some(None),
+            "before_id 缺省应为 None"
+        );
 
         // 9.8 limit 服务端钳制(99999 → 200)
         let peer_h = Uuid::now_v7();
@@ -1371,41 +1277,90 @@ async fn http_service_user_api_integration() -> Result<()> {
         let resp = sync_sessions(
             &test_rb,
             Some(sync_user.to_string()),
-            sync_req(None, Some(vec![session_h.to_string()]), Some(99999)),
+            sync_req(Some(vec![sync_session_req(&session_h)]), Some(99999)),
         )
         .await
         .context("同步(9.8)失败")?;
         assert_eq!(resp.sessions[0].messages.len(), 200, "limit 应被钳制到 200");
         assert!(resp.sessions[0].has_more);
 
-        // 9.9 指定会话容错: 不存在/非法 uuid 跳过不报错
+        // 9.9 空 sessions → 空响应(不再服务端筛会话)
+        let resp = sync_sessions(&test_rb, Some(sync_user.to_string()), sync_req(None, None))
+            .await
+            .context("同步(9.9a)失败")?;
+        assert!(resp.sessions.is_empty(), "缺省 sessions 应空响应: {resp:?}");
+        let resp =
+            sync_sessions(&test_rb, Some(sync_user.to_string()), sync_req(Some(vec![]), None))
+                .await
+                .context("同步(9.9b)失败")?;
+        assert!(resp.sessions.is_empty(), "空 sessions 应空响应: {resp:?}");
+
+        // 9.10 群聊会话: session_uuid=group_uuid, recv_user=group_uuid, text_type=msg_type
+        let group_uuid = Uuid::now_v7();
+        let group_uuid_rbdc: RbatisUuid = group_uuid.to_string().parse()?;
+        GroupInfo::insert(
+            &test_rb,
+            &GroupInfo {
+                id: None,
+                group_uuid: Some(group_uuid_rbdc.clone()),
+                group_name: Some("同步测试群".to_string()),
+                avatar: None,
+                owner_uuid: Some(sync_user_rbdc.clone()),
+                description: None,
+                max_members: Some(200),
+                created_at: Some(0),
+                updated_at: Some(0),
+                status: Some(1),
+            },
+        )
+        .await
+        .context("插入同步测试群失败")?;
+        let mut ids_g = Vec::new();
+        for i in 0..3 {
+            ids_g.push(
+                insert_group_msg(
+                    &test_rb,
+                    &group_uuid_rbdc,
+                    &format!("sync-g-{i}"),
+                    sync_now + i,
+                    &sync_user_rbdc,
+                )
+                .await?,
+            );
+        }
+        upsert_user_session(
+            &test_rb,
+            &sync_user_rbdc,
+            &group_uuid_rbdc,
+            SESSION_TYPE_GROUP,
+            None,
+            0,
+        )
+        .await?;
         let resp = sync_sessions(
             &test_rb,
             Some(sync_user.to_string()),
-            sync_req(
-                None,
-                Some(vec![
-                    session_c.to_string(),
-                    Uuid::now_v7().to_string(),
-                    "not-a-uuid".to_string(),
-                ]),
-                None,
-            ),
+            sync_req(Some(vec![sync_session_req(&group_uuid_rbdc)]), Some(2)),
         )
         .await
-        .context("同步(9.9)失败")?;
-        assert_eq!(resp.sessions.len(), 1, "只返回存在的指定会话");
-        assert_eq!(resp.sessions[0].session_uuid, session_c.to_string());
+        .context("同步(9.10)失败")?;
+        let s = &resp.sessions[0];
+        assert_eq!(s.session_type, SESSION_TYPE_GROUP);
+        assert_eq!(s.messages.len(), 2);
+        assert!(s.has_more);
+        assert_eq!(s.messages[0].recv_user, group_uuid.to_string(), "群聊 recv_user=group_uuid");
+        assert_eq!(s.next_cursor, ids_g[2], "群聊 next_cursor=本批最大 id");
 
-        // 9.10 HTTP 冒烟: 路由注册与响应结构
-        let sync_body = json_obj(&[("mode", "incremental")]);
+        // 9.11 HTTP 冒烟: 新契约(对象化 sessions)路由注册与响应结构
+        let sync_body = serde_json::from_str::<JsonValue>(r#"{"sessions":[],"limit":10}"#)
+            .context("构造冒烟请求失败")?;
         let (status, json) =
             post_json(&app, "/session/sync", Some(&sync_body), Some(&access_token)).await;
         assert_eq!(status, StatusCode::OK, "/session/sync 应成功: {json}");
         assert_eq!(json["code"], 200, "/session/sync 响应 code 应为 200: {json}");
         assert!(json["data"]["server_time"].as_i64().is_some(), "应返回 server_time: {json}");
         assert!(json["data"]["sessions"].as_array().is_some(), "应返回 sessions 数组: {json}");
-        info!("任务05 离线同步 /session/sync 全部通过");
+        info!("任务12 离线同步 /session/sync 全部通过");
 
         // ===== 10. 任务06: 会话列表与控制信息 =====
         let base = sync_now;
@@ -1881,13 +1836,19 @@ fn control_req(session: &RbatisUuid, value: Option<i16>) -> SessionControlDTO {
     SessionControlDTO { session_uuid: session.to_string(), value }
 }
 
-/// 任务05: 同步请求构造。
-fn sync_req(
-    mode: Option<&str>,
-    sessions: Option<Vec<String>>,
-    limit: Option<u32>,
-) -> SyncRequestDTO {
-    SyncRequestDTO { mode: mode.map(str::to_string), sessions, limit }
+/// 任务12: 同步请求构造(会话对象化)。
+fn sync_req(sessions: Option<Vec<SyncSessionReq>>, limit: Option<u32>) -> SyncRequestDTO {
+    SyncRequestDTO { sessions, limit }
+}
+
+/// 任务12: 首拉会话项(无 before_id)。
+fn sync_session_req(session: &RbatisUuid) -> SyncSessionReq {
+    SyncSessionReq { session_uuid: session.to_string(), before_id: None }
+}
+
+/// 任务12: 续拉会话项(带 before_id)。
+fn sync_session_req_before(session: &RbatisUuid, before_id: i64) -> SyncSessionReq {
+    SyncSessionReq { session_uuid: session.to_string(), before_id: Some(before_id) }
 }
 
 /// 构造字符串键值对的 JSON 对象（不使用 `serde_json::json!` 宏，因其内部调用 `unwrap` 违反仓库规范）

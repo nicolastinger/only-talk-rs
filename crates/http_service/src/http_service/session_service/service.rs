@@ -111,11 +111,14 @@ pub async fn report_session_synced(
     Ok(CommonResponseNoDataRef::success_empty())
 }
 
-/// 离线同步(任务05 §8.1): 增量 / initial 双模式。
+/// 离线同步(任务12): 无状态窗口查询, 拉取起点由客户端显式携带。
 ///
-/// - 拉取起点永远是服务端 `user_session.synced_id`(请求不带游标);
-/// - `sessions` 空 → 服务端筛选全部会话, 增量模式下无未同步消息的会话不输出(空响应 = 同步完毕);
-/// - 增量用 `limit+1` 探测 `has_more`; `truncated_by_window` 仅在 `has_more=false` 且非 initial 时探测。
+/// - 归属校验: 无 `user_session` 行 → 静默跳过(warn), 不报错(兼容聚合未跑/已退群, 不泄露会话存在性);
+///   同一次查询顺带取出 `session_type`(零额外成本)。
+/// - `sessions` 空/缺省 → 空响应(不再服务端筛会话)。
+/// - 查询形态唯一: `session_uuid=? AND id<before AND "timestamp">boundary ORDER BY id DESC LIMIT limit+1`,
+///   取前 limit 条反转升序; `has_more` = limit+1 探测; `truncated_by_window` 仅在 `!has_more` 时
+///   用 `exists_older_than(本批最小 id)` 探测(窗口内已取尽 → 任何更旧行必然出窗口)。
 pub async fn sync_sessions(
     rb: &RBatis,
     me: Option<String>,
@@ -125,108 +128,71 @@ pub async fn sync_sessions(
     let now = get_now_time_stamp_as_millis()?;
     let boundary = window_boundary(now);
     let limit = dto.limit.unwrap_or(SYNC_DEFAULT_LIMIT).clamp(1, SYNC_MAX_LIMIT);
-    let initial = dto.mode.as_deref() == Some("initial");
 
-    // 1. 目标会话行
-    let rows: Vec<UserSession> = match dto.sessions.as_deref() {
-        None | Some([]) => UserSession::select_by_user(rb, &me).await?,
-        Some(ids) => {
-            // 指定会话: 逐个解析并查行(唯一键含 user_uuid, 查询天然按 user 过滤, 无越权可能);
-            // 非法 / 不存在的跳过, 不整体失败。
-            // 注意: rbdc::Uuid::from_str 不做校验(永远成功), 必须用 uuid::Uuid::parse_str 兜住非法值。
-            let mut v = Vec::new();
-            for id in ids {
-                let Ok(parsed) = uuid::Uuid::parse_str(id) else {
-                    warn!("[session/sync] 非法 session_uuid: {id}");
-                    continue;
-                };
-                let u: Uuid = parsed.to_string().parse()?;
-                if let Some(row) = UserSession::select_by_user_and_session(rb, &me, &u).await? {
-                    v.push(row);
-                }
-            }
-            v
-        }
-    };
-
-    // 2. 逐会话拉取(串行; 会话数 × 单分区索引扫)
     let mut sessions_out = Vec::new();
-    for row in rows {
-        let session_type = row.session_type.unwrap_or(SESSION_TYPE_SINGLE);
-        let session_uuid = row.session_uuid;
+    for req in dto.sessions.unwrap_or_default() {
+        // rbdc::Uuid::from_str 不做校验(永远成功), 必须用 uuid::Uuid::parse_str 兜住非法值。
+        let Ok(parsed) = uuid::Uuid::parse_str(&req.session_uuid) else {
+            warn!("[session/sync] 非法 session_uuid: {}", req.session_uuid);
+            continue;
+        };
+        let session_uuid: Uuid = parsed.to_string().parse()?;
 
-        let (messages, has_more, cursor_for_truncated) = if initial {
-            let msgs = if session_type == SESSION_TYPE_GROUP {
-                GroupMessageRecord::select_latest_in_window_by_group(
-                    rb,
-                    &session_uuid,
-                    boundary,
-                    limit,
-                )
-                .await?
+        // 归属校验 + session_type(一次查询两用); 无行 → 静默跳过
+        let Some(row) = UserSession::select_by_user_and_session(rb, &me, &session_uuid).await?
+        else {
+            warn!("[session/sync] 会话不属于当前用户或未聚合, 跳过: {}", req.session_uuid);
+            continue;
+        };
+        let session_type = row.session_type.unwrap_or(SESSION_TYPE_SINGLE);
+        let before = req.before_id.unwrap_or(i64::MAX);
+
+        // 单一查询: 向旧翻页, limit+1 探测 has_more; 组 VO 时反转为升序
+        let (messages, has_more, min_id) = if session_type == SESSION_TYPE_GROUP {
+            let raw = GroupMessageRecord::select_window_before(
+                rb,
+                &session_uuid,
+                before,
+                boundary,
+                limit + 1,
+            )
+            .await?;
+            let has_more = raw.len() > limit as usize;
+            let mut msgs: Vec<SyncMessageVO> = raw
                 .into_iter()
+                .take(limit as usize)
                 .map(|m| group_msg_to_vo(m, &session_uuid))
-                .collect::<Vec<_>>()
-            } else {
-                ChatMessageRecord::select_latest_by_session(rb, &session_uuid, boundary, limit)
-                    .await?
-                    .into_iter()
-                    .map(|m| single_msg_to_vo(m, &session_uuid))
-                    .collect::<Vec<_>>()
-            };
-            (msgs, false, 0)
+                .collect();
+            msgs.reverse();
+            let min_id = msgs.first().map(|m| m.id).unwrap_or(before);
+            (msgs, has_more, min_id)
         } else {
-            let cursor = row.synced_id.unwrap_or(0);
-            // 两组查询返回不同记录类型, 分支内各自转 VO, 避免类型统一问题
-            let (msgs, has_more): (Vec<SyncMessageVO>, bool) = if session_type == SESSION_TYPE_GROUP
-            {
-                let raw =
-                    GroupMessageRecord::select_sync(rb, &session_uuid, cursor, boundary, limit + 1)
-                        .await?;
-                let has_more = raw.len() > limit as usize;
-                let msgs = raw
-                    .into_iter()
-                    .take(limit as usize)
-                    .map(|m| group_msg_to_vo(m, &session_uuid))
-                    .collect();
-                (msgs, has_more)
-            } else {
-                let raw =
-                    ChatMessageRecord::select_sync(rb, &session_uuid, cursor, boundary, limit + 1)
-                        .await?;
-                let has_more = raw.len() > limit as usize;
-                let msgs = raw
-                    .into_iter()
-                    .take(limit as usize)
-                    .map(|m| single_msg_to_vo(m, &session_uuid))
-                    .collect();
-                (msgs, has_more)
-            };
-            if msgs.is_empty() {
-                continue; // 增量: 无未同步消息的会话不输出(空响应 = 同步完毕)
-            }
-            (msgs, has_more, cursor)
+            let raw = ChatMessageRecord::select_window_before(
+                rb,
+                &session_uuid,
+                before,
+                boundary,
+                limit + 1,
+            )
+            .await?;
+            let has_more = raw.len() > limit as usize;
+            let mut msgs: Vec<SyncMessageVO> = raw
+                .into_iter()
+                .take(limit as usize)
+                .map(|m| single_msg_to_vo(m, &session_uuid))
+                .collect();
+            msgs.reverse();
+            let min_id = msgs.first().map(|m| m.id).unwrap_or(before);
+            (msgs, has_more, min_id)
         };
 
-        // 3. 截断探测: 仅增量且 has_more=false 时(还有更多可拉时无意义)
-        let truncated = if has_more || initial {
+        // 截断探测: 仅窗口内取尽(!has_more)时; 空批用 before 作探针(等价"更旧的无上界")
+        let truncated = if has_more {
             false
         } else if session_type == SESSION_TYPE_GROUP {
-            GroupMessageRecord::exists_beyond_window(
-                rb,
-                &session_uuid,
-                cursor_for_truncated,
-                boundary,
-            )
-            .await?
+            GroupMessageRecord::exists_older_than(rb, &session_uuid, min_id).await?
         } else {
-            ChatMessageRecord::exists_beyond_window(
-                rb,
-                &session_uuid,
-                cursor_for_truncated,
-                boundary,
-            )
-            .await?
+            ChatMessageRecord::exists_older_than(rb, &session_uuid, min_id).await?
         };
 
         let next_cursor = messages.last().map(|m| m.id).unwrap_or(0);
@@ -240,12 +206,7 @@ pub async fn sync_sessions(
         });
     }
 
-    info!(
-        "[session/sync] 同步完成: user={}, mode={}, {} 个会话",
-        me,
-        if initial { "initial" } else { "incremental" },
-        sessions_out.len()
-    );
+    info!("[session/sync] 同步完成: user={}, {} 个会话", me, sessions_out.len());
     Ok(SyncResponseVO { server_time: now, sessions: sessions_out })
 }
 

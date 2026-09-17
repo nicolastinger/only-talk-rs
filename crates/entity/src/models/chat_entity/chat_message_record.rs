@@ -50,71 +50,48 @@ impl ChatMessageRecord {
         Ok(crate::models::scalar_i64(&result))
     }
 
-    /// 同步拉取(任务05): 游标 + 7 天窗口 + 升序。
+    /// 窗口内向旧翻页(任务12): `id < before` 且窗口内的最新 limit 条, 返回 id **降序**。
     ///
-    /// 命中 `idx_chat_msg_pull (session_uuid, id) INCLUDE ("timestamp")` —— 窗口过滤免回表。
+    /// 调用方取前 limit 条后自行反转为升序。命中任务11 PK
+    /// `(session_uuid, id) INCLUDE (recv_user, "timestamp")` → Index Only Scan。
+    /// `before` 缺省传 `i64::MAX`(等价无上界)。
     #[rbatis::py_sql(
         "select * from chat_message_record
-         where session_uuid = #{session_uuid} and id > #{cursor} and \"timestamp\" > #{boundary}
-         order by id asc limit #{size}"
-    )]
-    async fn select_sync_inner(
-        rb: &dyn Executor,
-        session_uuid: &Uuid,
-        cursor: i64,
-        boundary: i64,
-        size: u32,
-    ) -> Vec<ChatMessageRecord> {
-    }
-
-    pub async fn select_sync(
-        rb: &dyn Executor,
-        session_uuid: &Uuid,
-        cursor: i64,
-        boundary: i64,
-        size: u32,
-    ) -> rbatis::Result<Vec<ChatMessageRecord>> {
-        Self::select_sync_inner(rb, session_uuid, cursor, boundary, size).await
-    }
-
-    /// initial 模式(任务05): 会话窗口内最新 N 条, 取回后反转为升序。
-    #[rbatis::py_sql(
-        "select * from chat_message_record
-         where session_uuid = #{session_uuid} and \"timestamp\" > #{boundary}
+         where session_uuid = #{session_uuid} and id < #{before} and \"timestamp\" > #{boundary}
          order by id desc limit #{size}"
     )]
-    async fn select_latest_by_session_inner(
+    async fn select_window_before_inner(
         rb: &dyn Executor,
         session_uuid: &Uuid,
+        before: i64,
         boundary: i64,
         size: u32,
     ) -> Vec<ChatMessageRecord> {
     }
 
-    pub async fn select_latest_by_session(
+    pub async fn select_window_before(
         rb: &dyn Executor,
         session_uuid: &Uuid,
+        before: i64,
         boundary: i64,
         size: u32,
     ) -> rbatis::Result<Vec<ChatMessageRecord>> {
-        let mut v = Self::select_latest_by_session_inner(rb, session_uuid, boundary, size).await?;
-        v.reverse();
-        Ok(v)
+        Self::select_window_before_inner(rb, session_uuid, before, boundary, size).await
     }
 
-    /// 窗口截断探测(任务05 §8.2): 游标之后是否存在窗口外的消息。
+    /// 是否存在比 `id` 更旧的消息(任务12 截断探测): 纯 id 存在性, 不带窗口条件。
+    ///
+    /// 调用方仅在窗口内取尽(`has_more=false`)时调用 → 任何更旧行必然已出窗口。
     ///
     /// 标量查询不走 py_sql(任务04 经验: py_sql 对非结构体标量解码不可靠), 用 `rb.query` 判空。
-    pub async fn exists_beyond_window(
+    pub async fn exists_older_than(
         rb: &dyn Executor,
         session_uuid: &Uuid,
-        cursor: i64,
-        boundary: i64,
+        id: i64,
     ) -> rbatis::Result<bool> {
         let sql = "select id from chat_message_record
-                   where session_uuid = $1 and id > $2 and \"timestamp\" <= $3 limit 1";
-        let result =
-            rb.query(sql, vec![value!(session_uuid), value!(cursor), value!(boundary)]).await?;
+                   where session_uuid = $1 and id < $2 limit 1";
+        let result = rb.query(sql, vec![value!(session_uuid), value!(id)]).await?;
         Ok(result.as_array().map(|rows| !rows.is_empty()).unwrap_or(false))
     }
 
