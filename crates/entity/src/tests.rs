@@ -328,6 +328,25 @@ mod chat_entity {
             "select_by_session_paged 必须 order by id + 参数化分页, 实际 SQL 文本被改"
         );
     }
+
+    #[test]
+    fn select_window_after_sql_text() {
+        // 任务12 正向追平回归: 离线同步必须带 session_uuid 等值(分区剪枝) + 窗口过滤 +
+        // `id > after` 正向升序(取代旧 `select_window_before` 的向后翻页)
+        let src = include_str!("models/chat_entity/chat_message_record.rs");
+        assert!(
+            src.contains("where session_uuid = #{session_uuid} and id > #{after}"),
+            "select_window_after 必须 id > after 正向取, 实际 SQL 文本被改"
+        );
+        assert!(
+            src.contains("order by id asc limit #{size}"),
+            "select_window_after 必须 order by id asc, 实际 SQL 文本被改"
+        );
+        assert!(
+            src.contains("\\\"timestamp\\\" > #{boundary}"),
+            "select_window_after 必须带 7 天窗口过滤, 实际 SQL 文本被改"
+        );
+    }
 }
 
 /// 文件模块

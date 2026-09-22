@@ -111,14 +111,14 @@ pub async fn report_session_synced(
     Ok(CommonResponseNoDataRef::success_empty())
 }
 
-/// 离线同步(任务12): 无状态窗口查询, 拉取起点由客户端显式携带。
+/// 离线同步(任务12 正向追平): 无状态窗口查询, 拉取起点 = 客户端本地已同步的最新 id。
 ///
 /// - 归属校验: 无 `user_session` 行 → 静默跳过(warn), 不报错(兼容聚合未跑/已退群, 不泄露会话存在性);
 ///   同一次查询顺带取出 `session_type`(零额外成本)。
 /// - `sessions` 空/缺省 → 空响应(不再服务端筛会话)。
-/// - 查询形态唯一: `session_uuid=? AND id<before AND "timestamp">boundary ORDER BY id DESC LIMIT limit+1`,
-///   取前 limit 条反转升序; `has_more` = limit+1 探测; `truncated_by_window` 仅在 `!has_more` 时
-///   用 `exists_older_than(本批最小 id)` 探测(窗口内已取尽 → 任何更旧行必然出窗口)。
+/// - 查询形态唯一: `session_uuid=? AND id>after AND "timestamp">boundary ORDER BY id ASC LIMIT limit+1`;
+///   取前 limit 条(已升序); `has_more` = limit+1 探测; `next_cursor` = 末条 id(空批 = after)。
+///   7 天窗口由 `boundary` 过滤天然达成 —— 客户端拉到 `has_more=false` 即追平服务端最新 id 或窗口尽头。
 pub async fn sync_sessions(
     rb: &RBatis,
     me: Option<String>,
@@ -145,64 +145,51 @@ pub async fn sync_sessions(
             continue;
         };
         let session_type = row.session_type.unwrap_or(SESSION_TYPE_SINGLE);
-        let before = req.before_id.unwrap_or(i64::MAX);
+        let after = req.after_id.unwrap_or(0);
 
-        // 单一查询: 向旧翻页, limit+1 探测 has_more; 组 VO 时反转为升序
-        let (messages, has_more, min_id) = if session_type == SESSION_TYPE_GROUP {
-            let raw = GroupMessageRecord::select_window_before(
+        // 单一查询: 正向翻页(已升序), limit+1 探测 has_more
+        let (messages, has_more) = if session_type == SESSION_TYPE_GROUP {
+            let raw = GroupMessageRecord::select_window_after(
                 rb,
                 &session_uuid,
-                before,
+                after,
                 boundary,
                 limit + 1,
             )
             .await?;
             let has_more = raw.len() > limit as usize;
-            let mut msgs: Vec<SyncMessageVO> = raw
+            let msgs: Vec<SyncMessageVO> = raw
                 .into_iter()
                 .take(limit as usize)
                 .map(|m| group_msg_to_vo(m, &session_uuid))
                 .collect();
-            msgs.reverse();
-            let min_id = msgs.first().map(|m| m.id).unwrap_or(before);
-            (msgs, has_more, min_id)
+            (msgs, has_more)
         } else {
-            let raw = ChatMessageRecord::select_window_before(
+            let raw = ChatMessageRecord::select_window_after(
                 rb,
                 &session_uuid,
-                before,
+                after,
                 boundary,
                 limit + 1,
             )
             .await?;
             let has_more = raw.len() > limit as usize;
-            let mut msgs: Vec<SyncMessageVO> = raw
+            let msgs: Vec<SyncMessageVO> = raw
                 .into_iter()
                 .take(limit as usize)
                 .map(|m| single_msg_to_vo(m, &session_uuid))
                 .collect();
-            msgs.reverse();
-            let min_id = msgs.first().map(|m| m.id).unwrap_or(before);
-            (msgs, has_more, min_id)
+            (msgs, has_more)
         };
 
-        // 截断探测: 仅窗口内取尽(!has_more)时; 空批用 before 作探针(等价"更旧的无上界")
-        let truncated = if has_more {
-            false
-        } else if session_type == SESSION_TYPE_GROUP {
-            GroupMessageRecord::exists_older_than(rb, &session_uuid, min_id).await?
-        } else {
-            ChatMessageRecord::exists_older_than(rb, &session_uuid, min_id).await?
-        };
-
-        let next_cursor = messages.last().map(|m| m.id).unwrap_or(0);
+        // 空批 next_cursor = 请求的 after(无新消息), 客户端据此感知已追平
+        let next_cursor = messages.last().map(|m| m.id).unwrap_or(after);
         sessions_out.push(SyncSessionVO {
             session_uuid: session_uuid.to_string(),
             session_type,
             messages,
             next_cursor,
             has_more,
-            truncated_by_window: truncated,
         });
     }
 

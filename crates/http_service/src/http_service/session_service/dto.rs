@@ -28,13 +28,13 @@ pub struct SessionSyncedDTO {
 
 // ===== 任务12: 离线同步 /session/sync(无状态窗口查询) =====
 
-/// 单个待拉取会话(任务12): 客户端显式携带拉取起点。
+/// 单个待拉取会话(任务12 正向追平): 客户端显式携带本地已同步的最新 id。
 #[derive(Debug, Deserialize, Serialize)]
 pub struct SyncSessionReq {
     pub session_uuid: String,
-    /// 续拉: 窗口内 `id < before_id` 的最新 limit 条; 缺省 = 无上界(首拉)
+    /// 正向起点: 返回窗口内 `id > after_id` 的消息(升序); 缺省 = 0(从窗口内最早起)
     #[serde(default)]
-    pub before_id: Option<i64>,
+    pub after_id: Option<i64>,
 }
 
 /// 同步请求(任务12): 删除 `mode`(客户端游标驱动), `sessions` 元素对象化。
@@ -73,10 +73,10 @@ pub struct SyncSessionVO {
     pub session_type: i16,
     /// 会话内按 id 升序
     pub messages: Vec<SyncMessageVO>,
-    /// 本批最大消息 id; 客户端落库成功后经 /session/synced 回报
+    /// 本批最大消息 id(= 末条 id; 空批 = 请求的 after_id); 客户端以此续拉并回报 /session/synced
     pub next_cursor: i64,
+    /// 窗口内是否还有更多(limit+1 探测); false = 已追平服务端最新 id 或 7 天窗口尽头
     pub has_more: bool,
-    pub truncated_by_window: bool,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

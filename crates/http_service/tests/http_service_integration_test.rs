@@ -1042,7 +1042,7 @@ async fn http_service_user_api_integration() -> Result<()> {
         let sync_now = get_now_time_stamp_as_millis()?;
         let boundary_8d = sync_now - 8 * 24 * 3600 * 1000;
 
-        // 9.1 首拉: 无 before_id, limit=10 → 窗口内最新 10 条(升序), has_more=true
+        // 9.1 首拉: after_id 缺省(=0) → 窗口内最旧 10 条(升序), has_more=true
         let peer_a = Uuid::now_v7();
         let peer_a_rbdc: RbatisUuid = peer_a.to_string().parse()?;
         let session_a: RbatisUuid = single_session_uuid(&sync_user, &peer_a).to_string().parse()?;
@@ -1078,30 +1078,30 @@ async fn http_service_user_api_integration() -> Result<()> {
         .context("同步(9.1)失败")?;
         assert_eq!(resp.sessions.len(), 1, "应返回请求的会话: {resp:?}");
         assert_eq!(resp.sessions[0].messages.len(), 10);
-        assert!(resp.sessions[0].has_more, "还有更旧 15 条 → has_more=true");
-        assert_eq!(resp.sessions[0].next_cursor, ids_a[24], "next_cursor=本批最大 id");
-        assert_eq!(resp.sessions[0].messages[0].nano_id, "sync-a-15", "本批最旧");
-        assert_eq!(resp.sessions[0].messages[9].nano_id, "sync-a-24", "本批最新");
+        assert!(resp.sessions[0].has_more, "还有 15 条 → has_more=true");
+        assert_eq!(resp.sessions[0].next_cursor, ids_a[9], "next_cursor=本批最大 id(末条)");
+        assert_eq!(resp.sessions[0].messages[0].nano_id, "sync-a-00", "窗口内最早");
+        assert_eq!(resp.sessions[0].messages[9].nano_id, "sync-a-09", "本批最新");
         let batch_ids: Vec<i64> = resp.sessions[0].messages.iter().map(|m| m.id).collect();
         assert!(batch_ids.windows(2).all(|w| w[0] < w[1]), "响应内 id 升序: {batch_ids:?}");
 
-        // 9.2 续拉: before_id=上批最小 id → 紧邻更旧 10 条, 无重无漏; 翻至 has_more=false, 并集=全部 25
+        // 9.2 续拉: after_id=上批最大 → 紧邻更新 10 条, 无重无漏; 翻至 has_more=false, 并集=全部 25
         let mut all_ids = batch_ids.clone();
-        let mut before = batch_ids[0];
+        let mut after = resp.sessions[0].next_cursor;
         let mut last_has_more = resp.sessions[0].has_more;
         while last_has_more {
             let resp = sync_sessions(
                 &test_rb,
                 Some(sync_user.to_string()),
-                sync_req(Some(vec![sync_session_req_before(&session_a, before)]), Some(10)),
+                sync_req(Some(vec![sync_session_req_after(&session_a, after)]), Some(10)),
             )
             .await
             .context("同步(9.2)失败")?;
             let page: Vec<i64> = resp.sessions[0].messages.iter().map(|m| m.id).collect();
             assert!(!page.is_empty(), "has_more=true 时不应空批");
-            assert!(page.iter().all(|id| *id < before), "续拉应严格更旧: {page:?} vs {before}");
+            assert!(page.iter().all(|id| *id > after), "续拉应严格更新: {page:?} vs {after}");
             all_ids.extend(page.iter().copied());
-            before = page[0];
+            after = resp.sessions[0].next_cursor;
             last_has_more = resp.sessions[0].has_more;
         }
         all_ids.sort();
@@ -1110,7 +1110,7 @@ async fn http_service_user_api_integration() -> Result<()> {
         expect_ids.sort();
         assert_eq!(all_ids, expect_ids, "翻页并集应等于全部 25 条且无重复");
 
-        // 9.3 截断探测: 窗口外有更旧消息 → has_more=false 时 truncated=true
+        // 9.3 窗口过滤: 窗口外更旧消息不返回, has_more=false(7 天阈值即停止, 无截断标志)
         let peer_t = Uuid::now_v7();
         let peer_t_rbdc: RbatisUuid = peer_t.to_string().parse()?;
         let session_t: RbatisUuid = single_session_uuid(&sync_user, &peer_t).to_string().parse()?;
@@ -1149,14 +1149,14 @@ async fn http_service_user_api_integration() -> Result<()> {
         .await
         .context("同步(9.3)失败")?;
         assert_eq!(resp.sessions[0].messages.len(), 1, "窗口外消息应被过滤");
-        assert!(!resp.sessions[0].has_more);
-        assert!(resp.sessions[0].truncated_by_window, "窗口外有更旧消息 → truncated=true");
+        assert!(!resp.sessions[0].has_more, "窗口内已取尽 → 追平, has_more=false");
+        assert_eq!(resp.sessions[0].messages[0].nano_id, "sync-t-0");
 
-        // 9.4 窗口内取尽且无更旧消息 → truncated=false
+        // 9.4 追平后空批: after_id 超前沿 → 空消息, has_more=false, next_cursor=after
         let peer_n = Uuid::now_v7();
         let peer_n_rbdc: RbatisUuid = peer_n.to_string().parse()?;
         let session_n: RbatisUuid = single_session_uuid(&sync_user, &peer_n).to_string().parse()?;
-        insert_single_msg(
+        let id_n = insert_single_msg(
             &test_rb,
             &session_n,
             "sync-n-0",
@@ -1177,11 +1177,13 @@ async fn http_service_user_api_integration() -> Result<()> {
         let resp = sync_sessions(
             &test_rb,
             Some(sync_user.to_string()),
-            sync_req(Some(vec![sync_session_req(&session_n)]), Some(100)),
+            sync_req(Some(vec![sync_session_req_after(&session_n, id_n)]), Some(100)),
         )
         .await
         .context("同步(9.4)失败")?;
-        assert!(!resp.sessions[0].truncated_by_window, "无更旧消息不应报截断");
+        assert!(resp.sessions[0].messages.is_empty(), "已追平 → 空批");
+        assert!(!resp.sessions[0].has_more);
+        assert_eq!(resp.sessions[0].next_cursor, id_n, "空批 next_cursor=请求的 after");
 
         // 9.5 归属校验: 不属于我的会话静默跳过, 非法 uuid 跳过, 其余正常
         let (other_user, other_rbdc) = seed_friend_user(&test_rb, "syncother").await?;
@@ -1207,7 +1209,7 @@ async fn http_service_user_api_integration() -> Result<()> {
                 Some(vec![
                     sync_session_req(&session_n),
                     sync_session_req(&session_o),
-                    SyncSessionReq { session_uuid: "not-a-uuid".to_string(), before_id: None },
+                    SyncSessionReq { session_uuid: "not-a-uuid".to_string(), after_id: None },
                 ]),
                 None,
             ),
@@ -1217,7 +1219,7 @@ async fn http_service_user_api_integration() -> Result<()> {
         assert_eq!(resp.sessions.len(), 1, "只返回属于我的会话: {resp:?}");
         assert_eq!(resp.sessions[0].session_uuid, session_n.to_string());
 
-        // 9.6 before_id 缺省 ≡ i64::MAX(无上界)
+        // 9.6 after_id 缺省 ≡ 0(从窗口内最早起)
         let resp_default = sync_sessions(
             &test_rb,
             Some(sync_user.to_string()),
@@ -1225,18 +1227,21 @@ async fn http_service_user_api_integration() -> Result<()> {
         )
         .await
         .context("同步(9.6a)失败")?;
-        let resp_max = sync_sessions(
+        let resp_zero = sync_sessions(
             &test_rb,
             Some(sync_user.to_string()),
-            sync_req(Some(vec![sync_session_req_before(&session_a, i64::MAX)]), Some(10)),
+            sync_req(Some(vec![sync_session_req_after(&session_a, 0)]), Some(10)),
         )
         .await
         .context("同步(9.6b)失败")?;
         assert_eq!(
-            resp_default.sessions[0].next_cursor, resp_max.sessions[0].next_cursor,
-            "缺省 before_id 应等价无上界"
+            resp_default.sessions[0].next_cursor, resp_zero.sessions[0].next_cursor,
+            "缺省 after_id 应等价 0"
         );
-        assert_eq!(resp_default.sessions[0].messages.len(), resp_max.sessions[0].messages.len());
+        assert_eq!(
+            resp_default.sessions[0].messages.len(), resp_zero.sessions[0].messages.len(),
+            "缺省 after_id 应返回相同条数"
+        );
 
         // 9.7 旧协议兼容: 多余 mode 字段被 serde 静默忽略
         let legacy: SyncRequestDTO = serde_json::from_str(
@@ -1245,9 +1250,9 @@ async fn http_service_user_api_integration() -> Result<()> {
         .context("旧协议请求应可反序列化(mode 被忽略)")?;
         assert_eq!(legacy.sessions.as_ref().map(|v| v.len()), Some(1));
         assert_eq!(
-            legacy.sessions.as_ref().and_then(|v| v.first()).map(|s| s.before_id),
+            legacy.sessions.as_ref().and_then(|v| v.first()).map(|s| s.after_id),
             Some(None),
-            "before_id 缺省应为 None"
+            "after_id 缺省应为 None"
         );
 
         // 9.8 limit 服务端钳制(99999 → 200)
@@ -1347,9 +1352,10 @@ async fn http_service_user_api_integration() -> Result<()> {
         let s = &resp.sessions[0];
         assert_eq!(s.session_type, SESSION_TYPE_GROUP);
         assert_eq!(s.messages.len(), 2);
-        assert!(s.has_more);
+        assert!(s.has_more, "还有 1 条 → has_more=true");
         assert_eq!(s.messages[0].recv_user, group_uuid.to_string(), "群聊 recv_user=group_uuid");
-        assert_eq!(s.next_cursor, ids_g[2], "群聊 next_cursor=本批最大 id");
+        assert_eq!(s.messages[0].id, ids_g[0], "正向首拉取最旧 2 条");
+        assert_eq!(s.next_cursor, ids_g[1], "群聊 next_cursor=本批最大 id");
 
         // 9.11 HTTP 冒烟: 新契约(对象化 sessions)路由注册与响应结构
         let sync_body = serde_json::from_str::<JsonValue>(r#"{"sessions":[],"limit":10}"#)
@@ -1841,14 +1847,14 @@ fn sync_req(sessions: Option<Vec<SyncSessionReq>>, limit: Option<u32>) -> SyncRe
     SyncRequestDTO { sessions, limit }
 }
 
-/// 任务12: 首拉会话项(无 before_id)。
+/// 任务12: 首拉会话项(无 after_id, 服务端视作 0 = 窗口内最早起)。
 fn sync_session_req(session: &RbatisUuid) -> SyncSessionReq {
-    SyncSessionReq { session_uuid: session.to_string(), before_id: None }
+    SyncSessionReq { session_uuid: session.to_string(), after_id: None }
 }
 
-/// 任务12: 续拉会话项(带 before_id)。
-fn sync_session_req_before(session: &RbatisUuid, before_id: i64) -> SyncSessionReq {
-    SyncSessionReq { session_uuid: session.to_string(), before_id: Some(before_id) }
+/// 任务12: 正向续拉会话项(带 after_id)。
+fn sync_session_req_after(session: &RbatisUuid, after_id: i64) -> SyncSessionReq {
+    SyncSessionReq { session_uuid: session.to_string(), after_id: Some(after_id) }
 }
 
 /// 构造字符串键值对的 JSON 对象（不使用 `serde_json::json!` 宏，因其内部调用 `unwrap` 违反仓库规范）

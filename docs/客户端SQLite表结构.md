@@ -85,9 +85,13 @@ CREATE TABLE IF NOT EXISTS group_chat_record (
 
 ---
 
-## 3. 同步域
+## 3. 同步域（休眠）
 
-### `session_sync_state` ★任务12 新增 —— 拉取水位（每会话一行，持久）
+> ⚠️ **随偏差记录 §1.8 修订休眠**：离线同步改为**正向追平**后，本地前沿直接由
+> `chat_record.server_id` / `group_chat_record.server_id` 的 `MAX` 推导，不再读写下表。
+> 两表**结构保留**（未上线无迁移成本），代码已不读写；若将来引入「进会话才拉历史」的节流策略可复用其结构。
+
+### `session_sync_state` ★任务12 新增 —— 拉取水位（每会话一行，持久）【休眠】
 
 ```sql
 CREATE TABLE IF NOT EXISTS session_sync_state (
@@ -99,7 +103,7 @@ CREATE TABLE IF NOT EXISTS session_sync_state (
 );
 ```
 
-### `sync_task` ★任务12 新增 —— 批次执行记录（批次 × 会话，append）
+### `sync_task` ★任务12 新增 —— 批次执行记录（批次 × 会话，append）【休眠】
 
 ```sql
 CREATE TABLE IF NOT EXISTS sync_task (
@@ -119,7 +123,7 @@ CREATE INDEX IF NOT EXISTS idx_sync_task_batch   ON sync_task(batch_id);
 CREATE INDEX IF NOT EXISTS idx_sync_task_pending ON sync_task(kind, status);
 ```
 
-> 保留策略：最近 50 批（仅全终态批可清），pending/running 永不清（队列本体）。批的成败视图 = `GROUP BY batch_id` 派生，不存计数。
+> 原保留策略（最近 50 批，pending/running 永不清）仅对旧版「同意式回填」有意义，现已不再执行。
 
 ### `chat_record_read` —— 单聊已读上报事件（每会话一行水位）
 
@@ -378,7 +382,10 @@ CREATE INDEX IF NOT EXISTS idx_app_log_created_at ON app_log(created_at);
 
 ---
 
-## 7. 任务12 迁移清单（无包袱直迁）
+## 7. 任务12 迁移清单（历史记录；同步域现已休眠）
+
+> 以下为旧版任务12 落地时的迁移动作，已执行完毕。随偏差记录 §1.8 改为正向追平后，
+> `session_sync_state` / `sync_task` **保留休眠**、不再读写；后续升级无需再动这两张表。
 
 | # | 动作 | 语句 |
 |---|------|------|
@@ -390,8 +397,8 @@ CREATE INDEX IF NOT EXISTS idx_app_log_created_at ON app_log(created_at);
 
 ## 8. 设计规约（维护时先读）
 
-1. **三域分离**：会话表只管会话、消息表只管消息、同步表管任务执行；位置类字段一律住同步域。
-2. **唯一有意跨域读 = 缺口检测**：`chat_session.last_message_id`（会话事实）vs `session_sync_state.synced_id`（执行位置）。新增第二处跨域读前先读 `任务12` §4.6。
-3. **`server_id` 允许 NULL**：QUIC 在线消息不带 offset（架构不变式：QUIC 只管在线实时，离线补齐永远 HTTP 拉取）—— NULL 由拉取重放补齐，勿在写入路径强行填充。
-4. **append 类表必须有界**：`sync_task` 保留 50 批；`app_log` 无清理（已知遗留，量大时可按 created_at 滚动清理）。
+1. **正向前沿**：本地已同步位置 = `chat_record.server_id` / `group_chat_record.server_id` 的 `MAX`（单聊按双方、群聊按 group），不再另存水位表。
+2. **唯一有意跨域读 = 追平比较**：服务端 `last_message_id`（会话事实，`/session/list` 聚合值）vs 本地前沿 `max(server_id)`。新增第二处跨域读前先读 `任务12` §4。
+3. **`server_id` 允许 NULL**：QUIC 在线消息不带 offset（架构不变式：QUIC 只管在线实时，离线补齐永远 HTTP 拉取）—— NULL 由正向追平重放补齐（nano_id 去重 + 回填），勿在写入路径强行填充。
+4. **append 类表必须有界**：`app_log` 无清理（已知遗留，量大时可按 created_at 滚动清理）；`sync_task` 已休眠无需保留策略。
 5. 表结构演进走 `update_table` 的幂等 ALTER（忽略已存在错误），与既有惯例一致。

@@ -74,49 +74,32 @@ impl GroupMessageRecord {
         Ok(crate::models::scalar_i64(&result))
     }
 
-    /// 窗口内向旧翻页(任务12): `id < before` 且窗口内的最新 limit 条, 返回 id **降序**。
+    /// 窗口内正向翻页(任务12 正向追平): `id > after` 且窗口内的 limit 条, 返回 id **升序**。
     ///
-    /// 调用方取前 limit 条后自行反转为升序。命中任务11 PK
-    /// `(group_uuid, id) INCLUDE ("timestamp", send_user)` → Index Only Scan。
-    /// `before` 缺省传 `i64::MAX`(等价无上界)。
+    /// 命中任务11 PK `(group_uuid, id) INCLUDE ("timestamp", send_user)` → Index Only Scan。
+    /// `after` 缺省传 0(从窗口内最早起); `has_more` 由调用方用 limit+1 探测。
     #[rbatis::py_sql(
         "select * from group_message_record
-         where group_uuid = #{group_uuid} and id < #{before} and \"timestamp\" > #{boundary}
-         order by id desc limit #{size}"
+         where group_uuid = #{group_uuid} and id > #{after} and \"timestamp\" > #{boundary}
+         order by id asc limit #{size}"
     )]
-    async fn select_window_before_inner(
+    async fn select_window_after_inner(
         rb: &dyn Executor,
         group_uuid: &Uuid,
-        before: i64,
+        after: i64,
         boundary: i64,
         size: u32,
     ) -> Vec<GroupMessageRecord> {
     }
 
-    pub async fn select_window_before(
+    pub async fn select_window_after(
         rb: &dyn Executor,
         group_uuid: &Uuid,
-        before: i64,
+        after: i64,
         boundary: i64,
         size: u32,
     ) -> rbatis::Result<Vec<GroupMessageRecord>> {
-        Self::select_window_before_inner(rb, group_uuid, before, boundary, size).await
-    }
-
-    /// 是否存在比 `id` 更旧的消息(任务12 截断探测): 纯 id 存在性, 不带窗口条件。
-    ///
-    /// 调用方仅在窗口内取尽(`has_more=false`)时调用 → 任何更旧行必然已出窗口。
-    ///
-    /// 标量查询不走 py_sql(任务04 经验), 用 `rb.query` 判空。
-    pub async fn exists_older_than(
-        rb: &dyn Executor,
-        group_uuid: &Uuid,
-        id: i64,
-    ) -> rbatis::Result<bool> {
-        let sql = "select id from group_message_record
-                   where group_uuid = $1 and id < $2 limit 1";
-        let result = rb.query(sql, vec![value!(group_uuid), value!(id)]).await?;
-        Ok(result.as_array().map(|rows| !rows.is_empty()).unwrap_or(false))
+        Self::select_window_after_inner(rb, group_uuid, after, boundary, size).await
     }
 
     /// 指定群的最新一条消息。
