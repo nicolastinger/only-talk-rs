@@ -4,7 +4,6 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Result, anyhow};
 use common::config_str::{REDIS_INTERNAL_QUIC_SERVERS, REDIS_QUIC_SERVERS, REDIS_SPLIT, SYSTEM};
-use common::models::session_entity::aggregate::aggregate_user_sessions;
 use common::state::CoreState;
 use common::utils::internal_quic_client::send_internal_quic_msg;
 use common::utils::internal_quic_msg::{InternalQuicRequest, RequestSource};
@@ -101,9 +100,6 @@ pub(crate) async fn run_server(
 
     ACCEPT_ALIVE_AT_MS.store(now_millis(), Ordering::Relaxed);
     start_accept_watchdog();
-
-    // 任务09 §4: 定时兜底聚合, 覆盖"持续在线"用户(上线/下线触发覆盖不到)
-    start_periodic_aggregate(core.clone(), connections.clone());
 
     let mut alive_interval = tokio::time::interval(Duration::from_secs(ACCEPT_ALIVE_TICK_SECS));
     loop {
@@ -537,7 +533,6 @@ async fn end_server(
     connection_id: usize,
     connections: &Arc<DashMap<String, QuicConnection>>,
 ) -> Result<(), anyhow::Error> {
-    let mut uuid = "".to_string();
     info!("[server] 断线清理开始: key={}", close_key);
     {
         // 注意: DashMap guard 不可跨 .await 持有,必须先 drop(book) 再执行任何异步操作,
@@ -546,7 +541,6 @@ async fn end_server(
             let now = book.update_time;
             if now == close_now as u64 && book.conn.stable_id() == connection_id {
                 info!("用户已断开连接: {}", close_key);
-                uuid = book.uuid.clone();
                 drop(book);
                 connections.remove(close_key);
                 let mut conn = core.redis.get().await?;
@@ -559,72 +553,9 @@ async fn end_server(
 
     info!("[server] 连接 {} 处理完成，当前在线连接数: {}", close_key, connections.len());
 
-    if !uuid.is_empty() {
-        user_offline(core, uuid).await?;
-    }
-
     Ok(())
 }
 
-/// 用户离线
-async fn user_offline(core: &CoreState, uuid: String) -> std::result::Result<(), anyhow::Error> {
-    // 断连时再聚合一次, 保证下次上线前 session.last_message_* 尽量新(§6.1)
-    spawn_session_aggregate(core, &uuid);
-    Ok(())
-}
-
-/// 异步聚合用户会话状态(§6.1): 不阻塞调用链路, 失败仅打日志。
-///
-/// 在用户上线/下线时触发, 把消息表的最新状态收敛进 `session` / `user_session`。
-fn spawn_session_aggregate(core: &CoreState, uuid: &str) {
-    let rb = core.db.clone();
-    let user = uuid.to_string();
-    tokio::spawn(async move {
-        match user.parse::<rbatis::rbdc::Uuid>() {
-            Ok(u) => {
-                if let Err(e) = aggregate_user_sessions(&rb, &u).await {
-                    warn!("[session] 聚合失败: user={}, err={:?}", u, e);
-                }
-            }
-            Err(e) => warn!("[session] 聚合: uuid 解析失败 {}", e),
-        }
-    });
-}
-
-/// 定时兜底聚合(任务09 §4): 每 30s 对本机在线用户跑一次 aggregate(幂等)。
-///
-/// 上线/下线触发覆盖不了"持续在线"用户; 每节点只处理自己 DashMap 上的连接,
-/// 集群天然分担、不跨节点。
-///
-/// ⚠️ 频率与 V4 聚合发现查询实测相关(任务09 §2.2): 若 V4 为百毫秒级且在线用户上百,
-/// 需下调频率或改走 §2.4 的 LATERAL 升级路径 —— 默认 30s 仅是起点。
-fn start_periodic_aggregate(core: CoreState, connections: Arc<DashMap<String, QuicConnection>>) {
-    tokio::spawn(async move {
-        let mut tick = tokio::time::interval(Duration::from_secs(30));
-        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-        loop {
-            tick.tick().await;
-            // 连接键形如 "PLATFORM:...:UUID:TEXT", 以 connection.uuid 去重
-            let mut users: Vec<String> = Vec::new();
-            for entry in connections.iter() {
-                let u = entry.value().uuid.clone();
-                if !u.is_empty() && !users.contains(&u) {
-                    users.push(u);
-                }
-            }
-            for u in users {
-                match u.parse::<rbatis::rbdc::Uuid>() {
-                    Ok(uuid) => {
-                        if let Err(e) = aggregate_user_sessions(&core.db, &uuid).await {
-                            warn!("[session] 兜底聚合失败: user={}, err={:?}", uuid, e);
-                        }
-                    }
-                    Err(e) => warn!("[session] 兜底聚合: uuid 解析失败 {}", e),
-                }
-            }
-        }
-    });
-}
 /// 上线时新连接对既有在线连接(同一 platform+uuid)的接管语义
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Takeover {
@@ -813,9 +744,6 @@ async fn user_online(
             ));
         }
     }
-
-    // 上线后异步聚合该用户的会话状态(§6.1): 不阻塞登录链路, 失败仅打日志
-    spawn_session_aggregate(core, uuid);
 
     Ok(lock_token)
 }

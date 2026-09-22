@@ -50,6 +50,28 @@ impl ChatMessageRecord {
         Ok(crate::models::scalar_i64(&result))
     }
 
+    /// 会话最新一条消息(聚合用; 单分区索引反向取首行, 便宜)。
+    ///
+    /// 取代旧 `latest_per_session_for_user` 的跨 16 分区 `distinct on` 全扫:
+    /// 会话的发现职责已由任务 04b 建行钩子承接, 聚合按 `user_session` 行逐会话点查。
+    #[rbatis::py_sql(
+        "select * from chat_message_record
+         where session_uuid = #{session_uuid}
+         order by id desc limit 1"
+    )]
+    async fn latest_by_session_inner(
+        rb: &dyn Executor,
+        session_uuid: &Uuid,
+    ) -> Vec<ChatMessageRecord> {
+    }
+
+    pub async fn latest_by_session(
+        rb: &dyn Executor,
+        session_uuid: &Uuid,
+    ) -> rbatis::Result<Option<ChatMessageRecord>> {
+        Ok(Self::latest_by_session_inner(rb, session_uuid).await?.into_iter().next())
+    }
+
     /// 窗口内向旧翻页(任务12): `id < before` 且窗口内的最新 limit 条, 返回 id **降序**。
     ///
     /// 调用方取前 limit 条后自行反转为升序。命中任务11 PK
@@ -93,27 +115,5 @@ impl ChatMessageRecord {
                    where session_uuid = $1 and id < $2 limit 1";
         let result = rb.query(sql, vec![value!(session_uuid), value!(id)]).await?;
         Ok(result.as_array().map(|rows| !rows.is_empty()).unwrap_or(false))
-    }
-
-    /// 每个相关会话的最新一条消息(distinct on 按会话取 id 最大行)。
-    ///
-    /// ⚠️ 不含 `session_uuid` 等值条件, 分区表上跨全分区扫描 —— 开发期可接受,
-    /// 数据量上来后由任务 09 评估(见任务书 §8 性能注记)。
-    #[rbatis::py_sql(
-        "select distinct on (session_uuid) * from chat_message_record
-         where recv_user = #{me} or send_user = #{me}
-         order by session_uuid, id desc"
-    )]
-    async fn select_latest_per_session_for_user(
-        rb: &dyn Executor,
-        me: &Uuid,
-    ) -> Vec<ChatMessageRecord> {
-    }
-
-    pub async fn latest_per_session_for_user(
-        rb: &dyn Executor,
-        me: &Uuid,
-    ) -> rbatis::Result<Vec<ChatMessageRecord>> {
-        Self::select_latest_per_session_for_user(rb, me).await
     }
 }

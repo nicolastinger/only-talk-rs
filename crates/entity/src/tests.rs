@@ -301,17 +301,17 @@ mod chat_entity {
     }
 
     #[test]
-    fn select_latest_per_session_sql_text() {
-        // 任务03 回归: 聚合发现查询必须按会话 distinct 取 id 最大行
-        // 直接断言 py_sql 宏内 SQL 文本, 防止未来把 distinct on / 排序改坏
+    fn latest_by_session_sql_text() {
+        // 聚合回归: 单聊聚合已从 distinct on 跨分区全扫改为 user_session 驱动的
+        // 逐会话点查 —— 必须带 session_uuid 等值(分区剪枝) + id 降序取首行
         let src = include_str!("models/chat_entity/chat_message_record.rs");
         assert!(
-            src.contains("distinct on (session_uuid)"),
-            "select_latest_per_session_for_user 必须按 session_uuid 去重, 实际 SQL 文本被改"
+            src.contains("where session_uuid = #{session_uuid}"),
+            "latest_by_session 必须带 session_uuid 等值条件(分区剪枝), 实际 SQL 文本被改"
         );
         assert!(
-            src.contains("order by session_uuid, id desc"),
-            "select_latest_per_session_for_user 必须 order by session_uuid, id desc, 实际 SQL 文本被改"
+            src.contains("order by id desc limit 1"),
+            "latest_by_session 必须 order by id desc limit 1, 实际 SQL 文本被改"
         );
     }
 

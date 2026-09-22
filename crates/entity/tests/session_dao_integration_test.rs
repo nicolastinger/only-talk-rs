@@ -245,26 +245,54 @@ async fn aggregate_single_chat() {
     let peer = u("00000000-0000-0000-0000-000000000b02");
     let su = u("00000000-0000-0000-0000-000000000b03");
 
-    insert_chat_msg(rb, &su, &me, &peer, 1_000).await;
-    insert_chat_msg(rb, &su, &peer, &me, 2_000).await;
+    // 04b 语义: 好友通过即建双方 user_session 行 + session 行(聚合不再负责发现建行)
+    Session::upsert(rb, &new_session(&su, SESSION_TYPE_SINGLE)).await.expect("session upsert 失败");
+    let me_us = UserSession {
+        id: None,
+        user_uuid: me.clone(),
+        session_uuid: su.clone(),
+        session_type: Some(SESSION_TYPE_SINGLE),
+        peer_uuid: Some(peer.clone()),
+        last_read_id: None,
+        synced_id: None,
+        pinned: None,
+        muted: None,
+        deleted_at: None,
+        created_at: None,
+        updated_at: None,
+    };
+    UserSession::upsert(rb, &me_us).await.expect("me user_session upsert 失败");
+    UserSession::upsert(
+        rb,
+        &UserSession { user_uuid: peer.clone(), peer_uuid: Some(me.clone()), ..me_us.clone() },
+    )
+    .await
+    .expect("peer user_session upsert 失败");
+
+    // 无消息时聚合跳过, 不建行/不清零
+    let report_empty = aggregate_user_sessions(rb, &me).await.expect("空聚合失败");
+    assert_eq!(report_empty.single_sessions, 0, "无消息会话应跳过");
+    let s_empty = get_session(rb, &su).await.expect("session 行应存在");
+    assert_eq!(s_empty.last_message_id, None, "无消息不应写入 last_message");
+
+    insert_chat_msg(rb, &su, &peer, &me, 1_000).await;
+    insert_chat_msg(rb, &su, &me, &peer, 2_000).await;
     let expected = max_chat_id(rb, &su).await;
 
     let report = aggregate_user_sessions(rb, &me).await.expect("聚合失败");
     assert_eq!(report.single_sessions, 1);
-    assert_eq!(report.user_session_upserted, 1);
 
     let s = get_session(rb, &su).await.expect("session 应存在");
     assert_eq!(s.session_type, Some(SESSION_TYPE_SINGLE));
     assert_eq!(s.last_message_id, Some(expected), "应取该会话最新一条消息 id");
 
+    // 聚合不重建 user_session 行, peer_uuid 保持 04b 建行时的值
     let us_me = get_user_session(rb, &me, &su).await.expect("me 的 user_session 应存在");
     assert_eq!(us_me.peer_uuid, Some(peer.clone()));
 
-    // 对方聚合后也生成自己的 user_session, 且共享同一 session 行
-    let report_peer = aggregate_user_sessions(rb, &peer).await.expect("对方聚合失败");
-    assert_eq!(report_peer.single_sessions, 1);
-    let us_peer = get_user_session(rb, &peer, &su).await.expect("peer 的 user_session 应存在");
-    assert_eq!(us_peer.peer_uuid, Some(me.clone()));
+    // 幂等: 重复聚合结果一致
+    let report2 = aggregate_user_sessions(rb, &me).await.expect("二次聚合失败");
+    assert_eq!(report2.single_sessions, 1);
 
     let sessions =
         Session::select_by_map(rb, value! {"session_uuid": &su}).await.expect("查询失败");

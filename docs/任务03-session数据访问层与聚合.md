@@ -15,8 +15,8 @@
 |---|------|
 | 1 | `Session` DAO：懒创建 upsert、`last_message_*` 单调更新 |
 | 2 | `UserSession` DAO：upsert、已读游标（前进+钳制）、同步游标（前进）、软删（推到底）、入群初始化 |
-| 3 | 聚合函数 `aggregate_user_sessions`：按用户发现会话 → 建 `session` 行 → 单调更新 |
-| 4 | 触发点接线：`user_online` / `user_offline`（quic_service）、`accept_group_invitation`（http_service） |
+| 3 | 聚合函数 `aggregate_user_sessions`：按用户收敛会话状态 → 建/更新 `session` 行 → 单调更新 |
+| 4 | 触发点接线：~~`user_online` / `user_offline`（quic_service）~~ **已删除**（偏差记录 §1.7）→ 改 http_service 读路径（`/session/list` 首页 + `prepare_control`）；`accept_group_invitation`（http_service）保留 |
 | 5 | 集成测试：共享测试设施重构 + 8 个数据访问用例 |
 
 ### 1.2 本任务不做什么
@@ -27,7 +27,7 @@
 | 复活判定（读侧谓词）与 keyset 分页查询 | 任务 06 |
 | `last_preview` 的生成策略 | 任务 06（开放问题，见 §3.4）—— 本任务聚合先填 NULL |
 | Kafka（落库仍为同步直写） | 后续独立任务 |
-| 定时兜底聚合（§6.1 触发表的第 4 行） | 任务 09 —— 上线/下线触发先跑起来 |
+| 定时兜底聚合（§6.1 触发表的第 4 行） | ~~任务 09~~ —— **已随偏差记录 §1.7 删除**：改读路径惰性聚合 |
 
 ---
 
@@ -303,7 +303,9 @@ pub async fn select_latest_by_group(
 ### 5.2 聚合主函数
 
 ```rust
-//! 会话聚合: 在用户上线/下线时把消息表的最新状态收敛进 session / user_session 表。
+//! 会话聚合: 在会话列表被读取时(读路径)把消息表的最新状态收敛进 session 表。
+//! 触发点: /session/list 首页 + 控制操作(http_service); 单聊由 user_session 驱动,
+//! 群聊由成员表驱动, 均逐会话点查(无跨分区全扫)。
 
 use rbatis::executor::Executor;
 use rbatis::rbdc::Uuid;
@@ -437,34 +439,16 @@ pub mod user_session;
 
 ## 6. 触发点接线
 
-### 6.1 `user_online`（quic_service）
+> ⚠️ **§6.1 / §6.2 已被修订替代**（见偏差记录 §1.7）：quic_service 的 `user_online` / `user_offline`
+> 聚合触发已**删除**（生产者不维护读侧派生状态）。聚合改由 **http_service 读路径**惰性触发：
+> `list_sessions` 首页（`/session/list`，登录/断线重连必然发起）+ `prepare_control`（控制操作）。
+> 单聊聚合从 `distinct on` 全扫改为 `user_session` 驱动的 `latest_by_session` 逐会话点查。
+> 以下 §6.3 入群初始化钩子**保留**（行创建职责，非聚合）。
 
-`crates/quic_service/src/external/quic_server.rs:735`，函数**成功返回路径的末尾**（连接注册完成之后、`Ok(...)` 之前）：
+### 6.1 `user_online` / `user_offline`（已删除）
 
-```rust
-// 上线后异步聚合该用户的会话状态(§6.1): 不阻塞登录链路, 失败仅打日志
-{
-    let rb = core.db.clone();
-    let user = uuid.to_string();
-    tokio::spawn(async move {
-        let user = user.parse::<rbatis::rbdc::Uuid>();
-        match user {
-            Ok(u) => {
-                if let Err(e) = common::models::session_entity::aggregate::aggregate_user_sessions(&rb, &u).await {
-                    warn!("[session] 上线聚合失败: user={}, err={:?}", u, e);
-                }
-            }
-            Err(e) => warn!("[session] 上线聚合: uuid 解析失败 {}", e),
-        }
-    });
-}
-```
-
-> 引用路径走 `common::models::...`（`common/src/lib.rs:17` re-export，与全仓惯例一致）。`user_online` 内已有 `sync_read_messages` 调用先例展示了对 core/uuid 的可用性。
-
-### 6.2 `user_offline`（quic_service）
-
-`quic_server.rs:576` 同模式追加 —— 断连时再聚合一次，保证下次上线前 `session.last_message_*` 尽量新。
+原实现在 `crates/quic_service/src/external/quic_server.rs`（`user_online` 成功返回路径末尾 + `user_offline`），
+上线/下线时异步 spawn `aggregate_user_sessions`。现已整体移除，不再有代码落点。
 
 ### 6.3 入群初始化（http_service）
 
@@ -516,7 +500,7 @@ crates/entity/tests/
 | 测试名 | 内容 |
 |--------|------|
 | `aggregate_report_default` | 结构体 Default 可用（防误删 derive） |
-| `select_latest_per_session_sql_text` | py_sql 宏内 SQL 含 `distinct on (session_uuid)` 与 `order by session_uuid, id desc`（字符串断言防回归，同任务 02 模式） |
+| `latest_by_session_sql_text` | py_sql 宏内 SQL 含 `where session_uuid = #{session_uuid}`（分区剪枝）与 `order by id desc limit 1`（反向取首行）—— 单聊聚合点查回归（原 `select_latest_per_session_sql_text` 的 distinct on 断言随全扫删除而移除） |
 
 ### 7.4 运行命令
 
@@ -532,11 +516,13 @@ cargo test -p entity --test ddl_integration_test -- --ignored
 
 ---
 
-## 8. 性能注记（留给任务 09）
+## 8. 性能注记（已随偏差记录 §1.7 落地）
 
-- `latest_per_session_for_user` 不含 `session_uuid` 等值条件 —— 分区表上**跨 16 分区扫描**（`recv_user` 侧可部分利用 `idx_chat_msg_recv`，`send_user` 侧无索引）。仅在用户上线/下线触发，频率低，开发期可接受
-- 真正要警惕的是**消息量大后的单次聚合耗时**（用户会话数 × 单分区索引扫）—— 任务 09 的 EXPLAIN 验证项
-- 若将来成为瓶颈，候选方案：消息落库时写一个轻量「脏会话」标记（Redis set），聚合只处理脏会话 —— 属优化，不在本系列范围
+- ~~`latest_per_session_for_user` 不含 `session_uuid` 等值条件 —— 分区表上跨 16 分区扫描~~ —— **已删除**。
+  单聊聚合改 `user_session` 驱动的 `latest_by_session`（`session_uuid` 等值 + `id desc limit 1`，单分区点查），
+  全扫问题随之消除
+- **单次聚合耗时** = 用户会话数 × 单分区索引点查（O(会话数 × log n)），且仅在 `/session/list` 首页触发 —— 无读者零开销
+- 若将来仍成为瓶颈，候选方案：消息落库时写轻量「脏会话」标记（Redis set），聚合只处理脏会话 —— 属优化，不在本系列范围
 
 ---
 
@@ -546,7 +532,7 @@ cargo test -p entity --test ddl_integration_test -- --ignored
 - [x] `aggregate_user_sessions` 三类用例绿（单聊 / 群聊 / 双方收敛）
 - [x] 单调性 3 项断言绿（last_message / last_read 钳制 / synced 不回退）
 - [x] `soft_delete` 推到底 + `init_for_group_join` 幂等
-- [x] `user_online` / `user_offline` / `accept_group_invitation_service` 三处接线完成，`cargo check` 全绿
+- [x] `user_online` / `user_offline` / `accept_group_invitation_service` 三处接线完成，`cargo check` 全绿 —— **§6.1/§6.2 已随偏差记录 §1.7 删除**，聚合改读路径
 - [ ] 手动验证：启动 → 登录 → PG 里 `session` / `user_session` 出现数据，重复登录不产生重复行（待人工验证）
 - [x] 共享测试设施抽取后，`ddl_integration_test` 原用例全部仍绿（零行为变化）
 - [x] `cargo clippy -D warnings` 无告警
@@ -561,8 +547,8 @@ cargo test -p entity --test ddl_integration_test -- --ignored
 | `UserSession::update_last_read_id` | 任务 04（`/session/read` 直接调用，逻辑已在数据层） |
 | `UserSession::update_synced_id` | 任务 04（`/session/synced` 直接调用） |
 | `UserSession::soft_delete` | 任务 06（`/session/delete`） |
-| `aggregate_user_sessions` + 触发点 | 任务 06（`/session/list` 的数据来源） |
-| `select_latest_per_session_for_user` | 任务 06（列表兜底/对账） |
+| `aggregate_user_sessions` + 触发点 | 任务 06（`/session/list` 的数据来源；偏差记录 §1.7 后触发点为列表首页 + 控制操作） |
+| ~~`select_latest_per_session_for_user`~~ → `latest_by_session` | 已删除（跨分区全扫）；`latest_by_session`（单分区点查）供聚合与任务 06 对账 |
 
 ---
 

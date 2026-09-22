@@ -211,6 +211,10 @@ pub async fn sync_sessions(
 }
 
 /// 会话列表(任务06 §9.1): keyset 分页 + 未读现算 + 软删复活。
+///
+/// 读路径惰性聚合: 首页(无游标)先跑一次 `aggregate_user_sessions`, 把消息表最新状态
+/// 收敛进 `session.last_message_*`(幂等, 失败不阻塞)。客户端登录 / 断线重连必然发起
+/// 本接口首页 —— 无读者就不聚合, quic_service 生产者不再维护会话状态。
 pub async fn list_sessions(
     rb: &RBatis,
     me: Option<String>,
@@ -218,6 +222,11 @@ pub async fn list_sessions(
 ) -> Result<SessionListResponseVO, anyhow::Error> {
     let me_uuid: Uuid = me.ok_or_else(|| anyhow!("账号获取失败"))?.parse()?;
     let size = dto.size.unwrap_or(SESSION_LIST_DEFAULT_SIZE).clamp(1, SESSION_LIST_MAX_SIZE);
+
+    // 首页才聚合: 翻页复用本页已收敛状态, 避免每页重复点查
+    if dto.cursor.is_none() {
+        let _ = aggregate_user_sessions(rb, &me_uuid).await;
+    }
 
     // 解析游标(首页为 None); 非法 uuid 用 uuid::Uuid 校验(rbdc::Uuid::from_str 不校验)
     let cursor = match dto.cursor {
@@ -265,7 +274,8 @@ pub async fn list_sessions(
     Ok(SessionListResponseVO { sessions, has_more, next_cursor })
 }
 
-/// 控制信息公共前置: 解析 me / session_uuid, 并顺带聚合(§6.1 触发表, 保证行存在; 失败不阻塞)。
+/// 控制信息公共前置: 解析 me / session_uuid, 并顺带聚合(§6.1 触发表: 刷新
+/// `session.last_message_*`, 保证软删 push-to-bottom 用到的 `last_message_id` 新鲜; 失败不阻塞)。
 async fn prepare_control(
     rb: &RBatis,
     me: Option<String>,

@@ -13,7 +13,7 @@ pub const SESSION_TYPE_OFFICIAL_ACCOUNT: i16 = 4;
 
 /// 会话本体: 单聊=用户对, 群聊=群; 双方/全员共享一行。
 ///
-/// `last_message_*` 由后台聚合任务维护(用户上线/下线/控制信息变更时), 非实时更新。
+/// `last_message_*` 由聚合维护(读路径惰性触发: `/session/list` 首页 / 控制操作), 非实时更新。
 #[derive(Clone, Deserialize, Serialize, Debug)]
 pub struct Session {
     pub session_uuid: Uuid,
