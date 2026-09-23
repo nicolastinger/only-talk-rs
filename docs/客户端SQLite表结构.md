@@ -11,7 +11,7 @@
 |----|----|-----------|
 | 会话域 | `chat_session` | 会话列表（展示属性 + 会话事实） |
 | 消息域 | `chat_record` / `group_chat_record` | 单聊 / 群消息本体（含 server_id） |
-| 同步域 | `session_sync_state`★ / `sync_task`★ / `chat_record_read` / `group_message_read` | 拉取水位与批次记录 + 已读上报事件 |
+| 同步域 | `sync_task`★ / `chat_record_read` / `group_message_read` | 追平记录（前端查看追平成败）+ 已读上报事件 |
 | 发送域 | `chat_record_send` / `chat_record_ack` / `group_message_ack` | 出站队列、ACK 跟踪、重试 |
 | 资料域 | `user_info` / `friend` / `group_info` / `group_member` | 用户 / 好友 / 群 / 群成员资料缓存 |
 | 功能域 | `system_notification` / `user_token` / `file_record` / `client_config`★ / `webrtc_signal` / `app_log` | 通知 / 凭据 / 文件 / 客户端配置 / RTC 信令 / 日志 |
@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS chat_session (
     is_top           INTEGER NOT NULL DEFAULT 0,
     session_type     INTEGER NOT NULL DEFAULT 0,  -- 1-单聊 2-群聊 3-系统 4-公众号
     session_uuid     TEXT DEFAULT NULL,           -- 任务01: 单聊 v5 派生 / 群=group_id
-    synced_id        INTEGER NOT NULL DEFAULT 0,  -- 任务01 加; ★任务12 迁出 → session_sync_state
+    synced_id        INTEGER NOT NULL DEFAULT 0,  -- 任务01 加; ★任务12 已删(本地前沿=max(server_id))
     group_id         TEXT DEFAULT NULL,           -- 仅 update_table ALTER 补列(历史加列)
     last_message_id  INTEGER NOT NULL DEFAULT 0,  -- ★任务12 新增: 会话事实(/session/list), 缺口检测输入
     UNIQUE(send_user, recv_user),
@@ -85,36 +85,26 @@ CREATE TABLE IF NOT EXISTS group_chat_record (
 
 ---
 
-## 3. 同步域（休眠）
+## 3. 同步域（追平记录表）
 
-> ⚠️ **随偏差记录 §1.8 修订休眠**：离线同步改为**正向追平**后，本地前沿直接由
-> `chat_record.server_id` / `group_chat_record.server_id` 的 `MAX` 推导，不再读写下表。
-> 两表**结构保留**（未上线无迁移成本），代码已不读写；若将来引入「进会话才拉历史」的节流策略可复用其结构。
+> ⚠️ **随偏差记录 §1.8 修订**：离线同步改为**正向追平**后，本地前沿直接由
+> `chat_record.server_id` / `group_chat_record.server_id` 的 `MAX` 推导，**消费水位表
+> `session_sync_state` 已删除**（`ChatSession.update_table` 清理残留表）。`sync_task`
+> 保留为**会话追平记录表**：每轮重连/登录 = 一批（`batch_id` = 触发时刻毫秒），每会话一条
+> **终态**记录（成功/失败），供前端 `get_sync_history` 查看哪些会话追平成功。
 
-### `session_sync_state` ★任务12 新增 —— 拉取水位（每会话一行，持久）【休眠】
-
-```sql
-CREATE TABLE IF NOT EXISTS session_sync_state (
-    session_uuid TEXT PRIMARY KEY,
-    synced_id    INTEGER NOT NULL DEFAULT 0,  -- 前沿: 已回报的最大服务端 id(Kafka: 已提交位移)
-    hist_floor   INTEGER DEFAULT NULL,        -- 连续前沿: 一切 id ≥ floor 的消息都在本地(seek 回放记账)
-    backfill     INTEGER NOT NULL DEFAULT 0,  -- 0-未回填过 1-完成 2-跳过(「不再提示」) —— 提示抑制持久位
-    updated_at   INTEGER NOT NULL
-);
-```
-
-### `sync_task` ★任务12 新增 —— 批次执行记录（批次 × 会话，append）【休眠】
+### `sync_task` ★任务12 保留 —— 会话追平记录（批次 × 会话，append）
 
 ```sql
 CREATE TABLE IF NOT EXISTS sync_task (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    batch_id     INTEGER NOT NULL,            -- 批次 = 触发时刻毫秒: 一次重连/同意 = 一批
+    batch_id     INTEGER NOT NULL,            -- 批次 = 触发轮次毫秒: 一次重连/登录 = 一批
     session_uuid TEXT NOT NULL,
-    kind         INTEGER NOT NULL,            -- 0-静默补拉(重连轮) 1-回填
-    status       INTEGER NOT NULL DEFAULT 0,  -- 0-待执行 1-执行中 2-成功 3-失败
-    batches      INTEGER NOT NULL DEFAULT 0,  -- 本任务已消化拉取批次数
-    new_count    INTEGER NOT NULL DEFAULT 0,  -- 本任务累计新增消息数
-    attempt      INTEGER NOT NULL DEFAULT 0,  -- 重试次数
+    kind         INTEGER NOT NULL,            -- 恒为正向追平
+    status       INTEGER NOT NULL DEFAULT 0,  -- 2-成功 3-失败(记录恒为终态)
+    batches      INTEGER NOT NULL DEFAULT 0,  -- 本记录消化的拉取批次数
+    new_count    INTEGER NOT NULL DEFAULT 0,  -- 本记录累计新增消息数
+    attempt      INTEGER NOT NULL DEFAULT 0,  -- 失败时 1
     last_error   TEXT DEFAULT NULL,
     created_at   INTEGER NOT NULL,
     updated_at   INTEGER NOT NULL
@@ -123,7 +113,7 @@ CREATE INDEX IF NOT EXISTS idx_sync_task_batch   ON sync_task(batch_id);
 CREATE INDEX IF NOT EXISTS idx_sync_task_pending ON sync_task(kind, status);
 ```
 
-> 原保留策略（最近 50 批，pending/running 永不清）仅对旧版「同意式回填」有意义，现已不再执行。
+> 保留策略：仅保留最近 50 批（`prune_batches`）。追平记录为终态 append，**非队列**。
 
 ### `chat_record_read` —— 单聊已读上报事件（每会话一行水位）
 
@@ -382,10 +372,11 @@ CREATE INDEX IF NOT EXISTS idx_app_log_created_at ON app_log(created_at);
 
 ---
 
-## 7. 任务12 迁移清单（历史记录；同步域现已休眠）
+## 7. 任务12 迁移清单（历史记录；水位表已删）
 
-> 以下为旧版任务12 落地时的迁移动作，已执行完毕。随偏差记录 §1.8 改为正向追平后，
-> `session_sync_state` / `sync_task` **保留休眠**、不再读写；后续升级无需再动这两张表。
+> 以下为旧版任务12 落地时的迁移动作，已执行完毕。随偏差记录 §1.8 改为正向追平后：
+> `session_sync_state`（消费水位表）**已删除**（`ChatSession.update_table` 清理残留表）；
+> `sync_task` 保留为**追平记录表**。后续升级无需再动这两张表的旧语义。
 
 | # | 动作 | 语句 |
 |---|------|------|
@@ -394,11 +385,12 @@ CREATE INDEX IF NOT EXISTS idx_app_log_created_at ON app_log(created_at);
 | 3 | 删列 | `ALTER TABLE chat_session DROP COLUMN synced_id`（SQLite 3.35+，Tauri 自带版本满足） |
 | 4 | 加列 | `ALTER TABLE chat_session ADD COLUMN last_message_id INTEGER NOT NULL DEFAULT 0` |
 | 5 | 摘除代码引用 | `ChatSession` 结构体 / VO / `set_session_sync_cursor`（改写为水位表 DAO）/ 各构造点 —— rg 复核 `synced_id` 在会话域零残留 |
+| 6 | 删水位表 | `DROP TABLE IF EXISTS session_sync_state`（`ChatSession.update_table` 幂等执行） |
 
 ## 8. 设计规约（维护时先读）
 
 1. **正向前沿**：本地已同步位置 = `chat_record.server_id` / `group_chat_record.server_id` 的 `MAX`（单聊按双方、群聊按 group），不再另存水位表。
 2. **唯一有意跨域读 = 追平比较**：服务端 `last_message_id`（会话事实，`/session/list` 聚合值）vs 本地前沿 `max(server_id)`。新增第二处跨域读前先读 `任务12` §4。
 3. **`server_id` 允许 NULL**：QUIC 在线消息不带 offset（架构不变式：QUIC 只管在线实时，离线补齐永远 HTTP 拉取）—— NULL 由正向追平重放补齐（nano_id 去重 + 回填），勿在写入路径强行填充。
-4. **append 类表必须有界**：`app_log` 无清理（已知遗留，量大时可按 created_at 滚动清理）；`sync_task` 已休眠无需保留策略。
+4. **append 类表必须有界**：`app_log` 无清理（已知遗留，量大时可按 created_at 滚动清理）；`sync_task` 保留最近 50 批。
 5. 表结构演进走 `update_table` 的幂等 ALTER（忽略已存在错误），与既有惯例一致。
