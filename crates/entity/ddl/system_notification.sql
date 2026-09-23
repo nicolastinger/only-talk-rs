@@ -26,9 +26,18 @@ CREATE TABLE IF NOT EXISTS system_notification (
 -- 幂等: 列已存在时跳过, 可安全重复执行。
 ALTER TABLE system_notification ADD COLUMN IF NOT EXISTS biz_id varchar NULL;
 
--- 索引
-CREATE INDEX IF NOT EXISTS idx_system_notification_is_read ON public.system_notification USING btree (is_read);
-CREATE INDEX IF NOT EXISTS idx_system_notification_user_id_created_at ON public.system_notification USING btree (user_id, created_at);
+-- 索引(任务13 通知中心优化):
+-- 列表/未读窗口查询形态: `user_id=? AND is_read=? AND created_at>=? ORDER BY created_at DESC, id DESC`,
+-- 复合索引覆盖过滤 + 排序 + keyset 游标,避免回表排序。
+CREATE INDEX IF NOT EXISTS idx_system_notification_user_read_created
+    ON public.system_notification USING btree (user_id, is_read, created_at DESC, id DESC);
+-- 全量列表(不按 is_read 过滤)按时间倒序
+CREATE INDEX IF NOT EXISTS idx_system_notification_user_created
+    ON public.system_notification USING btree (user_id, created_at DESC, id DESC);
+
+-- 旧索引清理(任务13): is_read 单列选择性极低,无查询价值; (user_id, created_at) 升序索引被上面的降序索引覆盖。
+DROP INDEX IF EXISTS idx_system_notification_is_read;
+DROP INDEX IF EXISTS idx_system_notification_user_id_created_at;
 
 -- 表注释
 COMMENT ON TABLE public.system_notification IS '系统通知表';

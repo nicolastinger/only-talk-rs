@@ -1,14 +1,6 @@
-use std::net::SocketAddr;
-
 use anyhow::{Result, anyhow};
 use common::config_str::GROUP_MEMBERS_CACHE;
-use common::models::notify_entity::system_notification::SystemNotification;
 use common::models::session_entity::user_session::UserSession;
-use common::read_global_config;
-use common::utils::internal_quic_client::send_internal_quic_msg;
-use common::utils::internal_quic_msg::{InternalQuicRequest, RequestSource};
-use common::utils::message_types::NOTIFY_TYPE_MSG;
-use common::utils::server_count_sync::compute_preferred_index;
 use common::utils::time::get_now_time_stamp_as_millis;
 use entity::models::group_entity::group_info::GroupInfo;
 use entity::models::group_entity::group_invitation::{
@@ -34,44 +26,8 @@ use crate::http_service::group_service::group_vo::group_invitation_vo::GroupInvi
 use crate::http_service::group_service::group_vo::group_member_vo::GroupMemberVO;
 use crate::http_service::group_service::group_vo::group_message_vo::GroupMessageVO;
 use crate::http_service::notify_service::service::system_notification::{
-    send_group_invite_msg, send_group_invite_result_msg,
+    push_notification_via_quic, send_group_invite_msg, send_group_invite_result_msg,
 };
-
-async fn push_notification_via_quic(notification: SystemNotification) -> Result<()> {
-    let target_id = notification
-        .user_id
-        .as_ref()
-        .map(|u| u.to_string())
-        .ok_or_else(|| anyhow!("Notification missing target user ID"))?;
-    let json_str = serde_json::to_string(&notification)?;
-
-    // 包装为 TextQuicMsg 二进制(与其他消息路径保持一致)
-    let payload = common::utils::text_msg::generate_text_msg(
-        NOTIFY_TYPE_MSG,
-        json_str.into_bytes(),
-        target_id.clone(),
-        common::config_str::SYSTEM.to_string(),
-    )?;
-
-    let addr_str = read_global_config!("internal_quic_server", "address");
-    let server_addr: SocketAddr = addr_str.parse()?;
-    let preferred_index = compute_preferred_index(&target_id);
-
-    let request = InternalQuicRequest {
-        msg_type: NOTIFY_TYPE_MSG,
-        payload,
-        target_user: target_id,
-        preferred_index,
-        platform: common::config_str::PC_PLATFORM.to_string(),
-        source: RequestSource::HttpApi,
-        ttl: 3,
-        close_after_delivery: false,
-        incoming_session: String::new(),
-        send_force_logout: false,
-    };
-
-    send_internal_quic_msg(server_addr, request).await.map(|_| ())
-}
 
 pub async fn create_group_service(
     rb: &RBatis,
@@ -353,7 +309,9 @@ pub async fn invite_group_members_service(
                     Some(dto.group_uuid.clone()),
                 )
                 .await?;
-                let _ = push_notification_via_quic(notification).await;
+                if let Err(e) = push_notification_via_quic(&notification).await {
+                    warn!("群通知实时推送失败: {}", e);
+                }
 
                 invited.push(user_uuid_str.clone());
             }
@@ -418,7 +376,9 @@ pub async fn accept_group_invitation_service(
                     Some(dto.group_uuid.clone()),
                 )
                 .await?;
-                let _ = push_notification_via_quic(notification).await;
+                if let Err(e) = push_notification_via_quic(&notification).await {
+                    warn!("群通知实时推送失败: {}", e);
+                }
             }
 
             info!("[群聊] 邀请已接受 group_uuid={} user={}", dto.group_uuid, user_uuid);

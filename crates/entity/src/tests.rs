@@ -624,6 +624,25 @@ mod notify_entity {
         };
         assert_roundtrip(&notification);
     }
+
+    #[test]
+    fn select_page_keyset_orders_by_created_at_desc_id_desc() {
+        // 任务13 通知中心: 列表排序键 (created_at desc, id desc) 与游标同源,
+        // 防止将来把排序改回升序导致 keyset 游标失效。
+        let src = include_str!("models/notify_entity/system_notification.rs");
+        assert!(
+            src.contains("(created_at, id) < (#{q.cursor_at}::int8, #{q.cursor_id}::uuid)"),
+            "select_page 必须是 keyset 游标 (created_at, id), 实际 SQL 文本被改"
+        );
+        assert!(
+            src.contains("order by created_at desc, id desc"),
+            "select_page 必须按 (created_at desc, id desc) 排序, 实际 SQL 文本被改"
+        );
+        assert!(
+            src.contains("limit #{q.size}"),
+            "select_page 的 limit 必须参数化, 实际 SQL 文本被改"
+        );
+    }
 }
 
 /// 交友广场模块

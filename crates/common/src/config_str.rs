@@ -14,6 +14,25 @@ pub static MAX_QUIC_SERVERS: usize = 1000;
 pub static MAX_QUIC_BUFFER_LEN: usize = 1024 * 1024 * 10;
 // 系统通知未读拉取保留窗口(天)，仅拉取最近 N 天内的未读通知
 pub static NOTIFY_RETENTION_DAYS: i64 = 14;
+// 通知列表分页: 默认/最大每页条数
+pub static NOTIFY_LIST_DEFAULT_SIZE: u32 = 50;
+pub static NOTIFY_LIST_MAX_SIZE: u32 = 100;
+// 通知层级语义: level1 定位功能大类(当前仅系统大类=1)
+pub static NOTIFY_LEVEL1_SYSTEM: i32 = 1;
+// level2 定位子功能模块
+pub static NOTIFY_LEVEL2_FRIEND: i32 = 1;
+pub static NOTIFY_LEVEL2_GROUP: i32 = 3;
+pub static NOTIFY_LEVEL2_PLAZA: i32 = 4;
+pub static NOTIFY_LEVEL2_MOMENT: i32 = 5;
+// level3 定位具体功能组
+pub static NOTIFY_LEVEL3_FRIEND_REQUEST: i32 = 1;
+pub static NOTIFY_LEVEL3_FRIEND_PROCESS: i32 = 2;
+pub static NOTIFY_LEVEL3_GROUP_INVITE: i32 = 1;
+pub static NOTIFY_LEVEL3_GROUP_INVITE_RESULT: i32 = 4;
+pub static NOTIFY_LEVEL3_PLAZA_LIKE: i32 = 1;
+pub static NOTIFY_LEVEL3_PLAZA_MATCH: i32 = 2;
+pub static NOTIFY_LEVEL3_MOMENT_LIKE: i32 = 1;
+pub static NOTIFY_LEVEL3_MOMENT_COMMENT: i32 = 2;
 // 用户发起好友请求
 pub static USER_ADD_FRIEND: &str = "USER_ADD_FRIEND_REQUEST";
 // 用户处理好友请求
