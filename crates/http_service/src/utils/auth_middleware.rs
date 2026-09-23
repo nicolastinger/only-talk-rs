@@ -19,6 +19,7 @@ lazy_static! {
         m.insert("/user/sign_in".to_string());
         m.insert("/user/refresh_token".to_string());
         m.insert("/user/send_verify_code".to_string());
+        m.insert("/file_integrated/file_type_config".to_string());
         RwLock::new(m)
     };
 }

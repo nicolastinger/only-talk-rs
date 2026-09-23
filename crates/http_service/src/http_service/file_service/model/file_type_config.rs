@@ -1,8 +1,9 @@
 use anyhow::Result;
 use common::read_global_array_config;
+use serde::Serialize;
 
 /// 文件类型配置
-#[derive(Clone)]
+#[derive(Clone, Serialize)]
 pub struct FileTypeConfig {
     /// 图片类型
     pub image: FileTypeGroup,
@@ -17,7 +18,7 @@ pub struct FileTypeConfig {
 }
 
 /// 文件类型分组
-#[derive(Clone)]
+#[derive(Clone, Serialize)]
 pub struct FileTypeGroup {
     /// 文件扩展名
     pub extensions: Vec<String>,
