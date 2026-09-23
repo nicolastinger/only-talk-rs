@@ -1239,7 +1239,8 @@ async fn http_service_user_api_integration() -> Result<()> {
             "缺省 after_id 应等价 0"
         );
         assert_eq!(
-            resp_default.sessions[0].messages.len(), resp_zero.sessions[0].messages.len(),
+            resp_default.sessions[0].messages.len(),
+            resp_zero.sessions[0].messages.len(),
             "缺省 after_id 应返回相同条数"
         );
 
