@@ -28,6 +28,17 @@ fn parse_uuid(v: Option<String>) -> Result<Option<Uuid>, anyhow::Error> {
     }
 }
 
+/// 由生日(unix 秒)实时计算年龄的 SQL 表达式；生日未设置(<=0)返回 NULL。
+/// user_info 不再存储 age 列，年龄一律按 birthday 与当前时间推算。
+fn age_expr_sql(table_alias: &str) -> String {
+    format!(
+        "CASE WHEN {alias}.birthday > 0 THEN \
+         EXTRACT(YEAR FROM age(now(), to_timestamp({alias}.birthday)))::int \
+         ELSE NULL END",
+        alias = table_alias
+    )
+}
+
 fn to_vo(row: PlazaUserRow, tags: Vec<String>) -> PlazaUserVO {
     PlazaUserVO {
         uuid: row.uuid.unwrap_or_default(),
@@ -199,16 +210,17 @@ pub async fn get_plaza_list(
 
     let mut where_sql = String::from("pi.allow_discover = true AND pi.status = 0 AND pi.uuid <> ?");
     let mut args: Vec<rbs::Value> = vec![value!(my_uuid.clone())];
+    let age_expr = age_expr_sql("ui");
     if let Some(g) = query.gender {
         where_sql.push_str(" AND ui.gender = ?");
         args.push(value!(g as i32));
     }
     if let Some(amin) = query.age_min {
-        where_sql.push_str(" AND ui.age::int >= ?");
+        where_sql.push_str(&format!(" AND {age_expr} >= ?"));
         args.push(value!(amin as i32));
     }
     if let Some(amax) = query.age_max {
-        where_sql.push_str(" AND ui.age::int <= ?");
+        where_sql.push_str(&format!(" AND {age_expr} <= ?"));
         args.push(value!(amax as i32));
     }
     if let Some(tag) = query.tag {
@@ -222,7 +234,7 @@ pub async fn get_plaza_list(
     }
 
     let base_sql = format!(
-        "SELECT pi.uuid, bu.username, bu.icon, bu.info, bu.user_type, ui.gender, ui.age::int as age, \
+        "SELECT pi.uuid, bu.username, bu.icon, bu.info, bu.user_type, ui.gender, {age_expr} as age, \
          ui.address, pi.motto, \
          (SELECT count(*) FROM plaza_like pl WHERE pl.target_uuid = pi.uuid AND pl.user_uuid = ? AND pl.is_del = false) as liked_by_me \
          FROM plaza_user_info pi \
@@ -271,17 +283,20 @@ pub async fn get_my_liked_list(
         .next();
     let total = count_row.map(|r| r.count).unwrap_or(0) as u32;
 
-    let select_sql = "SELECT bu.uuid, bu.username, bu.icon, bu.info, bu.user_type, ui.gender, ui.age::int as age, \
+    let select_sql = format!(
+        "SELECT bu.uuid, bu.username, bu.icon, bu.info, bu.user_type, ui.gender, {} as age, \
         ui.address, pi.motto, \
         (SELECT count(*) FROM plaza_like pl2 WHERE pl2.target_uuid = bu.uuid AND pl2.user_uuid = ? AND pl2.is_del = false) as liked_by_me \
         FROM plaza_like pl JOIN basic_user bu ON pl.target_uuid = bu.uuid \
         LEFT JOIN user_info ui ON bu.uuid = ui.uuid \
         LEFT JOIN plaza_user_info pi ON bu.uuid = pi.uuid \
         WHERE pl.user_uuid = ? AND pl.is_del = false \
-        ORDER BY pl.created_at DESC LIMIT ? OFFSET ?";
+        ORDER BY pl.created_at DESC LIMIT ? OFFSET ?",
+        age_expr_sql("ui")
+    );
     let args =
         vec![value!(me.clone()), value!(me.clone()), value!(page_size as i64), value!(offset)];
-    let rows: Vec<PlazaUserRow> = rb.exec_decode(select_sql, args).await?;
+    let rows: Vec<PlazaUserRow> = rb.exec_decode(&select_sql, args).await?;
     let list = rows_to_vos(rb, rows).await?;
     Ok(CommonResponseRef::<PlazaListVO>::success_json(&PlazaListVO { total, list })?)
 }
@@ -308,7 +323,8 @@ pub async fn get_matched_list(
         .next();
     let total = count_row.map(|r| r.count).unwrap_or(0) as u32;
 
-    let select_sql = "SELECT bu.uuid, bu.username, bu.icon, bu.info, bu.user_type, ui.gender, ui.age::int as age, \
+    let select_sql = format!(
+        "SELECT bu.uuid, bu.username, bu.icon, bu.info, bu.user_type, ui.gender, {} as age, \
         ui.address, pi.motto, \
         (SELECT count(*) FROM plaza_like pl2 WHERE pl2.target_uuid = bu.uuid AND pl2.user_uuid = ? AND pl2.is_del = false) as liked_by_me \
         FROM plaza_like ml \
@@ -317,10 +333,12 @@ pub async fn get_matched_list(
         LEFT JOIN user_info ui ON bu.uuid = ui.uuid \
         LEFT JOIN plaza_user_info pi ON bu.uuid = pi.uuid \
         WHERE ml.user_uuid = ? AND ml.is_del = false AND ol.is_del = false \
-        ORDER BY ml.created_at DESC LIMIT ? OFFSET ?";
+        ORDER BY ml.created_at DESC LIMIT ? OFFSET ?",
+        age_expr_sql("ui")
+    );
     let args =
         vec![value!(me.clone()), value!(me.clone()), value!(page_size as i64), value!(offset)];
-    let rows: Vec<PlazaUserRow> = rb.exec_decode(select_sql, args).await?;
+    let rows: Vec<PlazaUserRow> = rb.exec_decode(&select_sql, args).await?;
     let list = rows_to_vos(rb, rows).await?;
     Ok(CommonResponseRef::<PlazaListVO>::success_json(&PlazaListVO { total, list })?)
 }
@@ -336,13 +354,16 @@ pub async fn get_plaza_user(
 
     let row: Option<PlazaUserRow> = rb
         .exec_decode::<Vec<PlazaUserRow>>(
-            "SELECT pi.uuid, bu.username, bu.icon, bu.info, bu.user_type, ui.gender, ui.age::int as age, \
-             ui.address, pi.motto, \
-             (SELECT count(*) FROM plaza_like pl WHERE pl.target_uuid = pi.uuid AND pl.user_uuid = ? AND pl.is_del = false) as liked_by_me \
-             FROM plaza_user_info pi \
-             JOIN basic_user bu ON pi.uuid = bu.uuid \
-             LEFT JOIN user_info ui ON pi.uuid = ui.uuid \
-             WHERE pi.uuid = ? AND pi.allow_discover = true AND pi.status = 0",
+            &format!(
+                "SELECT pi.uuid, bu.username, bu.icon, bu.info, bu.user_type, ui.gender, {} as age, \
+                 ui.address, pi.motto, \
+                 (SELECT count(*) FROM plaza_like pl WHERE pl.target_uuid = pi.uuid AND pl.user_uuid = ? AND pl.is_del = false) as liked_by_me \
+                 FROM plaza_user_info pi \
+                 JOIN basic_user bu ON pi.uuid = bu.uuid \
+                 LEFT JOIN user_info ui ON pi.uuid = ui.uuid \
+                 WHERE pi.uuid = ? AND pi.allow_discover = true AND pi.status = 0",
+                age_expr_sql("ui")
+            ),
             vec![value!(me), value!(target.clone())],
         )
         .await?

@@ -410,7 +410,6 @@ mod user_dto {
             username: Some("nick".to_string()),
             info: Some("hello".to_string()),
             gender: Some(2),
-            age: Some(30),
             birthday: Some(1234567890),
             phone: Some("13800138000".to_string()),
             email: Some("a@b.com".to_string()),
@@ -455,7 +454,6 @@ mod user_dto {
             username: Some("newname".to_string()),
             info: None,
             gender: Some(2),
-            age: Some(30),
             birthday: None,
             phone: None,
             email: None,
@@ -483,7 +481,6 @@ mod user_dto {
         let mut info = UserInfo {
             uuid: None,
             gender: None,
-            age: None,
             birthday: None,
             note: None,
             created_at: Some(1),
@@ -495,7 +492,6 @@ mod user_dto {
         };
         dto.apply_to_user_info(&mut info).expect("更新 user_info 失败");
         assert_eq!(info.gender, Some(2));
-        assert_eq!(info.age, Some(30));
         assert_eq!(info.birthday, Some(1234567890));
         assert_eq!(info.phone.as_deref(), Some("13800138000"));
         assert_eq!(info.email.as_deref(), Some("a@b.com"));

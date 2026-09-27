@@ -50,11 +50,11 @@ BEGIN
         INSERT INTO basic_user (uuid, username, account, password, info, icon, registration_status)
         VALUES (v_uuid, v_username, v_account, v_pwd, '批量生成的测试账号', NULL, 1);
 
-        -- 2. 用户详情
+        -- 2. 用户详情 (年龄不再存储, 由 birthday 实时计算)
         INSERT INTO user_info
-            (uuid, gender, age, birthday, created_at, updated_at, phone, email, address, status, note)
+            (uuid, gender, birthday, created_at, updated_at, phone, email, address, status, note)
         VALUES
-            (v_uuid, 0, 0, 0, v_now, v_now, NULL, v_email, NULL, 0, '批量生成的测试账号');
+            (v_uuid, 0, 0, v_now, v_now, NULL, v_email, NULL, 0, '批量生成的测试账号');
 
         -- 3. 邮箱登录渠道 (email_normalized 唯一)
         INSERT INTO email_sso

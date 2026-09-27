@@ -195,7 +195,6 @@ pub async fn sign_up_step1_service(
             let user_info = UserInfo {
                 uuid: Some(new_uuid.clone()),
                 gender: None,
-                age: Some(0),
                 birthday: Some(0),
                 note: Some("这个人很勤快，但什么都没写".to_string()),
                 created_at: Some(now),

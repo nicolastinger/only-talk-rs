@@ -9,9 +9,7 @@ pub struct UserInfo {
     pub uuid: Option<Uuid>,
     /// 用户性别 (0: 未知, 1: 男, 2: 女)
     pub gender: Option<u8>,
-    /// 用户年龄
-    pub age: Option<u8>,
-    /// 用户生日 (Unix 时间戳，单位：秒)
+    /// 用户生日 (Unix 时间戳，单位：秒)，年龄由生日与当前时间实时计算，不再单独存储
     pub birthday: Option<i64>,
     /// 用户备注信息
     pub note: Option<String>,

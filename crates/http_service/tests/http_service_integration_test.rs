@@ -170,7 +170,6 @@ async fn http_service_user_api_integration() -> Result<()> {
             &UserInfo {
                 uuid: Some(seed_uuid_rbdc.clone()),
                 gender: Some(0),
-                age: Some(0),
                 birthday: Some(0),
                 note: Some("集成测试种子用户".to_string()),
                 created_at: Some(now),

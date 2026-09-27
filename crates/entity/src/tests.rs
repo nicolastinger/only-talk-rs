@@ -162,7 +162,6 @@ mod user_entity {
         let info = UserInfo {
             uuid: Some(uuid("00000000-0000-0000-0000-000000000002")),
             gender: Some(1),
-            age: Some(28),
             birthday: Some(946684800),
             note: Some("note".to_string()),
             created_at: Some(1_700_000_000),
