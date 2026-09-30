@@ -71,6 +71,9 @@ pub struct SyncMessageVO {
 pub struct SyncSessionVO {
     pub session_uuid: String,
     pub session_type: i16,
+    /// 服务端已读游标(user_session.last_read_id): 跨端同步时客户端据此不把
+    /// 其他端已读的消息计入未读(角标口径, id <= last_read_id 视为已读)
+    pub last_read_id: i64,
     /// 会话内按 id 升序
     pub messages: Vec<SyncMessageVO>,
     /// 本批最大消息 id(= 末条 id; 空批 = 请求的 after_id); 客户端以此续拉并回报 /session/synced

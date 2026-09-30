@@ -187,6 +187,8 @@ pub async fn sync_sessions(
         sessions_out.push(SyncSessionVO {
             session_uuid: session_uuid.to_string(),
             session_type,
+            // 服务端已读游标: 客户端据此按 id <= last_read_id 视为已读, 跨端不误计未读
+            last_read_id: row.last_read_id.unwrap_or(0),
             messages,
             next_cursor,
             has_more,

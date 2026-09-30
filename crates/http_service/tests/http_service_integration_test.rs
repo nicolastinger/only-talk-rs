@@ -1059,12 +1059,16 @@ async fn http_service_user_api_integration() -> Result<()> {
                 .await?,
             );
         }
-        upsert_user_session(
+        // 跨端场景: 另一台设备已读到 ids_a[4](共 25 条) → 服务端游标应随同步响应返回
+        upsert_user_session_ex(
             &test_rb,
             &sync_user_rbdc,
             &session_a,
             SESSION_TYPE_SINGLE,
             Some(&peer_a_rbdc),
+            ids_a[4],
+            ids_a[4],
+            0,
             0,
         )
         .await?;
@@ -1079,6 +1083,7 @@ async fn http_service_user_api_integration() -> Result<()> {
         assert_eq!(resp.sessions[0].messages.len(), 10);
         assert!(resp.sessions[0].has_more, "还有 15 条 → has_more=true");
         assert_eq!(resp.sessions[0].next_cursor, ids_a[9], "next_cursor=本批最大 id(末条)");
+        assert_eq!(resp.sessions[0].last_read_id, ids_a[4], "跨端已读游标应随响应返回");
         assert_eq!(resp.sessions[0].messages[0].nano_id, "sync-a-00", "窗口内最早");
         assert_eq!(resp.sessions[0].messages[9].nano_id, "sync-a-09", "本批最新");
         let batch_ids: Vec<i64> = resp.sessions[0].messages.iter().map(|m| m.id).collect();
