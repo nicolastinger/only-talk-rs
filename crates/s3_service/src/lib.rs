@@ -37,6 +37,8 @@
 //! }
 //! ```
 
+#![allow(clippy::double_must_use)]
+
 /// S3 客户端模块
 pub mod client;
 

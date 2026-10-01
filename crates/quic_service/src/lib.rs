@@ -1,3 +1,5 @@
+#![allow(clippy::double_must_use)]
+
 use std::sync::Arc;
 
 use dashmap::DashMap;

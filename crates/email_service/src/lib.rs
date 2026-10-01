@@ -81,6 +81,8 @@
 //! - [`providers`][]: 邮件服务商实现
 //! - [`manager`][]: 邮件管理器和连接池
 
+#![allow(clippy::double_must_use)]
+
 pub mod config;
 pub mod error;
 pub mod manager;
