@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use actix_web::middleware::from_fn;
 use actix_web::{App, HttpServer, middleware, web};
+use common::config_str::DEFAULT_MAX_FILE_SIZE;
 use common::{init_app_config, init_redis, init_sql_pool, read_global_config, verify_redis};
 use email_service::config::{AliyunConfig, EmailServiceConfig, ProviderConfig};
 use http_service;
@@ -140,6 +141,8 @@ pub async fn start_server() -> anyhow::Result<()> {
             .wrap(TraceIdMiddleware)
             .wrap(from_fn(auth_middleware))
             .app_data(web::Data::new(state.clone()))
+            // 放开请求体大小限制: 单文件上限 DEFAULT_MAX_FILE_SIZE(100MB), 再留 multipart 边界/字段头开销余量
+            .app_data(web::PayloadConfig::new(DEFAULT_MAX_FILE_SIZE as usize + 20 * 1024 * 1024))
             .wrap(middleware::Logger::default())
             .configure(http_service::http_service::configure_routes)
             .configure(configure_api_routes)

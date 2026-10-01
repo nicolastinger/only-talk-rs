@@ -15,6 +15,8 @@ pub struct FileTypeConfig {
     pub audio: FileTypeGroup,
     /// 视频类型
     pub video: FileTypeGroup,
+    /// 应用程序/安装包类型(如 exe/msi/apk 等)
+    pub application: FileTypeGroup,
 }
 
 /// 文件类型分组
@@ -49,6 +51,10 @@ pub fn get_file_type_config() -> Result<FileTypeConfig> {
             extensions: read_global_array_config!("file_types", "video", "extensions"),
             mime_types: read_global_array_config!("file_types", "video", "mime_types"),
         },
+        application: FileTypeGroup {
+            extensions: read_global_array_config!("file_types", "application", "extensions"),
+            mime_types: read_global_array_config!("file_types", "application", "mime_types"),
+        },
     })
 }
 
@@ -70,6 +76,7 @@ mod tests {
             ("archive", vec!["zip", "rar"], vec!["application/zip"]),
             ("audio", vec!["mp3"], vec!["audio/mpeg"]),
             ("video", vec!["mp4"], vec!["video/mp4"]),
+            ("application", vec!["exe", "apk"], vec!["application/octet-stream"]),
         ];
         for (group, extensions, mime_types) in groups {
             set_array_config(
@@ -84,7 +91,7 @@ mod tests {
     }
 
     fn remove_file_types_config() {
-        for group in ["image", "document", "archive", "audio", "video"] {
+        for group in ["image", "document", "archive", "audio", "video", "application"] {
             remove_config(&format!("file_types.{}.extensions", group));
             remove_config(&format!("file_types.{}.mime_types", group));
         }
@@ -104,6 +111,8 @@ mod tests {
         assert_eq!(config.audio.extensions, vec!["mp3"]);
         assert_eq!(config.video.extensions, vec!["mp4"]);
         assert_eq!(config.video.mime_types, vec!["video/mp4"]);
+        assert_eq!(config.application.extensions, vec!["exe", "apk"]);
+        assert_eq!(config.application.mime_types, vec!["application/octet-stream"]);
 
         remove_file_types_config();
     }

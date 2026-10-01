@@ -267,7 +267,7 @@ server_name = "INTERNAL_SERVER_1"
 node_address = "127.0.0.1:4434"
 
 [file_upload]
-max_file_size = 20485760        # Maximum file upload size (~20MB)
+max_file_size = 104857600       # Maximum file upload size (~100MB)
 
 [s3]
 enabled = true                  # S3 is required; server refuses to start when false

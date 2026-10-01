@@ -76,6 +76,18 @@ fn infer_mime_from_extension(filename: &str) -> Option<String> {
         "wmv" => Some("video/x-ms-wmv".to_string()),
         "webm" => Some("video/webm".to_string()),
 
+        // 应用程序/安装包
+        "exe" | "msi" | "msix" | "appx" => Some("application/octet-stream".to_string()),
+        "apk" | "xapk" => Some("application/vnd.android.package-archive".to_string()),
+        "dmg" => Some("application/x-apple-diskimage".to_string()),
+        "pkg" => Some("application/x-apple-installer".to_string()),
+        "deb" => Some("application/x-debian-package".to_string()),
+        "rpm" => Some("application/x-redhat-package-manager".to_string()),
+        "jar" => Some("application/java-archive".to_string()),
+        "bat" | "cmd" => Some("application/x-msdos-program".to_string()),
+        "sh" => Some("application/x-sh".to_string()),
+        "ps1" => Some("text/x-powershell".to_string()),
+
         _ => None,
     }
 }

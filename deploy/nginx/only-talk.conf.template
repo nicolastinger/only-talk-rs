@@ -21,8 +21,8 @@ server {
     ssl_protocols TLSv1.2 TLSv1.3;
     server_tokens off;
 
-    # 请求体积: file_upload 上限 20MB + multipart 开销余量
-    client_max_body_size 25m;
+    # 请求体积: file_upload 上限 100MB + multipart 开销余量(与 app PayloadConfig 120MB 对齐)
+    client_max_body_size 120m;
 
     # XFF 覆写(非追加): 客户端伪造的 XFF 不透传, 应用侧据此取真实 IP
     proxy_set_header Host              $host;

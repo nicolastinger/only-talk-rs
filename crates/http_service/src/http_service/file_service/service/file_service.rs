@@ -33,6 +33,7 @@ pub fn validate_file_type(file_name: &str, mime_type: Option<&str>) -> Result<()
         config.archive.extensions.iter(),
         config.audio.extensions.iter(),
         config.video.extensions.iter(),
+        config.application.extensions.iter(),
     ]
     .into_iter()
     .flatten()
@@ -51,19 +52,27 @@ pub fn validate_file_type(file_name: &str, mime_type: Option<&str>) -> Result<()
 
     // 检查MIME类型
     if let Some(mime) = mime_type {
-        let all_mime_types: Vec<&String> = vec![
-            config.image.mime_types.iter(),
-            config.document.mime_types.iter(),
-            config.archive.mime_types.iter(),
-            config.audio.mime_types.iter(),
-            config.video.mime_types.iter(),
-        ]
-        .into_iter()
-        .flatten()
-        .collect();
+        // 通用二进制流(application/octet-stream): 客户端对未知/可执行扩展统一上报此 MIME,
+        // 扩展名已过白名单则放行(如 exe/msi/apk 等)
+        if mime != "application/octet-stream" {
+            let all_mime_types: Vec<&String> = vec![
+                config.image.mime_types.iter(),
+                config.document.mime_types.iter(),
+                config.archive.mime_types.iter(),
+                config.audio.mime_types.iter(),
+                config.video.mime_types.iter(),
+                config.application.mime_types.iter(),
+            ]
+            .into_iter()
+            .flatten()
+            .collect();
 
-        if !all_mime_types.iter().any(|mt| mt.as_str() == mime) {
-            return Err(format!("不支持的MIME类型: {}. 支持的类型: {:?}", mime, all_mime_types));
+            if !all_mime_types.iter().any(|mt| mt.as_str() == mime) {
+                return Err(format!(
+                    "不支持的MIME类型: {}. 支持的类型: {:?}",
+                    mime, all_mime_types
+                ));
+            }
         }
     }
 

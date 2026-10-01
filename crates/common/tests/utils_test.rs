@@ -162,7 +162,7 @@ mod config_str {
     #[test]
     fn limits_and_s3_constants() {
         assert_eq!(MAX_QUIC_BUFFER_LEN, 1024 * 1024 * 10);
-        assert_eq!(DEFAULT_MAX_FILE_SIZE, 20 * 1024 * 1024);
+        assert_eq!(DEFAULT_MAX_FILE_SIZE, 100 * 1024 * 1024);
         assert_eq!(OSS_TYPE_MINIO, 0);
         assert_eq!(OSS_TYPE_ALIYUN, 1);
         assert_eq!(OSS_TYPE_AWS, 2);

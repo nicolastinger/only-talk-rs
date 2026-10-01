@@ -37,19 +37,23 @@ server_name="${INTERNAL_QUIC_SERVER_NAME}"
 node_address="${INTERNAL_QUIC_NODE_ADDRESS}"
 
 [file_upload]
-max_file_size = 20485760  # 20MB in bytes
+max_file_size = 104857600  # 100MB in bytes
 
 [file_types.image]
 extensions = ["jpg", "jpeg", "png", "gif", "webp", "bmp"]
 mime_types = ["image/jpeg", "image/jpg", "image/png", "image/gif", "image/webp"]
 
 [file_types.document]
-extensions = ["txt", "pdf", "doc", "docx", "xls", "xlsx", "json", "xml", "md"]
-mime_types = ["application/json", "application/xml", "text/markdown"]
+extensions = ["txt", "pdf", "doc", "docx", "xls", "xlsx", "json", "xml", "md", "csv", "rtf", "epub", "log", "js", "jsx", "py", "java", "c", "h", "cpp", "hpp", "go", "rs", "css", "scss", "less", "yml", "yaml", "toml", "ini", "cfg", "sql"]
+mime_types = ["application/json", "application/xml", "text/markdown", "text/plain", "text/csv", "application/rtf", "application/epub+zip", "application/javascript", "text/javascript", "text/x-python", "text/x-java-source", "text/x-c", "text/x-c++", "text/x-go", "text/x-rust", "text/css", "text/x-scss", "text/x-less", "application/x-yaml", "text/yaml", "application/toml", "text/x-ini", "text/x-sql", "application/sql", "text/x-log"]
 
 [file_types.archive]
-extensions = ["zip", "rar", "7z"]
-mime_types = ["application/zip"]
+extensions = ["zip", "rar", "7z", "tar", "gz", "bz2", "xz", "iso", "cab"]
+mime_types = ["application/zip", "application/x-rar-compressed", "application/x-7z-compressed", "application/x-tar", "application/gzip", "application/x-bzip2", "application/x-xz", "application/x-iso9660-image", "application/vnd.ms-cab-compressed"]
+
+[file_types.application]
+extensions = ["exe", "msi", "msix", "appx", "apk", "xapk", "dmg", "pkg", "deb", "rpm", "ipa", "appimage", "jar", "bat", "cmd", "sh", "ps1", "bin"]
+mime_types = ["application/octet-stream", "application/x-msdownload", "application/vnd.android.package-archive", "application/x-apple-diskimage", "application/x-debian-package", "application/x-redhat-package-manager", "application/x-executable", "application/x-sh", "text/x-sh", "application/java-archive", "application/x-msdos-program", "application/x-apple-installer"]
 
 [file_types.audio]
 extensions = ["mp3", "wav", "flac", "aac", "ogg", "m4a"]
