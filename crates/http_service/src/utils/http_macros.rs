@@ -1,31 +1,47 @@
 // HTTP 入参实体校验
+// 校验失败统一返回本工程特定的 HTTP 604 状态码(业务码同为 604), 供前端区分 DTO 字段规则错误。
 #[macro_export]
 macro_rules! validate_and_respond {
     ($model:expr) => {{
+        use actix_web::http::StatusCode;
         use actix_web::HttpResponse;
         use validator::Validate;
         let value = $model.into_inner();
         if let Err(errors) = value.validate() {
-            return HttpResponse::BadRequest().body(
-                serde_json::to_string(&CommonResponse::error(errors, "errorValidate".to_string()))
-                    .unwrap_or_else(|e| format!("{{\"error\":\"JSON序列化失败: {}\"}}", e)),
+            return HttpResponse::build(
+                StatusCode::from_u16(604).expect("604 是本工程 DTO 校验专用状态码"),
+            )
+            .body(
+                serde_json::to_string(&CommonResponse::new(
+                    604,
+                    errors,
+                    "errorValidate".to_string(),
+                ))
+                .unwrap_or_else(|e| format!("{{\"error\":\"JSON序列化失败: {}\"}}", e)),
             );
         }
         value
     }};
     ($model:expr, $model_type:expr) => {{
+        use actix_web::http::StatusCode;
         use validator::Validate;
         let value = $model.into_inner();
 
         match &value.data {
             Some(data) => {
                 if let Err(errors) = data.validate() {
-                    return actix_web::HttpResponse::BadRequest().json(errors);
+                    return actix_web::HttpResponse::build(
+                        StatusCode::from_u16(604).expect("604 是本工程 DTO 校验专用状态码"),
+                    )
+                    .json(errors);
                 }
                 value
             }
             None => {
-                return actix_web::HttpResponse::BadRequest().finish();
+                return actix_web::HttpResponse::build(
+                    StatusCode::from_u16(604).expect("604 是本工程 DTO 校验专用状态码"),
+                )
+                .finish();
             }
         }
     }};

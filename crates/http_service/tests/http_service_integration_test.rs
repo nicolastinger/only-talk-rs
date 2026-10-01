@@ -260,7 +260,11 @@ async fn http_service_user_api_integration() -> Result<()> {
         let no_device_body =
             json_obj(&[("account", SEED_ACCOUNT), ("password", SEED_PASSWORD), ("platform", "PC")]);
         let (status, json) = post_json(&app, "/user/sign_in", Some(&no_device_body), None).await;
-        assert_eq!(status, StatusCode::BAD_REQUEST, "缺少设备指纹登录应被拒绝: {json}");
+        assert_eq!(
+            status,
+            StatusCode::from_u16(604).expect("604 是本工程 DTO 校验专用状态码"),
+            "缺少设备指纹登录应被拒绝(604 校验错误): {json}"
+        );
 
         // ===== 3. 鉴权后的用户信息查询 =====
         let (status, json) = post_json(&app, "/user/me", None, Some(&access_token)).await;
