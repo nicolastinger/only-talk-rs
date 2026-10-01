@@ -7,7 +7,7 @@ use common::models::session_entity::user_session::UserSession;
 use common::utils::time::get_now_time_stamp_as_millis;
 use rbatis::RBatis;
 use rbatis::rbdc::Uuid;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use crate::http_service::session_service::dto::{
     SessionControlDTO, SessionListCursor, SessionListDTO, SessionListResponseVO, SessionReadDTO,
@@ -81,11 +81,18 @@ pub async fn report_session_read(
         let affected =
             UserSession::update_last_read_id(rb, &me, &session_uuid, item.last_read_id).await?;
         if affected == 0 {
-            // 行不存在(未聚合)或无需推进 —— 前者记日志便于排查
-            warn!(
-                "[session/read] 无效上报(行不存在或未推进): user={}, session={}",
-                me, session_uuid
-            );
+            // 区分"行不存在"与"未推进": 前者是聚合缺口(记日志便于排查), 后者是重复上报(静默, 客户
+            // 端已按 reported_server_id 只上报推进值, 残留的重复同值属良性幂等)。
+            match UserSession::select_by_user_and_session(rb, &me, &session_uuid).await? {
+                None => warn!(
+                    "[session/read] 无效上报(行不存在): user={}, session={}",
+                    me, session_uuid
+                ),
+                Some(_) => debug!(
+                    "[session/read] 未推进(重复上报同值): user={}, session={}, last_read_id={}",
+                    me, session_uuid, item.last_read_id
+                ),
+            }
         }
     }
     info!("[session/read] 上报完成: user={}, {} 条", me, total);
