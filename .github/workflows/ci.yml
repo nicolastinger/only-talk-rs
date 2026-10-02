@@ -18,7 +18,7 @@ jobs:
           - name: clippy
             toolchain: 1.99.0
             components: clippy
-            command: cargo clippy --workspace --all-targets -- -D warnings
+            command: cargo +1.99.0 clippy --workspace --all-targets -- -D warnings
           - name: fmt
             toolchain: nightly
             components: rustfmt
@@ -26,7 +26,7 @@ jobs:
           - name: test
             toolchain: 1.99.0
             components: ""
-            command: cargo test --workspace --tests
+            command: cargo +1.99.0 test --workspace --tests
     steps:
       - uses: actions/checkout@v4
       - name: Install toolchain
@@ -36,6 +36,8 @@ jobs:
           else
             rustup toolchain install ${{ matrix.toolchain }} --profile minimal
           fi
+          # install 只安装不切换默认工具链; 显式 default 确保裸 cargo/rust-cache 也命中目标版本
+          rustup default ${{ matrix.toolchain }}
       - uses: Swatinem/rust-cache@v2
         with:
           toolchain: ${{ matrix.toolchain }}
