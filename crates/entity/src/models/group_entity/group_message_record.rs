@@ -43,6 +43,21 @@ impl GroupMessageRecord {
         Ok(Self::select_by_nano_id_inner(rb, nano_id).await?.into_iter().next())
     }
 
+    /// 群内按 nano_id 反查服务端消息 id(已读上报 nano_id → id; 无则 None)。
+    ///
+    /// 客户端本地 `server_id` 靠同步回填、在线消息为 NULL, 数值游标不可靠;
+    /// 上报只带 nano_id, 由服务端经 `nano_id` 唯一约束反查自己的 id。
+    pub async fn select_id_by_group_and_nano(
+        rb: &dyn Executor,
+        group_uuid: &Uuid,
+        nano_id: &str,
+    ) -> rbatis::Result<Option<i64>> {
+        let sql = "select id AS v from group_message_record where group_uuid = $1 and nano_id = $2 limit 1";
+        let result = rb.query(sql, vec![value!(group_uuid), value!(nano_id)]).await?;
+        let v = crate::models::scalar_i64(&result);
+        Ok((v > 0).then_some(v))
+    }
+
     /// 群聊翻历史(任务11: 排序统一到 `id`, 与同步/未读一致, 由 PK 支持, 不再依赖 timestamp 索引)。
     #[rbatis::py_sql(
         "select * from group_message_record where group_uuid = #{group_uuid} order by id desc limit #{size} offset #{start}"

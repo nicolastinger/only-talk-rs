@@ -63,9 +63,10 @@ fn group_msg_to_vo(m: GroupMessageRecord, session_uuid: &Uuid) -> SyncMessageVO 
     }
 }
 
-/// 已读上报(§7.1): 逐条推进, 钳制与只前进在数据层保证(任务03)。
+/// 已读上报(§7.1): 客户端只上报已读水位的 nano_id, 服务端反查自己的消息 id 再推进。
 ///
-/// 非法 `session_uuid` 记 warn 跳过, 不整体失败(部分成功优于全部拒绝)。
+/// 反查失败(nano_id 未入库, 如消息超窗/服务端未知)记 debug 跳过 —— 客户端下轮重报,
+/// 或该消息已被清理无需推进。钳制与只前进在数据层保证(任务03)。
 pub async fn report_session_read(
     rb: &RBatis,
     me: Option<String>,
@@ -78,19 +79,43 @@ pub async fn report_session_read(
             warn!("[session/read] 非法 session_uuid: {}", item.session_uuid);
             continue;
         };
-        let affected =
-            UserSession::update_last_read_id(rb, &me, &session_uuid, item.last_read_id).await?;
+        // nano_id → 服务端消息 id(按会话类型分流反查)
+        let msg_id = match item.session_type {
+            SESSION_TYPE_GROUP => {
+                GroupMessageRecord::select_id_by_group_and_nano(
+                    rb,
+                    &session_uuid,
+                    &item.last_read_nano_id,
+                )
+                .await?
+            }
+            _ => {
+                ChatMessageRecord::select_id_by_session_and_nano(
+                    rb,
+                    &session_uuid,
+                    &item.last_read_nano_id,
+                )
+                .await?
+            }
+        };
+        let Some(msg_id) = msg_id else {
+            debug!(
+                "[session/read] nano_id 未入库(超窗或未知): user={}, session={}, nano_id={}",
+                me, session_uuid, item.last_read_nano_id
+            );
+            continue;
+        };
+        let affected = UserSession::update_last_read_id(rb, &me, &session_uuid, msg_id).await?;
         if affected == 0 {
-            // 区分"行不存在"与"未推进": 前者是聚合缺口(记日志便于排查), 后者是重复上报(静默, 客户
-            // 端已按 reported_server_id 只上报推进值, 残留的重复同值属良性幂等)。
+            // 区分"行不存在"与"未推进": 前者是聚合缺口(记日志便于排查), 后者是重复上报(静默)。
             match UserSession::select_by_user_and_session(rb, &me, &session_uuid).await? {
                 None => warn!(
                     "[session/read] 无效上报(行不存在): user={}, session={}",
                     me, session_uuid
                 ),
                 Some(_) => debug!(
-                    "[session/read] 未推进(重复上报同值): user={}, session={}, last_read_id={}",
-                    me, session_uuid, item.last_read_id
+                    "[session/read] 未推进(游标已在该位或更前): user={}, session={}, msg_id={}",
+                    me, session_uuid, msg_id
                 ),
             }
         }

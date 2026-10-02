@@ -50,6 +50,21 @@ impl ChatMessageRecord {
         Ok(crate::models::scalar_i64(&result))
     }
 
+    /// 会话内按 nano_id 反查服务端消息 id(已读上报 nano_id → id; 无则 None)。
+    ///
+    /// 客户端本地 `server_id` 靠同步回填、在线消息为 NULL, 数值游标不可靠;
+    /// 上报只带 nano_id, 由服务端经 `nano_id` 唯一约束反查自己的 id。
+    pub async fn select_id_by_session_and_nano(
+        rb: &dyn Executor,
+        session_uuid: &Uuid,
+        nano_id: &str,
+    ) -> rbatis::Result<Option<i64>> {
+        let sql = "select id AS v from chat_message_record where session_uuid = $1 and nano_id = $2 limit 1";
+        let result = rb.query(sql, vec![value!(session_uuid), value!(nano_id)]).await?;
+        let v = crate::models::scalar_i64(&result);
+        Ok((v > 0).then_some(v))
+    }
+
     /// 会话最新一条消息(聚合用; 单分区索引反向取首行, 便宜)。
     ///
     /// 取代旧 `latest_per_session_for_user` 的跨 16 分区 `distinct on` 全扫:

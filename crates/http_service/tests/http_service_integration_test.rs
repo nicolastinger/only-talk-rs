@@ -783,8 +783,28 @@ async fn http_service_user_api_integration() -> Result<()> {
             assert_eq!(status, StatusCode::NOT_FOUND, "{uri} 应 404(路由已删)");
         }
         info!("任务08 历史接口 session_uuid 化 / 旧接口 404 通过");
-        // 7.3 /session/read 钳制到 synced_id + /session/synced 推进
+        // 7.3 /session/read 按 nano_id 反查推进 + 钳制到 synced_id + /session/synced 放宽
         let session_d: RbatisUuid = Uuid::new_v4().to_string().parse()?;
+        // 先插两条消息, 用 nano_id 反查真实的服务端 id(数值游标由服务端维护, 客户端只报 nano_id)
+        let max1 = insert_single_msg(
+            &test_rb,
+            &session_d,
+            "read-a",
+            get_now_time_stamp_as_millis()?,
+            &seed_uuid_rbdc,
+            &seed_uuid_rbdc,
+        )
+        .await?;
+        let max2 = insert_single_msg(
+            &test_rb,
+            &session_d,
+            "read-b",
+            get_now_time_stamp_as_millis()?,
+            &seed_uuid_rbdc,
+            &seed_uuid_rbdc,
+        )
+        .await?;
+        assert!(max2 > max1, "第二条消息 id 应更大: {max1} vs {max2}");
         UserSession::upsert(
             &test_rb,
             &UserSession {
@@ -794,7 +814,7 @@ async fn http_service_user_api_integration() -> Result<()> {
                 session_type: Some(SESSION_TYPE_SINGLE),
                 peer_uuid: None,
                 last_read_id: None,
-                synced_id: Some(100),
+                synced_id: Some(max1),
                 pinned: None,
                 muted: None,
                 deleted_at: None,
@@ -804,17 +824,18 @@ async fn http_service_user_api_integration() -> Result<()> {
         )
         .await
         .context("upsert 钳制会话失败")?;
-        let read_req = |id: i64| {
+        let read_req = |nano: &str| {
             let mut m = serde_json::Map::new();
             m.insert("session_uuid".into(), JsonValue::String(session_d.to_string()));
             m.insert("session_type".into(), JsonValue::from(1));
-            m.insert("last_read_id".into(), JsonValue::from(id));
+            m.insert("last_read_nano_id".into(), JsonValue::String(nano.to_string()));
             let mut outer = serde_json::Map::new();
             outer.insert("reads".into(), JsonValue::Array(vec![JsonValue::Object(m)]));
             JsonValue::Object(outer)
         };
+        // 报 read-b(nano_id) → 反查 max2 → 被 synced_id=max1 钳制
         let (status, json) =
-            post_json(&app, "/session/read", Some(&read_req(150)), Some(&access_token)).await;
+            post_json(&app, "/session/read", Some(&read_req("read-b")), Some(&access_token)).await;
         assert_eq!(status, StatusCode::OK, "/session/read 应成功: {json}");
         let us_d = UserSession::select_by_map(
             &test_rb,
@@ -822,13 +843,17 @@ async fn http_service_user_api_integration() -> Result<()> {
         )
         .await
         .context("查询钳制 user_session 失败")?;
-        assert_eq!(us_d[0].last_read_id, Some(100), "上报 150 应被钳制到 synced_id=100");
+        assert_eq!(
+            us_d[0].last_read_id,
+            Some(max1),
+            "上报 read-b(反查 max2) 应被钳制到 synced_id={max1}"
+        );
 
-        // 推进 synced 到 200 后再报 150 → 前进到 150
+        // 推进 synced 到 max2 后再报 read-b → 反查 max2 → 前进到 max2
         let synced_req = {
             let mut m = serde_json::Map::new();
             m.insert("session_uuid".into(), JsonValue::String(session_d.to_string()));
-            m.insert("synced_id".into(), JsonValue::from(200i64));
+            m.insert("synced_id".into(), JsonValue::from(max2));
             let mut outer = serde_json::Map::new();
             outer.insert("sessions".into(), JsonValue::Array(vec![JsonValue::Object(m)]));
             JsonValue::Object(outer)
@@ -837,7 +862,7 @@ async fn http_service_user_api_integration() -> Result<()> {
             post_json(&app, "/session/synced", Some(&synced_req), Some(&access_token)).await;
         assert_eq!(status, StatusCode::OK, "/session/synced 应成功: {json}");
         let (status, _json) =
-            post_json(&app, "/session/read", Some(&read_req(150)), Some(&access_token)).await;
+            post_json(&app, "/session/read", Some(&read_req("read-b")), Some(&access_token)).await;
         assert_eq!(status, StatusCode::OK, "二次 /session/read 应成功");
         let us_d2 = UserSession::select_by_map(
             &test_rb,
@@ -845,8 +870,8 @@ async fn http_service_user_api_integration() -> Result<()> {
         )
         .await
         .context("二次查询钳制 user_session 失败")?;
-        assert_eq!(us_d2[0].synced_id, Some(200), "synced 应推进到 200");
-        assert_eq!(us_d2[0].last_read_id, Some(150), "synced 放宽后已读应前进到 150");
+        assert_eq!(us_d2[0].synced_id, Some(max2), "synced 应推进到 {max2}");
+        assert_eq!(us_d2[0].last_read_id, Some(max2), "synced 放宽后已读应反查推进到 {max2}");
         info!("任务04 已读桥接 / 缺陷A / session 接口全部通过");
 
         // ===== 8. 任务04b: 好友通过即建会话 =====

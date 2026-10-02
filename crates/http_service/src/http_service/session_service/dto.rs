@@ -1,12 +1,16 @@
 use serde::{Deserialize, Serialize};
 
-/// 已读上报(新契约): 客户端直接报会话游标
+/// 已读上报(新契约): 客户端只上报已读水位的 nano_id, 服务端反查自己的消息 id 推进游标。
+///
+/// 客户端本地 `server_id` 靠同步回填、在线消息为 NULL, 数值游标不可靠;
+/// 上报值统一为 nano_id(消息唯一标识), 由服务端经 `nano_id` 反查推进。
 #[derive(Debug, Deserialize, Serialize)]
 pub struct SessionReadItem {
     pub session_uuid: String,
-    /// 1-单聊 2-群聊(决定游标值域, 见主方案 §4.4)
+    /// 1-单聊 2-群聊(决定反查表)
     pub session_type: i16,
-    pub last_read_id: i64,
+    /// 已读水位对应消息的 nano_id(客户端直接上报, 不做本地数值换算)
+    pub last_read_nano_id: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
