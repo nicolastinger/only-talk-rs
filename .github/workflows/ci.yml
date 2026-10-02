@@ -16,7 +16,7 @@ jobs:
       matrix:
         include:
           - name: clippy
-            toolchain: stable
+            toolchain: 1.99.0
             components: clippy
             command: cargo clippy --workspace --all-targets -- -D warnings
           - name: fmt
@@ -24,7 +24,7 @@ jobs:
             components: rustfmt
             command: cargo +nightly fmt --all --check
           - name: test
-            toolchain: stable
+            toolchain: 1.99.0
             components: ""
             command: cargo test --workspace --tests
     steps:
