@@ -87,7 +87,7 @@ endpoint.connect(server_addr, "onlytalk.cn")   ← SNI 必须是证书域名
 
 > ⚠️ **SNI 校验**：`configure_client()` 使用 `webpki_roots`（系统根证书）校验服务器证书，`connect()` 的第二参数是 SNI 域名，必须与服务器证书 CN/SAN 匹配，否则 TLS 握手失败。
 
-### 2.3 服务器握手流程（`handle_conn`，`quic_server.rs:237`）
+### 2.3 服务器握手流程（`handle_conn`，`quic_server.rs:306`）
 
 ```
 handle_conn(send_stream, recv_stream, conn, address, ...)
@@ -102,20 +102,20 @@ handle_conn(send_stream, recv_stream, conn, address, ...)
   ├─ 3. 提取 platform = claims.sub（"PC" / "MOBILE"）
   │     提取 uuid    = claims.uuid
   │
-  ├─ 4. verify_max_client()            当前 DashMap 连接数 > max_connections 则拒绝
+  ├─ 4. user_online()                  并发锁 + 登录接管三态判定（见 §2.6）
   │
-  ├─ 5. user_online(uuid, platform)    TODO 占位（暂只打日志）
+  ├─ 5. 构造连接 key 并 set_conn_info()（见 §2.5）＋ release_online_lock()
   │
-  ├─ 6. 构造连接 key 并 set_conn_info()（见 §2.5）
+  ├─ 6. start_uni_receiver()           spawn 单向流接收循环（处理 open_uni 消息）
+  │      （每连接一个 buffer_msg 残包缓冲；退出受 uni_shutdown 标志控制）
   │
-  ├─ 7. spawn 单向流接收循环           处理客户端 open_uni 发来的消息
-  │      （每连接一个 buffer_msg 残包缓冲）
+  ├─ 7. start_ttl_refresh()            spawn 路由 key TTL 续期任务（每 60s，key=7200s）
   │
-  ├─ 8. 双向流接收循环                 处理该流上收到的消息（process_rec_msg）
+  ├─ 8. run_bidi_receive_loop()        双向流接收循环（处理该流上消息 process_rec_msg）
   │      （半包残包同样缓冲，跨 read 拼接）
   │      · 流关闭（Ok(None) / 读错误 / 缓冲超限）──► 退出循环
   │
-  └─ 9. uni_shutdown.store(true)       通知单向流循环退出
+  └─ 9. uni_shutdown.store(true)       通知单向流循环与 TTL 续期任务退出
         end_server()                   下线清理（见 §2.6）
 ```
 

@@ -355,118 +355,179 @@ async fn handle_conn(
     .await?;
     release_online_lock(&core, &platform, &current_uuid, &online_lock_token).await?;
 
-    // 启动 uni stream 接收循环（客户端通过 open_uni 发送消息）
+    // uni_shutdown 由主循环持有，负责协调后台 uni 接收循环与 TTL 续期任务的退出
     let uni_shutdown = Arc::new(AtomicBool::new(false));
-    let uni_shutdown_clone = uni_shutdown.clone();
-    {
-        let conn_for_uni = conn.clone();
-        let conn_key = connection_key.clone();
-        let platform_clone = platform.clone();
-        let conns = connections.clone();
-        let current_uid = current_uuid.clone();
-        let core_clone = core.clone();
-        tokio::spawn(async move {
-            let uni_buffer_msg: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
-            loop {
-                if uni_shutdown_clone.load(Ordering::Relaxed) {
-                    info!("[server] uni 流收到关闭信号，退出循环");
-                    break;
-                }
-                match conn_for_uni.accept_uni().await {
-                    Ok(mut recv) => {
-                        // 大消息会跨多个QUIC包到达，必须读取完整流后统一处理，
-                        // 否则未读余量会触发对端 STOP_SENDING，导致"发送被对端终止"
-                        let mut msg_data: Vec<u8> = Vec::new();
-                        let mut chunk = vec![0u8; 1024 * 10];
-                        loop {
-                            match recv.read(&mut chunk).await {
-                                Ok(Some(n)) => {
-                                    msg_data.extend_from_slice(&chunk[..n]);
-                                }
-                                Ok(None) => break,
-                                Err(e) => {
-                                    warn!("[server] uni 流读取错误: {}", e);
-                                    break;
-                                }
-                            }
-                        }
-                        if !msg_data.is_empty() {
-                            let msg_len = msg_data.len();
-                            let proc_start = Instant::now();
-                            let _ = process_rec_msg(
-                                &core_clone,
-                                &mut msg_data,
-                                current_uid.clone(),
-                                msg_len,
-                                &conn_key,
-                                &platform_clone,
-                                uni_buffer_msg.clone(),
-                                head_length,
-                                conns.clone(),
-                                config.server_index,
-                            )
-                            .await;
-                            let cost = proc_start.elapsed();
-                            if cost > Duration::from_secs(SLOW_MSG_PROCESS_SECS) {
-                                warn!(
-                                    "[server] uni 消息处理过慢: {}ms len={} key={}",
-                                    cost.as_millis(),
-                                    msg_len,
-                                    conn_key
-                                );
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        warn!("[server] uni 流接受错误: {}, 继续等待", e);
-                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                    }
-                }
-            }
-        });
-    }
-
-    // 定期续期用户路由 key 的 TTL,避免长连接存活但 Redis 路由 key(7200s)过期失效
-    {
-        let refresh_core = core.clone();
-        let refresh_key = connection_key.clone();
-        let refresh_index = config.server_index.to_string();
-        let shutdown_flag = uni_shutdown.clone();
-        tokio::spawn(async move {
-            info!("用户路由 key 续期任务已启动: key={} 每 60s 续期", refresh_key);
-            let mut refresh_interval = tokio::time::interval(std::time::Duration::from_secs(60));
-            loop {
-                refresh_interval.tick().await;
-                if shutdown_flag.load(Ordering::Relaxed) {
-                    break;
-                }
-                let mut conn = match refresh_core.redis.get().await {
-                    Ok(conn) => conn,
-                    Err(e) => {
-                        warn!("用户路由 key 续期失败(获取连接): key={} err={}", refresh_key, e);
-                        continue;
-                    }
-                };
-                match conn.set_ex::<&str, &str, ()>(&refresh_key, &refresh_index, 7200).await {
-                    Ok(_) => {
-                        info!("用户路由 key 续期成功: key={} TTL=7200s", refresh_key);
-                    }
-                    Err(e) => {
-                        warn!("用户路由 key 续期失败: key={} err={}", refresh_key, e);
-                    }
-                }
-            }
-        });
-    }
+    start_uni_receiver(
+        conn.clone(),
+        connection_key.clone(),
+        platform.clone(),
+        current_uuid.clone(),
+        connections.clone(),
+        core.clone(),
+        config.server_index,
+        head_length,
+        uni_shutdown.clone(),
+    );
+    start_ttl_refresh(
+        core.clone(),
+        connection_key.clone(),
+        config.server_index,
+        uni_shutdown.clone(),
+    );
 
     // 维持原有 bidi 接收循环（处理初始化 + 保持兼容）
+    run_bidi_receive_loop(
+        &mut recv_stream,
+        &core,
+        &current_uuid,
+        &connection_key,
+        &platform,
+        head_length,
+        connections.clone(),
+        config.server_index,
+        config.max_buffer_length,
+    )
+    .await;
+
+    uni_shutdown.store(true, Ordering::Relaxed);
+
+    end_server(&core, &connection_key, &connection_key, now, conn.stable_id(), &connections)
+        .await?;
+    Ok(())
+}
+
+/// 启动 uni 流接收循环：客户端通过 open_uni 发送的消息在此统一接收、拼包、处理。
+/// 退出时机由调用方通过 `uni_shutdown` 标志控制。
+#[allow(clippy::too_many_arguments)]
+fn start_uni_receiver(
+    conn: Connection,
+    connection_key: String,
+    platform: String,
+    current_uuid: String,
+    connections: Arc<DashMap<String, QuicConnection>>,
+    core: CoreState,
+    server_index: u32,
+    head_length: usize,
+    uni_shutdown: Arc<AtomicBool>,
+) {
+    tokio::spawn(async move {
+        let uni_buffer_msg: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
+        loop {
+            if uni_shutdown.load(Ordering::Relaxed) {
+                info!("[server] uni 流收到关闭信号，退出循环");
+                break;
+            }
+            match conn.accept_uni().await {
+                Ok(mut recv) => {
+                    // 大消息会跨多个QUIC包到达，必须读取完整流后统一处理，
+                    // 否则未读余量会触发对端 STOP_SENDING，导致"发送被对端终止"
+                    let mut msg_data: Vec<u8> = Vec::new();
+                    let mut chunk = vec![0u8; 1024 * 10];
+                    loop {
+                        match recv.read(&mut chunk).await {
+                            Ok(Some(n)) => {
+                                msg_data.extend_from_slice(&chunk[..n]);
+                            }
+                            Ok(None) => break,
+                            Err(e) => {
+                                warn!("[server] uni 流读取错误: {}", e);
+                                break;
+                            }
+                        }
+                    }
+                    if !msg_data.is_empty() {
+                        let msg_len = msg_data.len();
+                        let proc_start = Instant::now();
+                        let _ = process_rec_msg(
+                            &core,
+                            &mut msg_data,
+                            current_uuid.clone(),
+                            msg_len,
+                            &connection_key,
+                            &platform,
+                            uni_buffer_msg.clone(),
+                            head_length,
+                            connections.clone(),
+                            server_index,
+                        )
+                        .await;
+                        let cost = proc_start.elapsed();
+                        if cost > Duration::from_secs(SLOW_MSG_PROCESS_SECS) {
+                            warn!(
+                                "[server] uni 消息处理过慢: {}ms len={} key={}",
+                                cost.as_millis(),
+                                msg_len,
+                                connection_key
+                            );
+                        }
+                    }
+                }
+                Err(e) => {
+                    warn!("[server] uni 流接受错误: {}, 继续等待", e);
+                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                }
+            }
+        }
+    });
+}
+
+/// 定期续期用户路由 key 的 TTL,避免长连接存活但 Redis 路由 key(7200s)过期失效。
+/// 退出时机由调用方通过 `uni_shutdown` 标志控制。
+fn start_ttl_refresh(
+    core: CoreState,
+    connection_key: String,
+    server_index: u32,
+    uni_shutdown: Arc<AtomicBool>,
+) {
+    let refresh_index = server_index.to_string();
+    tokio::spawn(async move {
+        info!("用户路由 key 续期任务已启动: key={} 每 60s 续期", connection_key);
+        let mut refresh_interval = tokio::time::interval(std::time::Duration::from_secs(60));
+        loop {
+            refresh_interval.tick().await;
+            if uni_shutdown.load(Ordering::Relaxed) {
+                break;
+            }
+            let mut conn = match core.redis.get().await {
+                Ok(conn) => conn,
+                Err(e) => {
+                    warn!("用户路由 key 续期失败(获取连接): key={} err={}", connection_key, e);
+                    continue;
+                }
+            };
+            match conn.set_ex::<&str, &str, ()>(&connection_key, &refresh_index, 7200).await {
+                Ok(_) => {
+                    info!("用户路由 key 续期成功: key={} TTL=7200s", connection_key);
+                }
+                Err(e) => {
+                    warn!("用户路由 key 续期失败: key={} err={}", connection_key, e);
+                }
+            }
+        }
+    });
+}
+
+/// 维持原有 bidi 接收循环（处理初始化 + 保持兼容）：
+/// 流关闭（Ok(None)）/读错误/缓冲超限时退出，由调用方负责收尾。
+#[allow(clippy::too_many_arguments)]
+async fn run_bidi_receive_loop(
+    recv_stream: &mut RecvStream,
+    core: &CoreState,
+    current_uuid: &str,
+    connection_key: &str,
+    platform: &str,
+    head_length: usize,
+    connections: Arc<DashMap<String, QuicConnection>>,
+    server_index: u32,
+    max_buffer_length: usize,
+) {
     let buffer_msg: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
 
     loop {
         // 循环处理流中的数据
         let mut buffer = vec![0u8; 1024 * 10]; // 将缓冲区设置为 10KB
         let buffer_len = buffer_msg.lock().await.len();
-        if buffer_len > config.max_buffer_length {
+        if buffer_len > max_buffer_length {
             error!("分包长度超过限制: {}", buffer.len());
             // TODO: 发送限速消息给客户端进行纠正
             break;
@@ -476,16 +537,16 @@ async fn handle_conn(
             Ok(Some(length)) => {
                 let proc_start = Instant::now();
                 match process_rec_msg(
-                    &core,
+                    core,
                     change_buffer,
-                    current_uuid.clone(),
+                    current_uuid.to_string(),
                     length,
-                    &connection_key,
-                    &platform,
+                    connection_key,
+                    platform,
                     buffer_msg.clone(),
                     head_length,
                     connections.clone(),
-                    config.server_index,
+                    server_index,
                 )
                 .await
                 {
@@ -516,12 +577,6 @@ async fn handle_conn(
             }
         }
     }
-
-    uni_shutdown.store(true, Ordering::Relaxed);
-
-    end_server(&core, &connection_key, &connection_key, now, conn.stable_id(), &connections)
-        .await?;
-    Ok(())
 }
 
 /// 用户离线
