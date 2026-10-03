@@ -198,6 +198,7 @@ async fn send_msg_to_user(
 ) -> anyhow::Result<()> {
     let recv_user = text_msg.recv_user.clone();
     let send_user = text_msg.send_user.clone();
+    let text_type = text_msg.text_type;
 
     let res = generate_text_msg_with_time(
         text_msg.nano_id,
@@ -221,6 +222,20 @@ async fn send_msg_to_user(
             preferred_index,
         )
         .await?;
+    }
+
+    // 瞬态信令(12-15 通话控制 / 100 WebRTC 信令)不回推给自己另一台设备：
+    // 跨端同步的只是聊天历史文本记录(type=1)，信令是每次会话的实时信号，回推会
+    // 导致发送端收到自己发起的邀请/offer/answer，形成本端自连回环。
+    if matches!(
+        text_type,
+        message_types::MSG_TYPE_WEBRTC_SIGNAL
+            | message_types::MSG_TYPE_P2P_VIDEO_CALL_INVITE
+            | message_types::MSG_TYPE_P2P_VIDEO_CALL_ACCEPT
+            | message_types::MSG_TYPE_P2P_VIDEO_CALL_REJECT
+            | message_types::MSG_TYPE_P2P_VIDEO_CALL_END
+    ) {
+        return Ok(());
     }
 
     // 同步到自己的另一个设备
