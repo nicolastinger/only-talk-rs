@@ -23,6 +23,7 @@ pub enum MessageType {
     P2pUserServer = 203, // 通知作为 P2P 服务端(NAT 发现后由服务端下发)
     P2pUserClient = 204, // 通知作为 P2P 客户端(NAT 发现后由服务端下发)
     System = 10001,      // 系统通知
+    TtlRenew = 10003,    // 客户端 TTL 续期需求
 }
 
 // 头部消息

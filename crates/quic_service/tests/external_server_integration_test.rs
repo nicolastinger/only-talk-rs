@@ -25,8 +25,8 @@ use common::config_str::{PC_PLATFORM, PONG, SYSTEM};
 use common::models::chat_entity::chat_message_record::ChatMessageRecord;
 use common::state::CoreState;
 use common::utils::internal_quic_client::make_internal_client_config;
-use common::utils::jwt_util::{generate_access_token, verify_token};
-use common::utils::message_types::{MSG_TYPE_FORCE_LOGOUT, MSG_TYPE_PING, MSG_TYPE_TEXT};
+use common::utils::jwt_util::{generate_access_token, generate_token_with_expiry, verify_token};
+use common::utils::message_types::{MSG_TYPE_FORCE_LOGOUT, MSG_TYPE_PING, MSG_TYPE_TEXT, MSG_TYPE_TTL};
 use common::utils::session_uuid::single_session_uuid;
 use common::utils::text_msg::{HeadMsg, generate_text_msg_with_id};
 use deadpool_redis::redis::AsyncCommands;
@@ -34,7 +34,7 @@ use deadpool_redis::{Config as RedisConfig, Pool, Runtime};
 use futures_util::FutureExt;
 use quic_service::models::first_quic_msg::FirstQuicMsg;
 use quic_service::models::quic_connection::ConnectionType;
-use quic_service::msg_service::text_msg_service::get_text_msg;
+use quic_service::msg_service::text_msg_service::{generate_text_msg, get_text_msg};
 use quic_service::{ChatNode, ChatNodeConfig, ServiceLifecycle};
 use quinn::{Connection, Endpoint};
 use rbatis::RBatis;
@@ -615,6 +615,20 @@ async fn external_chat_node_connection_lifecycle() -> Result<()> {
     }
 }
 
+/// 通过 uni 流发送一条 TTL 需求消息（raw 为 {"token": "..."}）
+async fn send_ttl_demand(conn: &Connection, send_user: &str, token: &str) -> Result<()> {
+    let mut map = serde_json::Map::new();
+    map.insert("token".to_string(), serde_json::Value::String(token.to_string()));
+    let payload = serde_json::to_vec(&map).context("序列化 TTL 载荷失败")?;
+    let msg =
+        generate_text_msg(MSG_TYPE_TTL, payload, SYSTEM.to_string(), send_user.to_string())
+            .context("构造 TTL 需求消息失败")?;
+    let mut uni = conn.open_uni().await.context("打开 uni 流失败")?;
+    uni.write_all(&msg).await.context("发送 TTL 需求消息失败")?;
+    uni.finish().await.context("结束 uni 流失败")?;
+    Ok(())
+}
+
 /// 发送一条单聊文本消息（复用生产同款封帧: head + bincode 正文 + CRC）
 async fn send_single_chat(
     conn: &Connection,
@@ -777,6 +791,126 @@ async fn single_chat_message_persists_session_uuid() -> Result<()> {
         conn_b.close(0u32.into(), b"done");
         endpoint_a.wait_idle().await;
         endpoint_b.wait_idle().await;
+        node.stop().await.context("ChatNode 停止失败")?;
+        info!("ChatNode 已停止");
+
+        Ok::<(), anyhow::Error>(())
+    })
+    .catch_unwind()
+    .await;
+
+    if let Err(e) = flush_redis(&redis_pool).await {
+        info!("清空测试 Redis 失败（不影响测试结果）: {}", e);
+    }
+    let _ = std::fs::remove_dir_all(&temp_dir);
+
+    match outcome {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(e)) => Err(e),
+        Err(panic) => std::panic::resume_unwind(panic),
+    }
+}
+
+/// 客户端 TTL 续期: 携带短效 token 的 TTL 需求消息通过校验后重置路由 key TTL(7200s),
+/// 过期 token 的 TTL 需求消息被拒绝续期(路由 key 自然衰减)。
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "需要本地 Redis/PostgreSQL 与仓库根目录 .env"]
+async fn ttl_demand_renews_route_key() -> Result<()> {
+    init_logging();
+    let _serial = test_serial().lock().await;
+    dotenvy::dotenv().ok();
+    let _ = dotenvy::from_path(concat!(env!("CARGO_MANIFEST_DIR"), "/../../.env"));
+
+    let redis_url = std::env::var("TEST_REDIS_URL").map_err(|_| {
+        anyhow!("未找到 TEST_REDIS_URL，请在仓库根目录 .env 中配置（建议独立 DB index，如 redis://127.0.0.1:6379/15）")
+    })?;
+    let database_url = std::env::var("DATABASE_URL")
+        .map_err(|_| anyhow!("未找到 DATABASE_URL，请在仓库根目录 .env 中配置 PostgreSQL"))?;
+    let redis_pool = build_redis_pool(&redis_url)?;
+    flush_redis(&redis_pool).await?;
+    let db = build_db_pool(&database_url).await?;
+    ensure_partitioned_message_tables(&db).await?;
+    ensure_task04_dev_db(&db).await?;
+
+    setup_jwt_keys()?;
+
+    let temp_dir = std::env::temp_dir().join(format!("quic_ttl_test_{}", Uuid::new_v4()));
+    std::fs::create_dir_all(&temp_dir).context("创建临时证书目录失败")?;
+    let (cert_path, key_path) = make_cert_files(&temp_dir);
+
+    let outcome = std::panic::AssertUnwindSafe(async {
+        let addr = free_udp_addr();
+        let mut config = ChatNodeConfig::new(addr);
+        config.cert_path = cert_path;
+        config.key_path = key_path;
+        config.server_name = "localhost".to_string();
+
+        let core = make_core(db.clone(), redis_pool.clone());
+        let mut node = ChatNode::new(config, core);
+        node.init().await.context("ChatNode 初始化失败")?;
+        node.start().await.context("ChatNode 启动失败")?;
+        let node_addr = node.config().bind_address;
+        info!("ChatNode 已启动，监听: {}", node_addr);
+
+        let user_uuid = Uuid::new_v4().to_string();
+        let access_token = generate_access_token(user_uuid.clone(), PC_PLATFORM.to_string())
+            .context("生成 access_token 失败")?;
+        let key = conn_key(PC_PLATFORM, &user_uuid);
+        let head_len = head_size();
+
+        let (endpoint, conn) = connect_client(node_addr).await?;
+        let (_send, _recv) = send_first_msg(&conn, &user_uuid, &access_token, head_len).await?;
+        wait_connection_registered(&node, &key, Duration::from_secs(5)).await?;
+
+        // 发送一条 TTL 需求消息(uni 流, raw 为 {"token": "..."})
+        // ===== 有效 token: 缩短 TTL 后发送, 应被续期回 7200s =====
+        {
+            let mut redis = redis_pool.get().await.context("获取 Redis 连接失败")?;
+            let _: () = redis.expire(&key, 60).await.context("缩短路由 key TTL 失败")?;
+            drop(redis);
+        }
+        send_ttl_demand(&conn, &user_uuid, &access_token).await?;
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let renewed_ttl = loop {
+            let mut redis = redis_pool.get().await.context("获取 Redis 连接失败")?;
+            let ttl: i64 = redis.ttl(&key).await.context("读取路由 key TTL 失败")?;
+            drop(redis);
+            if ttl > 7000 {
+                break ttl;
+            }
+            if std::time::Instant::now() > deadline {
+                return Err(anyhow!("有效 token 的 TTL 需求消息未续期路由 key: TTL={}", ttl));
+            }
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        };
+        info!("有效 token 续期成功: TTL={}", renewed_ttl);
+
+        // ===== 过期 token: 缩短 TTL 后发送, 不应续期(保持短 TTL) =====
+        {
+            let mut redis = redis_pool.get().await.context("获取 Redis 连接失败")?;
+            let _: () = redis.expire(&key, 60).await.context("缩短路由 key TTL 失败")?;
+            drop(redis);
+        }
+        let expired_token = generate_token_with_expiry(
+            user_uuid.clone(),
+            PC_PLATFORM.to_string(),
+            -3600,
+        )
+        .context("生成过期 token 失败")?;
+        send_ttl_demand(&conn, &user_uuid, &expired_token).await?;
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        let mut redis = redis_pool.get().await.context("获取 Redis 连接失败")?;
+        let stale_ttl: i64 = redis.ttl(&key).await.context("读取路由 key TTL 失败")?;
+        drop(redis);
+        assert!(
+            stale_ttl <= 60,
+            "过期 token 的 TTL 需求消息不应续期路由 key, 实际 TTL={}",
+            stale_ttl
+        );
+        info!("过期 token 未被续期: TTL={}", stale_ttl);
+
+        conn.close(0u32.into(), b"done");
+        endpoint.wait_idle().await;
         node.stop().await.context("ChatNode 停止失败")?;
         info!("ChatNode 已停止");
 

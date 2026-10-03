@@ -15,6 +15,12 @@ use crate::models::first_quic_msg::FirstQuicMsg;
 use crate::models::quic_connection::ConnectionType;
 use crate::msg_service::text_msg_service::{generate_text_msg, get_text_msg};
 
+/// TTL 需求消息 raw 的 JSON 结构
+#[derive(serde::Serialize)]
+struct TtlDemandPayload<'a> {
+    token: &'a str,
+}
+
 #[allow(dead_code)]
 pub async fn run_client(server_addr: SocketAddr) {
     // 创建客户端端点
@@ -156,7 +162,7 @@ async fn init_send_msg(
     first_quic_msg.msg_type = ConnectionType::Text;
     let token = generate_access_token(uuid.clone(), PC_PLATFORM.to_string())
         .map_err(|e| anyhow::anyhow!("Failed to get token: {}", e))?;
-    first_quic_msg.token = token;
+    first_quic_msg.token = token.clone();
 
     let first_msg_json = serde_json::to_string(&first_quic_msg)?;
     info!("[客户端] 准备发送初始化消息: {}", first_msg_json);
@@ -188,6 +194,40 @@ async fn init_send_msg(
     send_via_new_stream(&conn, &test_msg2).await?;
     send_via_new_stream(&conn, &test_msg2).await?;
     send_via_new_stream(&conn, &test_msg2).await?;
+
+    // TTL 续期循环 - 每 2 分钟携带短效 token 发送 TTL 需求消息, 服务端校验通过后续期路由 key
+    {
+        let conn_for_ttl = conn.clone();
+        let ttl_token = token.clone();
+        let ttl_uuid = uuid.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_secs(120)).await;
+                let ttl_payload =
+                    serde_json::to_vec(&TtlDemandPayload { token: &ttl_token }).unwrap_or_default();
+                let ttl_msg = match generate_text_msg(
+                    message_types::MSG_TYPE_TTL,
+                    ttl_payload,
+                    SYSTEM.to_string(),
+                    ttl_uuid.clone(),
+                ) {
+                    Ok(m) => m,
+                    Err(e) => {
+                        error!("生成 TTL 续期消息失败: {}", e);
+                        continue;
+                    }
+                };
+                match send_via_new_stream(&conn_for_ttl, &ttl_msg).await {
+                    Ok(_) => {
+                        info!("TTL 续期消息发送成功");
+                    }
+                    Err(e) => {
+                        error!("发送 TTL 续期消息失败: {}", e);
+                    }
+                };
+            }
+        });
+    }
 
     // 心跳循环 - 按需打开流
     tokio::spawn(async move {

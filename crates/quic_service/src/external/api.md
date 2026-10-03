@@ -109,15 +109,18 @@ handle_conn(send_stream, recv_stream, conn, address, ...)
   ├─ 6. start_uni_receiver()           spawn 单向流接收循环（处理 open_uni 消息）
   │      （每连接一个 buffer_msg 残包缓冲；退出受 uni_shutdown 标志控制）
   │
-  ├─ 7. start_ttl_refresh()            spawn 路由 key TTL 续期任务（每 60s，key=7200s）
-  │
-  ├─ 8. run_bidi_receive_loop()        双向流接收循环（处理该流上消息 process_rec_msg）
+  ├─ 7. run_bidi_receive_loop()        双向流接收循环（处理该流上消息 process_rec_msg）
   │      （半包残包同样缓冲，跨 read 拼接）
   │      · 流关闭（Ok(None) / 读错误 / 缓冲超限）──► 退出循环
   │
-  └─ 9. uni_shutdown.store(true)       通知单向流循环与 TTL 续期任务退出
+  └─ 8. uni_shutdown.store(true)       通知单向流循环退出
         end_server()                   下线清理（见 §2.6）
 ```
+
+> **路由 key 续期已改为客户端驱动**：不再由服务端定时任务（旧 `start_ttl_refresh`）续期。
+> 客户端每 2 分钟经 uni 流发送一条 **TTL 续期需求消息**（`MSG_TYPE_TTL`，raw 为 `{"token": "<短效 access token>"}`），
+> 服务端在 `process_text_msg` 中 `verify_token` 校验签名+过期+归属（uuid/platform 与连接一致）通过后，
+> 以 `set_ex(connection_key, server_index, 7200)` 续期路由 key；校验失败仅告警不续期，路由 key 到期自然下线。
 
 > **双接收循环的意义**：服务器在双向流上只收首包和（兼容性的）消息，但把消息收发的**主力通道放在单向流**上；双向流只要不关，连接就算"存活"（`quic_client.rs:132` 特意保持 send_stream 不 drop 即为此原因）。
 

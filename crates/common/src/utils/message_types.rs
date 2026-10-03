@@ -54,6 +54,9 @@ pub const MSG_TYPE_SYSTEM: u16 = 10001;
 /// 同平台新连接建立后，通知旧客户端退出登录
 pub const MSG_TYPE_FORCE_LOGOUT: u16 = 10002;
 
+/// 客户端 TTL 续期需求消息（客户端每 2 分钟携带短效 token 发送，服务端校验通过后续期用户路由 key）
+pub const MSG_TYPE_TTL: u16 = 10003;
+
 /// 内部服务转发的添加好友通知消息
 pub const INTERNAL_FRIEND_NOTIFY: u16 = 20001;
 

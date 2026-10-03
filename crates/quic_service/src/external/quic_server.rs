@@ -355,7 +355,7 @@ async fn handle_conn(
     .await?;
     release_online_lock(&core, &platform, &current_uuid, &online_lock_token).await?;
 
-    // uni_shutdown 由主循环持有，负责协调后台 uni 接收循环与 TTL 续期任务的退出
+    // uni_shutdown 由主循环持有，负责协调后台 uni 接收循环的退出
     let uni_shutdown = Arc::new(AtomicBool::new(false));
     start_uni_receiver(
         conn.clone(),
@@ -366,12 +366,6 @@ async fn handle_conn(
         core.clone(),
         config.server_index,
         head_length,
-        uni_shutdown.clone(),
-    );
-    start_ttl_refresh(
-        core.clone(),
-        connection_key.clone(),
-        config.server_index,
         uni_shutdown.clone(),
     );
 
@@ -465,42 +459,6 @@ fn start_uni_receiver(
                 Err(e) => {
                     warn!("[server] uni 流接受错误: {}, 继续等待", e);
                     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                }
-            }
-        }
-    });
-}
-
-/// 定期续期用户路由 key 的 TTL,避免长连接存活但 Redis 路由 key(7200s)过期失效。
-/// 退出时机由调用方通过 `uni_shutdown` 标志控制。
-fn start_ttl_refresh(
-    core: CoreState,
-    connection_key: String,
-    server_index: u32,
-    uni_shutdown: Arc<AtomicBool>,
-) {
-    let refresh_index = server_index.to_string();
-    tokio::spawn(async move {
-        info!("用户路由 key 续期任务已启动: key={} 每 60s 续期", connection_key);
-        let mut refresh_interval = tokio::time::interval(std::time::Duration::from_secs(60));
-        loop {
-            refresh_interval.tick().await;
-            if uni_shutdown.load(Ordering::Relaxed) {
-                break;
-            }
-            let mut conn = match core.redis.get().await {
-                Ok(conn) => conn,
-                Err(e) => {
-                    warn!("用户路由 key 续期失败(获取连接): key={} err={}", connection_key, e);
-                    continue;
-                }
-            };
-            match conn.set_ex::<&str, &str, ()>(&connection_key, &refresh_index, 7200).await {
-                Ok(_) => {
-                    info!("用户路由 key 续期成功: key={} TTL=7200s", connection_key);
-                }
-                Err(e) => {
-                    warn!("用户路由 key 续期失败: key={} err={}", connection_key, e);
                 }
             }
         }

@@ -24,7 +24,7 @@ use common::utils::message_types::{
     INTERNAL_FRIEND_NOTIFY, MSG_TYPE_GROUP_ACK, MSG_TYPE_GROUP_NOTIFICATION, MSG_TYPE_GROUP_TEXT,
     MSG_TYPE_P2P, MSG_TYPE_P2P_USER_CLIENT, MSG_TYPE_P2P_USER_SERVER, MSG_TYPE_P2P_VIDEO_CALL,
     MSG_TYPE_P2P_VIDEO_CONFIG, MSG_TYPE_P2P_VIDEO_DATA, MSG_TYPE_PING, MSG_TYPE_RECALL_FAILURE,
-    MSG_TYPE_RECALL_SUCCESS, MSG_TYPE_SYSTEM, MSG_TYPE_TEXT, NOTIFY_TYPE_MSG,
+    MSG_TYPE_RECALL_SUCCESS, MSG_TYPE_SYSTEM, MSG_TYPE_TEXT, MSG_TYPE_TTL, NOTIFY_TYPE_MSG,
 };
 use common::utils::rsa_util::{
     generate_random_string, get_rsa_keys, hash_password, verify_password,
@@ -266,6 +266,7 @@ mod text_msg {
         assert_eq!(MessageType::P2pUserServer as u16, MSG_TYPE_P2P_USER_SERVER);
         assert_eq!(MessageType::P2pUserClient as u16, MSG_TYPE_P2P_USER_CLIENT);
         assert_eq!(MessageType::System as u16, MSG_TYPE_SYSTEM);
+        assert_eq!(MessageType::TtlRenew as u16, MSG_TYPE_TTL);
     }
 
     #[test]

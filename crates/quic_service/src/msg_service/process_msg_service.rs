@@ -9,6 +9,7 @@ use common::state::CoreState;
 use common::utils::group_msg::GroupQuicMsg;
 use common::utils::internal_quic_client::send_internal_quic_msg;
 use common::utils::internal_quic_msg::{InternalQuicRequest, RequestSource};
+use common::utils::jwt_util::verify_token;
 use common::utils::message_types;
 use common::utils::server_count_sync::compute_preferred_index;
 use common::utils::session_uuid::single_session_uuid;
@@ -66,6 +67,12 @@ async fn process_text_msg(
         // 心跳消息
         if text_msg.text_type == message_types::MSG_TYPE_PING {
             send_ping(connection_key, text_msg.send_user, connections).await?;
+            continue;
+        }
+
+        // TTL 续期需求消息: 客户端每 2 分钟携带短效 token 发送, 校验通过后续期路由 key
+        if text_msg.text_type == message_types::MSG_TYPE_TTL {
+            handle_ttl_demand(core, text_msg, platform, connection_key, server_index).await?;
             continue;
         }
 
@@ -356,6 +363,49 @@ async fn send_ping(
     if let Some(conn) = conn_lookup::get_conn_by_key(connections, connection_key) {
         conn_lookup::send_uni_frame(&conn, ping_msg.as_ref()).await?;
     }
+    Ok(())
+}
+
+/// TTL 续期需求消息 raw 的 JSON 结构
+#[derive(serde::Deserialize)]
+struct TtlDemandPayload {
+    token: String,
+}
+
+/// 处理客户端 TTL 续期需求: 校验短效 token(签名+过期+归属), 通过后续期用户路由 key。
+/// 校验失败仅告警不续期, 路由 key 到期后自然下线, 不强制踢连接。
+async fn handle_ttl_demand(
+    core: &CoreState,
+    text_msg: TextQuicMsg,
+    platform: &str,
+    connection_key: &str,
+    server_index: u32,
+) -> anyhow::Result<()> {
+    let payload: TtlDemandPayload = match serde_json::from_slice(&text_msg.raw) {
+        Ok(p) => p,
+        Err(e) => {
+            warn!("[server] TTL 续期消息解析失败: {} (uuid={})", e, text_msg.send_user);
+            return Ok(());
+        }
+    };
+    let claims = match verify_token(&payload.token) {
+        Ok(c) => c,
+        Err(e) => {
+            warn!("[server] TTL 续期 token 校验失败: {} (uuid={})", e, text_msg.send_user);
+            return Ok(());
+        }
+    };
+    if claims.uuid != text_msg.send_user || claims.sub != platform {
+        warn!(
+            "[server] TTL 续期 token 与连接不匹配: uuid={} claims.uuid={} platform={} claims.sub={}",
+            text_msg.send_user, claims.uuid, platform, claims.sub
+        );
+        return Ok(());
+    }
+    let mut conn = core.redis.get().await?;
+    let index_str = server_index.to_string();
+    conn.set_ex::<&str, &str, ()>(connection_key, &index_str, 7200).await?;
+    info!("[server] 用户路由 key 续期成功(客户端 TTL 消息): key={}", connection_key);
     Ok(())
 }
 
