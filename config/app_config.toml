@@ -103,6 +103,12 @@ multipart_chunk_size = 5242880
 # 最大并发上传数
 max_concurrent_uploads = 10
 
+[github_oauth]
+# GitHub OAuth 登录（PC 桌面端，回调为本机回环地址）
+client_id = "${GITHUB_CLIENT_ID}"
+client_secret = "${GITHUB_CLIENT_SECRET}"
+redirect_uri = "http://127.0.0.1:9527/callback"
+
 [email]
 # 邮件服务开关（注册邮箱验证码依赖此服务）
 enabled = "${EMAIL_ENABLED}"

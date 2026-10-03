@@ -53,6 +53,8 @@ pub static EMAIL_VERIFY_CODE: &str = "EMAIL:VERIFY:CODE:";
 pub static DEFAULT_MAX_FILE_SIZE: i64 = 100 * 1024 * 1024;
 // 注册会话 token(两步注册,step1 验证通过后下发,映射占位用户 uuid)
 pub static REGISTER_SESSION_TOKEN: &str = "REGISTER:SESSION:TOKEN:";
+// GitHub OAuth state(CSRF 防护, 值:发起方设备指纹, 10 分钟有效, 单次消费)
+pub static GITHUB_OAUTH_STATE: &str = "GITHUB:OAUTH:STATE:";
 // PC 平台
 pub static PC_PLATFORM: &str = "PC";
 // 移动端平台

@@ -6,10 +6,16 @@ use crate::common::dto::base_dto::AuthAccount;
 use crate::http_service::user_service::dto::basic_user_dto::SignInBasicUserDTO;
 use crate::http_service::user_service::dto::complete_profile_dto::CompleteProfileDTO;
 use crate::http_service::user_service::dto::fetch_sqlite_key_dto::FetchSqliteKeyDTO;
+use crate::http_service::user_service::dto::github_oauth_dto::{
+    GithubAuthorizeDTO, GithubOAuthCallbackDTO,
+};
 use crate::http_service::user_service::dto::refresh_token_dto::RefreshTokenDTO;
 use crate::http_service::user_service::dto::send_verify_code_dto::SendVerifyCodeDTO;
 use crate::http_service::user_service::dto::sign_up_step1_dto::SignUpStep1DTO;
 use crate::http_service::user_service::dto::update_user_dto::UpdateUserDTO;
+use crate::http_service::user_service::service::github_oauth_service::{
+    github_authorize_url_service, github_oauth_callback_service,
+};
 use crate::http_service::user_service::service::user_service::{
     complete_profile_service, fetch_or_create_sqlite_db_key, get_exit_user,
     get_user_info_by_account, get_user_info_by_uuid, get_user_uuid_by_account_service,
@@ -27,6 +33,8 @@ pub fn user_service(cfg: &mut web::ServiceConfig) {
         .service(complete_profile)
         .service(send_verify_code)
         .service(refresh_token)
+        .service(github_authorize_url)
+        .service(github_oauth_callback)
         .service(me_api)
         .service(query_user_api)
         .service(get_user_by_uuid_api)
@@ -105,6 +113,30 @@ pub async fn refresh_token(
 ) -> impl Responder {
     let dto: RefreshTokenDTO = validate_and_respond!(dto);
     let res = refresh_access_token(state.db(), state.redis(), dto, &req).await;
+    respond_json_any!(res)
+}
+
+/// GitHub OAuth 第一步: 生成 state 并返回授权地址（免密登录）
+#[post("/github/authorize_url")]
+pub async fn github_authorize_url(
+    state: web::Data<AppState>,
+    dto: web::Json<GithubAuthorizeDTO>,
+) -> impl Responder {
+    let dto = validate_and_respond!(dto);
+    let res = github_authorize_url_service(state.redis(), dto).await;
+    respond_json_any!(res)
+}
+
+/// GitHub OAuth 第二步: 回环回调 code 换登录态（免密，首次自动注册）
+#[post("/github/callback")]
+pub async fn github_oauth_callback(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+    dto: web::Json<GithubOAuthCallbackDTO>,
+) -> impl Responder {
+    apply_auth_tarpit().await;
+    let dto = validate_and_respond!(dto);
+    let res = github_oauth_callback_service(state.db(), state.redis(), dto, &req).await;
     respond_json_any!(res)
 }
 

@@ -36,6 +36,8 @@ actix-multipart = { workspace = true }
 futures-util = { workspace = true }
 image = { workspace = true }
 webp = { workspace = true }
+reqwest = { workspace = true, features = ["json"] }
+urlencoding = { workspace = true }
 tokio = { workspace = true }
 rand = { workspace = true }
 nanoid = { workspace = true }

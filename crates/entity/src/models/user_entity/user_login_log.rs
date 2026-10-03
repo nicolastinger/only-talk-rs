@@ -13,6 +13,7 @@ pub const LOGIN_EVENT_REFRESH: &str = "refresh";
 pub const LOGIN_TYPE_ACCOUNT: &str = "account";
 pub const LOGIN_TYPE_EMAIL: &str = "email";
 pub const LOGIN_TYPE_REFRESH: &str = "refresh";
+pub const LOGIN_TYPE_GITHUB: &str = "github";
 
 /// 用户登录审计流水表（记录每次登录/刷新 token 事件，用于安全审计与风控）
 #[derive(Clone, Deserialize, Serialize, Debug)]

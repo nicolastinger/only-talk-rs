@@ -307,7 +307,9 @@ pub async fn complete_profile_service(
 ///
 /// 网关方案: nginx 以 `$remote_addr` **覆写**(非追加) `X-Forwarded-For`,
 /// 故取首个 IP 可信, 客户端伪造的 XFF 头不会透传; 无该头(裸机直连/本地开发)时回退 `peer_addr`。
-fn extract_client_info(req: &HttpRequest) -> (Option<String>, Option<String>, Option<String>) {
+pub(crate) fn extract_client_info(
+    req: &HttpRequest,
+) -> (Option<String>, Option<String>, Option<String>) {
     let forwarded_ip = req
         .headers()
         .get("X-Forwarded-For")
@@ -331,7 +333,7 @@ fn extract_client_info(req: &HttpRequest) -> (Option<String>, Option<String>, Op
 }
 
 /// 写入登录审计记录（审计失败仅记录日志，不阻塞登录主流程）
-async fn write_login_log(rb: &RBatis, log: UserLoginLog) {
+pub(crate) async fn write_login_log(rb: &RBatis, log: UserLoginLog) {
     if let Err(e) = UserLoginLog::insert(rb, &log).await {
         error!("写入登录审计记录失败: {}", e);
     }

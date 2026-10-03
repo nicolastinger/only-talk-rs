@@ -4,6 +4,7 @@ pub mod email_sso;
 pub mod enterprise_info;
 pub mod friend_link;
 pub mod friend_request_info;
+pub mod github_sso;
 pub mod robot_info;
 pub mod user_info;
 pub mod user_login_log;
