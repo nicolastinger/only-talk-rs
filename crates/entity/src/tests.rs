@@ -21,9 +21,7 @@ use crate::models::group_entity::group_invitation::{
 use crate::models::group_entity::group_member::{
     GroupMember, ROLE_ADMIN, ROLE_MEMBER, ROLE_OWNER, STATUS_KICKED, STATUS_NORMAL, STATUS_QUIT,
 };
-use crate::models::group_entity::group_message_record::{
-    GroupMessageRecord, MSG_TYPE_TEXT,
-};
+use crate::models::group_entity::group_message_record::{GroupMessageRecord, MSG_TYPE_TEXT};
 use crate::models::moment_entity::moment::Moment;
 use crate::models::moment_entity::moment_comment::MomentComment;
 use crate::models::moment_entity::moment_like::MomentLike;

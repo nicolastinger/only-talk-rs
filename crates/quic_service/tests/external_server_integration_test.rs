@@ -26,7 +26,9 @@ use common::models::chat_entity::chat_message_record::ChatMessageRecord;
 use common::state::CoreState;
 use common::utils::internal_quic_client::make_internal_client_config;
 use common::utils::jwt_util::{generate_access_token, generate_token_with_expiry, verify_token};
-use common::utils::message_types::{MSG_TYPE_FORCE_LOGOUT, MSG_TYPE_PING, MSG_TYPE_TEXT, MSG_TYPE_TTL};
+use common::utils::message_types::{
+    MSG_TYPE_FORCE_LOGOUT, MSG_TYPE_PING, MSG_TYPE_TEXT, MSG_TYPE_TTL,
+};
 use common::utils::session_uuid::single_session_uuid;
 use common::utils::text_msg::{HeadMsg, generate_text_msg_with_id};
 use deadpool_redis::redis::AsyncCommands;
@@ -620,9 +622,8 @@ async fn send_ttl_demand(conn: &Connection, send_user: &str, token: &str) -> Res
     let mut map = serde_json::Map::new();
     map.insert("token".to_string(), serde_json::Value::String(token.to_string()));
     let payload = serde_json::to_vec(&map).context("序列化 TTL 载荷失败")?;
-    let msg =
-        generate_text_msg(MSG_TYPE_TTL, payload, SYSTEM.to_string(), send_user.to_string())
-            .context("构造 TTL 需求消息失败")?;
+    let msg = generate_text_msg(MSG_TYPE_TTL, payload, SYSTEM.to_string(), send_user.to_string())
+        .context("构造 TTL 需求消息失败")?;
     let mut uni = conn.open_uni().await.context("打开 uni 流失败")?;
     uni.write_all(&msg).await.context("发送 TTL 需求消息失败")?;
     uni.finish().await.context("结束 uni 流失败")?;
@@ -891,12 +892,9 @@ async fn ttl_demand_renews_route_key() -> Result<()> {
             let _: () = redis.expire(&key, 60).await.context("缩短路由 key TTL 失败")?;
             drop(redis);
         }
-        let expired_token = generate_token_with_expiry(
-            user_uuid.clone(),
-            PC_PLATFORM.to_string(),
-            -3600,
-        )
-        .context("生成过期 token 失败")?;
+        let expired_token =
+            generate_token_with_expiry(user_uuid.clone(), PC_PLATFORM.to_string(), -3600)
+                .context("生成过期 token 失败")?;
         send_ttl_demand(&conn, &user_uuid, &expired_token).await?;
         tokio::time::sleep(Duration::from_secs(2)).await;
         let mut redis = redis_pool.get().await.context("获取 Redis 连接失败")?;

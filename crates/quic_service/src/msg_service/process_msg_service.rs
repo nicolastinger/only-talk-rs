@@ -130,9 +130,7 @@ async fn process_single_chat_msg(
                 | message_types::MSG_TYPE_P2P_VIDEO_CALL_END
                 | message_types::MSG_TYPE_P2P
         );
-        if !is_transient
-            && let Err(e) = add_user_chat_record(&core_clone, text_msg_clone).await
-        {
+        if !is_transient && let Err(e) = add_user_chat_record(&core_clone, text_msg_clone).await {
             error!("[单聊] 插入消息失败: {}", e);
         }
         // 发送 ACK 消息（信令不回执，其余类型仍回执）
