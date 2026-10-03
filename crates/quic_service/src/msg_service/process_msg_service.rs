@@ -58,7 +58,7 @@ async fn process_text_msg(
     connections: &Arc<DashMap<String, QuicConnection>>,
     server_index: u32,
 ) -> anyhow::Result<()> {
-    for mut text_msg in text_quic_msg.into_iter() {
+    for text_msg in text_quic_msg.into_iter() {
         if uuid != text_msg.send_user {
             error!("[单聊] 发送者不匹配 {},{}", uuid, text_msg.send_user);
             continue;
@@ -69,122 +69,143 @@ async fn process_text_msg(
             continue;
         }
 
-        // 群聊消息:路由到群聊处理流程(保存到数据库 -> Redis 查询成员 -> 本地投递 + 内部广播)
-        if matches!(
-            text_msg.text_type,
-            message_types::MSG_TYPE_GROUP_TEXT
-                | message_types::MSG_TYPE_GROUP_NOTIFICATION
-        ) {
-            debug!(
-                "[群聊] 收到群聊消息 type={} group={} sender={} raw_len={}",
-                text_msg.text_type,
-                text_msg.recv_user,
-                text_msg.send_user,
-                text_msg.raw.len()
-            );
-            let nano_id = nanoid!();
-            let ack_raw_id = text_msg.nano_id.clone();
-            let ack_nano_id = nano_id.clone();
-            let now = get_now_time_stamp_as_millis()?;
-            let group_msg = GroupQuicMsg {
-                nano_id: nano_id.clone(),
-                msg_type: text_msg.text_type,
-                group_uuid: text_msg.recv_user.clone(),
-                send_user: text_msg.send_user.clone(),
-                raw: text_msg.raw.clone(),
-                timestamp: now,
-            };
-
-            let conns = connections.clone();
-            let conn_key = connection_key.to_string();
-            let current_user = text_msg.send_user.clone();
-            let core_clone = core.clone();
-            tokio::spawn(async move {
-                debug!(
-                    "[群聊] 处理群聊消息 nano_id={} group={} sender={}",
-                    nano_id, group_msg.group_uuid, group_msg.send_user
-                );
-                if let Err(e) =
-                    handle_group_msg_from_client(&core_clone, group_msg, server_index, &conns).await
-                {
-                    error!("[群聊] 处理群聊消息失败: {}", e);
-                    return;
-                }
-                let now = get_now_time_stamp_as_millis().unwrap_or(0);
-                if let Err(e) = send_msg_record_success(
-                    ack_nano_id,
-                    &conn_key,
-                    current_user,
-                    ack_raw_id,
-                    now,
-                    &conns,
-                    message_types::MSG_TYPE_GROUP_ACK,
-                )
-                .await
-                {
-                    error!("[群聊] 发送 ACK 失败: {}", e);
-                }
-            });
+        // 单聊消息(先匹配): 除群聊/心跳外的类型(纯文本、信令、回执等)均走单聊流程
+        if !is_group_chat_type(text_msg.text_type) {
+            process_single_chat_msg(core, text_msg, platform, connection_key, connections).await?;
             continue;
         }
 
-        let nano_id = nanoid!();
-        let ack_raw_id = text_msg.nano_id.clone();
-        let ack_nano_id = nano_id.clone();
-        text_msg.nano_id = nano_id;
-        let now = get_now_time_stamp_as_millis()?;
-        text_msg.timestamp = now;
+        // 群聊消息(后匹配): 保存到数据库 -> Redis 查询成员 -> 本地投递 + 内部广播
+        process_group_chat_msg(core, text_msg, connection_key, connections, server_index).await?;
+    }
 
-        let text_msg_clone = text_msg.clone();
-        let conn_key = connection_key.to_string();
-        let conns = connections.clone();
-        let core_clone = core.clone();
-        tokio::spawn(async move {
-            let current_user = text_msg_clone.send_user.clone();
-            // WebRTC 信令(100)、视频通话控制消息(12-15)与 P2P 隐私握手(4)是瞬态信号：
-            // 服务端仅转发、不持久化、不回 ACK（它们不经过前端 send/回执表，无异步重发语义）。
-            let should_ack = !matches!(
-                text_msg_clone.text_type,
-                message_types::MSG_TYPE_WEBRTC_SIGNAL
-                    | message_types::MSG_TYPE_P2P_VIDEO_CALL_INVITE
-                    | message_types::MSG_TYPE_P2P_VIDEO_CALL_ACCEPT
-                    | message_types::MSG_TYPE_P2P_VIDEO_CALL_REJECT
-                    | message_types::MSG_TYPE_P2P_VIDEO_CALL_END
-                    | message_types::MSG_TYPE_P2P
-            );
-            match text_msg_clone.text_type {
-                message_types::MSG_TYPE_WEBRTC_SIGNAL
+    debug!("[单聊] 处理完成");
+    Ok(())
+}
+
+/// 是否为群聊消息类型
+fn is_group_chat_type(text_type: u16) -> bool {
+    matches!(
+        text_type,
+        message_types::MSG_TYPE_GROUP_TEXT | message_types::MSG_TYPE_GROUP_NOTIFICATION
+    )
+}
+
+/// 单聊消息处理: 持久化 + 投递 + 回执
+async fn process_single_chat_msg(
+    core: &CoreState,
+    mut text_msg: TextQuicMsg,
+    platform: &str,
+    connection_key: &str,
+    connections: &Arc<DashMap<String, QuicConnection>>,
+) -> anyhow::Result<()> {
+    let nano_id = nanoid!();
+    let ack_raw_id = text_msg.nano_id.clone();
+    let ack_nano_id = nano_id.clone();
+    text_msg.nano_id = nano_id;
+    let now = get_now_time_stamp_as_millis()?;
+    text_msg.timestamp = now;
+
+    let text_msg_clone = text_msg.clone();
+    let conn_key = connection_key.to_string();
+    let conns = connections.clone();
+    let core_clone = core.clone();
+    tokio::spawn(async move {
+        let current_user = text_msg_clone.send_user.clone();
+        // WebRTC 信令(100)、视频通话控制消息(12-15)与 P2P 隐私握手(4)是瞬态信号：
+        // 服务端仅转发、不持久化、不回 ACK（它们不经过前端 send/回执表，无异步重发语义）。
+        let is_transient = matches!(
+            text_msg_clone.text_type,
+            message_types::MSG_TYPE_WEBRTC_SIGNAL
                 | message_types::MSG_TYPE_P2P_VIDEO_CALL_INVITE
                 | message_types::MSG_TYPE_P2P_VIDEO_CALL_ACCEPT
                 | message_types::MSG_TYPE_P2P_VIDEO_CALL_REJECT
                 | message_types::MSG_TYPE_P2P_VIDEO_CALL_END
-                | message_types::MSG_TYPE_P2P => {}
-                _ => {
-                    if let Err(e) = add_user_chat_record(&core_clone, text_msg_clone).await {
-                        error!("[单聊] 插入消息失败: {}", e);
-                    }
-                }
-            }
-            // 发送 ACK 消息（信令不回执，其余类型仍回执）
-            if should_ack
-                && let Err(e) = send_msg_record_success(
-                    ack_nano_id,
-                    &conn_key,
-                    current_user,
-                    ack_raw_id,
-                    now,
-                    &conns,
-                    message_types::MSG_TYPE_RECALL_SUCCESS,
-                )
-                .await
-            {
-                error!("[单聊] 发送 ACK 失败: {}", e);
-            }
-        });
-        send_msg_to_user(core, text_msg, platform, connections).await?;
-    }
+                | message_types::MSG_TYPE_P2P
+        );
+        if !is_transient
+            && let Err(e) = add_user_chat_record(&core_clone, text_msg_clone).await
+        {
+            error!("[单聊] 插入消息失败: {}", e);
+        }
+        // 发送 ACK 消息（信令不回执，其余类型仍回执）
+        if !is_transient
+            && let Err(e) = send_msg_record_success(
+                ack_nano_id,
+                &conn_key,
+                current_user,
+                ack_raw_id,
+                now,
+                &conns,
+                message_types::MSG_TYPE_RECALL_SUCCESS,
+            )
+            .await
+        {
+            error!("[单聊] 发送 ACK 失败: {}", e);
+        }
+    });
+    send_msg_to_user(core, text_msg, platform, connections).await?;
+    Ok(())
+}
 
-    info!("[单聊] 处理完成");
+/// 群聊消息处理: 保存到数据库 -> Redis 查询成员 -> 本地投递 + 内部广播, 完成后回群 ACK
+async fn process_group_chat_msg(
+    core: &CoreState,
+    text_msg: TextQuicMsg,
+    connection_key: &str,
+    connections: &Arc<DashMap<String, QuicConnection>>,
+    server_index: u32,
+) -> anyhow::Result<()> {
+    debug!(
+        "[群聊] 收到群聊消息 type={} group={} sender={} raw_len={}",
+        text_msg.text_type,
+        text_msg.recv_user,
+        text_msg.send_user,
+        text_msg.raw.len()
+    );
+    let nano_id = nanoid!();
+    let ack_raw_id = text_msg.nano_id.clone();
+    let ack_nano_id = nano_id.clone();
+    let now = get_now_time_stamp_as_millis()?;
+    let group_msg = GroupQuicMsg {
+        nano_id: nano_id.clone(),
+        msg_type: text_msg.text_type,
+        group_uuid: text_msg.recv_user.clone(),
+        send_user: text_msg.send_user.clone(),
+        raw: text_msg.raw.clone(),
+        timestamp: now,
+    };
+
+    let conns = connections.clone();
+    let conn_key = connection_key.to_string();
+    let current_user = text_msg.send_user.clone();
+    let core_clone = core.clone();
+    tokio::spawn(async move {
+        debug!(
+            "[群聊] 处理群聊消息 nano_id={} group={} sender={}",
+            nano_id, group_msg.group_uuid, group_msg.send_user
+        );
+        if let Err(e) =
+            handle_group_msg_from_client(&core_clone, group_msg, server_index, &conns).await
+        {
+            error!("[群聊] 处理群聊消息失败: {}", e);
+            return;
+        }
+        let now = get_now_time_stamp_as_millis().unwrap_or(0);
+        if let Err(e) = send_msg_record_success(
+            ack_nano_id,
+            &conn_key,
+            current_user,
+            ack_raw_id,
+            now,
+            &conns,
+            message_types::MSG_TYPE_GROUP_ACK,
+        )
+        .await
+        {
+            error!("[群聊] 发送 ACK 失败: {}", e);
+        }
+    });
     Ok(())
 }
 
