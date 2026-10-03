@@ -42,7 +42,7 @@ pub async fn process_rec_msg(
     server_index: u32,
 ) -> anyhow::Result<()> {
     let text_vec = get_text_msg(buffer, length, buffer_msg, head_length).await?;
-    info!("[单聊] 收到客户端消息 {:?}", text_vec);
+    debug!("[单聊] 收到客户端消息 {:?}", text_vec);
     process_text_msg(core, text_vec, uuid, platform, connection_key, &connections, server_index)
         .await?;
 
@@ -73,8 +73,6 @@ async fn process_text_msg(
         if matches!(
             text_msg.text_type,
             message_types::MSG_TYPE_GROUP_TEXT
-                | message_types::MSG_TYPE_GROUP_IMAGE
-                | message_types::MSG_TYPE_GROUP_FILE
                 | message_types::MSG_TYPE_GROUP_NOTIFICATION
         ) {
             debug!(

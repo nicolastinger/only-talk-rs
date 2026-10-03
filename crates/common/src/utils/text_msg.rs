@@ -10,9 +10,7 @@ pub trait TextMsg {
 
 #[repr(u16)]
 pub enum MessageType {
-    Text = 1,  // 文本消息
-    Image = 2, // 图片消息
-    File = 3,  // 文件消息
+    Text = 1, // 文本消息
     P2P = 4,
     P2PVideoCall = 5,
     P2pVideoData = 6,

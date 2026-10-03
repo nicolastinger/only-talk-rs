@@ -3,12 +3,6 @@
 /// 纯文本消息
 pub const MSG_TYPE_TEXT: u16 = 1;
 
-/// 图片消息
-pub const MSG_TYPE_IMAGE: u16 = 2;
-
-/// 文件消息
-pub const MSG_TYPE_FILE: u16 = 3;
-
 /// P2P 消息（客户端直连通信，服务端仅转发）
 pub const MSG_TYPE_P2P: u16 = 4;
 
@@ -67,12 +61,6 @@ pub const INTERNAL_FRIEND_NOTIFY: u16 = 20001;
 
 /// 群文本消息
 pub const MSG_TYPE_GROUP_TEXT: u16 = 2001;
-
-/// 群图片消息
-pub const MSG_TYPE_GROUP_IMAGE: u16 = 2002;
-
-/// 群文件消息
-pub const MSG_TYPE_GROUP_FILE: u16 = 2003;
 
 /// 群通知消息(成员变更等)
 pub const MSG_TYPE_GROUP_NOTIFICATION: u16 = 2004;

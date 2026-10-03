@@ -22,7 +22,7 @@ use crate::models::group_entity::group_member::{
     GroupMember, ROLE_ADMIN, ROLE_MEMBER, ROLE_OWNER, STATUS_KICKED, STATUS_NORMAL, STATUS_QUIT,
 };
 use crate::models::group_entity::group_message_record::{
-    GroupMessageRecord, MSG_TYPE_FILE, MSG_TYPE_IMAGE, MSG_TYPE_TEXT,
+    GroupMessageRecord, MSG_TYPE_TEXT,
 };
 use crate::models::moment_entity::moment::Moment;
 use crate::models::moment_entity::moment_comment::MomentComment;
@@ -84,8 +84,6 @@ mod constants {
     #[test]
     fn group_message_type_constants() {
         assert_eq!(MSG_TYPE_TEXT, 1);
-        assert_eq!(MSG_TYPE_IMAGE, 2);
-        assert_eq!(MSG_TYPE_FILE, 3);
     }
 }
 

@@ -25,8 +25,7 @@ use std::time::Duration;
 use common::config_str::SYSTEM;
 use common::utils::internal_quic_client::make_internal_client_config;
 use common::utils::message_types::{
-    MSG_TYPE_FILE, MSG_TYPE_FORCE_LOGOUT, MSG_TYPE_GROUP_ACK, MSG_TYPE_GROUP_FILE,
-    MSG_TYPE_GROUP_IMAGE, MSG_TYPE_GROUP_NOTIFICATION, MSG_TYPE_GROUP_TEXT, MSG_TYPE_IMAGE,
+    MSG_TYPE_FORCE_LOGOUT, MSG_TYPE_GROUP_ACK, MSG_TYPE_GROUP_NOTIFICATION, MSG_TYPE_GROUP_TEXT,
     MSG_TYPE_P2P, MSG_TYPE_P2P_VIDEO_CALL, MSG_TYPE_P2P_VIDEO_CALL_ACCEPT,
     MSG_TYPE_P2P_VIDEO_CALL_END, MSG_TYPE_P2P_VIDEO_CALL_INVITE, MSG_TYPE_P2P_VIDEO_CALL_REJECT,
     MSG_TYPE_P2P_VIDEO_CONFIG, MSG_TYPE_P2P_VIDEO_DATA, MSG_TYPE_PING, MSG_TYPE_RECALL_FAILURE,
@@ -279,8 +278,6 @@ fn parse_frames(buf: &[u8], hl: usize) -> Vec<(HeadMsg, TextQuicMsg)> {
 fn type_label(t: u16) -> String {
     let name = match t {
         MSG_TYPE_TEXT => "文本",
-        MSG_TYPE_IMAGE => "图片",
-        MSG_TYPE_FILE => "文件",
         MSG_TYPE_P2P => "P2P转发",
         MSG_TYPE_P2P_VIDEO_CALL => "P2P视频呼叫",
         MSG_TYPE_P2P_VIDEO_DATA => "P2P视频数据",
@@ -292,8 +289,6 @@ fn type_label(t: u16) -> String {
         MSG_TYPE_FORCE_LOGOUT => "强制下线",
         NOTIFY_TYPE_MSG => "通知",
         MSG_TYPE_GROUP_TEXT => "群文本",
-        MSG_TYPE_GROUP_IMAGE => "群图片",
-        MSG_TYPE_GROUP_FILE => "群文件",
         MSG_TYPE_GROUP_NOTIFICATION => "群通知",
         MSG_TYPE_GROUP_ACK => "群回执",
         MSG_TYPE_WEBRTC_SIGNAL => "WebRTC信令",

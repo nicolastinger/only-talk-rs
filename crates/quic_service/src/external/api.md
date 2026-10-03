@@ -416,8 +416,6 @@ pub trait TextMsg {
 | 常量 | 值 | 含义 |
 | --- | --- | --- |
 | `MSG_TYPE_TEXT` | 1 | 单聊文本消息 |
-| `MSG_TYPE_IMAGE` | 2 | 图片消息 |
-| `MSG_TYPE_FILE` | 3 | 文件消息 |
 | `MSG_TYPE_P2P` | 4 | P2P 消息 |
 | `MSG_TYPE_P2P_VIDEO_CALL` | 5 | P2P 视频通话 |
 | `MSG_TYPE_P2P_VIDEO_DATA` | 6 | P2P 视频数据 |
@@ -429,8 +427,6 @@ pub trait TextMsg {
 | `MSG_TYPE_P2P_USER_CLIENT` | 204 | 通知作为 P2P 客户端 |
 | `MSG_TYPE_SYSTEM` | 10001 | 系统通知 |
 | `MSG_TYPE_GROUP_TEXT` | 2001 | 群聊文本消息 |
-| `MSG_TYPE_GROUP_IMAGE` | 2002 | 群聊图片消息 |
-| `MSG_TYPE_GROUP_FILE` | 2003 | 群聊文件消息 |
 | `MSG_TYPE_GROUP_NOTIFICATION` | 2004 | 群聊通知消息 |
 | `MSG_TYPE_GROUP_ACK` | 2201 | 群聊消息 ACK（服务器→客户端） |
 

@@ -6,8 +6,6 @@ use serde::{Deserialize, Serialize};
 
 /// 群消息类型
 pub const MSG_TYPE_TEXT: i16 = 1;
-pub const MSG_TYPE_IMAGE: i16 = 2;
-pub const MSG_TYPE_FILE: i16 = 3;
 
 /// 群消息记录（读扩散，只存 1 份）
 #[derive(Clone, Deserialize, Serialize, Debug)]
@@ -24,7 +22,7 @@ pub struct GroupMessageRecord {
     pub timestamp: Option<i64>,
     /// 原始消息内容
     pub raw: Bytes,
-    /// 消息类型 (1: 文本, 2: 图片, 3: 文件)
+    /// 消息类型 (1: 文本)
     pub msg_type: Option<i16>,
     /// 是否撤回
     pub recalled: Option<bool>,

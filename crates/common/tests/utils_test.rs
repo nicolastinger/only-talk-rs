@@ -21,8 +21,7 @@ use common::utils::internal_quic_client::make_internal_client_config;
 use common::utils::internal_quic_msg::{InternalQuicRequest, InternalQuicResponse, RequestSource};
 use common::utils::jwt_util::{generate_access_token, generate_token_with_expiry, verify_token};
 use common::utils::message_types::{
-    INTERNAL_FRIEND_NOTIFY, MSG_TYPE_FILE, MSG_TYPE_GROUP_ACK, MSG_TYPE_GROUP_FILE,
-    MSG_TYPE_GROUP_IMAGE, MSG_TYPE_GROUP_NOTIFICATION, MSG_TYPE_GROUP_TEXT, MSG_TYPE_IMAGE,
+    INTERNAL_FRIEND_NOTIFY, MSG_TYPE_GROUP_ACK, MSG_TYPE_GROUP_NOTIFICATION, MSG_TYPE_GROUP_TEXT,
     MSG_TYPE_P2P, MSG_TYPE_P2P_USER_CLIENT, MSG_TYPE_P2P_USER_SERVER, MSG_TYPE_P2P_VIDEO_CALL,
     MSG_TYPE_P2P_VIDEO_CONFIG, MSG_TYPE_P2P_VIDEO_DATA, MSG_TYPE_PING, MSG_TYPE_RECALL_FAILURE,
     MSG_TYPE_RECALL_SUCCESS, MSG_TYPE_SYSTEM, MSG_TYPE_TEXT, NOTIFY_TYPE_MSG,
@@ -183,8 +182,6 @@ mod message_types {
     #[test]
     fn constants_values() {
         assert_eq!(MSG_TYPE_TEXT, 1);
-        assert_eq!(MSG_TYPE_IMAGE, 2);
-        assert_eq!(MSG_TYPE_FILE, 3);
         assert_eq!(MSG_TYPE_P2P, 4);
         assert_eq!(MSG_TYPE_P2P_VIDEO_CALL, 5);
         assert_eq!(MSG_TYPE_P2P_VIDEO_DATA, 6);
@@ -198,8 +195,6 @@ mod message_types {
         assert_eq!(MSG_TYPE_SYSTEM, 10001);
         assert_eq!(INTERNAL_FRIEND_NOTIFY, 20001);
         assert_eq!(MSG_TYPE_GROUP_TEXT, 2001);
-        assert_eq!(MSG_TYPE_GROUP_IMAGE, 2002);
-        assert_eq!(MSG_TYPE_GROUP_FILE, 2003);
         assert_eq!(MSG_TYPE_GROUP_NOTIFICATION, 2004);
         assert_eq!(MSG_TYPE_GROUP_ACK, 2201);
     }
@@ -261,8 +256,6 @@ mod text_msg {
     #[test]
     fn message_type_variants_match_constants() {
         assert_eq!(MessageType::Text as u16, MSG_TYPE_TEXT);
-        assert_eq!(MessageType::Image as u16, MSG_TYPE_IMAGE);
-        assert_eq!(MessageType::File as u16, MSG_TYPE_FILE);
         assert_eq!(MessageType::P2P as u16, MSG_TYPE_P2P);
         assert_eq!(MessageType::P2PVideoCall as u16, MSG_TYPE_P2P_VIDEO_CALL);
         assert_eq!(MessageType::P2pVideoData as u16, MSG_TYPE_P2P_VIDEO_DATA);
