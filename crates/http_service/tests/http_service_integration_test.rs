@@ -10,6 +10,7 @@
 //!   cargo test -p http_service --test http_service_integration_test -- --ignored
 //! 前提：本地 PostgreSQL、Redis 可用，且仓库根目录存在 `.env`。
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -18,7 +19,8 @@ use actix_web::middleware::from_fn;
 use actix_web::{App, test, web};
 use anyhow::{Context, Result, anyhow};
 use common::config_str::{
-    AUTH_FACTOR_EMAIL_VERIFY_CODE, EMAIL_VERIFY_CODE, REGISTER_SESSION_TOKEN,
+    AUTH_FACTOR_EMAIL_VERIFY_CODE, AUTH_FACTOR_PASSWORD_VERIFY_CODE, EMAIL_VERIFY_CODE,
+    REGISTER_SESSION_TOKEN,
 };
 use common::models::chat_entity::chat_message_record::ChatMessageRecord;
 use common::models::group_entity::group_info::GroupInfo;
@@ -38,12 +40,12 @@ use common::models::user_entity::user_auth_factor::{AUTH_FACTOR_TYPE_EMAIL, User
 use common::models::user_entity::user_info::UserInfo;
 use common::state::CoreState;
 use common::utils::jwt_util::generate_access_token;
-use common::utils::rsa_util::hash_password;
+use common::utils::rsa_util::{hash_password, verify_password};
 use common::utils::session_uuid::single_session_uuid;
 use common::utils::time::get_now_time_stamp_as_millis;
 use deadpool_redis::redis::{AsyncCommands, cmd};
 use deadpool_redis::{Config as RedisConfig, Pool, Runtime};
-use email_service::config::EmailServiceConfig;
+use email_service::config::{AliyunConfig, EmailServiceConfig, ProviderConfig};
 use email_service::manager::EmailManager;
 use futures_util::FutureExt;
 use http_service::http_service::configure_routes;
@@ -211,15 +213,16 @@ async fn http_service_user_api_integration() -> Result<()> {
         .context("写入种子用户邮箱渠道失败")?;
         info!("种子用户已写入: {}", SEED_ACCOUNT);
 
+        // 邮件管理器: 默认空配置(不发送); .env 开启 EMAIL_ENABLED 时使用阿里云真实投递,
+        // 并返回可用于真实发码测试的收件邮箱(见 build_test_email_manager)。
+        let (email_manager, live_recipient) = build_test_email_manager()?;
+
         let state = AppState {
             core: CoreState { db: test_rb.clone(), redis: redis_pool.clone() },
             s3: Arc::new(
                 S3Client::new(S3Config::default_minio()).await.context("初始化 S3 客户端失败")?,
             ),
-            email: Arc::new(
-                EmailManager::new(EmailServiceConfig::default())
-                    .context("初始化 EmailManager 失败")?,
-            ),
+            email: email_manager,
         };
 
         let app = test::init_service(
@@ -1783,6 +1786,123 @@ async fn http_service_user_api_integration() -> Result<()> {
         assert!(rows.is_empty(), "物理删除后不应有残留记录");
         info!("二次认证因素接口全部通过");
 
+        // ===== 12. 修改密码(二次认证验证码) =====
+        // §11 末尾已解绑, 这里重新为种子用户绑定 email 因素作为修改密码的验证渠道
+        let now_pw = get_now_time_stamp_as_millis()?;
+        UserAuthFactor::insert(
+            &test_rb,
+            &UserAuthFactor {
+                id: None,
+                user_id: Some(seed_uuid_rbdc.clone()),
+                factor_type: Some(AUTH_FACTOR_TYPE_EMAIL),
+                factor_value: Some(
+                    live_recipient.clone().unwrap_or_else(|| SEED_EMAIL.to_string()),
+                ),
+                verified: Some(true),
+                enabled: Some(true),
+                is_primary: Some(true),
+                status: Some(1),
+                verified_at: Some(now_pw),
+                last_used_at: None,
+                created_at: Some(now_pw),
+                updated_at: Some(now_pw),
+                deleted_at: None,
+            },
+        )
+        .await
+        .context("写入修改密码用 email 因素失败")?;
+
+        // 12.1 未绑定因素的用户发码 -> 400(在真正发信前即被拦截)
+        let no_factor_uuid = Uuid::now_v7();
+        let no_factor_rbdc: RbatisUuid =
+            no_factor_uuid.to_string().parse().context("解析用户 UUID 失败")?;
+        BasicUser::insert(
+            &test_rb,
+            &BasicUser {
+                uuid: Some(no_factor_rbdc),
+                username: Some("cp_no_factor".to_string()),
+                account: Some("cp_no_factor".to_string()),
+                icon: None,
+                info: Some(String::new()),
+                password: Some(hash_password("NoFactorPass123456").context("生成密码失败")?),
+                registration_status: Some(1),
+                user_type: Some(0),
+            },
+        )
+        .await
+        .context("写入未绑定因素用户失败")?;
+        let no_factor_token = generate_access_token(no_factor_uuid.to_string(), "PC".to_string())
+            .context("生成未绑定因素用户 token 失败")?;
+        let (status, json) = post_json(
+            &app,
+            "/user/change_password/send_code",
+            Some(&json_factor_type(0)),
+            Some(&no_factor_token),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "未绑定因素发码应 400: {json}");
+
+        // 12.2 非 email 渠道 -> 400(暂未开放)
+        let (status, json) = post_json(
+            &app,
+            "/user/change_password/send_code",
+            Some(&json_factor_type(1)),
+            Some(&access_token),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "非 email 渠道应 400: {json}");
+
+        // 12.3 获取验证码: 真实投递(EMAIL_ENABLED)时调用发码接口并从 Redis 读取, 否则预置
+        let pw_code_key =
+            format!("{}{}", AUTH_FACTOR_PASSWORD_VERIFY_CODE, seed_uuid_rbdc).to_uppercase();
+        let pw_code: String = if live_recipient.is_some() {
+            let (status, json) = post_json(
+                &app,
+                "/user/change_password/send_code",
+                Some(&json_factor_type(0)),
+                Some(&access_token),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "真实发码应成功: {json}");
+            assert_eq!(json["code"], 204, "真实发码 code 应为 204: {json}");
+            let stored: Option<String> =
+                conn.get(&pw_code_key).await.context("读取修改密码验证码失败")?;
+            stored.context("真实发码后 Redis 应存在验证码")?
+        } else {
+            let _: () =
+                conn.set_ex(&pw_code_key, "246810", 300).await.context("写入修改密码验证码失败")?;
+            "246810".to_string()
+        };
+
+        // 12.4 验证码错误 -> 400
+        let wrong_code = if pw_code == "000000" { "111111" } else { "000000" };
+        let wrong_pw = json_change_password(0, wrong_code, "NewPassword123456");
+        let (status, json) =
+            post_json(&app, "/user/change_password", Some(&wrong_pw), Some(&access_token)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "验证码错误应 400: {json}");
+
+        // 12.5 正确验证码 -> 修改成功(code 204)
+        let pw_body = json_change_password(0, &pw_code, "NewPassword123456");
+        let (status, json) =
+            post_json(&app, "/user/change_password", Some(&pw_body), Some(&access_token)).await;
+        assert_eq!(status, StatusCode::OK, "修改密码应成功: {json}");
+        assert_eq!(json["code"], 204, "修改密码 code 应为 204: {json}");
+
+        // 12.6 新密码已写入 basic_user 且旧密码失效
+        let updated_user = BasicUser::select_by_uuid(&test_rb, &seed_uuid_rbdc)
+            .await
+            .context("查询种子用户失败")?
+            .context("种子用户不存在")?;
+        let hash = updated_user.password.context("种子用户密码为空")?;
+        assert!(verify_password("NewPassword123456", &hash), "新密码应校验通过");
+        assert!(!verify_password(SEED_PASSWORD, &hash), "旧密码应失效");
+
+        // 12.7 验证码已消费, 重放 -> 400
+        let (status, json) =
+            post_json(&app, "/user/change_password", Some(&pw_body), Some(&access_token)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "验证码重放应 400: {json}");
+        info!("修改密码(二次认证验证码)接口全部通过");
+
         Ok::<(), anyhow::Error>(())
     })
     .catch_unwind()
@@ -2051,6 +2171,26 @@ fn json_auth_factor(
     JsonValue::Object(map)
 }
 
+/// 构造仅含数字 `factor_type` 的 JSON 对象(发送修改密码验证码请求体)
+fn json_factor_type(factor_type: i64) -> JsonValue {
+    let mut map = serde_json::Map::new();
+    map.insert("factor_type".to_string(), JsonValue::from(factor_type));
+    JsonValue::Object(map)
+}
+
+/// 构造修改密码请求体(`factor_type` 为数字, 其余为字符串)
+fn json_change_password(
+    factor_type: i64,
+    verification_code: &str,
+    new_password: &str,
+) -> JsonValue {
+    let mut map = serde_json::Map::new();
+    map.insert("factor_type".to_string(), JsonValue::from(factor_type));
+    map.insert("verification_code".to_string(), JsonValue::String(verification_code.to_string()));
+    map.insert("new_password".to_string(), JsonValue::String(new_password.to_string()));
+    JsonValue::Object(map)
+}
+
 /// 发送 POST 请求并返回 (HTTP 状态码, 解析后的 JSON 响应)
 async fn post_json<S, B>(
     app: &S,
@@ -2105,6 +2245,61 @@ where
 fn init_tracing() {
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
     let _ = fmt().with_env_filter(filter).with_writer(std::io::stdout).try_init();
+}
+
+/// 构建测试用邮件管理器。
+///
+/// - 默认(未开启邮件)返回空配置管理器, 任何发送都会失败 —— 测试保持 hermetic, 不触网。
+/// - 当 `.env` 配置 `EMAIL_ENABLED=true` 且凭据齐全时, 使用阿里云提供商构建真实管理器;
+///   此时返回的收件邮箱优先取 `EMAIL_TEST_RECIPIENT`, 回退 `EMAIL_ACCOUNT_NAME`(自发自收),
+///   供"真实发码"用例使用。业务代码从全局 config 读取发件人, 这里同步写入 `email.account_name`。
+fn build_test_email_manager() -> Result<(Arc<EmailManager>, Option<String>)> {
+    let enabled = std::env::var("EMAIL_ENABLED")
+        .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
+        .unwrap_or(false);
+    if !enabled {
+        info!("EMAIL_ENABLED 未开启, 使用空邮件管理器(不发送)");
+        return Ok((Arc::new(EmailManager::new(EmailServiceConfig::default())?), None));
+    }
+
+    let access_key_id = std::env::var("EMAIL_ACCESS_KEY_ID").unwrap_or_default();
+    let access_key_secret = std::env::var("EMAIL_ACCESS_KEY_SECRET").unwrap_or_default();
+    let account_name = std::env::var("EMAIL_ACCOUNT_NAME").unwrap_or_default();
+    if access_key_id.is_empty() || access_key_secret.is_empty() || account_name.is_empty() {
+        info!(
+            "EMAIL_ENABLED=true 但缺少 EMAIL_ACCESS_KEY_ID/SECRET/ACCOUNT_NAME, 回退空邮件管理器"
+        );
+        return Ok((Arc::new(EmailManager::new(EmailServiceConfig::default())?), None));
+    }
+
+    let region_id = std::env::var("EMAIL_REGION_ID").unwrap_or_else(|_| "cn-hangzhou".to_string());
+    common::config_manager::set_config("email.account_name".to_string(), account_name.clone());
+
+    let aliyun = AliyunConfig {
+        enabled: true,
+        priority: 100,
+        access_key_id,
+        access_key_secret,
+        region_id,
+        account_name: account_name.clone(),
+        from_alias: Some("OnlyTalk".to_string()),
+        ..Default::default()
+    };
+    let mut providers = HashMap::new();
+    providers.insert("aliyun".to_string(), ProviderConfig::Aliyun(aliyun));
+    let config = EmailServiceConfig {
+        default_provider: Some("aliyun".to_string()),
+        providers,
+        ..Default::default()
+    };
+    let manager = EmailManager::new(config).context("初始化阿里云邮件管理器失败")?;
+
+    let recipient = std::env::var("EMAIL_TEST_RECIPIENT")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| account_name.clone());
+    info!("已启用真实邮件投递, 测试收件邮箱: {}", recipient);
+    Ok((Arc::new(manager), Some(recipient)))
 }
 
 /// 脱敏打印连接串，避免把密码输出到日志

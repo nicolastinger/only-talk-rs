@@ -4,6 +4,9 @@ use tracing::info;
 
 use crate::common::dto::base_dto::AuthAccount;
 use crate::http_service::user_service::dto::basic_user_dto::SignInBasicUserDTO;
+use crate::http_service::user_service::dto::change_password_dto::{
+    ChangePasswordDTO, ChangePasswordSendCodeDTO,
+};
 use crate::http_service::user_service::dto::complete_profile_dto::CompleteProfileDTO;
 use crate::http_service::user_service::dto::fetch_sqlite_key_dto::FetchSqliteKeyDTO;
 use crate::http_service::user_service::dto::github_oauth_dto::{
@@ -17,10 +20,10 @@ use crate::http_service::user_service::service::github_oauth_service::{
     github_authorize_url_service, github_oauth_callback_service,
 };
 use crate::http_service::user_service::service::user_service::{
-    complete_profile_service, fetch_or_create_sqlite_db_key, get_exit_user,
-    get_user_info_by_account, get_user_info_by_uuid, get_user_uuid_by_account_service,
-    refresh_access_token, send_verify_code_service, sign_up_step1_service,
-    update_user_info_service, user_sign_in,
+    change_password_send_code_service, change_password_service, complete_profile_service,
+    fetch_or_create_sqlite_db_key, get_exit_user, get_user_info_by_account, get_user_info_by_uuid,
+    get_user_uuid_by_account_service, refresh_access_token, send_verify_code_service,
+    sign_up_step1_service, update_user_info_service, user_sign_in,
 };
 use crate::state::AppState;
 use crate::utils::http_response::{CommonResponse, CommonResponseNoDataRef};
@@ -40,7 +43,9 @@ pub fn user_service(cfg: &mut web::ServiceConfig) {
         .service(get_user_by_uuid_api)
         .service(get_user_uuid_by_account_api)
         .service(fetch_sqlite_db_key_api)
-        .service(update_user_info_api);
+        .service(update_user_info_api)
+        .service(change_password_send_code)
+        .service(change_password);
 }
 
 /// 登录/发码端点的人为延迟(tarpit): 无条件随机 3-5s, 抬高爆破/刷码的每尝试成本。
@@ -200,5 +205,32 @@ pub async fn update_user_info_api(
     let update_dto = validate_and_respond!(update_dto);
     let uuid = get_uuid_from_header!(req);
     let res = update_user_info_service(state.db(), uuid, update_dto).await;
+    respond_json_any!(res)
+}
+
+/// 修改密码第一步: 向已绑定二次认证因素(当前仅 email)发送验证码
+#[post("/change_password/send_code")]
+pub async fn change_password_send_code(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+    dto: web::Json<ChangePasswordSendCodeDTO>,
+) -> impl Responder {
+    let dto = validate_and_respond!(dto);
+    let uuid = get_uuid_from_header!(req);
+    let res =
+        change_password_send_code_service(state.db(), state.redis(), &state.email, uuid, dto).await;
+    respond_json_any!(res)
+}
+
+/// 修改密码第二步: 校验验证码并更新密码
+#[post("/change_password")]
+pub async fn change_password(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+    dto: web::Json<ChangePasswordDTO>,
+) -> impl Responder {
+    let dto = validate_and_respond!(dto);
+    let uuid = get_uuid_from_header!(req);
+    let res = change_password_service(state.db(), state.redis(), uuid, dto).await;
     respond_json_any!(res)
 }

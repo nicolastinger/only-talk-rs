@@ -7,10 +7,12 @@ use aes_gcm::aead::Aead;
 use aes_gcm::{Aes256Gcm, Key, KeyInit, Nonce};
 use anyhow::anyhow;
 use common::config_str::{
-    EMAIL_VERIFY_CODE, MOBILE_PLATFORM, PC_PLATFORM, REFRESH_TOKEN, REGISTER_SESSION_TOKEN,
+    AUTH_FACTOR_PASSWORD_VERIFY_CODE, EMAIL_VERIFY_CODE, MOBILE_PLATFORM, PC_PLATFORM,
+    REFRESH_TOKEN, REGISTER_SESSION_TOKEN,
 };
 use common::models::user_entity::basic_user::{BasicUser, USER_TYPE_NORMAL};
 use common::models::user_entity::email_sso::EmailSso;
+use common::models::user_entity::user_auth_factor::{AUTH_FACTOR_TYPE_EMAIL, UserAuthFactor};
 use common::models::user_entity::user_info::UserInfo;
 use common::models::user_entity::user_login_log::{
     LOGIN_EVENT_ACCOUNT_NOT_FOUND, LOGIN_EVENT_PASSWORD_FAIL, LOGIN_EVENT_REFRESH,
@@ -31,6 +33,9 @@ use tracing::{error, info};
 use uuid::Uuid;
 
 use crate::http_service::user_service::dto::basic_user_dto::SignInBasicUserDTO;
+use crate::http_service::user_service::dto::change_password_dto::{
+    ChangePasswordDTO, ChangePasswordSendCodeDTO,
+};
 use crate::http_service::user_service::dto::complete_profile_dto::CompleteProfileDTO;
 use crate::http_service::user_service::dto::fetch_sqlite_key_dto::FetchSqliteKeyDTO;
 use crate::http_service::user_service::dto::refresh_token_dto::RefreshTokenDTO;
@@ -299,6 +304,98 @@ pub async fn complete_profile_service(
 
     // 5. 消费注册会话 token
     let _: Result<(), _> = conn.del(&key).await;
+
+    Ok(CommonResponseNoDataRef::success_empty())
+}
+
+/// 修改密码第一步: 向用户已绑定的认证因素(当前仅 email)发送验证码。
+///
+/// 由客户端传入 `factor_type` 决定渠道; 服务端从 `user_auth_factor` 取该用户对应类型的因素值。
+/// 验证码以用户 uuid 为键写入 Redis, 5 分钟有效(与绑定/注册验证码隔离)。
+pub async fn change_password_send_code_service(
+    rb: &RBatis,
+    redis: &deadpool_redis::Pool,
+    email_manager: &EmailManager,
+    my_uuid: Option<String>,
+    dto: ChangePasswordSendCodeDTO,
+) -> Result<String, anyhow::Error> {
+    let uuid_str = my_uuid.ok_or(anyhow!("用户ID为空"))?;
+    let uuid = rbatis::rbdc::Uuid::from_str(&uuid_str)?;
+
+    // 当前仅开放 email 渠道, 后续可扩展 phone
+    if dto.factor_type != AUTH_FACTOR_TYPE_EMAIL {
+        return Err(anyhow!("暂未开放该认证渠道"));
+    }
+
+    // 必须已绑定对应类型的二次认证因素
+    let factor = UserAuthFactor::select_by_user_and_type(rb, &uuid, dto.factor_type)
+        .await?
+        .ok_or_else(|| anyhow!("未绑定邮箱二次认证, 请先绑定"))?;
+    let email = factor.factor_value.ok_or_else(|| anyhow!("认证因素信息缺失"))?;
+
+    // 生成 6 位验证码并写入 Redis(键含用户 uuid, 5 分钟有效)
+    let code = format!("{:06}", rand::thread_rng().gen_range(0..1_000_000));
+    let mut conn = redis.get().await?;
+    let key = format!("{}{}", AUTH_FACTOR_PASSWORD_VERIFY_CODE, uuid).to_uppercase();
+    conn.set_ex::<&str, &str, ()>(&key, &code, 300).await?;
+
+    // 通过阿里云邮件发送验证码
+    let account_name = common::config_manager::get_config("email.account_name").unwrap_or_default();
+    let mail = Email::builder()
+        .from(EmailAddress::new(&account_name).map_err(|e| anyhow!("发件人配置错误: {}", e))?)
+        .to(EmailAddress::new(&email).map_err(|e| anyhow!("收件人邮箱格式错误: {}", e))?)
+        .subject("OnlyTalk 修改密码验证码")
+        .text_body(format!("您的修改密码验证码是: {},5 分钟内有效,请勿泄露给他人。", code))
+        .build()
+        .map_err(|e| anyhow!("构建邮件失败: {}", e))?;
+
+    let result = email_manager.send(&mail).await.map_err(|e| anyhow!("邮件发送失败: {}", e))?;
+    if !result.is_success() {
+        let reason = result.error.as_ref().map(|e| e.message.clone()).unwrap_or_default();
+        return Err(anyhow!("邮件发送失败: {}", reason));
+    }
+
+    Ok(CommonResponseNoDataRef::success_empty())
+}
+
+/// 修改密码第二步: 校验验证码(消费)通过后, 将新密码哈希写入 basic_user。
+pub async fn change_password_service(
+    rb: &RBatis,
+    redis: &deadpool_redis::Pool,
+    my_uuid: Option<String>,
+    dto: ChangePasswordDTO,
+) -> Result<String, anyhow::Error> {
+    let uuid_str = my_uuid.ok_or(anyhow!("用户ID为空"))?;
+    let uuid = rbatis::rbdc::Uuid::from_str(&uuid_str)?;
+
+    // 当前仅开放 email 渠道, 且必须已绑定
+    if dto.factor_type != AUTH_FACTOR_TYPE_EMAIL {
+        return Err(anyhow!("暂未开放该认证渠道"));
+    }
+    if UserAuthFactor::select_by_user_and_type(rb, &uuid, dto.factor_type).await?.is_none() {
+        return Err(anyhow!("未绑定邮箱二次认证, 请先绑定"));
+    }
+
+    // 校验并消费验证码
+    let code = dto.verification_code.as_ref().ok_or_else(|| anyhow!("验证码为空"))?;
+    let mut conn = redis.get().await?;
+    let key = format!("{}{}", AUTH_FACTOR_PASSWORD_VERIFY_CODE, uuid).to_uppercase();
+    let stored: Option<String> = conn.get(&key).await?;
+    match stored {
+        Some(stored) if stored == *code => {
+            let _: Result<(), _> = conn.del(&key).await;
+        }
+        _ => return Err(anyhow!("验证码错误或已过期")),
+    }
+
+    // 更新密码
+    let new_password = dto.new_password.as_ref().ok_or_else(|| anyhow!("新密码为空"))?;
+    let hashed_password = hash_password(new_password)?;
+
+    let mut basic_user =
+        BasicUser::select_by_uuid(rb, &uuid).await?.ok_or(anyhow!("用户不存在"))?;
+    basic_user.password = Some(hashed_password);
+    BasicUser::update_by_uuid(rb, &basic_user, &uuid).await?;
 
     Ok(CommonResponseNoDataRef::success_empty())
 }
