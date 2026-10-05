@@ -36,6 +36,10 @@ use crate::models::user_entity::enterprise_info::EnterpriseInfo;
 use crate::models::user_entity::friend_link::FriendLink;
 use crate::models::user_entity::friend_request_info::FriendRequestInfo;
 use crate::models::user_entity::robot_info::RobotInfo;
+use crate::models::user_entity::user_auth_factor::{
+    AUTH_FACTOR_STATUS_DISABLED, AUTH_FACTOR_STATUS_NORMAL, AUTH_FACTOR_STATUS_UNBOUND,
+    AUTH_FACTOR_TYPE_EMAIL, AUTH_FACTOR_TYPE_OTHER, AUTH_FACTOR_TYPE_PHONE, UserAuthFactor,
+};
 use crate::models::user_entity::user_info::UserInfo;
 use crate::models::user_entity::user_login_log::UserLoginLog;
 
@@ -151,6 +155,36 @@ mod user_entity {
             deleted_at: None,
         };
         assert_roundtrip(&sso);
+    }
+
+    #[test]
+    fn user_auth_factor_roundtrip() {
+        let factor = UserAuthFactor {
+            id: Some(1),
+            user_id: Some(uuid("00000000-0000-0000-0000-000000000001")),
+            factor_type: Some(AUTH_FACTOR_TYPE_EMAIL),
+            factor_value: Some("alice@example.com".to_string()),
+            verified: Some(true),
+            enabled: Some(true),
+            is_primary: Some(true),
+            status: Some(AUTH_FACTOR_STATUS_NORMAL),
+            verified_at: Some(1_700_000_000),
+            last_used_at: None,
+            created_at: Some(1_700_000_000),
+            updated_at: Some(1_700_000_001),
+            deleted_at: None,
+        };
+        assert_roundtrip(&factor);
+    }
+
+    #[test]
+    fn user_auth_factor_constants() {
+        assert_eq!(AUTH_FACTOR_TYPE_EMAIL, 0);
+        assert_eq!(AUTH_FACTOR_TYPE_PHONE, 1);
+        assert_eq!(AUTH_FACTOR_TYPE_OTHER, 2);
+        assert_eq!(AUTH_FACTOR_STATUS_DISABLED, 0);
+        assert_eq!(AUTH_FACTOR_STATUS_NORMAL, 1);
+        assert_eq!(AUTH_FACTOR_STATUS_UNBOUND, 2);
     }
 
     #[test]

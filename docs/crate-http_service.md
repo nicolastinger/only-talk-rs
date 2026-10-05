@@ -4,7 +4,7 @@ HTTP REST 服务层（actix-web），实现所有面向客户端的业务 API：
 
 ## 职责
 
-- 提供 actix `configure_routes` 路由注册入口（`/user` `/friend` `/group` `/msg` `/file` `/notify` `/session` 等 scope）
+- 提供 actix `configure_routes` 路由注册入口（`/user` `/friend` `/group` `/msg` `/file` `/notify` `/session` `/auth_factor` 等 scope）
 - controller 层：接收 `web::Data<AppState>` 依赖注入，解析请求 DTO/路径/Header，调用 service
 - service 层：业务逻辑，通过窄签名（`rb: &RBatis` / `redis: &Pool` / `s3: Arc<S3Client>`）使用基础设施
 - 中间件：`TraceIdMiddleware`（全链路 TraceId）、`auth_middleware`（全局 JWT 鉴权 + 错误记录）
@@ -29,6 +29,7 @@ http_service/src/
     ├── chat_service/     # 单聊：聊天记录、未读、已读回执（Redis）
     ├── group_service/    # 群聊：建群/成员/邀请/消息历史/未读/解散，成员缓存到 Redis
     ├── notify_service/   # 系统通知: 中心列表(keyset 分页+分类过滤)、未读数汇总、批量/全部已读、QUIC 双端实时推送
+    ├── auth_factor_service/ # 二次认证因素: email 发码/绑定/列表/解绑(独立模块, 仅关联 basic_user)
     └── file_service/     # 文件：上传/下载/预签名 URL、S3 bucket 管理（s3_controller）
 ```
 

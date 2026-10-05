@@ -2,7 +2,7 @@
 
 ## 概述
 
-本文档说明 `ddl/` 目录下的建表脚本（共 36 个 `.sql`）及其执行方式。
+本文档说明 `ddl/` 目录下的建表脚本（共 38 个 `.sql`）及其执行方式。
 
 **执行顺序**：由文件名（`00_` / `01_` 前缀 + 字母序）决定，与「外键依赖」无关——除群表外，其余表之间**没有任何外键约束**（全目录仅 `01_group_tables.sql` 2 处、`group_invitation.sql` 1 处 `REFERENCES` 指向 `group_info`）。
 
@@ -101,6 +101,17 @@
 - `status` - 状态（0=正常，1=禁用，2=注销等）
 - `note` - 备注
 - `created_at` / `updated_at` - 创建/更新时间
+
+#### 6. 二次认证因素表 `user_auth_factor.sql`
+- `id` - 主键（`bigserial`）
+- `user_id` - 关联 `basic_user.uuid`（外键 `ON DELETE CASCADE`）
+- `factor_type` - 因素类型：0=email，1=phone，2=other（当前仅 email 接入）
+- `factor_value` - 因素值（邮箱/手机号/其他标识）
+- `verified` / `enabled` / `is_primary` - 是否已验证/启用/主因素
+- `status` - 因素状态（0=禁用，1=正常，2=已解绑）
+- `verified_at` / `last_used_at` / `deleted_at` - 时间戳（毫秒）
+- `created_at` / `updated_at` - 创建/更新时间（毫秒）
+- `UNIQUE(user_id, factor_type)` - 同一用户同类型至多一条
 
 ---
 
@@ -261,6 +272,7 @@ psql -U username -d database_name -f basic_user.sql
 psql -U username -d database_name -f user_info.sql
 psql -U username -d database_name -f user_cache.sql
 psql -U username -d database_name -f user_login_log.sql
+psql -U username -d database_name -f user_auth_factor.sql
 
 # 4. 文件上传相关表
 psql -U username -d database_name -f file_upload_record.sql
@@ -385,6 +397,7 @@ basic_user.sql (基础用户表)
     ├─→ user_info.sql (用户详细信息表)
     ├─→ user_cache.sql (用户缓存表)
     ├─→ user_login_log.sql (用户登录记录表)
+    ├─→ user_auth_factor.sql (二次认证因素表)
     ├─→ file_upload_record.sql (文件上传记录表)
     ├─→ biz_record.sql (文件上传业务表)
     ├─→ chat_biz_record.sql (聊天文件上传业务表)

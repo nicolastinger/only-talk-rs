@@ -38,6 +38,7 @@ const TABLES: &[&str] = &[
     "enterprise_info",
     "session",
     "user_session",
+    "user_auth_factor",
 ];
 
 /// 哈希分区表与其期望的分区数（任务02：两张消息表各 16 个分区）

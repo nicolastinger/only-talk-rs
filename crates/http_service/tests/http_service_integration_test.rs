@@ -17,7 +17,9 @@ use actix_web::http::StatusCode;
 use actix_web::middleware::from_fn;
 use actix_web::{App, test, web};
 use anyhow::{Context, Result, anyhow};
-use common::config_str::{EMAIL_VERIFY_CODE, REGISTER_SESSION_TOKEN};
+use common::config_str::{
+    AUTH_FACTOR_EMAIL_VERIFY_CODE, EMAIL_VERIFY_CODE, REGISTER_SESSION_TOKEN,
+};
 use common::models::chat_entity::chat_message_record::ChatMessageRecord;
 use common::models::group_entity::group_info::GroupInfo;
 use common::models::group_entity::group_message_record::{GroupMessageRecord, MSG_TYPE_TEXT};
@@ -32,8 +34,10 @@ use common::models::user_entity::basic_user::BasicUser;
 use common::models::user_entity::email_sso::EmailSso;
 use common::models::user_entity::friend_link::FriendLink;
 use common::models::user_entity::friend_request_info::FriendRequestInfo;
+use common::models::user_entity::user_auth_factor::{AUTH_FACTOR_TYPE_EMAIL, UserAuthFactor};
 use common::models::user_entity::user_info::UserInfo;
 use common::state::CoreState;
+use common::utils::jwt_util::generate_access_token;
 use common::utils::rsa_util::hash_password;
 use common::utils::session_uuid::single_session_uuid;
 use common::utils::time::get_now_time_stamp_as_millis;
@@ -1596,6 +1600,10 @@ async fn http_service_user_api_integration() -> Result<()> {
         )
         .await
         .context("插入长消息失败")?;
+        // 单聊聚合为 user_session 驱动(任务04b), 需先建 me 视角的 user_session 行
+        let max6 = ChatMessageRecord::max_id_by_session(&test_rb, &s6).await?;
+        upsert_user_session_ex(&test_rb, &u6r, &s6, SESSION_TYPE_SINGLE, Some(&p6r), 0, max6, 0, 0)
+            .await?;
         aggregate_user_sessions(&test_rb, &u6r).await.context("preview 聚合失败")?;
         let resp = list_sessions(&test_rb, Some(u6.to_string()), list_req(None, None)).await?;
         let row6 =
@@ -1653,6 +1661,127 @@ async fn http_service_user_api_integration() -> Result<()> {
         assert!(json["data"]["sessions"].as_array().is_some(), "应返回 sessions 数组: {json}");
         assert!(json["data"]["has_more"].as_bool().is_some(), "应返回 has_more: {json}");
         info!("任务06 会话列表与控制信息 全部通过");
+
+        // ===== 11. 二次认证因素(auth_factor) =====
+        // 测试环境未配置邮件服务商, 发码接口无法真正投递; 这里直接向 Redis 预置验证码,
+        // 覆盖 create/list/detail/delete 全链路与鉴权/越权/渠道校验等分支。
+        const AUTH_FACTOR_EMAIL: &str = "auth_factor_bind@example.com";
+        let af_code_key =
+            format!("{}{}", AUTH_FACTOR_EMAIL_VERIFY_CODE, AUTH_FACTOR_EMAIL).to_uppercase();
+        let _: () =
+            conn.set_ex(&af_code_key, "123456", 300).await.context("写入二次认证验证码失败")?;
+
+        // 11.1 无 token 访问受保护接口应被鉴权中间件拒绝
+        let result = test::try_call_service(
+            &app,
+            test::TestRequest::post().uri("/auth_factor/list").to_request(),
+        )
+        .await;
+        assert!(result.is_err(), "无 token 访问 /auth_factor/list 应被拒绝");
+
+        // 11.2 绑定前列表为空
+        let (status, json) =
+            post_json(&app, "/auth_factor/list", Some(&json_obj(&[])), Some(&access_token)).await;
+        assert_eq!(status, StatusCode::OK, "因素列表应成功: {json}");
+        assert_eq!(json["data"]["total"], 0, "绑定前因素数应为 0: {json}");
+
+        // 11.3 验证码错误 -> 400
+        let wrong_bind = json_auth_factor(0, AUTH_FACTOR_EMAIL, Some("000000"));
+        let (status, json) =
+            post_json(&app, "/auth_factor/create", Some(&wrong_bind), Some(&access_token)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "验证码错误应 400: {json}");
+
+        // 11.4 正确验证码 -> 绑定成功
+        let bind = json_auth_factor(0, AUTH_FACTOR_EMAIL, Some("123456"));
+        let (status, json) =
+            post_json(&app, "/auth_factor/create", Some(&bind), Some(&access_token)).await;
+        assert_eq!(status, StatusCode::OK, "绑定应成功: {json}");
+        assert_eq!(json["code"], 200, "绑定 code 应为 200: {json}");
+        assert_eq!(json["data"]["factor_type"], AUTH_FACTOR_TYPE_EMAIL, "类型应为 email: {json}");
+        assert_eq!(json["data"]["verified"], true, "绑定后应已验证: {json}");
+        let factor_id = json["data"]["id"].as_i64().context("绑定响应缺少因素 id")?;
+        let factor_body = json_num_id(factor_id);
+
+        // 11.5 列表返回 1 条
+        let (status, json) =
+            post_json(&app, "/auth_factor/list", Some(&json_obj(&[])), Some(&access_token)).await;
+        assert_eq!(status, StatusCode::OK, "因素列表应成功: {json}");
+        assert_eq!(json["data"]["total"], 1, "绑定后因素数应为 1: {json}");
+        assert_eq!(
+            json["data"]["list"][0]["factor_value"], AUTH_FACTOR_EMAIL,
+            "因素值应一致: {json}"
+        );
+
+        // 11.6 重复绑定同类型 -> 400
+        let (status, json) =
+            post_json(&app, "/auth_factor/create", Some(&bind), Some(&access_token)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "重复绑定应 400: {json}");
+
+        // 11.7 已绑定后再发码 -> 400
+        let send_bound = json_auth_factor(0, AUTH_FACTOR_EMAIL, None);
+        let (status, json) =
+            post_json(&app, "/auth_factor/send_code", Some(&send_bound), Some(&access_token)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "已绑定发码应 400: {json}");
+
+        // 11.8 非 email 渠道 -> 400(暂未开放)
+        let send_phone = json_auth_factor(1, "13800000000", None);
+        let (status, json) =
+            post_json(&app, "/auth_factor/send_code", Some(&send_phone), Some(&access_token)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "phone 渠道应 400: {json}");
+
+        // 11.9 邮箱格式非法 -> 400
+        let send_bad = json_auth_factor(0, "not-an-email", None);
+        let (status, json) =
+            post_json(&app, "/auth_factor/send_code", Some(&send_bad), Some(&access_token)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "非法邮箱应 400: {json}");
+
+        // 11.10 详情
+        let (status, json) =
+            post_json(&app, "/auth_factor/detail", Some(&factor_body), Some(&access_token)).await;
+        assert_eq!(status, StatusCode::OK, "因素详情应成功: {json}");
+        assert_eq!(json["data"]["id"], factor_id, "详情 id 应一致: {json}");
+
+        // 11.11 越权: 另一用户不能操作该因素
+        let other_uuid = Uuid::now_v7();
+        let other_rbdc: RbatisUuid =
+            other_uuid.to_string().parse().context("解析越权用户 UUID 失败")?;
+        BasicUser::insert(
+            &test_rb,
+            &BasicUser {
+                uuid: Some(other_rbdc),
+                username: Some("af_other".to_string()),
+                account: Some("af_other".to_string()),
+                icon: None,
+                info: Some(String::new()),
+                password: Some(hash_password("OtherPass12345678").context("生成越权用户密码失败")?),
+                registration_status: Some(1),
+                user_type: Some(0),
+            },
+        )
+        .await
+        .context("写入越权测试用户失败")?;
+        let other_token = generate_access_token(other_uuid.to_string(), "PC".to_string())
+            .context("生成越权用户 token 失败")?;
+        let (status, json) =
+            post_json(&app, "/auth_factor/delete", Some(&factor_body), Some(&other_token)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "越权删除应 400: {json}");
+
+        // 11.12 本人删除(物理删除, code 204)
+        let (status, json) =
+            post_json(&app, "/auth_factor/delete", Some(&factor_body), Some(&access_token)).await;
+        assert_eq!(status, StatusCode::OK, "删除应成功: {json}");
+        assert_eq!(json["code"], 204, "删除 code 应为 204: {json}");
+
+        // 11.13 删除后列表为空 + 直接查库确认物理删除
+        let (status, json) =
+            post_json(&app, "/auth_factor/list", Some(&json_obj(&[])), Some(&access_token)).await;
+        assert_eq!(status, StatusCode::OK, "删除后因素列表应成功: {json}");
+        assert_eq!(json["data"]["total"], 0, "删除后因素数应为 0: {json}");
+        let rows = UserAuthFactor::select_by_user_id(&test_rb, &seed_uuid_rbdc)
+            .await
+            .context("查询二次认证因素失败")?;
+        assert!(rows.is_empty(), "物理删除后不应有残留记录");
+        info!("二次认证因素接口全部通过");
 
         Ok::<(), anyhow::Error>(())
     })
@@ -1896,6 +2025,28 @@ fn json_obj(pairs: &[(&str, &str)]) -> JsonValue {
     let mut map = serde_json::Map::new();
     for (k, v) in pairs {
         map.insert(k.to_string(), JsonValue::String(v.to_string()));
+    }
+    JsonValue::Object(map)
+}
+
+/// 构造含数字 `id` 字段的 JSON 对象（不使用 `serde_json::json!` 宏）
+fn json_num_id(id: i64) -> JsonValue {
+    let mut map = serde_json::Map::new();
+    map.insert("id".to_string(), JsonValue::from(id));
+    JsonValue::Object(map)
+}
+
+/// 构造二次认证因素请求体（`factor_type` 为数字, 其余为字符串; DTO 字段为 i16 不能传字符串）
+fn json_auth_factor(
+    factor_type: i64,
+    factor_value: &str,
+    verification_code: Option<&str>,
+) -> JsonValue {
+    let mut map = serde_json::Map::new();
+    map.insert("factor_type".to_string(), JsonValue::from(factor_type));
+    map.insert("factor_value".to_string(), JsonValue::String(factor_value.to_string()));
+    if let Some(code) = verification_code {
+        map.insert("verification_code".to_string(), JsonValue::String(code.to_string()));
     }
     JsonValue::Object(map)
 }
