@@ -1915,6 +1915,26 @@ async fn http_service_user_api_integration() -> Result<()> {
         assert_eq!(status, StatusCode::BAD_REQUEST, "验证码重放应 400: {json}");
         info!("修改密码(二次认证验证码)接口全部通过");
 
+        // ===== 13. 验证码防爆破: 连续 5 次错误后作废该 key =====
+        const BLOCK_EMAIL: &str = "auth_factor_block@example.com";
+        let block_code_key = format!("{}{}", EMAIL_VERIFY_CODE, BLOCK_EMAIL).to_uppercase();
+        let _: () =
+            conn.set_ex(&block_code_key, "123456", 300).await.context("写入防爆破验证码失败")?;
+        for i in 1..=5 {
+            let body = json_obj(&[("email", BLOCK_EMAIL), ("verification_code", "000000")]);
+            let (status, json) = post_json(&app, "/user/sign_up_step1", Some(&body), None).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "第 {i} 次错误验证码应 400: {json}");
+        }
+        // 达到上限后验证码 key 已被删除
+        let after: Option<String> =
+            conn.get(&block_code_key).await.context("读取防爆破验证码失败")?;
+        assert!(after.is_none(), "5 次错误后验证码 key 应被删除");
+        // 即使提交正确验证码也应失败(验证码已作废)
+        let body = json_obj(&[("email", BLOCK_EMAIL), ("verification_code", "123456")]);
+        let (status, json) = post_json(&app, "/user/sign_up_step1", Some(&body), None).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "作废后正确验证码也应 400: {json}");
+        info!("验证码防爆破(5 次错误作废)通过");
+
         Ok::<(), anyhow::Error>(())
     })
     .catch_unwind()

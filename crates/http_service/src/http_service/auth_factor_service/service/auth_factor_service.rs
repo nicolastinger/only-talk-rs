@@ -8,7 +8,6 @@ use common::models::user_entity::user_auth_factor::{
 };
 use common::utils::time::get_now_time_stamp_as_millis;
 use common::utils::validators::{EMAIL_REGEX, normalize_email};
-use deadpool_redis::redis::AsyncCommands;
 use email_service::manager::EmailManager;
 use email_service::{Email, EmailAddress};
 use rand::Rng;
@@ -23,6 +22,7 @@ use crate::http_service::auth_factor_service::vo::auth_factor_vo::{
     AuthFactorListVO, AuthFactorVO,
 };
 use crate::utils::http_response::{CommonResponseNoDataRef, CommonResponseRef};
+use crate::utils::verify_code::{set_verify_code, verify_code};
 
 fn parse_uuid(v: Option<String>) -> Result<Option<Uuid>, anyhow::Error> {
     match v {
@@ -112,7 +112,7 @@ pub async fn send_auth_factor_code(
         let email = factor.factor_value.ok_or_else(|| anyhow!("认证因素信息缺失"))?;
 
         let key = format!("{}{}", AUTH_FACTOR_UNBIND_EMAIL_VERIFY_CODE, me).to_uppercase();
-        conn.set_ex::<&str, &str, ()>(&key, &code, 300).await?;
+        set_verify_code(&mut conn, &key, &code).await?;
 
         let mail = Email::builder()
             .from(EmailAddress::new(&account_name).map_err(|e| anyhow!("发件人配置错误: {}", e))?)
@@ -142,7 +142,7 @@ pub async fn send_auth_factor_code(
     }
 
     let key = format!("{}{}", AUTH_FACTOR_EMAIL_VERIFY_CODE, normalized).to_uppercase();
-    conn.set_ex::<&str, &str, ()>(&key, &code, 300).await?;
+    set_verify_code(&mut conn, &key, &code).await?;
 
     let mail = Email::builder()
         .from(EmailAddress::new(&account_name).map_err(|e| anyhow!("发件人配置错误: {}", e))?)
@@ -176,17 +176,11 @@ pub async fn create_auth_factor(
         return Err(anyhow!("该邮箱二次认证已绑定"));
     }
 
-    // 校验并消费验证码
+    // 校验并消费验证码(带防爆破)
     let code = dto.verification_code.as_ref().ok_or_else(|| anyhow!("验证码为空"))?;
     let mut conn = redis.get().await?;
     let code_key = format!("{}{}", AUTH_FACTOR_EMAIL_VERIFY_CODE, normalized).to_uppercase();
-    let stored: Option<String> = conn.get(&code_key).await?;
-    match stored {
-        Some(stored) if stored == *code => {
-            let _: Result<(), _> = conn.del(&code_key).await;
-        }
-        _ => return Err(anyhow!("验证码错误或已过期")),
-    }
+    verify_code(&mut conn, &code_key, code).await?;
 
     let now = get_now_time_stamp_as_millis()?;
     let is_first = UserAuthFactor::select_by_user_id(rb, &me).await?.is_empty();
@@ -293,17 +287,11 @@ pub async fn delete_auth_factor(
         UserAuthFactor::select_by_id(rb, dto.id).await?.ok_or_else(|| anyhow!("认证因素不存在"))?;
     ensure_owner(&row, &me)?;
 
-    // 校验并消费解绑验证码(键以用户 uuid, 与绑定/改密验证码隔离)
+    // 校验并消费解绑验证码(键以用户 uuid, 与绑定/改密验证码隔离; 带防爆破)
     let code = dto.verification_code.as_ref().ok_or_else(|| anyhow!("验证码为空"))?;
     let mut conn = redis.get().await?;
     let key = format!("{}{}", AUTH_FACTOR_UNBIND_EMAIL_VERIFY_CODE, me).to_uppercase();
-    let stored: Option<String> = conn.get(&key).await?;
-    match stored {
-        Some(stored) if stored == *code => {
-            let _: Result<(), _> = conn.del(&key).await;
-        }
-        _ => return Err(anyhow!("验证码错误或已过期")),
-    }
+    verify_code(&mut conn, &key, code).await?;
 
     UserAuthFactor::delete_by_map(rb, value! {"id": dto.id}).await?;
     Ok(CommonResponseNoDataRef::success_empty())

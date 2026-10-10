@@ -46,6 +46,7 @@ use crate::http_service::user_service::vo::sign_up_step1_vo::SignUpStep1Response
 use crate::http_service::user_service::vo::sqlite_key_vo::FetchSqliteKeyResponseVO;
 use crate::http_service::user_service::vo::user_info::UserInfoVO;
 use crate::utils::http_response::{CommonResponseNoDataRef, CommonResponseRef};
+use crate::utils::verify_code::{set_verify_code, verify_code};
 
 pub async fn test_sql(rb: &RBatis) -> Vec<BasicUser> {
     let basic_user_all = match BasicUser::select_by_map(rb, value! {}).await {
@@ -96,7 +97,7 @@ pub async fn send_verify_code_service(
     // 3. 写入 Redis,5 分钟(300 秒)过期
     let mut conn = redis.get().await?;
     let key = format!("{}{}", EMAIL_VERIFY_CODE, email).to_uppercase();
-    conn.set_ex::<&str, &str, ()>(&key, &code, 300).await?;
+    set_verify_code(&mut conn, &key, &code).await?;
     info!("验证码已存储,邮箱: {}", email);
 
     // 4. 通过阿里云邮件发送验证码
@@ -161,19 +162,11 @@ pub async fn sign_up_step1_service(
             None => None,
         };
 
-    // 2. 校验注册验证码(与 Redis 中的一致,校验通过后删除)
+    // 2. 校验注册验证码(与 Redis 中的一致,校验通过后删除; 带防爆破)
     let code = dto.verification_code.as_ref().ok_or(anyhow!("验证码为空"))?;
     let mut conn = redis.get().await?;
     let code_key = format!("{}{}", EMAIL_VERIFY_CODE, email_normalized).to_uppercase();
-    let stored: Option<String> = conn.get(&code_key).await?;
-    match stored {
-        Some(stored) if stored == *code => {
-            let _: Result<(), _> = conn.del(&code_key).await;
-        }
-        _ => {
-            return Err(anyhow!("验证码错误或已过期"));
-        }
-    }
+    verify_code(&mut conn, &code_key, code).await?;
 
     // 3. 复用已有占位用户, 否则创建新占位用户(registration_status=0 未完成,不可登录)
     let uuid: rbdc::Uuid = if let Some(placeholder) = existing_placeholder {
@@ -337,7 +330,7 @@ pub async fn change_password_send_code_service(
     let code = format!("{:06}", rand::thread_rng().gen_range(0..1_000_000));
     let mut conn = redis.get().await?;
     let key = format!("{}{}", AUTH_FACTOR_PASSWORD_VERIFY_CODE, uuid).to_uppercase();
-    conn.set_ex::<&str, &str, ()>(&key, &code, 300).await?;
+    set_verify_code(&mut conn, &key, &code).await?;
 
     // 通过阿里云邮件发送验证码
     let account_name = common::config_manager::get_config("email.account_name").unwrap_or_default();
@@ -376,17 +369,11 @@ pub async fn change_password_service(
         return Err(anyhow!("未绑定邮箱二次认证, 请先绑定"));
     }
 
-    // 校验并消费验证码
+    // 校验并消费验证码(带防爆破)
     let code = dto.verification_code.as_ref().ok_or_else(|| anyhow!("验证码为空"))?;
     let mut conn = redis.get().await?;
     let key = format!("{}{}", AUTH_FACTOR_PASSWORD_VERIFY_CODE, uuid).to_uppercase();
-    let stored: Option<String> = conn.get(&key).await?;
-    match stored {
-        Some(stored) if stored == *code => {
-            let _: Result<(), _> = conn.del(&key).await;
-        }
-        _ => return Err(anyhow!("验证码错误或已过期")),
-    }
+    verify_code(&mut conn, &key, code).await?;
 
     // 更新密码
     let new_password = dto.new_password.as_ref().ok_or_else(|| anyhow!("新密码为空"))?;
