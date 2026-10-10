@@ -2,7 +2,8 @@ use actix_web::{HttpRequest, Responder, post, web};
 
 use crate::common::dto::base_dto::AuthAccount;
 use crate::http_service::auth_factor_service::dto::auth_factor_dto::{
-    AuthFactorIdDTO, CreateAuthFactorDTO, SendAuthFactorCodeDTO, UpdateAuthFactorDTO,
+    AuthFactorIdDTO, CreateAuthFactorDTO, DeleteAuthFactorDTO, SendAuthFactorCodeDTO,
+    UpdateAuthFactorDTO,
 };
 use crate::http_service::auth_factor_service::service::auth_factor_service::{
     create_auth_factor, delete_auth_factor, get_auth_factor_detail, list_auth_factors,
@@ -78,14 +79,14 @@ pub async fn update_api(
     respond_json_any!(update_auth_factor(state.db(), uuid, dto).await)
 }
 
-/// 删除二次认证因素
+/// 删除(解绑)二次认证因素(email 需解绑验证码)
 #[post("/delete")]
 pub async fn delete_api(
     req: HttpRequest,
     state: web::Data<AppState>,
-    body: web::Json<AuthFactorIdDTO>,
+    body: web::Json<DeleteAuthFactorDTO>,
 ) -> impl Responder {
     let dto = validate_and_respond!(body);
     let uuid = get_uuid_from_header!(req);
-    respond_json_any!(delete_auth_factor(state.db(), uuid, dto.id).await)
+    respond_json_any!(delete_auth_factor(state.db(), state.redis(), uuid, dto).await)
 }

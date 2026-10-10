@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
 use anyhow::anyhow;
-use common::config_str::AUTH_FACTOR_EMAIL_VERIFY_CODE;
+use common::config_str::{AUTH_FACTOR_EMAIL_VERIFY_CODE, AUTH_FACTOR_UNBIND_EMAIL_VERIFY_CODE};
 use common::models::user_entity::user_auth_factor::{
     AUTH_FACTOR_STATUS_DISABLED, AUTH_FACTOR_STATUS_NORMAL, AUTH_FACTOR_STATUS_UNBOUND,
     AUTH_FACTOR_TYPE_EMAIL, AUTH_FACTOR_TYPE_OTHER, AUTH_FACTOR_TYPE_PHONE, UserAuthFactor,
@@ -17,7 +17,7 @@ use rbatis::rbdc::Uuid;
 use rbs::value;
 
 use crate::http_service::auth_factor_service::dto::auth_factor_dto::{
-    CreateAuthFactorDTO, SendAuthFactorCodeDTO, UpdateAuthFactorDTO,
+    CreateAuthFactorDTO, DeleteAuthFactorDTO, SendAuthFactorCodeDTO, UpdateAuthFactorDTO,
 };
 use crate::http_service::auth_factor_service::vo::auth_factor_vo::{
     AuthFactorListVO, AuthFactorVO,
@@ -81,7 +81,15 @@ fn ensure_owner(row: &UserAuthFactor, me: &Uuid) -> Result<(), anyhow::Error> {
     Ok(())
 }
 
-/// 发送二次认证因素绑定验证码(当前仅 email), 验证码写入 Redis 5 分钟有效
+/// 发码场景: 解绑(缺省为绑定)
+const AUTH_FACTOR_SCENE_UNBIND: &str = "unbind";
+
+/// 发送二次认证因素验证码(当前仅 email)
+///
+/// - `scene=bind`(缺省): 发往用户输入的 `factor_value`, 已绑定则拒绝;
+/// - `scene=unbind`: 发往当前已绑定邮箱(取库中因素值, 不接受用户输入), 未绑定则拒绝。
+///
+/// 验证码写入 Redis 5 分钟有效(绑定/解绑使用相互隔离的 key)。
 pub async fn send_auth_factor_code(
     rb: &RBatis,
     redis: &deadpool_redis::Pool,
@@ -91,18 +99,51 @@ pub async fn send_auth_factor_code(
 ) -> Result<String, anyhow::Error> {
     let me = parse_uuid(my_uuid)?.ok_or_else(|| anyhow!("Failed to get account"))?;
     ensure_email_channel(dto.factor_type)?;
-    let normalized = normalize_factor_value(dto.factor_type, &dto.factor_value)?;
+
+    let code = format!("{:06}", rand::thread_rng().gen_range(0..1_000_000));
+    let account_name = common::config_manager::get_config("email.account_name").unwrap_or_default();
+    let mut conn = redis.get().await?;
+
+    // 解绑场景: 必须已绑定, 发往已绑定邮箱, key 以用户 uuid
+    if dto.scene.as_deref() == Some(AUTH_FACTOR_SCENE_UNBIND) {
+        let factor = UserAuthFactor::select_by_user_and_type(rb, &me, AUTH_FACTOR_TYPE_EMAIL)
+            .await?
+            .ok_or_else(|| anyhow!("未绑定邮箱二次认证, 无需解绑"))?;
+        let email = factor.factor_value.ok_or_else(|| anyhow!("认证因素信息缺失"))?;
+
+        let key = format!("{}{}", AUTH_FACTOR_UNBIND_EMAIL_VERIFY_CODE, me).to_uppercase();
+        conn.set_ex::<&str, &str, ()>(&key, &code, 300).await?;
+
+        let mail = Email::builder()
+            .from(EmailAddress::new(&account_name).map_err(|e| anyhow!("发件人配置错误: {}", e))?)
+            .to(EmailAddress::new(&email).map_err(|e| anyhow!("收件人邮箱格式错误: {}", e))?)
+            .subject("OnlyTalk 二次认证邮箱解绑验证码")
+            .text_body(format!(
+                "您的二次认证邮箱解绑验证码是: {},5 分钟内有效,请勿泄露给他人。",
+                code
+            ))
+            .build()
+            .map_err(|e| anyhow!("构建邮件失败: {}", e))?;
+
+        let result = email_manager.send(&mail).await.map_err(|e| anyhow!("邮件发送失败: {}", e))?;
+        if !result.is_success() {
+            let reason = result.error.as_ref().map(|e| e.message.clone()).unwrap_or_default();
+            return Err(anyhow!("邮件发送失败: {}", reason));
+        }
+        return Ok(CommonResponseNoDataRef::success_empty());
+    }
+
+    // 绑定场景(缺省): 发往用户输入邮箱, 已绑定则拒绝, key 以邮箱
+    let raw = dto.factor_value.as_deref().ok_or_else(|| anyhow!("因素值不能为空"))?;
+    let normalized = normalize_factor_value(dto.factor_type, raw)?;
 
     if UserAuthFactor::select_by_user_and_type(rb, &me, AUTH_FACTOR_TYPE_EMAIL).await?.is_some() {
         return Err(anyhow!("该邮箱二次认证已绑定"));
     }
 
-    let code = format!("{:06}", rand::thread_rng().gen_range(0..1_000_000));
-    let mut conn = redis.get().await?;
     let key = format!("{}{}", AUTH_FACTOR_EMAIL_VERIFY_CODE, normalized).to_uppercase();
     conn.set_ex::<&str, &str, ()>(&key, &code, 300).await?;
 
-    let account_name = common::config_manager::get_config("email.account_name").unwrap_or_default();
     let mail = Email::builder()
         .from(EmailAddress::new(&account_name).map_err(|e| anyhow!("发件人配置错误: {}", e))?)
         .to(EmailAddress::new(&normalized).map_err(|e| anyhow!("收件人邮箱格式错误: {}", e))?)
@@ -239,16 +280,31 @@ pub async fn update_auth_factor(
     Ok(CommonResponseRef::<AuthFactorVO>::success_json(&to_vo(refreshed))?)
 }
 
-/// 删除二次认证因素(物理删除, 仅本人)
+/// 删除(解绑)二次认证因素(email 需解绑验证码校验通过后物理删除, 仅本人)
 pub async fn delete_auth_factor(
     rb: &RBatis,
+    redis: &deadpool_redis::Pool,
     my_uuid: Option<String>,
-    id: i64,
+    dto: DeleteAuthFactorDTO,
 ) -> Result<String, anyhow::Error> {
     let me = parse_uuid(my_uuid)?.ok_or_else(|| anyhow!("Failed to get account"))?;
+    ensure_email_channel(dto.factor_type)?;
     let row =
-        UserAuthFactor::select_by_id(rb, id).await?.ok_or_else(|| anyhow!("认证因素不存在"))?;
+        UserAuthFactor::select_by_id(rb, dto.id).await?.ok_or_else(|| anyhow!("认证因素不存在"))?;
     ensure_owner(&row, &me)?;
-    UserAuthFactor::delete_by_map(rb, value! {"id": id}).await?;
+
+    // 校验并消费解绑验证码(键以用户 uuid, 与绑定/改密验证码隔离)
+    let code = dto.verification_code.as_ref().ok_or_else(|| anyhow!("验证码为空"))?;
+    let mut conn = redis.get().await?;
+    let key = format!("{}{}", AUTH_FACTOR_UNBIND_EMAIL_VERIFY_CODE, me).to_uppercase();
+    let stored: Option<String> = conn.get(&key).await?;
+    match stored {
+        Some(stored) if stored == *code => {
+            let _: Result<(), _> = conn.del(&key).await;
+        }
+        _ => return Err(anyhow!("验证码错误或已过期")),
+    }
+
+    UserAuthFactor::delete_by_map(rb, value! {"id": dto.id}).await?;
     Ok(CommonResponseNoDataRef::success_empty())
 }

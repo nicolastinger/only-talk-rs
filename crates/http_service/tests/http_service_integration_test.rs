@@ -19,8 +19,8 @@ use actix_web::middleware::from_fn;
 use actix_web::{App, test, web};
 use anyhow::{Context, Result, anyhow};
 use common::config_str::{
-    AUTH_FACTOR_EMAIL_VERIFY_CODE, AUTH_FACTOR_PASSWORD_VERIFY_CODE, EMAIL_VERIFY_CODE,
-    REGISTER_SESSION_TOKEN,
+    AUTH_FACTOR_EMAIL_VERIFY_CODE, AUTH_FACTOR_PASSWORD_VERIFY_CODE,
+    AUTH_FACTOR_UNBIND_EMAIL_VERIFY_CODE, EMAIL_VERIFY_CODE, REGISTER_SESSION_TOKEN,
 };
 use common::models::chat_entity::chat_message_record::ChatMessageRecord;
 use common::models::group_entity::group_info::GroupInfo;
@@ -1744,7 +1744,13 @@ async fn http_service_user_api_integration() -> Result<()> {
         assert_eq!(status, StatusCode::OK, "因素详情应成功: {json}");
         assert_eq!(json["data"]["id"], factor_id, "详情 id 应一致: {json}");
 
-        // 11.11 越权: 另一用户不能操作该因素
+        // 11.11 越权: 另一用户不能操作该因素(带解绑验证码仍应被拥有者校验拦截)
+        let af_unbind_key =
+            format!("{}{}", AUTH_FACTOR_UNBIND_EMAIL_VERIFY_CODE, seed_uuid_rbdc).to_uppercase();
+        let _: () =
+            conn.set_ex(&af_unbind_key, "654321", 300).await.context("写入解绑验证码失败")?;
+        let delete_body = json_auth_factor_delete(factor_id, "654321");
+        let delete_body_wrong = json_auth_factor_delete(factor_id, "000000");
         let other_uuid = Uuid::now_v7();
         let other_rbdc: RbatisUuid =
             other_uuid.to_string().parse().context("解析越权用户 UUID 失败")?;
@@ -1766,12 +1772,18 @@ async fn http_service_user_api_integration() -> Result<()> {
         let other_token = generate_access_token(other_uuid.to_string(), "PC".to_string())
             .context("生成越权用户 token 失败")?;
         let (status, json) =
-            post_json(&app, "/auth_factor/delete", Some(&factor_body), Some(&other_token)).await;
+            post_json(&app, "/auth_factor/delete", Some(&delete_body), Some(&other_token)).await;
         assert_eq!(status, StatusCode::BAD_REQUEST, "越权删除应 400: {json}");
 
-        // 11.12 本人删除(物理删除, code 204)
+        // 11.11b 本人 + 错误解绑验证码 -> 400(且不消费正确验证码)
         let (status, json) =
-            post_json(&app, "/auth_factor/delete", Some(&factor_body), Some(&access_token)).await;
+            post_json(&app, "/auth_factor/delete", Some(&delete_body_wrong), Some(&access_token))
+                .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "验证码错误应 400: {json}");
+
+        // 11.12 本人 + 正确解绑验证码 -> 物理删除(code 204)
+        let (status, json) =
+            post_json(&app, "/auth_factor/delete", Some(&delete_body), Some(&access_token)).await;
         assert_eq!(status, StatusCode::OK, "删除应成功: {json}");
         assert_eq!(json["code"], 204, "删除 code 应为 204: {json}");
 
@@ -2175,6 +2187,15 @@ fn json_auth_factor(
 fn json_factor_type(factor_type: i64) -> JsonValue {
     let mut map = serde_json::Map::new();
     map.insert("factor_type".to_string(), JsonValue::from(factor_type));
+    JsonValue::Object(map)
+}
+
+/// 构造解绑(删除)二次认证因素请求体(`factor_type` 数字, `verification_code` 字符串)
+fn json_auth_factor_delete(id: i64, verification_code: &str) -> JsonValue {
+    let mut map = serde_json::Map::new();
+    map.insert("id".to_string(), JsonValue::from(id));
+    map.insert("factor_type".to_string(), JsonValue::from(0));
+    map.insert("verification_code".to_string(), JsonValue::String(verification_code.to_string()));
     JsonValue::Object(map)
 }
 

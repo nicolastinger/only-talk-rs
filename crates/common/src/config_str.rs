@@ -51,6 +51,8 @@ pub static REFRESH_TOKEN: &str = "REFRESH_TOKEN:";
 pub static EMAIL_VERIFY_CODE: &str = "EMAIL:VERIFY:CODE:";
 // 二次认证邮箱绑定验证码
 pub static AUTH_FACTOR_EMAIL_VERIFY_CODE: &str = "AUTH_FACTOR:EMAIL:VERIFY:CODE:";
+// 二次认证邮箱解绑验证码(键尾追加用户 uuid)
+pub static AUTH_FACTOR_UNBIND_EMAIL_VERIFY_CODE: &str = "AUTH_FACTOR:UNBIND:EMAIL:VERIFY:CODE:";
 // 二次认证修改密码验证码(键尾追加用户 uuid)
 pub static AUTH_FACTOR_PASSWORD_VERIFY_CODE: &str = "AUTH_FACTOR:PASSWORD:VERIFY:CODE:";
 // 默认最大文件大小 (100MB)
