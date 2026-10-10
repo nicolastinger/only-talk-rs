@@ -16,6 +16,7 @@ use crate::http_service::file_service::model::file_type_config::get_file_type_co
 use crate::http_service::file_service::service::biz_service::get_pub_file_record_by_biz_id;
 use crate::http_service::file_service::service::chat_biz_service::get_chat_file_record_by_biz_id;
 use crate::http_service::file_service::service::chat_s3_service::download_chat_file_s3;
+use crate::http_service::file_service::vo::biz_file_download_link_vo::BizFileDownloadLinkVO;
 use crate::utils::http_response::CommonResponseRef;
 
 /**
@@ -213,7 +214,7 @@ pub async fn download_link_pub_biz(
     }
 
     // 2. 组建下载链接 - 公开桶返回直接URL，其他桶返回预签名URL
-    let mut download_link_vec: Vec<String> = vec![];
+    let mut download_link_vec: Vec<BizFileDownloadLinkVO> = vec![];
 
     for file_id in file_ids.iter() {
         // 获取文件记录
@@ -264,10 +265,21 @@ pub async fn download_link_pub_biz(
                 .await
                 .map_err(|e| anyhow!("生成预签名URL失败: {}", e))?
         };
-        download_link_vec.push(url);
+
+        let file_name = file_record
+            .original_name
+            .clone()
+            .filter(|n| !n.trim().is_empty())
+            .or_else(|| file_path.rsplit('/').next().map(|s| s.to_string()))
+            .unwrap_or_default();
+        download_link_vec.push(BizFileDownloadLinkVO {
+            url,
+            file_name,
+            mime_type: file_record.mime_type.clone(),
+        });
     }
 
-    let res = CommonResponseRef::<Vec<String>>::success_json(&download_link_vec)?;
+    let res = CommonResponseRef::<Vec<BizFileDownloadLinkVO>>::success_json(&download_link_vec)?;
     Ok(res)
 }
 
@@ -310,7 +322,7 @@ pub async fn download_link_chat_biz(
     }
 
     // 3. 组建下载链接 - S3 文件返回预签名 URL
-    let mut download_link_vec: Vec<String> = vec![];
+    let mut download_link_vec: Vec<BizFileDownloadLinkVO> = vec![];
 
     for file_id in file_ids.iter() {
         // 获取文件记录
@@ -321,13 +333,15 @@ pub async fn download_link_chat_biz(
             return Err(anyhow!("文件不是S3存储，无法生成下载链接"));
         }
 
+        let file_path = file_record.file_path.as_ref().ok_or(anyhow!("文件路径为空"))?;
+
         // 生成预签名 URL
         let presigned_url = if let Some(ref bucket) = file_record.bucket {
             let storage =
                 s3_service::storage::S3Storage::with_bucket(s3_client.clone(), bucket.clone());
             storage
                 .presigned_url(
-                    &file_record.file_path.ok_or(anyhow!("文件路径为空"))?,
+                    file_path,
                     std::time::Duration::from_secs(s3_client.config.presign_expire_seconds),
                     s3_service::storage::PresignedMethod::Get,
                 )
@@ -340,17 +354,28 @@ pub async fn download_link_chat_biz(
             );
             storage
                 .presigned_url(
-                    &file_record.file_path.ok_or(anyhow!("文件路径为空"))?,
+                    file_path,
                     std::time::Duration::from_secs(s3_client.config.presign_expire_seconds),
                     s3_service::storage::PresignedMethod::Get,
                 )
                 .await
                 .map_err(|e| anyhow!("生成预签名URL失败: {}", e))?
         };
-        download_link_vec.push(presigned_url);
+
+        let file_name = file_record
+            .original_name
+            .clone()
+            .filter(|n| !n.trim().is_empty())
+            .or_else(|| file_path.rsplit('/').next().map(|s| s.to_string()))
+            .unwrap_or_default();
+        download_link_vec.push(BizFileDownloadLinkVO {
+            url: presigned_url,
+            file_name,
+            mime_type: file_record.mime_type.clone(),
+        });
     }
 
-    let res = CommonResponseRef::<Vec<String>>::success_json(&download_link_vec)?;
+    let res = CommonResponseRef::<Vec<BizFileDownloadLinkVO>>::success_json(&download_link_vec)?;
     Ok(res)
 }
 
