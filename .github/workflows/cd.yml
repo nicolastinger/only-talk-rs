@@ -70,6 +70,15 @@ jobs:
             # 启动新版本应用
             docker-compose up -d app
 
+            # 校验证书 SAN: 重建 certbot 触发入口脚本(certonly --keep-until-expiring --expand),
+            # 域名集合变化(如新增官网子域名 WEB_DOMAIN)时自动扩展同一张证书。
+            # 等其写出证书后再 reload nginx, 避免用旧证书服务新域名(ERR_CERT_COMMON_NAME_INVALID)。
+            docker-compose up -d --force-recreate certbot
+            for _ in $(seq 1 30); do
+              docker-compose logs --tail=100 certbot 2>/dev/null | grep -q "证书已复制到" && break
+              sleep 2
+            done
+
             # 网关(nginx): 首次部署创建; bind-mount 的 conf 变更不会触发容器重建, 故显式校验并 reload。
             # nginx -t 失败即 set -e 中止, 保留旧配置继续服务(不会把网关打挂)。
             docker-compose up -d nginx
