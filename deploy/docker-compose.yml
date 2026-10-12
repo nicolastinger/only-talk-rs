@@ -34,13 +34,17 @@ services:
     restart: unless-stopped
     environment:
       DOMAIN: ${DOMAIN}
-      # 只对 DOMAIN 做 envsubst, 避免误替换配置里的 nginx 变量($host/$remote_addr 等)
-      NGINX_ENVSUBST_FILTER: DOMAIN
+      WEB_DOMAIN: ${WEB_DOMAIN}
+      # 只对 DOMAIN / WEB_DOMAIN 做 envsubst, 避免误替换配置里的 nginx 变量($host/$remote_addr 等)
+      NGINX_ENVSUBST_FILTER: DOMAIN|WEB_DOMAIN
     ports:
       - "443:443"
     volumes:
       - ../config/ssl:/app/config/ssl:ro
       - ./nginx/only-talk.conf.template:/etc/nginx/templates/only-talk.conf.template:ro
+      - ./nginx/web.conf.template:/etc/nginx/templates/web.conf.template:ro
+      # 官网静态产物(由 only-talk-app 的官网 CD 同步到 deploy/web)
+      - ./web:/app/web:ro
       # 覆盖官方镜像自带的 default.conf(监听 80), 确保网关不监听 80
       - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
@@ -109,6 +113,7 @@ services:
     env_file: .env
     environment:
       DOMAIN: ${DOMAIN}
+      WEB_DOMAIN: ${WEB_DOMAIN}
       EMAIL: ${EMAIL}
     volumes:
       - letsencrypt_data:/etc/letsencrypt
