@@ -20,7 +20,8 @@ use actix_web::{App, test, web};
 use anyhow::{Context, Result, anyhow};
 use common::config_str::{
     AUTH_FACTOR_EMAIL_VERIFY_CODE, AUTH_FACTOR_PASSWORD_VERIFY_CODE,
-    AUTH_FACTOR_UNBIND_EMAIL_VERIFY_CODE, EMAIL_VERIFY_CODE, REGISTER_SESSION_TOKEN,
+    AUTH_FACTOR_UNBIND_EMAIL_VERIFY_CODE, EMAIL_VERIFY_CODE, FORGOT_PASSWORD_VERIFY_CODE,
+    REGISTER_SESSION_TOKEN,
 };
 use common::models::chat_entity::chat_message_record::ChatMessageRecord;
 use common::models::group_entity::group_info::GroupInfo;
@@ -1935,6 +1936,95 @@ async fn http_service_user_api_integration() -> Result<()> {
         assert_eq!(status, StatusCode::BAD_REQUEST, "作废后正确验证码也应 400: {json}");
         info!("验证码防爆破(5 次错误作废)通过");
 
+        // ===== 14. 忘记密码(未登录): 按账号 + 已绑定邮箱找回并重置 =====
+        let fp_email = live_recipient.clone().unwrap_or_else(|| SEED_EMAIL.to_string());
+
+        // 14.1 非 email 渠道 -> 400(暂未开放)
+        let (status, json) = post_json(
+            &app,
+            "/user/forgot_password/send_code",
+            Some(&json_forgot_send_code(1, SEED_ACCOUNT, &fp_email)),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "非 email 渠道应 400: {json}");
+
+        // 14.2 账号不存在 -> 400
+        let (status, json) = post_json(
+            &app,
+            "/user/forgot_password/send_code",
+            Some(&json_forgot_send_code(0, "no_such_account", &fp_email)),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "账号不存在应 400: {json}");
+
+        // 14.3 账号存在但邮箱与已绑定因素不匹配 -> 400
+        let (status, json) = post_json(
+            &app,
+            "/user/forgot_password/send_code",
+            Some(&json_forgot_send_code(0, SEED_ACCOUNT, "not_bound@example.com")),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "邮箱与账号不匹配应 400: {json}");
+
+        // 14.4 获取验证码: 真实投递时调用发码接口并从 Redis 读取, 否则预置
+        let fp_code_key =
+            format!("{}{}", FORGOT_PASSWORD_VERIFY_CODE, seed_uuid_rbdc).to_uppercase();
+        let fp_code: String = if live_recipient.is_some() {
+            let (status, json) = post_json(
+                &app,
+                "/user/forgot_password/send_code",
+                Some(&json_forgot_send_code(0, SEED_ACCOUNT, &fp_email)),
+                None,
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "忘记密码真实发码应成功: {json}");
+            assert_eq!(json["code"], 204, "忘记密码发码 code 应为 204: {json}");
+            let stored: Option<String> =
+                conn.get(&fp_code_key).await.context("读取找回验证码失败")?;
+            stored.context("真实发码后 Redis 应存在验证码")?
+        } else {
+            let _: () =
+                conn.set_ex(&fp_code_key, "135790", 300).await.context("写入找回验证码失败")?;
+            "135790".to_string()
+        };
+
+        // 14.5 验证码错误 -> 400
+        let fp_wrong = if fp_code == "000000" { "111111" } else { "000000" };
+        let (status, json) = post_json(
+            &app,
+            "/user/forgot_password/reset",
+            Some(&json_forgot_reset(0, SEED_ACCOUNT, &fp_email, fp_wrong, "ForgotNewPass123456")),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "验证码错误应 400: {json}");
+
+        // 14.6 正确验证码 -> 重置成功(无需登录态)
+        let fp_body =
+            json_forgot_reset(0, SEED_ACCOUNT, &fp_email, &fp_code, "ForgotNewPass123456");
+        let (status, json) =
+            post_json(&app, "/user/forgot_password/reset", Some(&fp_body), None).await;
+        assert_eq!(status, StatusCode::OK, "忘记密码重置应成功: {json}");
+        assert_eq!(json["code"], 204, "忘记密码重置 code 应为 204: {json}");
+
+        // 14.7 新密码已写入 basic_user 且旧密码失效
+        let fp_user = BasicUser::select_by_uuid(&test_rb, &seed_uuid_rbdc)
+            .await
+            .context("查询种子用户失败")?
+            .context("种子用户不存在")?;
+        let fp_hash = fp_user.password.context("种子用户密码为空")?;
+        assert!(verify_password("ForgotNewPass123456", &fp_hash), "重置后新密码应校验通过");
+        assert!(!verify_password("NewPassword123456", &fp_hash), "重置前密码应失效");
+
+        // 14.8 验证码已消费, 重放 -> 400
+        let (status, json) =
+            post_json(&app, "/user/forgot_password/reset", Some(&fp_body), None).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "验证码重放应 400: {json}");
+        info!("忘记密码(未登录)接口全部通过");
+
         Ok::<(), anyhow::Error>(())
     })
     .catch_unwind()
@@ -2227,6 +2317,32 @@ fn json_change_password(
 ) -> JsonValue {
     let mut map = serde_json::Map::new();
     map.insert("factor_type".to_string(), JsonValue::from(factor_type));
+    map.insert("verification_code".to_string(), JsonValue::String(verification_code.to_string()));
+    map.insert("new_password".to_string(), JsonValue::String(new_password.to_string()));
+    JsonValue::Object(map)
+}
+
+/// 构造忘记密码发码请求体(`factor_type` 为数字, `account`/`factor_value` 为字符串)
+fn json_forgot_send_code(factor_type: i64, account: &str, factor_value: &str) -> JsonValue {
+    let mut map = serde_json::Map::new();
+    map.insert("account".to_string(), JsonValue::String(account.to_string()));
+    map.insert("factor_type".to_string(), JsonValue::from(factor_type));
+    map.insert("factor_value".to_string(), JsonValue::String(factor_value.to_string()));
+    JsonValue::Object(map)
+}
+
+/// 构造忘记密码重置请求体(`factor_type` 为数字, 其余为字符串)
+fn json_forgot_reset(
+    factor_type: i64,
+    account: &str,
+    factor_value: &str,
+    verification_code: &str,
+    new_password: &str,
+) -> JsonValue {
+    let mut map = serde_json::Map::new();
+    map.insert("account".to_string(), JsonValue::String(account.to_string()));
+    map.insert("factor_type".to_string(), JsonValue::from(factor_type));
+    map.insert("factor_value".to_string(), JsonValue::String(factor_value.to_string()));
     map.insert("verification_code".to_string(), JsonValue::String(verification_code.to_string()));
     map.insert("new_password".to_string(), JsonValue::String(new_password.to_string()));
     JsonValue::Object(map)

@@ -9,6 +9,9 @@ use crate::http_service::user_service::dto::change_password_dto::{
 };
 use crate::http_service::user_service::dto::complete_profile_dto::CompleteProfileDTO;
 use crate::http_service::user_service::dto::fetch_sqlite_key_dto::FetchSqliteKeyDTO;
+use crate::http_service::user_service::dto::forgot_password_dto::{
+    ForgotPasswordResetDTO, ForgotPasswordSendCodeDTO,
+};
 use crate::http_service::user_service::dto::github_oauth_dto::{
     GithubAuthorizeDTO, GithubOAuthCallbackDTO,
 };
@@ -21,9 +24,10 @@ use crate::http_service::user_service::service::github_oauth_service::{
 };
 use crate::http_service::user_service::service::user_service::{
     change_password_send_code_service, change_password_service, complete_profile_service,
-    fetch_or_create_sqlite_db_key, get_exit_user, get_user_info_by_account, get_user_info_by_uuid,
-    get_user_uuid_by_account_service, refresh_access_token, send_verify_code_service,
-    sign_up_step1_service, update_user_info_service, user_sign_in,
+    fetch_or_create_sqlite_db_key, forgot_password_reset_service,
+    forgot_password_send_code_service, get_exit_user, get_user_info_by_account,
+    get_user_info_by_uuid, get_user_uuid_by_account_service, refresh_access_token,
+    send_verify_code_service, sign_up_step1_service, update_user_info_service, user_sign_in,
 };
 use crate::state::AppState;
 use crate::utils::http_response::{CommonResponse, CommonResponseNoDataRef};
@@ -45,7 +49,9 @@ pub fn user_service(cfg: &mut web::ServiceConfig) {
         .service(fetch_sqlite_db_key_api)
         .service(update_user_info_api)
         .service(change_password_send_code)
-        .service(change_password);
+        .service(change_password)
+        .service(forgot_password_send_code)
+        .service(forgot_password_reset);
 }
 
 /// 登录/发码端点的人为延迟(tarpit): 无条件随机 3-5s, 抬高爆破/刷码的每尝试成本。
@@ -232,5 +238,28 @@ pub async fn change_password(
     let dto = validate_and_respond!(dto);
     let uuid = get_uuid_from_header!(req);
     let res = change_password_service(state.db(), state.redis(), uuid, dto).await;
+    respond_json_any!(res)
+}
+
+/// 忘记密码第一步(未登录): 向已绑定的二次认证因素(当前仅 email)发送找回验证码
+#[post("/forgot_password/send_code")]
+pub async fn forgot_password_send_code(
+    state: web::Data<AppState>,
+    dto: web::Json<ForgotPasswordSendCodeDTO>,
+) -> impl Responder {
+    apply_auth_tarpit().await;
+    let dto = validate_and_respond!(dto);
+    let res = forgot_password_send_code_service(state.db(), state.redis(), &state.email, dto).await;
+    respond_json_any!(res)
+}
+
+/// 忘记密码第二步(未登录): 校验验证码并重置密码
+#[post("/forgot_password/reset")]
+pub async fn forgot_password_reset(
+    state: web::Data<AppState>,
+    dto: web::Json<ForgotPasswordResetDTO>,
+) -> impl Responder {
+    let dto = validate_and_respond!(dto);
+    let res = forgot_password_reset_service(state.db(), state.redis(), dto).await;
     respond_json_any!(res)
 }

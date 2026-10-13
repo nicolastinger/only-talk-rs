@@ -55,6 +55,8 @@ pub static AUTH_FACTOR_EMAIL_VERIFY_CODE: &str = "AUTH_FACTOR:EMAIL:VERIFY:CODE:
 pub static AUTH_FACTOR_UNBIND_EMAIL_VERIFY_CODE: &str = "AUTH_FACTOR:UNBIND:EMAIL:VERIFY:CODE:";
 // 二次认证修改密码验证码(键尾追加用户 uuid)
 pub static AUTH_FACTOR_PASSWORD_VERIFY_CODE: &str = "AUTH_FACTOR:PASSWORD:VERIFY:CODE:";
+// 忘记密码(未登录)找回验证码(键尾追加用户 uuid)
+pub static FORGOT_PASSWORD_VERIFY_CODE: &str = "FORGOT:PASSWORD:VERIFY:CODE:";
 // 默认最大文件大小 (100MB)
 pub static DEFAULT_MAX_FILE_SIZE: i64 = 100 * 1024 * 1024;
 // 注册会话 token(两步注册,step1 验证通过后下发,映射占位用户 uuid)

@@ -7,8 +7,8 @@ use aes_gcm::aead::Aead;
 use aes_gcm::{Aes256Gcm, Key, KeyInit, Nonce};
 use anyhow::anyhow;
 use common::config_str::{
-    AUTH_FACTOR_PASSWORD_VERIFY_CODE, EMAIL_VERIFY_CODE, MOBILE_PLATFORM, PC_PLATFORM,
-    REFRESH_TOKEN, REGISTER_SESSION_TOKEN,
+    AUTH_FACTOR_PASSWORD_VERIFY_CODE, EMAIL_VERIFY_CODE, FORGOT_PASSWORD_VERIFY_CODE,
+    MOBILE_PLATFORM, PC_PLATFORM, REFRESH_TOKEN, REGISTER_SESSION_TOKEN,
 };
 use common::models::user_entity::basic_user::{BasicUser, USER_TYPE_NORMAL};
 use common::models::user_entity::email_sso::EmailSso;
@@ -38,6 +38,9 @@ use crate::http_service::user_service::dto::change_password_dto::{
 };
 use crate::http_service::user_service::dto::complete_profile_dto::CompleteProfileDTO;
 use crate::http_service::user_service::dto::fetch_sqlite_key_dto::FetchSqliteKeyDTO;
+use crate::http_service::user_service::dto::forgot_password_dto::{
+    ForgotPasswordResetDTO, ForgotPasswordSendCodeDTO,
+};
 use crate::http_service::user_service::dto::refresh_token_dto::RefreshTokenDTO;
 use crate::http_service::user_service::dto::sign_up_step1_dto::SignUpStep1DTO;
 use crate::http_service::user_service::dto::update_user_dto::UpdateUserDTO;
@@ -373,6 +376,115 @@ pub async fn change_password_service(
     let code = dto.verification_code.as_ref().ok_or_else(|| anyhow!("验证码为空"))?;
     let mut conn = redis.get().await?;
     let key = format!("{}{}", AUTH_FACTOR_PASSWORD_VERIFY_CODE, uuid).to_uppercase();
+    verify_code(&mut conn, &key, code).await?;
+
+    // 更新密码
+    let new_password = dto.new_password.as_ref().ok_or_else(|| anyhow!("新密码为空"))?;
+    let hashed_password = hash_password(new_password)?;
+
+    let mut basic_user =
+        BasicUser::select_by_uuid(rb, &uuid).await?.ok_or(anyhow!("用户不存在"))?;
+    basic_user.password = Some(hashed_password);
+    BasicUser::update_by_uuid(rb, &basic_user, &uuid).await?;
+
+    Ok(CommonResponseNoDataRef::success_empty())
+}
+
+/// 按「账号 + 已绑定认证因素」反查账号 uuid(未登录场景, 如忘记密码)。
+///
+/// 同一因素值(邮箱)可能被多个账号绑定, 故以账号为主键定位用户, 再校验其确已绑定该因素值:
+/// - 账号不存在 / 未完成注册: 拒绝;
+/// - 账号未绑定该因素类型, 或因素值不匹配: 拒绝。
+async fn resolve_uid_by_account_and_factor(
+    rb: &RBatis,
+    account: &str,
+    factor_type: i16,
+    factor_value: &str,
+) -> Result<rbdc::Uuid, anyhow::Error> {
+    let user = BasicUser::select_by_account(rb, account).await?.ok_or(anyhow!("账号不存在"))?;
+    if user.registration_status != Some(1) {
+        return Err(anyhow!("该账号尚未完成注册"));
+    }
+    let uuid = user.uuid.ok_or_else(|| anyhow!("账号id为空"))?;
+
+    let factor = UserAuthFactor::select_by_user_and_type(rb, &uuid, factor_type)
+        .await?
+        .ok_or_else(|| anyhow!("该账号未绑定该邮箱，请确认后重试"))?;
+    if factor.factor_value.as_deref() != Some(factor_value) {
+        return Err(anyhow!("该账号未绑定该邮箱，请确认后重试"));
+    }
+    Ok(uuid)
+}
+
+/// 忘记密码第一步(未登录): 按账号与其已绑定邮箱定位用户并发送找回验证码。
+///
+/// 验证码以用户 uuid 为键写入 Redis, 5 分钟有效(与绑定/改密码验证码隔离)。
+/// 当前仅开放 email 渠道(phone 需短信通道, 暂未接入)。
+pub async fn forgot_password_send_code_service(
+    rb: &RBatis,
+    redis: &deadpool_redis::Pool,
+    email_manager: &EmailManager,
+    dto: ForgotPasswordSendCodeDTO,
+) -> Result<String, anyhow::Error> {
+    // 当前仅开放 email 渠道, 后续可扩展 phone
+    if dto.factor_type != AUTH_FACTOR_TYPE_EMAIL {
+        return Err(anyhow!("暂未开放该认证渠道"));
+    }
+
+    // 按账号 + 已绑定因素值定位用户(规范化邮箱后严格比对)
+    let account = dto.account.as_deref().ok_or_else(|| anyhow!("账号为空"))?;
+    let raw = dto.factor_value.as_deref().ok_or_else(|| anyhow!("因素值不能为空"))?;
+    let email = normalize_email(raw);
+    let uuid =
+        resolve_uid_by_account_and_factor(rb, account, AUTH_FACTOR_TYPE_EMAIL, &email).await?;
+
+    // 生成 6 位验证码并写入 Redis(键含用户 uuid, 5 分钟有效)
+    let code = format!("{:06}", rand::thread_rng().gen_range(0..1_000_000));
+    let mut conn = redis.get().await?;
+    let key = format!("{}{}", FORGOT_PASSWORD_VERIFY_CODE, uuid).to_uppercase();
+    set_verify_code(&mut conn, &key, &code).await?;
+
+    // 通过阿里云邮件发送验证码(发往用户提交且已绑定的邮箱)
+    let account_name = common::config_manager::get_config("email.account_name").unwrap_or_default();
+    let mail = Email::builder()
+        .from(EmailAddress::new(&account_name).map_err(|e| anyhow!("发件人配置错误: {}", e))?)
+        .to(EmailAddress::new(&email).map_err(|e| anyhow!("收件人邮箱格式错误: {}", e))?)
+        .subject("OnlyTalk 重置密码验证码")
+        .text_body(format!("您的重置密码验证码是: {},5 分钟内有效,请勿泄露给他人。", code))
+        .build()
+        .map_err(|e| anyhow!("构建邮件失败: {}", e))?;
+
+    let result = email_manager.send(&mail).await.map_err(|e| anyhow!("邮件发送失败: {}", e))?;
+    if !result.is_success() {
+        let reason = result.error.as_ref().map(|e| e.message.clone()).unwrap_or_default();
+        return Err(anyhow!("邮件发送失败: {}", reason));
+    }
+
+    Ok(CommonResponseNoDataRef::success_empty())
+}
+
+/// 忘记密码第二步(未登录): 校验验证码(消费)通过后重置密码。
+pub async fn forgot_password_reset_service(
+    rb: &RBatis,
+    redis: &deadpool_redis::Pool,
+    dto: ForgotPasswordResetDTO,
+) -> Result<String, anyhow::Error> {
+    // 当前仅开放 email 渠道, 后续可扩展 phone
+    if dto.factor_type != AUTH_FACTOR_TYPE_EMAIL {
+        return Err(anyhow!("暂未开放该认证渠道"));
+    }
+
+    // 重新按账号 + 因素值定位用户(无状态, 不依赖发码步骤的中间态)
+    let account = dto.account.as_deref().ok_or_else(|| anyhow!("账号为空"))?;
+    let raw = dto.factor_value.as_deref().ok_or_else(|| anyhow!("因素值不能为空"))?;
+    let email = normalize_email(raw);
+    let uuid =
+        resolve_uid_by_account_and_factor(rb, account, AUTH_FACTOR_TYPE_EMAIL, &email).await?;
+
+    // 校验并消费验证码(带防爆破)
+    let code = dto.verification_code.as_ref().ok_or_else(|| anyhow!("验证码为空"))?;
+    let mut conn = redis.get().await?;
+    let key = format!("{}{}", FORGOT_PASSWORD_VERIFY_CODE, uuid).to_uppercase();
     verify_code(&mut conn, &key, code).await?;
 
     // 更新密码
