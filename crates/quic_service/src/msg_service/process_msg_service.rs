@@ -94,7 +94,11 @@ async fn process_text_msg(
 fn is_group_chat_type(text_type: u16) -> bool {
     matches!(
         text_type,
-        message_types::MSG_TYPE_GROUP_TEXT | message_types::MSG_TYPE_GROUP_NOTIFICATION
+        message_types::MSG_TYPE_GROUP_TEXT
+            | message_types::MSG_TYPE_GROUP_IMAGE
+            | message_types::MSG_TYPE_GROUP_FILE
+            | message_types::MSG_TYPE_GROUP_VOICE
+            | message_types::MSG_TYPE_GROUP_NOTIFICATION
     )
 }
 
