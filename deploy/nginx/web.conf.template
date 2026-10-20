@@ -1,0 +1,43 @@
+# Only Talk 官网静态站点: 托管 only-talk-app 的 apps/web 构建产物(SPA)。
+# - server_name 由 ${WEB_DOMAIN} 注入(见 compose 的 NGINX_ENVSUBST_FILTER=DOMAIN|WEB_DOMAIN)
+# - 静态根目录 /app/web, 由 compose 把 deploy/web bind-mount 进来(官网 CD 同步产物到此)
+# - 证书复用 certbot 写入的 /app/config/ssl(与 API/QUIC 共用同一张多 SAN 证书)
+# - 只监听 443; 80 保留给 certbot ACME(standalone)
+
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name ${WEB_DOMAIN};
+
+    ssl_certificate     /app/config/ssl/fullchain.pem;
+    ssl_certificate_key /app/config/ssl/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    server_tokens off;
+
+    root /app/web;
+    index index.html;
+
+    gzip on;
+    gzip_types text/plain text/css application/javascript application/json image/svg+xml;
+    gzip_min_length 1024;
+
+    add_header X-Content-Type-Options nosniff always;
+    add_header Referrer-Policy strict-origin-when-cross-origin always;
+
+    # 带内容哈希的构建资源: 长缓存
+    location /assets/ {
+        expires 30d;
+        add_header Cache-Control "public, immutable";
+        try_files $uri =404;
+    }
+
+    # 入口 HTML 不缓存, 保证发版即时生效
+    location = /index.html {
+        add_header Cache-Control "no-cache";
+    }
+
+    # SPA history 路由回退
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}

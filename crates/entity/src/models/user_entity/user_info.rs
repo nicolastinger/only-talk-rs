@@ -1,5 +1,6 @@
+use rbatis::crud;
+use rbatis::executor::Executor;
 use rbatis::rbdc::Uuid;
-use rbatis::{crud, impl_select, impl_update};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Deserialize, Serialize, Debug)]
@@ -8,9 +9,7 @@ pub struct UserInfo {
     pub uuid: Option<Uuid>,
     /// 用户性别 (0: 未知, 1: 男, 2: 女)
     pub gender: Option<u8>,
-    /// 用户年龄
-    pub age: Option<u8>,
-    /// 用户生日 (Unix 时间戳，单位：秒)
+    /// 用户生日 (Unix 时间戳，单位：秒)，年龄由生日与当前时间实时计算，不再单独存储
     pub birthday: Option<i64>,
     /// 用户备注信息
     pub note: Option<String>,
@@ -30,5 +29,22 @@ pub struct UserInfo {
 
 crud!(UserInfo {});
 
-impl_select!(UserInfo{select_by_uuid(uuid: &Uuid) -> Option => "`where uuid = #{uuid} limit 1`"});
-impl_update!(UserInfo{update_by_uuid(uuid: &Uuid) => "`where uuid = #{uuid}`"});
+impl UserInfo {
+    #[rbatis::py_sql("select * from user_info where uuid = #{uuid} limit 1")]
+    async fn select_by_uuid_inner(rb: &dyn Executor, uuid: &Uuid) -> Vec<UserInfo> {}
+
+    pub async fn select_by_uuid(
+        rb: &dyn Executor,
+        uuid: &Uuid,
+    ) -> rbatis::Result<Option<UserInfo>> {
+        Ok(Self::select_by_uuid_inner(rb, uuid).await?.into_iter().next())
+    }
+
+    pub async fn update_by_uuid(
+        rb: &dyn Executor,
+        table: &UserInfo,
+        uuid: &Uuid,
+    ) -> Result<rbatis::rbdc::db::ExecResult, rbatis::rbdc::Error> {
+        UserInfo::update_by_map(rb, table, rbs::value! {"uuid": uuid}).await
+    }
+}

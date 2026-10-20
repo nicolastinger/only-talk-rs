@@ -6,8 +6,7 @@
 CREATE TABLE IF NOT EXISTS user_info (
     uuid uuid NOT NULL, -- 主键
     gender int4 DEFAULT 0 NOT NULL, -- 性别
-    age int2 NULL, -- 年龄
-    birthday int8 DEFAULT 0 NOT NULL,
+    birthday int8 DEFAULT 0 NOT NULL, -- 生日(Unix秒), 年龄实时由生日计算
     created_at int8 NULL, -- 创建时间
     updated_at int8 NULL, -- 更新时间
     phone varchar NULL, -- 手机号
@@ -24,8 +23,7 @@ COMMENT ON TABLE public.user_info IS '用户详细信息表';
 -- 列注释
 COMMENT ON COLUMN public.user_info.uuid IS '主键';
 COMMENT ON COLUMN public.user_info.gender IS '性别';
-COMMENT ON COLUMN public.user_info.age IS '年龄';
-COMMENT ON COLUMN public.user_info.birthday IS '生日';
+COMMENT ON COLUMN public.user_info.birthday IS '生日(Unix秒), 年龄实时由生日计算';
 COMMENT ON COLUMN public.user_info.created_at IS '创建时间';
 COMMENT ON COLUMN public.user_info.updated_at IS '更新时间';
 COMMENT ON COLUMN public.user_info.phone IS '手机号';

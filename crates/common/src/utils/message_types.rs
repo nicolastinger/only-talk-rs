@@ -3,12 +3,6 @@
 /// 纯文本消息
 pub const MSG_TYPE_TEXT: u16 = 1;
 
-/// 图片消息
-pub const MSG_TYPE_IMAGE: u16 = 2;
-
-/// 文件消息
-pub const MSG_TYPE_FILE: u16 = 3;
-
 /// P2P 消息（客户端直连通信，服务端仅转发）
 pub const MSG_TYPE_P2P: u16 = 4;
 
@@ -57,6 +51,12 @@ pub const NOTIFY_TYPE_MSG: u16 = 1024;
 /// 系统消息
 pub const MSG_TYPE_SYSTEM: u16 = 10001;
 
+/// 同平台新连接建立后，通知旧客户端退出登录
+pub const MSG_TYPE_FORCE_LOGOUT: u16 = 10002;
+
+/// 客户端 TTL 续期需求消息（客户端每 2 分钟携带短效 token 发送，服务端校验通过后续期用户路由 key）
+pub const MSG_TYPE_TTL: u16 = 10003;
+
 /// 内部服务转发的添加好友通知消息
 pub const INTERNAL_FRIEND_NOTIFY: u16 = 20001;
 
@@ -73,6 +73,9 @@ pub const MSG_TYPE_GROUP_FILE: u16 = 2003;
 
 /// 群通知消息(成员变更等)
 pub const MSG_TYPE_GROUP_NOTIFICATION: u16 = 2004;
+
+/// 群语音消息(录音文件以附件形式上传, 客户端按 biz_id 播放)
+pub const MSG_TYPE_GROUP_VOICE: u16 = 2006;
 
 /// 群消息投递成功回执
 pub const MSG_TYPE_GROUP_ACK: u16 = 2201;

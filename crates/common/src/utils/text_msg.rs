@@ -10,9 +10,7 @@ pub trait TextMsg {
 
 #[repr(u16)]
 pub enum MessageType {
-    Text = 1,  // 文本消息
-    Image = 2, // 图片消息
-    File = 3,  // 文件消息
+    Text = 1, // 文本消息
     P2P = 4,
     P2PVideoCall = 5,
     P2pVideoData = 6,
@@ -25,6 +23,7 @@ pub enum MessageType {
     P2pUserServer = 203, // 通知作为 P2P 服务端(NAT 发现后由服务端下发)
     P2pUserClient = 204, // 通知作为 P2P 客户端(NAT 发现后由服务端下发)
     System = 10001,      // 系统通知
+    TtlRenew = 10003,    // 客户端 TTL 续期需求
 }
 
 // 头部消息
@@ -127,4 +126,32 @@ pub fn generate_text_msg_with_time(
 ) -> anyhow::Result<Vec<u8>> {
     let text_quic_msg = TextQuicMsg { nano_id, text_type, raw, recv_user, send_user, timestamp };
     build_text(text_quic_msg)
+}
+
+/// 强退帧 raw 的 JSON 结构
+#[derive(Debug, Serialize)]
+struct ForceLogoutRaw<'a> {
+    reason: &'a str,
+    session: &'a str,
+}
+
+/// 生成强制下线帧(类型固定 MSG_TYPE_FORCE_LOGOUT)。
+///
+/// `raw` 内容固定为 JSON: `{"reason": "...", "session": "<发起该次强退的会话 jti>"}`。
+/// `session` 为空串表示旧客户端/历史消息无该信息。
+/// 客户端收到后若 `session` 等于自己当前 token 的 jti,说明是"本机旧连接顶替自己",应忽略,
+/// 避免把自己置为 Idle。
+pub fn build_force_logout_msg(
+    reason: &str,
+    session_id: &str,
+    recv_user: String,
+    send_user: String,
+) -> anyhow::Result<Vec<u8>> {
+    let raw = ForceLogoutRaw { reason, session: session_id };
+    generate_text_msg(
+        crate::utils::message_types::MSG_TYPE_FORCE_LOGOUT,
+        serde_json::to_vec(&raw)?,
+        recv_user,
+        send_user,
+    )
 }

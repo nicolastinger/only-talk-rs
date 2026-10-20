@@ -12,8 +12,27 @@ pub static PONG: &str = "pong";
 pub static MAX_QUIC_SERVERS: usize = 1000;
 // 最大缓冲区长度
 pub static MAX_QUIC_BUFFER_LEN: usize = 1024 * 1024 * 10;
-// 用户已读消息: user_id:other_id, nanoid
-pub static USER_READ_MSG: &str = "USER:READ:MSG:";
+// 系统通知未读拉取保留窗口(天)，仅拉取最近 N 天内的未读通知
+pub static NOTIFY_RETENTION_DAYS: i64 = 14;
+// 通知列表分页: 默认/最大每页条数
+pub static NOTIFY_LIST_DEFAULT_SIZE: u32 = 50;
+pub static NOTIFY_LIST_MAX_SIZE: u32 = 100;
+// 通知层级语义: level1 定位功能大类(当前仅系统大类=1)
+pub static NOTIFY_LEVEL1_SYSTEM: i32 = 1;
+// level2 定位子功能模块
+pub static NOTIFY_LEVEL2_FRIEND: i32 = 1;
+pub static NOTIFY_LEVEL2_GROUP: i32 = 3;
+pub static NOTIFY_LEVEL2_PLAZA: i32 = 4;
+pub static NOTIFY_LEVEL2_MOMENT: i32 = 5;
+// level3 定位具体功能组
+pub static NOTIFY_LEVEL3_FRIEND_REQUEST: i32 = 1;
+pub static NOTIFY_LEVEL3_FRIEND_PROCESS: i32 = 2;
+pub static NOTIFY_LEVEL3_GROUP_INVITE: i32 = 1;
+pub static NOTIFY_LEVEL3_GROUP_INVITE_RESULT: i32 = 4;
+pub static NOTIFY_LEVEL3_PLAZA_LIKE: i32 = 1;
+pub static NOTIFY_LEVEL3_PLAZA_MATCH: i32 = 2;
+pub static NOTIFY_LEVEL3_MOMENT_LIKE: i32 = 1;
+pub static NOTIFY_LEVEL3_MOMENT_COMMENT: i32 = 2;
 // 用户发起好友请求
 pub static USER_ADD_FRIEND: &str = "USER_ADD_FRIEND_REQUEST";
 // 用户处理好友请求
@@ -22,15 +41,28 @@ pub static USER_PROCESS_FRIEND: &str = "USER_PROCESS_FRIEND_REQUEST";
 pub static USER_UDP_ADDRESS: &str = "USER_UDP_ADDRESS_";
 // NAT UDP 用户地址锁
 pub static USER_UDP_ADDRESS_LOCK: &str = "USER_UDP_ADDRESS_LOCK_";
+// NAT UDP 端口配置缓存(JSON: v4_port_1/v6_port_1/v4_port_2/v6_port_2)
+pub static NAT_UDP_PORTS: &str = "NAT:UDP:PORTS:";
 // 群成员列表缓存
 pub static GROUP_MEMBERS_CACHE: &str = "GROUP:MEMBERS:";
 // 刷新令牌映射(值:绑定设备指纹)
 pub static REFRESH_TOKEN: &str = "REFRESH_TOKEN:";
 // 邮箱注册验证码
-pub static EMAIL_VERIFY_CODE: &str = "EMAIL:VERIFY:CODE:"; // 默认最大文件大小 (20MB)
-pub static DEFAULT_MAX_FILE_SIZE: i64 = 20 * 1024 * 1024;
+pub static EMAIL_VERIFY_CODE: &str = "EMAIL:VERIFY:CODE:";
+// 二次认证邮箱绑定验证码
+pub static AUTH_FACTOR_EMAIL_VERIFY_CODE: &str = "AUTH_FACTOR:EMAIL:VERIFY:CODE:";
+// 二次认证邮箱解绑验证码(键尾追加用户 uuid)
+pub static AUTH_FACTOR_UNBIND_EMAIL_VERIFY_CODE: &str = "AUTH_FACTOR:UNBIND:EMAIL:VERIFY:CODE:";
+// 二次认证修改密码验证码(键尾追加用户 uuid)
+pub static AUTH_FACTOR_PASSWORD_VERIFY_CODE: &str = "AUTH_FACTOR:PASSWORD:VERIFY:CODE:";
+// 忘记密码(未登录)找回验证码(键尾追加用户 uuid)
+pub static FORGOT_PASSWORD_VERIFY_CODE: &str = "FORGOT:PASSWORD:VERIFY:CODE:";
+// 默认最大文件大小 (100MB)
+pub static DEFAULT_MAX_FILE_SIZE: i64 = 100 * 1024 * 1024;
 // 注册会话 token(两步注册,step1 验证通过后下发,映射占位用户 uuid)
 pub static REGISTER_SESSION_TOKEN: &str = "REGISTER:SESSION:TOKEN:";
+// GitHub OAuth state(CSRF 防护, 值:发起方设备指纹, 10 分钟有效, 单次消费)
+pub static GITHUB_OAUTH_STATE: &str = "GITHUB:OAUTH:STATE:";
 // PC 平台
 pub static PC_PLATFORM: &str = "PC";
 // 移动端平台
@@ -52,3 +84,11 @@ pub static S3_USER_AVATAR_BUCKET: &str = "user-avatar";
 pub static S3_PROVIDER_MINIO: &str = "minio";
 pub static S3_PROVIDER_ALIYUN_OSS: &str = "aliyun_oss";
 pub static S3_PROVIDER_AWS_S3: &str = "aws_s3";
+
+// 单聊会话标识派生的固定命名空间(v5)
+// ⚠️ 生成一次后永久固化, 任何修改都会导致全部 session_uuid 变化, 一致性直接崩塌。
+// 值见生成记录(commit message: CONV_NAMESPACE=27a23a8a-b493-4e7e-8b06-991e8d69672c)。
+pub static CONV_NAMESPACE_STR: &str = "27a23a8a-b493-4e7e-8b06-991e8d69672c";
+
+/// 离线消息最大回溯窗口(天)。`/session/sync` 窗口过滤与每日清理共用一处定义(任务09 §3.3)。
+pub const SYNC_WINDOW_DAYS: i64 = 7;

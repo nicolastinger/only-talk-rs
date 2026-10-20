@@ -1,11 +1,13 @@
+use rbatis::crud;
+use rbatis::executor::Executor;
 use rbatis::rbdc::{Bytes, Uuid};
-use rbatis::{RBatis, crud, impl_select};
 use rbs::value;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Deserialize, Serialize, Debug)]
 pub struct ChatMessageRecord {
     pub id: Option<i64>,
+    pub session_uuid: Uuid,
     pub nano_id: Option<String>,
     pub timestamp: Option<i64>,
     pub raw: Bytes,
@@ -16,41 +18,100 @@ pub struct ChatMessageRecord {
 
 crud!(ChatMessageRecord {});
 
-impl_select!(ChatMessageRecord {select_chat_by_limit(send_user: Uuid, recv_user: Uuid, start: u32, size: u32) => r#"where ((send_user = #{send_user} and recv_user = #{recv_user}) or (send_user = #{recv_user} and recv_user = #{send_user}))
-  order by created_at limit #{size} offset #{start}"#
-});
+impl ChatMessageRecord {
+    /// 按会话分页翻历史(任务08): 分区剪枝 + 索引扫描, 取代双向 OR 全分区扫描。
+    #[rbatis::py_sql(
+        "select * from chat_message_record
+         where session_uuid = #{session_uuid}
+         order by id limit #{size} offset #{start}"
+    )]
+    async fn select_by_session_paged_inner(
+        rb: &dyn Executor,
+        session_uuid: &Uuid,
+        start: u32,
+        size: u32,
+    ) -> Vec<ChatMessageRecord> {
+    }
 
-// 获取最新一条消息
-impl_select!(ChatMessageRecord {select_last_by_column(uuid: &Uuid) -> Option => r#"where recv_user = #{uuid} or send_user = #{uuid} order by timestamp desc limit 1"#});
+    pub async fn select_by_session_paged(
+        rb: &dyn Executor,
+        session_uuid: &Uuid,
+        start: u32,
+        size: u32,
+    ) -> rbatis::Result<Vec<ChatMessageRecord>> {
+        Self::select_by_session_paged_inner(rb, session_uuid, start, size).await
+    }
 
-// 获取未读消息，最大9999
-impl_select!(ChatMessageRecord {select_unread_by_time(uuid: &Uuid, time: i64) => r#"where (send_user = #{uuid} or recv_user = #{uuid}) and timestamp > #{time} order by timestamp desc limit 9999"#});
+    /// 会话当前最大消息 id(桥接"读到底"用; 单分区索引扫描, 便宜)。
+    pub async fn max_id_by_session(rb: &dyn Executor, session_uuid: &Uuid) -> rbatis::Result<i64> {
+        let sql =
+            "select COALESCE(max(id), 0) AS v from chat_message_record where session_uuid = $1";
+        let result = rb.query(sql, vec![value!(session_uuid)]).await?;
+        Ok(crate::models::scalar_i64(&result))
+    }
 
-// rbatis::raw_sql!(chat_message_recordraw_insert(rb: &dyn Executor, nano_id: String, created_at: i64, send_user: Uuid, recv_user: Uuid, raw: Vec<u8>, msg_type: u32)  -> Result<rbs::Value, rbatis::Error> =>
-// "INSERT INTO public.chat_message_record
-// (nano_id, created_at, send_user, recv_user,raw, text_type)
-// VALUES(?, ?, ?, ?, ?, ?);"
-// );
+    /// 会话内按 nano_id 反查服务端消息 id(已读上报 nano_id → id; 无则 None)。
+    ///
+    /// 客户端本地 `server_id` 靠同步回填、在线消息为 NULL, 数值游标不可靠;
+    /// 上报只带 nano_id, 由服务端经 `nano_id` 唯一约束反查自己的 id。
+    pub async fn select_id_by_session_and_nano(
+        rb: &dyn Executor,
+        session_uuid: &Uuid,
+        nano_id: &str,
+    ) -> rbatis::Result<Option<i64>> {
+        let sql = "select id AS v from chat_message_record where session_uuid = $1 and nano_id = $2 limit 1";
+        let result = rb.query(sql, vec![value!(session_uuid), value!(nano_id)]).await?;
+        let v = crate::models::scalar_i64(&result);
+        Ok((v > 0).then_some(v))
+    }
 
-pub async fn raw_insert(
-    rbatis: &RBatis,
-    chat_message_record: ChatMessageRecord,
-) -> Result<(), rbatis::Error> {
-    let bytes = value!(chat_message_record.raw);
-    rbatis
-        .exec(
-            "INSERT INTO public.chat_message_record
-(nano_id, timestamp, send_user, recv_user,raw, text_type)
-VALUES($1,$2,$3,$4,$5,$6)",
-            vec![
-                value!(chat_message_record.nano_id),
-                value!(chat_message_record.timestamp),
-                value!(chat_message_record.send_user),
-                value!(chat_message_record.recv_user),
-                bytes,
-                value!(chat_message_record.text_type),
-            ],
-        )
-        .await?;
-    Ok(())
+    /// 会话最新一条消息(聚合用; 单分区索引反向取首行, 便宜)。
+    ///
+    /// 取代旧 `latest_per_session_for_user` 的跨 16 分区 `distinct on` 全扫:
+    /// 会话的发现职责已由任务 04b 建行钩子承接, 聚合按 `user_session` 行逐会话点查。
+    #[rbatis::py_sql(
+        "select * from chat_message_record
+         where session_uuid = #{session_uuid}
+         order by id desc limit 1"
+    )]
+    async fn latest_by_session_inner(
+        rb: &dyn Executor,
+        session_uuid: &Uuid,
+    ) -> Vec<ChatMessageRecord> {
+    }
+
+    pub async fn latest_by_session(
+        rb: &dyn Executor,
+        session_uuid: &Uuid,
+    ) -> rbatis::Result<Option<ChatMessageRecord>> {
+        Ok(Self::latest_by_session_inner(rb, session_uuid).await?.into_iter().next())
+    }
+
+    /// 窗口内正向翻页(任务12 正向追平): `id > after` 且窗口内的 limit 条, 返回 id **升序**。
+    ///
+    /// 命中任务11 PK `(session_uuid, id) INCLUDE (recv_user, "timestamp")` → Index Only Scan。
+    /// `after` 缺省传 0(从窗口内最早起); `has_more` 由调用方用 limit+1 探测。
+    #[rbatis::py_sql(
+        "select * from chat_message_record
+         where session_uuid = #{session_uuid} and id > #{after} and \"timestamp\" > #{boundary}
+         order by id asc limit #{size}"
+    )]
+    async fn select_window_after_inner(
+        rb: &dyn Executor,
+        session_uuid: &Uuid,
+        after: i64,
+        boundary: i64,
+        size: u32,
+    ) -> Vec<ChatMessageRecord> {
+    }
+
+    pub async fn select_window_after(
+        rb: &dyn Executor,
+        session_uuid: &Uuid,
+        after: i64,
+        boundary: i64,
+        size: u32,
+    ) -> rbatis::Result<Vec<ChatMessageRecord>> {
+        Self::select_window_after_inner(rb, session_uuid, after, boundary, size).await
+    }
 }

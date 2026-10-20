@@ -133,6 +133,7 @@ fn make_quic_connection(conn: Connection, user_uuid: &str) -> QuicConnection {
         update_time: 0,
         ipv4addr: String::new(),
         ipv6addr: String::new(),
+        session_id: String::new(),
     }
 }
 
@@ -176,6 +177,9 @@ fn make_request(target_user: &str, preferred_index: u32, payload: Vec<u8>) -> In
         platform: PC_PLATFORM.to_string(),
         source: RequestSource::QuicExternal,
         ttl: 3,
+        close_after_delivery: false,
+        incoming_session: String::new(),
+        send_force_logout: false,
     }
 }
 

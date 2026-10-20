@@ -1,5 +1,6 @@
+use rbatis::crud;
+use rbatis::executor::Executor;
 use rbatis::rbdc::Uuid;
-use rbatis::{crud, impl_select};
 use serde::{Deserialize, Serialize};
 
 /// 登录事件类型
@@ -12,6 +13,7 @@ pub const LOGIN_EVENT_REFRESH: &str = "refresh";
 pub const LOGIN_TYPE_ACCOUNT: &str = "account";
 pub const LOGIN_TYPE_EMAIL: &str = "email";
 pub const LOGIN_TYPE_REFRESH: &str = "refresh";
+pub const LOGIN_TYPE_GITHUB: &str = "github";
 
 /// 用户登录审计流水表（记录每次登录/刷新 token 事件，用于安全审计与风控）
 #[derive(Clone, Deserialize, Serialize, Debug)]
@@ -44,5 +46,17 @@ pub struct UserLoginLog {
 
 crud!(UserLoginLog {});
 
-impl_select!(UserLoginLog{select_by_uuid(uuid:&Uuid) -> Vec => "`where uuid = #{uuid} order by login_at desc`"});
-impl_select!(UserLoginLog{select_recent_by_uuid(uuid:&Uuid, limit:i64) -> Vec => "`where uuid = #{uuid} order by login_at desc limit #{limit}`"});
+impl UserLoginLog {
+    #[rbatis::py_sql("select * from user_login_log where uuid = #{uuid} order by login_at desc")]
+    async fn select_by_uuid(rb: &dyn Executor, uuid: &Uuid) -> Vec<UserLoginLog> {}
+
+    #[rbatis::py_sql(
+        "select * from user_login_log where uuid = #{uuid} order by login_at desc limit #{limit}"
+    )]
+    async fn select_recent_by_uuid(
+        rb: &dyn Executor,
+        uuid: &Uuid,
+        limit: i64,
+    ) -> Vec<UserLoginLog> {
+    }
+}

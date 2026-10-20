@@ -87,7 +87,7 @@ endpoint.connect(server_addr, "onlytalk.cn")   ← SNI 必须是证书域名
 
 > ⚠️ **SNI 校验**：`configure_client()` 使用 `webpki_roots`（系统根证书）校验服务器证书，`connect()` 的第二参数是 SNI 域名，必须与服务器证书 CN/SAN 匹配，否则 TLS 握手失败。
 
-### 2.3 服务器握手流程（`handle_conn`，`quic_server.rs:237`）
+### 2.3 服务器握手流程（`handle_conn`，`quic_server.rs:306`）
 
 ```
 handle_conn(send_stream, recv_stream, conn, address, ...)
@@ -102,22 +102,25 @@ handle_conn(send_stream, recv_stream, conn, address, ...)
   ├─ 3. 提取 platform = claims.sub（"PC" / "MOBILE"）
   │     提取 uuid    = claims.uuid
   │
-  ├─ 4. verify_max_client()            当前 DashMap 连接数 > max_connections 则拒绝
+  ├─ 4. user_online()                  并发锁 + 登录接管三态判定（见 §2.6）
   │
-  ├─ 5. user_online(uuid, platform)    TODO 占位（暂只打日志）
+  ├─ 5. 构造连接 key 并 set_conn_info()（见 §2.5）＋ release_online_lock()
   │
-  ├─ 6. 构造连接 key 并 set_conn_info()（见 §2.5）
+  ├─ 6. start_uni_receiver()           spawn 单向流接收循环（处理 open_uni 消息）
+  │      （每连接一个 buffer_msg 残包缓冲；退出受 uni_shutdown 标志控制）
   │
-  ├─ 7. spawn 单向流接收循环           处理客户端 open_uni 发来的消息
-  │      （每连接一个 buffer_msg 残包缓冲）
-  │
-  ├─ 8. 双向流接收循环                 处理该流上收到的消息（process_rec_msg）
+  ├─ 7. run_bidi_receive_loop()        双向流接收循环（处理该流上消息 process_rec_msg）
   │      （半包残包同样缓冲，跨 read 拼接）
   │      · 流关闭（Ok(None) / 读错误 / 缓冲超限）──► 退出循环
   │
-  └─ 9. uni_shutdown.store(true)       通知单向流循环退出
+  └─ 8. uni_shutdown.store(true)       通知单向流循环退出
         end_server()                   下线清理（见 §2.6）
 ```
+
+> **路由 key 续期已改为客户端驱动**：不再由服务端定时任务（旧 `start_ttl_refresh`）续期。
+> 客户端每 2 分钟经 uni 流发送一条 **TTL 续期需求消息**（`MSG_TYPE_TTL`，raw 为 `{"token": "<短效 access token>"}`），
+> 服务端在 `process_text_msg` 中 `verify_token` 校验签名+过期+归属（uuid/platform 与连接一致）通过后，
+> 以 `set_ex(connection_key, server_index, 7200)` 续期路由 key；校验失败仅告警不续期，路由 key 到期自然下线。
 
 > **双接收循环的意义**：服务器在双向流上只收首包和（兼容性的）消息，但把消息收发的**主力通道放在单向流**上；双向流只要不关，连接就算"存活"（`quic_client.rs:132` 特意保持 send_stream 不 drop 即为此原因）。
 
@@ -162,9 +165,10 @@ if claims.uuid != first_quic_msg.uuid {
 1. 从 DashMap 取连接，**校验 `update_time == close_now`**（防止"同一 key 的新连接刚注册，旧连接才退出"误删新连接）；
 2. `connections.remove(key)`；
 3. Redis `DEL {connection_key}`；
-4. `user_offline(core, uuid)`：把 Redis 中缓存的该用户已读消息（`USER:READ:MSG:{uuid}`）持久化到数据库：
-   - 群聊已读（`chat_type == CHAT_TYPE_GROUP`）：校验群消息存在、读者是群成员、游标只推进不回退，更新 `group_member.last_read_msg_id`；
-   - 单聊已读：校验 `chat_message_record` 中收发双方与记录匹配，`chat_message_record_read` 表 upsert。
+4. `user_offline(core, uuid)`：触发会话聚合（任务03，异步，失败仅打日志）。
+
+> 任务04：原先"把 Redis 缓存的已读消息（`USER:READ:MSG:{uuid}`）持久化到数据库"的 `sync_read_messages` 已整体删除；
+> 已读游标改为客户端经 HTTP `/session/read`、`/session/synced`（或旧桥接 `/msg/add_read_chat_record`）直写 `user_session`。
 
 ---
 
@@ -279,7 +283,7 @@ pub struct ChatNodeConfig {
     pub bind_address: SocketAddr,            // 监听地址（[quic_server].address，如 "0.0.0.0:4433"）
     pub cert_path: String,                   // TLS 证书链（默认 ./config/ssl/fullchain.pem）
     pub key_path: String,                    // TLS 私钥（默认 ./config/ssl/privkey.pem）
-    pub max_connections: usize,              // 最大在线连接数（默认 1000）
+    pub max_connections: usize,              // 最大并发连接数（[quic_server].max_connections，默认 10000；仅限新建连接，重连不受限）
     pub max_buffer_length: usize,            // 残包缓冲上限（默认 10MB，超限断开）
     pub idle_timeout_secs: u64,              // QUIC 空闲超时（默认 190s，代码未实际注入）
     pub max_concurrent_uni_streams: u8,      // 并发单向流数（默认 0，实际由 set_server.rs 固定 32）
@@ -304,9 +308,10 @@ cert_path = "./config/ssl/fullchain.pem"   # 可选，有默认值
 key_path  = "./config/ssl/privkey.pem"     # 可选
 server_name = "127.0.0.1:4433" # 可选
 node_address = "127.0.0.1:4433"# 可选
+max_connections = 10000        # 可选，默认 10000；<=0 视为非法回退默认
 ```
 
-其余字段（max_connections 等）**只能走默认值**，TOML 中不读取。
+其余字段（`max_buffer_length`、`idle_timeout_secs` 等）**只能走默认值**，TOML 中不读取。
 
 ### 4.5 `ServiceState` —— 生命周期状态机（`external/state.rs`）
 
@@ -414,8 +419,6 @@ pub trait TextMsg {
 | 常量 | 值 | 含义 |
 | --- | --- | --- |
 | `MSG_TYPE_TEXT` | 1 | 单聊文本消息 |
-| `MSG_TYPE_IMAGE` | 2 | 图片消息 |
-| `MSG_TYPE_FILE` | 3 | 文件消息 |
 | `MSG_TYPE_P2P` | 4 | P2P 消息 |
 | `MSG_TYPE_P2P_VIDEO_CALL` | 5 | P2P 视频通话 |
 | `MSG_TYPE_P2P_VIDEO_DATA` | 6 | P2P 视频数据 |
@@ -427,8 +430,6 @@ pub trait TextMsg {
 | `MSG_TYPE_P2P_USER_CLIENT` | 204 | 通知作为 P2P 客户端 |
 | `MSG_TYPE_SYSTEM` | 10001 | 系统通知 |
 | `MSG_TYPE_GROUP_TEXT` | 2001 | 群聊文本消息 |
-| `MSG_TYPE_GROUP_IMAGE` | 2002 | 群聊图片消息 |
-| `MSG_TYPE_GROUP_FILE` | 2003 | 群聊文件消息 |
 | `MSG_TYPE_GROUP_NOTIFICATION` | 2004 | 群聊通知消息 |
 | `MSG_TYPE_GROUP_ACK` | 2201 | 群聊消息 ACK（服务器→客户端） |
 

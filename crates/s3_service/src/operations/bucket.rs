@@ -1,6 +1,6 @@
-//! Bucket operations module
+//! 桶操作模块
 //!
-//! Provides bucket creation, deletion, listing, permission configuration, etc.
+//! 提供桶的创建、删除、列表、权限配置等功能。
 
 use aws_sdk_s3::primitives::DateTime;
 use aws_sdk_s3::types::Bucket;
@@ -8,22 +8,22 @@ use aws_sdk_s3::types::Bucket;
 use crate::client::S3Client;
 use crate::error::S3Error;
 
-/// Create bucket
+/// 创建桶
 ///
-/// Create a new S3 bucket.
+/// 创建新的 S3 桶。
 ///
-/// # Parameters
+/// # 参数
 ///
-/// - `client`: S3 client instance
-/// - `bucket`: Bucket name
+/// - `client`: S3 客户端实例
+/// - `bucket`: 桶名称
 ///
-/// # Notes
+/// # 说明
 ///
-/// - Bucket name must be globally unique
-/// - Bucket name must comply with S3 naming conventions
-/// - Different regions may have different restrictions
+/// - 桶名称必须全局唯一
+/// - 桶名称必须符合 S3 命名规范
+/// - 不同区域可能有不同的限制
 ///
-/// # Example
+/// # 示例
 ///
 /// ```rust,no_run
 /// use s3_service::operations::create_bucket;
@@ -43,21 +43,21 @@ pub async fn create_bucket(client: &S3Client, bucket: &str) -> Result<(), S3Erro
     Ok(())
 }
 
-/// Delete bucket
+/// 删除桶
 ///
-/// Delete an empty S3 bucket.
-/// The bucket must be empty to be deleted, otherwise it will fail.
+/// 删除一个空的 S3 桶。
+/// 桶必须为空才能删除，否则会失败。
 ///
-/// # Parameters
+/// # 参数
 ///
-/// - `client`: S3 client instance
-/// - `bucket`: Bucket name to delete
+/// - `client`: S3 客户端实例
+/// - `bucket`: 要删除的桶名称
 ///
-/// # Errors
+/// # 错误
 ///
-/// - Bucket not empty
-/// - Bucket does not exist
-/// - Insufficient permissions
+/// - 桶不为空
+/// - 桶不存在
+/// - 权限不足
 pub async fn delete_bucket(client: &S3Client, bucket: &str) -> Result<(), S3Error> {
     client
         .inner
@@ -69,17 +69,17 @@ pub async fn delete_bucket(client: &S3Client, bucket: &str) -> Result<(), S3Erro
     Ok(())
 }
 
-/// List all buckets
+/// 列出所有桶
 ///
-/// List all buckets under the current account.
+/// 列出当前账号下的所有桶。
 ///
-/// # Parameters
+/// # 参数
 ///
-/// - `client`: S3 client instance
+/// - `client`: S3 客户端实例
 ///
-/// # Returns
+/// # 返回值
 ///
-/// Returns a list of bucket information
+/// 返回桶信息列表
 pub async fn list_buckets(client: &S3Client) -> Result<Vec<BucketInfo>, S3Error> {
     let result = client
         .inner
@@ -88,7 +88,7 @@ pub async fn list_buckets(client: &S3Client) -> Result<Vec<BucketInfo>, S3Error>
         .await
         .map_err(|e| S3Error::AwsError(format!("Failed to list buckets: {}", e)))?;
 
-    // Convert to custom BucketInfo struct
+    // 转换为自定义 BucketInfo 结构体
     let buckets = result
         .buckets()
         .iter()
@@ -101,24 +101,24 @@ pub async fn list_buckets(client: &S3Client) -> Result<Vec<BucketInfo>, S3Error>
     Ok(buckets)
 }
 
-/// Check if bucket exists
+/// 检查桶是否存在
 ///
-/// Use HEAD operation to check if a bucket exists.
+/// 使用 HEAD 操作检查桶是否存在。
 ///
-/// # Parameters
+/// # 参数
 ///
-/// - `client`: S3 client instance
-/// - `bucket`: Bucket name
+/// - `client`: S3 客户端实例
+/// - `bucket`: 桶名称
 ///
-/// # Returns
+/// # 返回值
 ///
-/// - `Ok(true)`: Bucket exists
-/// - `Ok(false)`: Bucket does not exist
+/// - `Ok(true)`: 桶存在
+/// - `Ok(false)`: 桶不存在
 pub async fn bucket_exists(client: &S3Client, bucket: &str) -> Result<bool, S3Error> {
     match client.inner.head_bucket().bucket(bucket).send().await {
         Ok(_) => Ok(true),
         Err(e) => {
-            // 404 means bucket does not exist
+            // 404 表示桶不存在
             if e.as_service_error().map(|se| se.is_not_found()).unwrap_or(false) {
                 Ok(false)
             } else {
@@ -128,20 +128,20 @@ pub async fn bucket_exists(client: &S3Client, bucket: &str) -> Result<bool, S3Er
     }
 }
 
-/// Set bucket CORS configuration
+/// 设置桶 CORS 配置
 ///
-/// Configure cross-origin resource sharing rules to allow browser cross-origin access.
+/// 配置跨域资源共享规则，允许浏览器跨域访问。
 ///
-/// # Parameters
+/// # 参数
 ///
-/// - `client`: S3 client instance
-/// - `bucket`: Bucket name
-/// - `allowed_origins`: List of allowed origins (e.g., ["*"] or ["https://example.com"])
-/// - `allowed_methods`: Allowed HTTP methods (e.g., ["GET", "PUT"])
-/// - `allowed_headers`: Allowed request headers
-/// - `max_age_seconds`: Preflight request cache time (seconds)
+/// - `client`: S3 客户端实例
+/// - `bucket`: 桶名称
+/// - `allowed_origins`: 允许的来源列表（例如 ["*"] 或 ["https://example.com"]）
+/// - `allowed_methods`: 允许的 HTTP 方法（例如 ["GET", "PUT"]）
+/// - `allowed_headers`: 允许的请求头
+/// - `max_age_seconds`: 预检请求缓存时间（秒）
 ///
-/// # Example
+/// # 示例
 ///
 /// ```rust,no_run
 /// async fn setup_cors(client: &s3_service::S3Client) -> Result<(), s3_service::S3Error> {
@@ -163,7 +163,7 @@ pub async fn put_bucket_cors(
     allowed_headers: Vec<String>,
     max_age_seconds: Option<i32>,
 ) -> Result<(), S3Error> {
-    // Build CORS rule
+    // 构建 CORS 规则
     let rule = aws_sdk_s3::types::CorsRule::builder()
         .set_allowed_origins(Some(allowed_origins))
         .set_allowed_methods(Some(allowed_methods))
@@ -172,13 +172,13 @@ pub async fn put_bucket_cors(
         .build()
         .map_err(|e| S3Error::AwsError(format!("Failed to build CORS rule: {}", e)))?;
 
-    // Build CORS configuration
+    // 构建 CORS 配置
     let cors_config = aws_sdk_s3::types::CorsConfiguration::builder()
         .cors_rules(rule)
         .build()
         .map_err(|e| S3Error::AwsError(format!("Failed to build CORS configuration: {}", e)))?;
 
-    // Apply configuration
+    // 应用配置
     client
         .inner
         .put_bucket_cors()
@@ -191,15 +191,15 @@ pub async fn put_bucket_cors(
     Ok(())
 }
 
-/// Set bucket access policy
+/// 设置桶访问策略
 ///
-/// Set the IAM access policy for a bucket to control access permissions.
+/// 设置桶的 IAM 访问策略，以控制访问权限。
 ///
-/// # Parameters
+/// # 参数
 ///
-/// - `client`: S3 client instance
-/// - `bucket`: Bucket name
-/// - `policy`: JSON-formatted policy string
+/// - `client`: S3 客户端实例
+/// - `bucket`: 桶名称
+/// - `policy`: JSON 格式的策略字符串
 pub async fn put_bucket_policy(
     client: &S3Client,
     bucket: &str,
@@ -216,18 +216,18 @@ pub async fn put_bucket_policy(
     Ok(())
 }
 
-/// Get bucket access policy
+/// 获取桶访问策略
 ///
-/// Get the current IAM access policy for a bucket.
+/// 获取桶当前的 IAM 访问策略。
 ///
-/// # Parameters
+/// # 参数
 ///
-/// - `client`: S3 client instance
-/// - `bucket`: Bucket name
+/// - `client`: S3 客户端实例
+/// - `bucket`: 桶名称
 ///
-/// # Returns
+/// # 返回值
 ///
-/// JSON-formatted policy string
+/// JSON 格式的策略字符串
 pub async fn get_bucket_policy(client: &S3Client, bucket: &str) -> Result<String, S3Error> {
     let result = client
         .inner
@@ -240,14 +240,14 @@ pub async fn get_bucket_policy(client: &S3Client, bucket: &str) -> Result<String
     Ok(result.policy().unwrap_or_default().to_string())
 }
 
-/// Bucket information struct
+/// 桶信息结构体
 ///
-/// Basic bucket information, returned when listing buckets.
+/// 桶的基本信息，在列出桶时返回。
 #[derive(Debug, serde::Serialize)]
 pub struct BucketInfo {
-    /// Bucket name
+    /// 桶名称
     pub name: String,
 
-    /// Creation time
+    /// 创建时间
     pub created: Option<String>,
 }

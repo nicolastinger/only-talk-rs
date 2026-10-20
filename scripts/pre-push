@@ -1,0 +1,17 @@
+#!/usr/bin/env sh
+
+# pre-push hook: run fmt, clippy, unit tests and integration tests before pushing.
+# Install:  copy this file to .git/hooks/pre-push  (or run scripts/install_pre_push.ps1)
+
+set -e
+
+echo "[pre-push] cargo +nightly fmt --all --check"
+cargo +nightly fmt --all --check
+
+echo "[pre-push] cargo clippy --workspace --all-targets -- -D warnings"
+cargo clippy --workspace --all-targets -- -D warnings
+
+echo "[pre-push] cargo test --workspace --tests"
+cargo test --workspace --tests
+
+echo "[pre-push] all checks passed"

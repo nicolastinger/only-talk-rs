@@ -3,7 +3,7 @@
 //!
 //! - 测试数据库：复用仓库根目录 `.env` 的 `DATABASE_URL`（管理员连接）创建 `only_talk_http_test`，
 //!   执行 `entity/ddl` 全部建表脚本，测试结束后 **删除** 该测试库。
-//! - 测试 Redis：读取 `config/app_config.toml` 的 `redis.test_url`（对应 `TEST_REDIS_URL`），
+//! - 测试 Redis：读取 `.env` 的 `TEST_REDIS_URL`（建议独立 DB index/实例），
 //!   测试结束后 **清空该测试 Redis 的所有 key**（FLUSHALL）。
 //!
 //! 运行方式：
@@ -18,23 +18,52 @@ use actix_web::http::StatusCode;
 use actix_web::middleware::from_fn;
 use actix_web::{App, test, web};
 use anyhow::{Context, Result, anyhow};
-use common::config_manager;
-use common::config_str::{EMAIL_VERIFY_CODE, REGISTER_SESSION_TOKEN};
+use common::config_str::{
+    AUTH_FACTOR_EMAIL_VERIFY_CODE, AUTH_FACTOR_PASSWORD_VERIFY_CODE,
+    AUTH_FACTOR_UNBIND_EMAIL_VERIFY_CODE, EMAIL_VERIFY_CODE, FORGOT_PASSWORD_VERIFY_CODE,
+    REGISTER_SESSION_TOKEN,
+};
+use common::models::chat_entity::chat_message_record::ChatMessageRecord;
+use common::models::group_entity::group_info::GroupInfo;
+use common::models::group_entity::group_message_record::{GroupMessageRecord, MSG_TYPE_TEXT};
+use common::models::moment_entity::moment::Moment;
+use common::models::moment_entity::moment_comment::MomentComment;
+use common::models::plaza_entity::plaza_user_info::PlazaUserInfo;
+use common::models::report_entity::report::Report;
+use common::models::session_entity::aggregate::aggregate_user_sessions;
+use common::models::session_entity::session::{SESSION_TYPE_GROUP, SESSION_TYPE_SINGLE, Session};
+use common::models::session_entity::user_session::UserSession;
 use common::models::user_entity::basic_user::BasicUser;
 use common::models::user_entity::email_sso::EmailSso;
+use common::models::user_entity::friend_link::FriendLink;
+use common::models::user_entity::friend_request_info::FriendRequestInfo;
+use common::models::user_entity::user_auth_factor::{AUTH_FACTOR_TYPE_EMAIL, UserAuthFactor};
 use common::models::user_entity::user_info::UserInfo;
 use common::state::CoreState;
-use common::utils::rsa_util::hash_password;
+use common::utils::jwt_util::generate_access_token;
+use common::utils::rsa_util::{hash_password, verify_password};
+use common::utils::session_uuid::single_session_uuid;
 use common::utils::time::get_now_time_stamp_as_millis;
 use deadpool_redis::redis::{AsyncCommands, cmd};
 use deadpool_redis::{Config as RedisConfig, Pool, Runtime};
-use email_service::config::EmailServiceConfig;
+use email_service::config::{AliyunConfig, EmailServiceConfig, ProviderConfig};
 use email_service::manager::EmailManager;
 use futures_util::FutureExt;
 use http_service::http_service::configure_routes;
+use http_service::http_service::session_service::dto::{
+    SessionControlDTO, SessionListCursor, SessionListDTO, SyncRequestDTO, SyncSessionReq,
+};
+use http_service::http_service::session_service::service::{
+    delete_session, list_sessions, mute_session, pin_session, sync_sessions,
+};
+use http_service::http_service::user_service::dto::friend_request_info_dto::FriendRequestInfoDTO;
+use http_service::http_service::user_service::service::friend_service::{
+    FRIEND_ACCEPT_DEFAULT_MSG, FRIEND_REQUEST_DEFAULT_MSG, add_friend, delete_friend_service,
+    process_friend,
+};
 use http_service::middleware::TraceIdMiddleware;
 use http_service::state::AppState;
-use http_service::utils::record_bad_http::error_record_middleware;
+use http_service::utils::auth_middleware::auth_middleware;
 use rbatis::RBatis;
 use rbatis::rbdc::Uuid as RbatisUuid;
 use rbatis::rbdc::db::ConnectOptions;
@@ -85,28 +114,22 @@ async fn http_service_user_api_integration() -> Result<()> {
     // cargo 运行集成测试时 cwd 是包目录(crates/http_service)，dotenv() 可能找不到仓库根目录的 .env，
     // 这里用绝对路径兜底加载（.env 不在时返回 Err，可忽略）
     let _ = dotenvy::from_path(concat!(env!("CARGO_MANIFEST_DIR"), "/../../.env"));
-    // cargo 运行集成测试时 cwd 是包目录，不能依赖相对路径，
-    // 故从仓库根目录的绝对路径加载 app_config.toml（行为与 common::init_app_config 一致）。
-    let config_path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../config/app_config.toml");
-    let content = std::fs::read_to_string(config_path)
-        .with_context(|| format!("读取配置文件失败: {}", config_path))?;
-    let content = common::substitute_env_vars(content);
-    let config_value: toml::Value = content.parse().context("解析 app_config.toml 失败")?;
-    let config_map: HashMap<String, toml::Value> = config_value.try_into()?;
-    common::init_global_config!(&config_map);
-    info!("已加载 app_config.toml 全局配置");
-
-    let admin_url = config_manager::get_config("database.url")
-        .ok_or_else(|| anyhow!("未找到 database.url，请确认仓库根目录存在 .env 文件"))?;
+    // 测试专用连接一律直接读 .env（不落入 app_config.toml）：
+    // 管理员连接优先 TEST_DATABASE_URL, 缺省回退 DATABASE_URL; 测试 Redis 用 TEST_REDIS_URL。
+    let admin_url =
+        std::env::var("TEST_DATABASE_URL").or_else(|_| std::env::var("DATABASE_URL")).map_err(
+            |_| anyhow!("未找到 TEST_DATABASE_URL / DATABASE_URL，请确认仓库根目录存在 .env 文件"),
+        )?;
+    let admin_url = common::substitute_env_vars(admin_url);
     info!("管理员数据库连接: {}", mask_url(&admin_url));
-    let test_redis_url = config_manager::get_config("redis.test_url")
-        .ok_or_else(|| anyhow!("未找到 redis.test_url，请确认 .env 配置了 TEST_REDIS_URL"))?;
+    let test_redis_url = std::env::var("TEST_REDIS_URL").map_err(|_| {
+        anyhow!("未找到 TEST_REDIS_URL，请在仓库根目录 .env 中配置（建议独立 DB index，如 redis://127.0.0.1:6379/15）")
+    })?;
     info!("测试 Redis 连接: {}", mask_url(&test_redis_url));
 
     let admin = build_db_pool(&admin_url).await?;
     info!("已连接管理员数据库");
-    ensure_database(&admin, TEST_DATABASE_NAME).await?;
-
+    recreate_database(&admin, TEST_DATABASE_NAME).await?;
     let redis_pool = build_redis_pool(&test_redis_url)?;
     verify_redis_pool(&redis_pool).await?;
 
@@ -118,7 +141,8 @@ async fn http_service_user_api_integration() -> Result<()> {
         info!("已连接测试数据库 {}", TEST_DATABASE_NAME);
 
         entity::ddl::apply_all_ddl(&test_rb).await.context("应用 DDL 失败")?;
-        for table in ["basic_user", "user_info", "friend_link", "group_info", "email_sso"] {
+        for table in ["basic_user", "user_info", "friend_link", "group_info", "email_sso", "report"]
+        {
             if !table_exists(&test_rb, table).await? {
                 return Err(anyhow!("表 {} 未创建", table));
             }
@@ -142,6 +166,7 @@ async fn http_service_user_api_integration() -> Result<()> {
                 info: Some(String::new()),
                 password: Some(hashed),
                 registration_status: Some(1),
+                user_type: Some(0),
             },
         )
         .await
@@ -152,7 +177,6 @@ async fn http_service_user_api_integration() -> Result<()> {
             &UserInfo {
                 uuid: Some(seed_uuid_rbdc.clone()),
                 gender: Some(0),
-                age: Some(0),
                 birthday: Some(0),
                 note: Some("集成测试种子用户".to_string()),
                 created_at: Some(now),
@@ -190,21 +214,22 @@ async fn http_service_user_api_integration() -> Result<()> {
         .context("写入种子用户邮箱渠道失败")?;
         info!("种子用户已写入: {}", SEED_ACCOUNT);
 
+        // 邮件管理器: 默认空配置(不发送); .env 开启 EMAIL_ENABLED 时使用阿里云真实投递,
+        // 并返回可用于真实发码测试的收件邮箱(见 build_test_email_manager)。
+        let (email_manager, live_recipient) = build_test_email_manager()?;
+
         let state = AppState {
             core: CoreState { db: test_rb.clone(), redis: redis_pool.clone() },
             s3: Arc::new(
                 S3Client::new(S3Config::default_minio()).await.context("初始化 S3 客户端失败")?,
             ),
-            email: Arc::new(
-                EmailManager::new(EmailServiceConfig::default())
-                    .context("初始化 EmailManager 失败")?,
-            ),
+            email: email_manager,
         };
 
         let app = test::init_service(
             App::new()
                 .wrap(TraceIdMiddleware)
-                .wrap(from_fn(error_record_middleware))
+                .wrap(from_fn(auth_middleware))
                 .app_data(web::Data::new(state))
                 .configure(configure_routes),
         )
@@ -243,7 +268,11 @@ async fn http_service_user_api_integration() -> Result<()> {
         let no_device_body =
             json_obj(&[("account", SEED_ACCOUNT), ("password", SEED_PASSWORD), ("platform", "PC")]);
         let (status, json) = post_json(&app, "/user/sign_in", Some(&no_device_body), None).await;
-        assert_eq!(status, StatusCode::BAD_REQUEST, "缺少设备指纹登录应被拒绝: {json}");
+        assert_eq!(
+            status,
+            StatusCode::from_u16(604).expect("604 是本工程 DTO 校验专用状态码"),
+            "缺少设备指纹登录应被拒绝(604 校验错误): {json}"
+        );
 
         // ===== 3. 鉴权后的用户信息查询 =====
         let (status, json) = post_json(&app, "/user/me", None, Some(&access_token)).await;
@@ -533,6 +562,1469 @@ async fn http_service_user_api_integration() -> Result<()> {
         );
         info!("两步注册流程全部通过");
 
+        // ===== 6. 举报接口 =====
+        // 6.1 种子举报目标：另一用户、群、动态、动态评论、广场资料
+        let target_user_uuid = Uuid::now_v7();
+        let target_user_uuid_rbdc: RbatisUuid =
+            target_user_uuid.to_string().parse().context("解析目标用户 UUID 失败")?;
+        // basic_user.password 为 NOT NULL, 目标用户同样需要哈希密码(与 sign_up_step1 占位用户同款做法)
+        let target_hashed =
+            hash_password(&target_user_uuid.to_string()).context("生成目标用户密码哈希失败")?;
+        BasicUser::insert(
+            &test_rb,
+            &BasicUser {
+                uuid: Some(target_user_uuid_rbdc.clone()),
+                username: Some("Report Target".to_string()),
+                account: Some("report_target_1".to_string()),
+                icon: None,
+                info: Some(String::new()),
+                password: Some(target_hashed),
+                registration_status: Some(1),
+                user_type: Some(0),
+            },
+        )
+        .await
+        .context("写入举报目标用户失败")?;
+
+        let group_uuid = Uuid::now_v7();
+        let group_uuid_rbdc: RbatisUuid =
+            group_uuid.to_string().parse().context("解析群 UUID 失败")?;
+        GroupInfo::insert(
+            &test_rb,
+            &GroupInfo {
+                id: None,
+                group_uuid: Some(group_uuid_rbdc.clone()),
+                group_name: Some("举报测试群".to_string()),
+                avatar: None,
+                owner_uuid: Some(seed_uuid_rbdc.clone()),
+                description: None,
+                max_members: Some(200),
+                created_at: Some(now),
+                updated_at: Some(now),
+                status: Some(1),
+            },
+        )
+        .await
+        .context("写入举报目标群失败")?;
+
+        let moment_uuid = Uuid::now_v7();
+        let moment_uuid_rbdc: RbatisUuid =
+            moment_uuid.to_string().parse().context("解析动态 UUID 失败")?;
+        Moment::insert(
+            &test_rb,
+            &Moment {
+                uuid: Some(moment_uuid_rbdc.clone()),
+                author_uuid: Some(target_user_uuid_rbdc.clone()),
+                content: Some("举报测试动态".to_string()),
+                visibility: Some(0),
+                is_del: Some(false),
+                created_at: Some(now),
+                updated_at: Some(now),
+            },
+        )
+        .await
+        .context("写入举报目标动态失败")?;
+
+        let comment_id = Uuid::now_v7();
+        let comment_id_rbdc: RbatisUuid =
+            comment_id.to_string().parse().context("解析评论 UUID 失败")?;
+        MomentComment::insert(
+            &test_rb,
+            &MomentComment {
+                id: Some(comment_id_rbdc.clone()),
+                moment_uuid: Some(moment_uuid_rbdc.clone()),
+                author_uuid: Some(target_user_uuid_rbdc.clone()),
+                content: Some("举报测试评论".to_string()),
+                is_del: Some(false),
+                created_at: Some(now),
+            },
+        )
+        .await
+        .context("写入举报目标评论失败")?;
+
+        PlazaUserInfo::insert(
+            &test_rb,
+            &PlazaUserInfo {
+                uuid: Some(target_user_uuid_rbdc.clone()),
+                allow_discover: Some(true),
+                motto: None,
+                status: Some(0),
+                created_at: Some(now),
+                updated_at: Some(now),
+            },
+        )
+        .await
+        .context("写入举报目标广场资料失败")?;
+
+        // 构造带数字 target_type 的举报请求体
+        fn report_body(target_type: i16, target_uuid: &str, reason: &str) -> JsonValue {
+            let mut map = serde_json::Map::new();
+            map.insert("target_type".to_string(), JsonValue::from(target_type));
+            map.insert("target_uuid".to_string(), JsonValue::String(target_uuid.to_string()));
+            map.insert("reason".to_string(), JsonValue::String(reason.to_string()));
+            JsonValue::Object(map)
+        }
+
+        // 6.2 五类举报均成功并落库
+        let report_cases: [(&str, i16, String); 5] = [
+            ("用户", 1, target_user_uuid.to_string()),
+            ("群组", 2, group_uuid.to_string()),
+            ("动态", 3, moment_uuid.to_string()),
+            ("卡片匹配", 4, target_user_uuid.to_string()),
+            ("动态评论", 5, comment_id.to_string()),
+        ];
+        for (label, target_type, target_uuid) in &report_cases {
+            let body = report_body(*target_type, target_uuid, "涉嫌违规");
+            let (status, json) =
+                post_json(&app, "/report/create", Some(&body), Some(&access_token)).await;
+            assert_eq!(status, StatusCode::OK, "举报{}应成功: {json}", label);
+            assert_eq!(json["code"], 200, "举报{}响应 code 应为 200: {json}", label);
+            assert_eq!(json["data"], true, "举报{}应返回 true: {json}", label);
+
+            let target_uuid_rbdc: RbatisUuid =
+                target_uuid.parse().context("解析举报目标 UUID 失败")?;
+            let saved = Report::select_pending_by_reporter_target(
+                &test_rb,
+                &seed_uuid_rbdc,
+                *target_type,
+                &target_uuid_rbdc,
+            )
+            .await
+            .context("查询举报记录失败")?;
+            assert!(saved.is_some(), "举报{}记录应落库", label);
+        }
+
+        // 6.3 重复举报同一目标应被拒绝
+        let dup_body = report_body(1, &target_user_uuid.to_string(), "再次举报");
+        let (status, json) =
+            post_json(&app, "/report/create", Some(&dup_body), Some(&access_token)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "重复举报应返回 400: {json}");
+
+        // 6.4 举报自己应被拒绝
+        let self_body = report_body(1, &seed_uuid.to_string(), "举报自己");
+        let (status, json) =
+            post_json(&app, "/report/create", Some(&self_body), Some(&access_token)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "举报自己应返回 400: {json}");
+
+        // 6.5 空原因应被拒绝
+        let empty_reason_body = report_body(3, &moment_uuid.to_string(), "   ");
+        let (status, json) =
+            post_json(&app, "/report/create", Some(&empty_reason_body), Some(&access_token)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "空原因举报应返回 400: {json}");
+
+        // 6.6 目标不存在应被拒绝
+        let missing_body = report_body(2, &Uuid::now_v7().to_string(), "目标不存在");
+        let (status, json) =
+            post_json(&app, "/report/create", Some(&missing_body), Some(&access_token)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "举报不存在目标应返回 400: {json}");
+        info!("举报接口全部通过");
+
+        // ===== 7. 任务08: 历史接口 session_uuid 化 + 旧接口 404 =====
+        // 7.1 get_chat_record: 旧 path 参数(friend_uuid) 与新 Body 参数(session_uuid) 结果一致
+        let peer_a = Uuid::new_v4();
+        let peer_a_rbdc: RbatisUuid = peer_a.to_string().parse()?;
+        let session_a: RbatisUuid = single_session_uuid(&seed_uuid, &peer_a).to_string().parse()?;
+        for ts in [1_000i64, 2_000] {
+            ChatMessageRecord::insert(
+                &test_rb,
+                &ChatMessageRecord {
+                    id: None,
+                    session_uuid: session_a.clone(),
+                    nano_id: Some(format!("hist-a-{ts}")),
+                    timestamp: Some(ts),
+                    raw: b"hi".to_vec().into(),
+                    text_type: Some(1),
+                    send_user: peer_a_rbdc.clone(),
+                    recv_user: seed_uuid_rbdc.clone(),
+                },
+            )
+            .await
+            .context("插入历史测试消息失败")?;
+        }
+        let old_body = {
+            let mut m = serde_json::Map::new();
+            m.insert("page_num".into(), JsonValue::from(0));
+            m.insert("page_size".into(), JsonValue::from(10));
+            JsonValue::Object(m)
+        };
+        let (status, old_json) = post_json(
+            &app,
+            &format!("/msg/get_chat_record/{}", peer_a),
+            Some(&old_body),
+            Some(&access_token),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "旧参数查历史应成功: {old_json}");
+        let new_body = {
+            let mut m = serde_json::Map::new();
+            m.insert("session_uuid".into(), JsonValue::String(session_a.to_string()));
+            m.insert("page_num".into(), JsonValue::from(0));
+            m.insert("page_size".into(), JsonValue::from(10));
+            JsonValue::Object(m)
+        };
+        let (status, new_json) = post_json(
+            &app,
+            &format!("/msg/get_chat_record/{}", Uuid::now_v7()),
+            Some(&new_body),
+            Some(&access_token),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "新参数查历史应成功: {new_json}");
+        let old_nanos: Vec<String> = old_json["data"]
+            .as_array()
+            .map(|a| a.iter().filter_map(|v| v["nano_id"].as_str().map(str::to_string)).collect())
+            .unwrap_or_default();
+        let new_nanos: Vec<String> = new_json["data"]
+            .as_array()
+            .map(|a| a.iter().filter_map(|v| v["nano_id"].as_str().map(str::to_string)).collect())
+            .unwrap_or_default();
+        assert_eq!(
+            old_nanos,
+            vec!["hist-a-1000", "hist-a-2000"],
+            "旧参数应返回该会话消息: {old_json}"
+        );
+        assert_eq!(old_nanos, new_nanos, "新参数与旧参数派生应返回同一会话: {new_json}");
+
+        // 7.2 旧接口 404 回归(任务08 已删除路由)
+        for uri in ["/msg/get_unread_chat_record", "/msg/add_read_chat_record"] {
+            let (status, _) = post_json(&app, uri, None, Some(&access_token)).await;
+            assert_eq!(status, StatusCode::NOT_FOUND, "{uri} 应 404(路由已删)");
+        }
+        info!("任务08 历史接口 session_uuid 化 / 旧接口 404 通过");
+        // 7.3 /session/read 按 nano_id 反查推进 + 钳制到 synced_id + /session/synced 放宽
+        let session_d: RbatisUuid = Uuid::new_v4().to_string().parse()?;
+        // 先插两条消息, 用 nano_id 反查真实的服务端 id(数值游标由服务端维护, 客户端只报 nano_id)
+        let max1 = insert_single_msg(
+            &test_rb,
+            &session_d,
+            "read-a",
+            get_now_time_stamp_as_millis()?,
+            &seed_uuid_rbdc,
+            &seed_uuid_rbdc,
+        )
+        .await?;
+        let max2 = insert_single_msg(
+            &test_rb,
+            &session_d,
+            "read-b",
+            get_now_time_stamp_as_millis()?,
+            &seed_uuid_rbdc,
+            &seed_uuid_rbdc,
+        )
+        .await?;
+        assert!(max2 > max1, "第二条消息 id 应更大: {max1} vs {max2}");
+        UserSession::upsert(
+            &test_rb,
+            &UserSession {
+                id: None,
+                user_uuid: seed_uuid_rbdc.clone(),
+                session_uuid: session_d.clone(),
+                session_type: Some(SESSION_TYPE_SINGLE),
+                peer_uuid: None,
+                last_read_id: None,
+                synced_id: Some(max1),
+                pinned: None,
+                muted: None,
+                deleted_at: None,
+                created_at: None,
+                updated_at: None,
+            },
+        )
+        .await
+        .context("upsert 钳制会话失败")?;
+        let read_req = |nano: &str| {
+            let mut m = serde_json::Map::new();
+            m.insert("session_uuid".into(), JsonValue::String(session_d.to_string()));
+            m.insert("session_type".into(), JsonValue::from(1));
+            m.insert("last_read_nano_id".into(), JsonValue::String(nano.to_string()));
+            let mut outer = serde_json::Map::new();
+            outer.insert("reads".into(), JsonValue::Array(vec![JsonValue::Object(m)]));
+            JsonValue::Object(outer)
+        };
+        // 报 read-b(nano_id) → 反查 max2 → 被 synced_id=max1 钳制
+        let (status, json) =
+            post_json(&app, "/session/read", Some(&read_req("read-b")), Some(&access_token)).await;
+        assert_eq!(status, StatusCode::OK, "/session/read 应成功: {json}");
+        let us_d = UserSession::select_by_map(
+            &test_rb,
+            rbs::value! {"user_uuid": &seed_uuid_rbdc, "session_uuid": &session_d},
+        )
+        .await
+        .context("查询钳制 user_session 失败")?;
+        assert_eq!(
+            us_d[0].last_read_id,
+            Some(max1),
+            "上报 read-b(反查 max2) 应被钳制到 synced_id={max1}"
+        );
+
+        // 推进 synced 到 max2 后再报 read-b → 反查 max2 → 前进到 max2
+        let synced_req = {
+            let mut m = serde_json::Map::new();
+            m.insert("session_uuid".into(), JsonValue::String(session_d.to_string()));
+            m.insert("synced_id".into(), JsonValue::from(max2));
+            let mut outer = serde_json::Map::new();
+            outer.insert("sessions".into(), JsonValue::Array(vec![JsonValue::Object(m)]));
+            JsonValue::Object(outer)
+        };
+        let (status, json) =
+            post_json(&app, "/session/synced", Some(&synced_req), Some(&access_token)).await;
+        assert_eq!(status, StatusCode::OK, "/session/synced 应成功: {json}");
+        let (status, _json) =
+            post_json(&app, "/session/read", Some(&read_req("read-b")), Some(&access_token)).await;
+        assert_eq!(status, StatusCode::OK, "二次 /session/read 应成功");
+        let us_d2 = UserSession::select_by_map(
+            &test_rb,
+            rbs::value! {"user_uuid": &seed_uuid_rbdc, "session_uuid": &session_d},
+        )
+        .await
+        .context("二次查询钳制 user_session 失败")?;
+        assert_eq!(us_d2[0].synced_id, Some(max2), "synced 应推进到 {max2}");
+        assert_eq!(us_d2[0].last_read_id, Some(max2), "synced 放宽后已读应反查推进到 {max2}");
+        info!("任务04 已读桥接 / 缺陷A / session 接口全部通过");
+
+        // ===== 8. 任务04b: 好友通过即建会话 =====
+        // 直接调 service 函数(免二次登录), 新建临时用户
+        let (user_a, user_a_rbdc) = seed_friend_user(&test_rb, "a").await?;
+        let (user_b, user_b_rbdc) = seed_friend_user(&test_rb, "b").await?;
+        let session_ab: RbatisUuid = single_session_uuid(&user_a, &user_b).to_string().parse()?;
+
+        // 8.1 接受好友 → session + 双方 user_session + 两条前置消息
+        let request = add_friend(
+            &test_rb,
+            friend_dto(&user_a, &user_b, Some("我是老王，群里的"), None, None),
+        )
+        .await
+        .context("发起好友申请失败")?;
+        assert_eq!(request.accept_status, Some(0), "新申请应为待处理");
+        let accepted = process_friend(
+            &test_rb,
+            friend_dto(&user_a, &user_b, None, Some("你好，通过了"), Some(1)),
+        )
+        .await
+        .context("通过好友申请失败")?;
+        assert_eq!(accepted.accept_status, Some(1), "接受后请求状态应为 1");
+
+        let sessions = Session::select_by_map(&test_rb, rbs::value! {"session_uuid": &session_ab})
+            .await
+            .context("查询 session 失败")?;
+        assert_eq!(sessions.len(), 1, "接受好友应创建 1 条 session");
+        assert_eq!(sessions[0].session_type, Some(SESSION_TYPE_SINGLE));
+        assert_eq!(sessions[0].last_preview.as_deref(), Some("你好，通过了"), "摘要应为通过留言");
+        let last_id = sessions[0].last_message_id.context("session.last_message_id 应非空")?;
+
+        let us_a = UserSession::select_by_map(
+            &test_rb,
+            rbs::value! {"user_uuid": &user_a_rbdc, "session_uuid": &session_ab},
+        )
+        .await
+        .context("查询 A user_session 失败")?;
+        assert_eq!(us_a.len(), 1, "A 应有 1 条 user_session");
+        assert_eq!(us_a[0].peer_uuid, Some(user_b_rbdc.clone()), "A 的 peer 应为 B");
+        assert_eq!(us_a[0].last_read_id, Some(0), "A 游标应初始化为 0(upsert COALESCE)");
+        assert_eq!(us_a[0].synced_id, Some(0), "A synced 应为 0");
+        let us_b = UserSession::select_by_map(
+            &test_rb,
+            rbs::value! {"user_uuid": &user_b_rbdc, "session_uuid": &session_ab},
+        )
+        .await
+        .context("查询 B user_session 失败")?;
+        assert_eq!(us_b.len(), 1, "B 应有 1 条 user_session");
+        assert_eq!(us_b[0].peer_uuid, Some(user_a_rbdc.clone()), "B 的 peer 应为 A");
+
+        let msgs = select_session_messages(&test_rb, &session_ab).await?;
+        assert_eq!(msgs.len(), 2, "接受好友应写 2 条前置消息");
+        assert_eq!(msgs[0].send_user, user_a_rbdc.clone(), "第 1 条应为 A→B");
+        assert_eq!(msgs[0].recv_user, user_b_rbdc.clone());
+        assert_eq!(msg_text(&msgs[0])?, "我是老王，群里的");
+        assert_eq!(msgs[1].send_user, user_b_rbdc.clone(), "第 2 条应为 B→A");
+        assert_eq!(msgs[1].recv_user, user_a_rbdc.clone());
+        assert_eq!(msg_text(&msgs[1])?, "你好，通过了");
+        assert_eq!(msgs[1].id, Some(last_id), "摘要应指向最新一条(B 条)");
+        assert_eq!(msgs[0].text_type, Some(0));
+        assert_eq!(msgs[1].text_type, Some(0));
+
+        // 8.2 双向投递(经 /session/sync): 会话内双向消息都同步, 未读归属由客户端按 recv_user 计算
+        let has_pair = |msgs: &[(String, String)], send: &str, recv: &str| {
+            msgs.iter().any(|(s, r)| s == send && r == recv)
+        };
+        let sync_a = sync_sessions(
+            &test_rb,
+            Some(user_a.to_string()),
+            sync_req(Some(vec![sync_session_req(&session_ab)]), None),
+        )
+        .await
+        .context("A 同步失败")?;
+        let msgs_a: Vec<(String, String)> = sync_a
+            .sessions
+            .iter()
+            .flat_map(|s| {
+                s.messages
+                    .iter()
+                    .map(|m| (m.send_user.clone(), m.recv_user.clone()))
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        assert!(
+            has_pair(&msgs_a, &user_b.to_string(), &user_a.to_string()),
+            "A 同步应含 B→A 的通过提示: {msgs_a:?}"
+        );
+        let sync_b = sync_sessions(
+            &test_rb,
+            Some(user_b.to_string()),
+            sync_req(Some(vec![sync_session_req(&session_ab)]), None),
+        )
+        .await
+        .context("B 同步失败")?;
+        let msgs_b: Vec<(String, String)> = sync_b
+            .sessions
+            .iter()
+            .flat_map(|s| {
+                s.messages
+                    .iter()
+                    .map(|m| (m.send_user.clone(), m.recv_user.clone()))
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        assert!(
+            has_pair(&msgs_b, &user_a.to_string(), &user_b.to_string()),
+            "B 同步应含 A→B 的申请留言: {msgs_b:?}"
+        );
+        info!("任务04b 好友通过即建会话 / 双向投递 通过");
+
+        // 8.3 删好友后带道歉重加 → 道歉留言进入会话, 消息数=4
+        delete_friend_service(&test_rb, Some(user_a.to_string()), user_b.to_string())
+            .await
+            .context("删除好友失败")?;
+        add_friend(
+            &test_rb,
+            friend_dto(&user_a, &user_b, Some("对不起，之前是我不对"), None, None),
+        )
+        .await
+        .context("重加好友申请失败")?;
+        process_friend(&test_rb, friend_dto(&user_a, &user_b, None, None, Some(1)))
+            .await
+            .context("重加好友通过失败")?;
+        let msgs = select_session_messages(&test_rb, &session_ab).await?;
+        assert_eq!(msgs.len(), 4, "重加后应为 4 条消息(旧 2 + 新 2)");
+        assert_eq!(msgs[2].send_user, user_a_rbdc.clone(), "第 3 条应为道歉 A→B");
+        assert_eq!(msg_text(&msgs[2])?, "对不起，之前是我不对", "重加应保留本次道歉留言");
+        assert_eq!(msg_text(&msgs[3])?, FRIEND_ACCEPT_DEFAULT_MSG, "第 4 条应为通过模板");
+
+        // 8.4 事务原子性(缺陷R): FriendLink 主键冲突 → 全部回滚
+        let (user_c, user_c_rbdc) = seed_friend_user(&test_rb, "c").await?;
+        let (user_d, user_d_rbdc) = seed_friend_user(&test_rb, "d").await?;
+        let session_cd: RbatisUuid = single_session_uuid(&user_c, &user_d).to_string().parse()?;
+        let req_cd =
+            add_friend(&test_rb, friend_dto(&user_c, &user_d, Some("hi"), None, None)).await?;
+        let req_cd_uuid = req_cd.uuid.clone().context("请求 uuid 缺失")?;
+        // 预插一条同 uuid 但不同用户对的 friend_link → 接受时 FriendLink::insert 主键冲突
+        FriendLink::insert(
+            &test_rb,
+            &FriendLink {
+                uuid: Some(req_cd_uuid.clone()),
+                request_user: Some(RbatisUuid::new()),
+                accept_user: Some(RbatisUuid::new()),
+                is_del: Some(false),
+                created_at: Some(0),
+                updated_at: Some(0),
+                version: Some(0),
+            },
+        )
+        .await
+        .context("预插冲突 friend_link 失败")?;
+        let failed =
+            process_friend(&test_rb, friend_dto(&user_c, &user_d, None, None, Some(1))).await;
+        assert!(failed.is_err(), "FriendLink 主键冲突应导致接受失败");
+        // 申请状态必须回滚为待处理(缺陷R: 语句在同一事务)
+        let reqs = FriendRequestInfo::select_by_uuid(&test_rb, &user_c_rbdc, &user_d_rbdc)
+            .await
+            .context("查询好友请求失败")?;
+        let target = reqs
+            .iter()
+            .find(|r| r.uuid == Some(req_cd_uuid.clone()))
+            .context("未找到目标好友请求")?;
+        assert_eq!(target.accept_status, Some(0), "失败后申请状态应回滚为待处理");
+        assert!(
+            Session::select_by_map(&test_rb, rbs::value! {"session_uuid": &session_cd})
+                .await?
+                .is_empty(),
+            "失败后不应残留 session 行"
+        );
+        assert!(
+            UserSession::select_by_map(&test_rb, rbs::value! {"session_uuid": &session_cd})
+                .await?
+                .is_empty(),
+            "失败后不应残留 user_session 行"
+        );
+        assert!(
+            select_session_messages(&test_rb, &session_cd).await?.is_empty(),
+            "失败后不应残留消息"
+        );
+
+        // 8.5 申请/通过均无留言 → 两条默认文案
+        let (user_e, _user_e_rbdc) = seed_friend_user(&test_rb, "e").await?;
+        let (user_f, _user_f_rbdc) = seed_friend_user(&test_rb, "f").await?;
+        let session_ef: RbatisUuid = single_session_uuid(&user_e, &user_f).to_string().parse()?;
+        add_friend(&test_rb, friend_dto(&user_e, &user_f, None, None, None)).await?;
+        process_friend(&test_rb, friend_dto(&user_e, &user_f, None, None, Some(1))).await?;
+        let msgs = select_session_messages(&test_rb, &session_ef).await?;
+        assert_eq!(msgs.len(), 2, "无留言也应恒写两条默认文案");
+        assert_eq!(msg_text(&msgs[0])?, FRIEND_REQUEST_DEFAULT_MSG);
+        assert_eq!(msg_text(&msgs[1])?, FRIEND_ACCEPT_DEFAULT_MSG);
+        info!("任务04b 好友通过即建会话 全部通过");
+
+        // ===== 9. 任务12: 离线同步 /session/sync(无状态窗口查询) =====
+        let (sync_user, sync_user_rbdc) = seed_friend_user(&test_rb, "sync").await?;
+        let sync_now = get_now_time_stamp_as_millis()?;
+        let boundary_8d = sync_now - 8 * 24 * 3600 * 1000;
+
+        // 9.1 首拉: after_id 缺省(=0) → 窗口内最旧 10 条(升序), has_more=true
+        let peer_a = Uuid::now_v7();
+        let peer_a_rbdc: RbatisUuid = peer_a.to_string().parse()?;
+        let session_a: RbatisUuid = single_session_uuid(&sync_user, &peer_a).to_string().parse()?;
+        let mut ids_a = Vec::new();
+        for i in 0..25 {
+            ids_a.push(
+                insert_single_msg(
+                    &test_rb,
+                    &session_a,
+                    &format!("sync-a-{i:02}"),
+                    sync_now + i,
+                    &peer_a_rbdc,
+                    &sync_user_rbdc,
+                )
+                .await?,
+            );
+        }
+        // 跨端场景: 另一台设备已读到 ids_a[4](共 25 条) → 服务端游标应随同步响应返回
+        upsert_user_session_ex(
+            &test_rb,
+            &sync_user_rbdc,
+            &session_a,
+            SESSION_TYPE_SINGLE,
+            Some(&peer_a_rbdc),
+            ids_a[4],
+            ids_a[4],
+            0,
+            0,
+        )
+        .await?;
+        let resp = sync_sessions(
+            &test_rb,
+            Some(sync_user.to_string()),
+            sync_req(Some(vec![sync_session_req(&session_a)]), Some(10)),
+        )
+        .await
+        .context("同步(9.1)失败")?;
+        assert_eq!(resp.sessions.len(), 1, "应返回请求的会话: {resp:?}");
+        assert_eq!(resp.sessions[0].messages.len(), 10);
+        assert!(resp.sessions[0].has_more, "还有 15 条 → has_more=true");
+        assert_eq!(resp.sessions[0].next_cursor, ids_a[9], "next_cursor=本批最大 id(末条)");
+        assert_eq!(resp.sessions[0].last_read_id, ids_a[4], "跨端已读游标应随响应返回");
+        assert_eq!(resp.sessions[0].messages[0].nano_id, "sync-a-00", "窗口内最早");
+        assert_eq!(resp.sessions[0].messages[9].nano_id, "sync-a-09", "本批最新");
+        let batch_ids: Vec<i64> = resp.sessions[0].messages.iter().map(|m| m.id).collect();
+        assert!(batch_ids.windows(2).all(|w| w[0] < w[1]), "响应内 id 升序: {batch_ids:?}");
+
+        // 9.2 续拉: after_id=上批最大 → 紧邻更新 10 条, 无重无漏; 翻至 has_more=false, 并集=全部 25
+        let mut all_ids = batch_ids.clone();
+        let mut after = resp.sessions[0].next_cursor;
+        let mut last_has_more = resp.sessions[0].has_more;
+        while last_has_more {
+            let resp = sync_sessions(
+                &test_rb,
+                Some(sync_user.to_string()),
+                sync_req(Some(vec![sync_session_req_after(&session_a, after)]), Some(10)),
+            )
+            .await
+            .context("同步(9.2)失败")?;
+            let page: Vec<i64> = resp.sessions[0].messages.iter().map(|m| m.id).collect();
+            assert!(!page.is_empty(), "has_more=true 时不应空批");
+            assert!(page.iter().all(|id| *id > after), "续拉应严格更新: {page:?} vs {after}");
+            all_ids.extend(page.iter().copied());
+            after = resp.sessions[0].next_cursor;
+            last_has_more = resp.sessions[0].has_more;
+        }
+        all_ids.sort();
+        all_ids.dedup();
+        let mut expect_ids = ids_a.clone();
+        expect_ids.sort();
+        assert_eq!(all_ids, expect_ids, "翻页并集应等于全部 25 条且无重复");
+
+        // 9.3 窗口过滤: 窗口外更旧消息不返回, has_more=false(7 天阈值即停止, 无截断标志)
+        let peer_t = Uuid::now_v7();
+        let peer_t_rbdc: RbatisUuid = peer_t.to_string().parse()?;
+        let session_t: RbatisUuid = single_session_uuid(&sync_user, &peer_t).to_string().parse()?;
+        insert_single_msg(
+            &test_rb,
+            &session_t,
+            "sync-t-old",
+            boundary_8d,
+            &peer_t_rbdc,
+            &sync_user_rbdc,
+        )
+        .await?;
+        insert_single_msg(
+            &test_rb,
+            &session_t,
+            "sync-t-0",
+            sync_now,
+            &peer_t_rbdc,
+            &sync_user_rbdc,
+        )
+        .await?;
+        upsert_user_session(
+            &test_rb,
+            &sync_user_rbdc,
+            &session_t,
+            SESSION_TYPE_SINGLE,
+            Some(&peer_t_rbdc),
+            0,
+        )
+        .await?;
+        let resp = sync_sessions(
+            &test_rb,
+            Some(sync_user.to_string()),
+            sync_req(Some(vec![sync_session_req(&session_t)]), Some(100)),
+        )
+        .await
+        .context("同步(9.3)失败")?;
+        assert_eq!(resp.sessions[0].messages.len(), 1, "窗口外消息应被过滤");
+        assert!(!resp.sessions[0].has_more, "窗口内已取尽 → 追平, has_more=false");
+        assert_eq!(resp.sessions[0].messages[0].nano_id, "sync-t-0");
+
+        // 9.4 追平后空批: after_id 超前沿 → 空消息, has_more=false, next_cursor=after
+        let peer_n = Uuid::now_v7();
+        let peer_n_rbdc: RbatisUuid = peer_n.to_string().parse()?;
+        let session_n: RbatisUuid = single_session_uuid(&sync_user, &peer_n).to_string().parse()?;
+        let id_n = insert_single_msg(
+            &test_rb,
+            &session_n,
+            "sync-n-0",
+            sync_now,
+            &peer_n_rbdc,
+            &sync_user_rbdc,
+        )
+        .await?;
+        upsert_user_session(
+            &test_rb,
+            &sync_user_rbdc,
+            &session_n,
+            SESSION_TYPE_SINGLE,
+            Some(&peer_n_rbdc),
+            0,
+        )
+        .await?;
+        let resp = sync_sessions(
+            &test_rb,
+            Some(sync_user.to_string()),
+            sync_req(Some(vec![sync_session_req_after(&session_n, id_n)]), Some(100)),
+        )
+        .await
+        .context("同步(9.4)失败")?;
+        assert!(resp.sessions[0].messages.is_empty(), "已追平 → 空批");
+        assert!(!resp.sessions[0].has_more);
+        assert_eq!(resp.sessions[0].next_cursor, id_n, "空批 next_cursor=请求的 after");
+
+        // 9.5 归属校验: 不属于我的会话静默跳过, 非法 uuid 跳过, 其余正常
+        let (other_user, other_rbdc) = seed_friend_user(&test_rb, "syncother").await?;
+        let peer_o = Uuid::now_v7();
+        let peer_o_rbdc: RbatisUuid = peer_o.to_string().parse()?;
+        let session_o: RbatisUuid =
+            single_session_uuid(&other_user, &peer_o).to_string().parse()?;
+        insert_single_msg(&test_rb, &session_o, "sync-o-0", sync_now, &peer_o_rbdc, &other_rbdc)
+            .await?;
+        upsert_user_session(
+            &test_rb,
+            &other_rbdc,
+            &session_o,
+            SESSION_TYPE_SINGLE,
+            Some(&peer_o_rbdc),
+            0,
+        )
+        .await?;
+        let resp = sync_sessions(
+            &test_rb,
+            Some(sync_user.to_string()),
+            sync_req(
+                Some(vec![
+                    sync_session_req(&session_n),
+                    sync_session_req(&session_o),
+                    SyncSessionReq { session_uuid: "not-a-uuid".to_string(), after_id: None },
+                ]),
+                None,
+            ),
+        )
+        .await
+        .context("同步(9.5)失败")?;
+        assert_eq!(resp.sessions.len(), 1, "只返回属于我的会话: {resp:?}");
+        assert_eq!(resp.sessions[0].session_uuid, session_n.to_string());
+
+        // 9.6 after_id 缺省 ≡ 0(从窗口内最早起)
+        let resp_default = sync_sessions(
+            &test_rb,
+            Some(sync_user.to_string()),
+            sync_req(Some(vec![sync_session_req(&session_a)]), Some(10)),
+        )
+        .await
+        .context("同步(9.6a)失败")?;
+        let resp_zero = sync_sessions(
+            &test_rb,
+            Some(sync_user.to_string()),
+            sync_req(Some(vec![sync_session_req_after(&session_a, 0)]), Some(10)),
+        )
+        .await
+        .context("同步(9.6b)失败")?;
+        assert_eq!(
+            resp_default.sessions[0].next_cursor, resp_zero.sessions[0].next_cursor,
+            "缺省 after_id 应等价 0"
+        );
+        assert_eq!(
+            resp_default.sessions[0].messages.len(),
+            resp_zero.sessions[0].messages.len(),
+            "缺省 after_id 应返回相同条数"
+        );
+
+        // 9.7 旧协议兼容: 多余 mode 字段被 serde 静默忽略
+        let legacy: SyncRequestDTO = serde_json::from_str(
+            r#"{"mode":"incremental","sessions":[{"session_uuid":"x"}],"limit":10}"#,
+        )
+        .context("旧协议请求应可反序列化(mode 被忽略)")?;
+        assert_eq!(legacy.sessions.as_ref().map(|v| v.len()), Some(1));
+        assert_eq!(
+            legacy.sessions.as_ref().and_then(|v| v.first()).map(|s| s.after_id),
+            Some(None),
+            "after_id 缺省应为 None"
+        );
+
+        // 9.8 limit 服务端钳制(99999 → 200)
+        let peer_h = Uuid::now_v7();
+        let peer_h_rbdc: RbatisUuid = peer_h.to_string().parse()?;
+        let session_h: RbatisUuid = single_session_uuid(&sync_user, &peer_h).to_string().parse()?;
+        for i in 0..205 {
+            insert_single_msg(
+                &test_rb,
+                &session_h,
+                &format!("sync-h-{i}"),
+                sync_now + i,
+                &peer_h_rbdc,
+                &sync_user_rbdc,
+            )
+            .await?;
+        }
+        upsert_user_session(
+            &test_rb,
+            &sync_user_rbdc,
+            &session_h,
+            SESSION_TYPE_SINGLE,
+            Some(&peer_h_rbdc),
+            0,
+        )
+        .await?;
+        let resp = sync_sessions(
+            &test_rb,
+            Some(sync_user.to_string()),
+            sync_req(Some(vec![sync_session_req(&session_h)]), Some(99999)),
+        )
+        .await
+        .context("同步(9.8)失败")?;
+        assert_eq!(resp.sessions[0].messages.len(), 200, "limit 应被钳制到 200");
+        assert!(resp.sessions[0].has_more);
+
+        // 9.9 空 sessions → 空响应(不再服务端筛会话)
+        let resp = sync_sessions(&test_rb, Some(sync_user.to_string()), sync_req(None, None))
+            .await
+            .context("同步(9.9a)失败")?;
+        assert!(resp.sessions.is_empty(), "缺省 sessions 应空响应: {resp:?}");
+        let resp =
+            sync_sessions(&test_rb, Some(sync_user.to_string()), sync_req(Some(vec![]), None))
+                .await
+                .context("同步(9.9b)失败")?;
+        assert!(resp.sessions.is_empty(), "空 sessions 应空响应: {resp:?}");
+
+        // 9.10 群聊会话: session_uuid=group_uuid, recv_user=group_uuid, text_type=msg_type
+        let group_uuid = Uuid::now_v7();
+        let group_uuid_rbdc: RbatisUuid = group_uuid.to_string().parse()?;
+        GroupInfo::insert(
+            &test_rb,
+            &GroupInfo {
+                id: None,
+                group_uuid: Some(group_uuid_rbdc.clone()),
+                group_name: Some("同步测试群".to_string()),
+                avatar: None,
+                owner_uuid: Some(sync_user_rbdc.clone()),
+                description: None,
+                max_members: Some(200),
+                created_at: Some(0),
+                updated_at: Some(0),
+                status: Some(1),
+            },
+        )
+        .await
+        .context("插入同步测试群失败")?;
+        let mut ids_g = Vec::new();
+        for i in 0..3 {
+            ids_g.push(
+                insert_group_msg(
+                    &test_rb,
+                    &group_uuid_rbdc,
+                    &format!("sync-g-{i}"),
+                    sync_now + i,
+                    &sync_user_rbdc,
+                )
+                .await?,
+            );
+        }
+        upsert_user_session(
+            &test_rb,
+            &sync_user_rbdc,
+            &group_uuid_rbdc,
+            SESSION_TYPE_GROUP,
+            None,
+            0,
+        )
+        .await?;
+        let resp = sync_sessions(
+            &test_rb,
+            Some(sync_user.to_string()),
+            sync_req(Some(vec![sync_session_req(&group_uuid_rbdc)]), Some(2)),
+        )
+        .await
+        .context("同步(9.10)失败")?;
+        let s = &resp.sessions[0];
+        assert_eq!(s.session_type, SESSION_TYPE_GROUP);
+        assert_eq!(s.messages.len(), 2);
+        assert!(s.has_more, "还有 1 条 → has_more=true");
+        assert_eq!(s.messages[0].recv_user, group_uuid.to_string(), "群聊 recv_user=group_uuid");
+        assert_eq!(s.messages[0].id, ids_g[0], "正向首拉取最旧 2 条");
+        assert_eq!(s.next_cursor, ids_g[1], "群聊 next_cursor=本批最大 id");
+
+        // 9.11 HTTP 冒烟: 新契约(对象化 sessions)路由注册与响应结构
+        let sync_body = serde_json::from_str::<JsonValue>(r#"{"sessions":[],"limit":10}"#)
+            .context("构造冒烟请求失败")?;
+        let (status, json) =
+            post_json(&app, "/session/sync", Some(&sync_body), Some(&access_token)).await;
+        assert_eq!(status, StatusCode::OK, "/session/sync 应成功: {json}");
+        assert_eq!(json["code"], 200, "/session/sync 响应 code 应为 200: {json}");
+        assert!(json["data"]["server_time"].as_i64().is_some(), "应返回 server_time: {json}");
+        assert!(json["data"]["sessions"].as_array().is_some(), "应返回 sessions 数组: {json}");
+        info!("任务12 离线同步 /session/sync 全部通过");
+
+        // ===== 10. 任务06: 会话列表与控制信息 =====
+        let base = sync_now;
+
+        // 10.1 排序: 置顶最前, 其余按 last_message_at 降序
+        let (u1, u1r) = seed_friend_user(&test_rb, "l1").await?;
+        let p1a = Uuid::now_v7();
+        let p1b = Uuid::now_v7();
+        let p1c = Uuid::now_v7();
+        let p1ar: RbatisUuid = p1a.to_string().parse()?;
+        let p1br: RbatisUuid = p1b.to_string().parse()?;
+        let p1cr: RbatisUuid = p1c.to_string().parse()?;
+        let s1a: RbatisUuid = single_session_uuid(&u1, &p1a).to_string().parse()?;
+        let s1b: RbatisUuid = single_session_uuid(&u1, &p1b).to_string().parse()?;
+        let s1c: RbatisUuid = single_session_uuid(&u1, &p1c).to_string().parse()?;
+        // s1a 置顶(时间最早); s1b 最新; s1c 居中
+        upsert_session_row(&test_rb, &s1a, SESSION_TYPE_SINGLE, 1, base - 2000, "a").await?;
+        upsert_user_session_ex(&test_rb, &u1r, &s1a, SESSION_TYPE_SINGLE, Some(&p1ar), 0, 1, 1, 0)
+            .await?;
+        upsert_session_row(&test_rb, &s1b, SESSION_TYPE_SINGLE, 1, base - 100, "b").await?;
+        upsert_user_session_ex(&test_rb, &u1r, &s1b, SESSION_TYPE_SINGLE, Some(&p1br), 0, 1, 0, 0)
+            .await?;
+        upsert_session_row(&test_rb, &s1c, SESSION_TYPE_SINGLE, 1, base - 1000, "c").await?;
+        upsert_user_session_ex(&test_rb, &u1r, &s1c, SESSION_TYPE_SINGLE, Some(&p1cr), 0, 1, 0, 0)
+            .await?;
+        let resp = list_sessions(&test_rb, Some(u1.to_string()), list_req(None, Some(10))).await?;
+        let order1: Vec<String> = resp.sessions.iter().map(|s| s.session_uuid.clone()).collect();
+        assert_eq!(
+            order1,
+            vec![s1a.to_string(), s1b.to_string(), s1c.to_string()],
+            "置顶最前, 其余按时间降序"
+        );
+        assert!(!resp.has_more);
+        assert!(resp.next_cursor.is_none());
+
+        // 10.2 keyset 分页无漏无重(12 会话 / size=5 → 3 页)
+        let (u2, u2r) = seed_friend_user(&test_rb, "l2").await?;
+        let mut expect2 = Vec::new();
+        for i in 0..12i64 {
+            let peer = Uuid::now_v7();
+            let pr: RbatisUuid = peer.to_string().parse()?;
+            let s: RbatisUuid = single_session_uuid(&u2, &peer).to_string().parse()?;
+            upsert_session_row(&test_rb, &s, SESSION_TYPE_SINGLE, i + 1, base - i * 1000, "k")
+                .await?;
+            upsert_user_session_ex(&test_rb, &u2r, &s, SESSION_TYPE_SINGLE, Some(&pr), 0, 0, 0, 0)
+                .await?;
+            expect2.push(s.to_string());
+        }
+        let mut got2 = Vec::new();
+        let mut cursor2: Option<SessionListCursor> = None;
+        loop {
+            let resp =
+                list_sessions(&test_rb, Some(u2.to_string()), list_req(cursor2, Some(5))).await?;
+            got2.extend(resp.sessions.iter().map(|s| s.session_uuid.clone()));
+            if !resp.has_more {
+                break;
+            }
+            cursor2 = resp.next_cursor;
+        }
+        assert_eq!(got2.len(), 12, "翻页合并应 12 行");
+        let mut uniq2 = got2.clone();
+        uniq2.sort();
+        uniq2.dedup();
+        assert_eq!(uniq2.len(), 12, "翻页不应有重复");
+        let mut exp2 = expect2.clone();
+        exp2.sort();
+        assert_eq!(uniq2, exp2, "翻页集合应与预期一致");
+
+        // 10.3 未读数排除自己发的(单聊 recv=me / 群 send<>me)
+        let (u3, u3r) = seed_friend_user(&test_rb, "l3").await?;
+        let p3 = Uuid::now_v7();
+        let p3r: RbatisUuid = p3.to_string().parse()?;
+        let s3: RbatisUuid = single_session_uuid(&u3, &p3).to_string().parse()?;
+        for i in 0..3i64 {
+            insert_single_msg(&test_rb, &s3, &format!("u3-me-{i}"), base + i, &u3r, &p3r).await?;
+        }
+        for i in 0..2i64 {
+            insert_single_msg(&test_rb, &s3, &format!("u3-peer-{i}"), base + 10 + i, &p3r, &u3r)
+                .await?;
+        }
+        let max3 = ChatMessageRecord::max_id_by_session(&test_rb, &s3).await?;
+        upsert_session_row(&test_rb, &s3, SESSION_TYPE_SINGLE, max3, base, "u3").await?;
+        upsert_user_session_ex(&test_rb, &u3r, &s3, SESSION_TYPE_SINGLE, Some(&p3r), 0, max3, 0, 0)
+            .await?;
+
+        let g3 = Uuid::now_v7();
+        let g3r: RbatisUuid = g3.to_string().parse()?;
+        GroupInfo::insert(
+            &test_rb,
+            &GroupInfo {
+                id: None,
+                group_uuid: Some(g3r.clone()),
+                group_name: Some("列表测试群".to_string()),
+                avatar: None,
+                owner_uuid: Some(u3r.clone()),
+                description: None,
+                max_members: Some(200),
+                created_at: Some(0),
+                updated_at: Some(0),
+                status: Some(1),
+            },
+        )
+        .await
+        .context("插入列表测试群失败")?;
+        insert_group_msg(&test_rb, &g3r, "g3-me-0", base, &u3r).await?;
+        let other3 = Uuid::now_v7();
+        let other3r: RbatisUuid = other3.to_string().parse()?;
+        for i in 0..4i64 {
+            insert_group_msg(&test_rb, &g3r, &format!("g3-o-{i}"), base + 10 + i, &other3r).await?;
+        }
+        let gmax3 = GroupMessageRecord::max_id_by_group(&test_rb, &g3r).await?;
+        upsert_session_row(&test_rb, &g3r, SESSION_TYPE_GROUP, gmax3, base, "g3").await?;
+        upsert_user_session_ex(&test_rb, &u3r, &g3r, SESSION_TYPE_GROUP, None, 0, gmax3, 0, 0)
+            .await?;
+
+        let resp = list_sessions(&test_rb, Some(u3.to_string()), list_req(None, Some(10))).await?;
+        let single3 = resp
+            .sessions
+            .iter()
+            .find(|s| s.session_uuid == s3.to_string())
+            .context("应有单聊会话")?;
+        assert_eq!(single3.unread, 2, "单聊未读=对方发的 2 条");
+        let group3 = resp
+            .sessions
+            .iter()
+            .find(|s| s.session_uuid == g3.to_string())
+            .context("应有群会话")?;
+        assert_eq!(group3.unread, 4, "群未读=他人发的 4 条");
+
+        // 10.4 软删后新消息复活, 未读=新到条数
+        let (u4, u4r) = seed_friend_user(&test_rb, "l4").await?;
+        let p4 = Uuid::now_v7();
+        let p4r: RbatisUuid = p4.to_string().parse()?;
+        let s4: RbatisUuid = single_session_uuid(&u4, &p4).to_string().parse()?;
+        insert_single_msg(&test_rb, &s4, "r4-0", base, &p4r, &u4r).await?;
+        insert_single_msg(&test_rb, &s4, "r4-1", base + 1, &p4r, &u4r).await?;
+        let max4 = ChatMessageRecord::max_id_by_session(&test_rb, &s4).await?;
+        upsert_session_row(&test_rb, &s4, SESSION_TYPE_SINGLE, max4, base, "r4").await?;
+        upsert_user_session_ex(&test_rb, &u4r, &s4, SESSION_TYPE_SINGLE, Some(&p4r), 0, max4, 0, 0)
+            .await?;
+        delete_session(&test_rb, Some(u4.to_string()), control_req(&s4, None))
+            .await
+            .context("软删失败")?;
+        let us4 = UserSession::select_by_map(
+            &test_rb,
+            rbs::value! {"user_uuid": &u4r, "session_uuid": &s4},
+        )
+        .await?;
+        let deleted_at4 = us4[0].deleted_at.context("软删后 deleted_at 应非空")?;
+        assert_eq!(us4[0].last_read_id, Some(max4), "软删应推到底");
+        let resp = list_sessions(&test_rb, Some(u4.to_string()), list_req(None, None)).await?;
+        assert!(resp.sessions.iter().all(|s| s.session_uuid != s4.to_string()), "软删后不应出现");
+        // 新消息 + 聚合 → 复活
+        insert_single_msg(&test_rb, &s4, "r4-2", deleted_at4 + 1000, &p4r, &u4r).await?;
+        aggregate_user_sessions(&test_rb, &u4r).await.context("复活聚合失败")?;
+        let resp = list_sessions(&test_rb, Some(u4.to_string()), list_req(None, None)).await?;
+        let row4 =
+            resp.sessions.iter().find(|s| s.session_uuid == s4.to_string()).context("应复活")?;
+        assert_eq!(row4.unread, 1, "复活后未读=新到 1 条");
+
+        // 10.5 软删后无新消息保持隐藏
+        let (u5, u5r) = seed_friend_user(&test_rb, "l5").await?;
+        let p5 = Uuid::now_v7();
+        let p5r: RbatisUuid = p5.to_string().parse()?;
+        let s5: RbatisUuid = single_session_uuid(&u5, &p5).to_string().parse()?;
+        insert_single_msg(&test_rb, &s5, "h5-0", base, &p5r, &u5r).await?;
+        let max5 = ChatMessageRecord::max_id_by_session(&test_rb, &s5).await?;
+        upsert_session_row(&test_rb, &s5, SESSION_TYPE_SINGLE, max5, base, "h5").await?;
+        upsert_user_session_ex(&test_rb, &u5r, &s5, SESSION_TYPE_SINGLE, Some(&p5r), 0, max5, 0, 0)
+            .await?;
+        delete_session(&test_rb, Some(u5.to_string()), control_req(&s5, None)).await?;
+        let resp = list_sessions(&test_rb, Some(u5.to_string()), list_req(None, None)).await?;
+        assert!(resp.sessions.is_empty(), "软删且无新消息应始终隐藏");
+
+        // 10.6 preview 生成: 300 汉字 → 256 字符, UTF-8 安全
+        let (u6, u6r) = seed_friend_user(&test_rb, "l6").await?;
+        let p6 = Uuid::now_v7();
+        let p6r: RbatisUuid = p6.to_string().parse()?;
+        let s6: RbatisUuid = single_session_uuid(&u6, &p6).to_string().parse()?;
+        let long6 = "汉".repeat(300);
+        ChatMessageRecord::insert(
+            &test_rb,
+            &ChatMessageRecord {
+                id: None,
+                session_uuid: s6.clone(),
+                nano_id: Some("preview6".to_string()),
+                timestamp: Some(base),
+                raw: long6.as_bytes().to_vec().into(),
+                text_type: Some(0),
+                send_user: p6r.clone(),
+                recv_user: u6r.clone(),
+            },
+        )
+        .await
+        .context("插入长消息失败")?;
+        // 单聊聚合为 user_session 驱动(任务04b), 需先建 me 视角的 user_session 行
+        let max6 = ChatMessageRecord::max_id_by_session(&test_rb, &s6).await?;
+        upsert_user_session_ex(&test_rb, &u6r, &s6, SESSION_TYPE_SINGLE, Some(&p6r), 0, max6, 0, 0)
+            .await?;
+        aggregate_user_sessions(&test_rb, &u6r).await.context("preview 聚合失败")?;
+        let resp = list_sessions(&test_rb, Some(u6.to_string()), list_req(None, None)).await?;
+        let row6 =
+            resp.sessions.iter().find(|s| s.session_uuid == s6.to_string()).context("应有会话")?;
+        assert_eq!(row6.last_preview.chars().count(), 256, "preview 应截断到 256 字符");
+        assert!(row6.last_preview.chars().all(|c| c == '汉'), "preview 应无乱码(UTF-8 安全)");
+
+        // 10.7 pin/mute/delete 落库
+        let (u7, u7r) = seed_friend_user(&test_rb, "l7").await?;
+        let p7 = Uuid::now_v7();
+        let p7r: RbatisUuid = p7.to_string().parse()?;
+        let s7: RbatisUuid = single_session_uuid(&u7, &p7).to_string().parse()?;
+        insert_single_msg(&test_rb, &s7, "pmd7", base, &p7r, &u7r).await?;
+        let max7 = ChatMessageRecord::max_id_by_session(&test_rb, &s7).await?;
+        upsert_session_row(&test_rb, &s7, SESSION_TYPE_SINGLE, max7, base, "pmd7").await?;
+        upsert_user_session_ex(&test_rb, &u7r, &s7, SESSION_TYPE_SINGLE, Some(&p7r), 0, max7, 0, 0)
+            .await?;
+        pin_session(&test_rb, Some(u7.to_string()), control_req(&s7, Some(1)))
+            .await
+            .context("置顶失败")?;
+        mute_session(&test_rb, Some(u7.to_string()), control_req(&s7, Some(1)))
+            .await
+            .context("免打扰失败")?;
+        let us7 = UserSession::select_by_map(
+            &test_rb,
+            rbs::value! {"user_uuid": &u7r, "session_uuid": &s7},
+        )
+        .await?;
+        assert_eq!(us7[0].pinned, Some(1), "置顶应落库");
+        assert_eq!(us7[0].muted, Some(1), "免打扰应落库");
+        delete_session(&test_rb, Some(u7.to_string()), control_req(&s7, None))
+            .await
+            .context("软删失败")?;
+        let us7 = UserSession::select_by_map(
+            &test_rb,
+            rbs::value! {"user_uuid": &u7r, "session_uuid": &s7},
+        )
+        .await?;
+        assert!(us7[0].deleted_at.is_some(), "软删应落 deleted_at");
+        assert_eq!(us7[0].last_read_id, Some(max7), "软删应把 last_read 推到 last_message_id");
+
+        // 10.8 无会话用户返回空
+        let (u8, _u8r) = seed_friend_user(&test_rb, "l8").await?;
+        let resp = list_sessions(&test_rb, Some(u8.to_string()), list_req(None, None)).await?;
+        assert!(resp.sessions.is_empty());
+        assert!(!resp.has_more);
+        assert!(resp.next_cursor.is_none());
+
+        // 10.9 HTTP 冒烟: 路由与响应结构
+        let list_body = json_obj(&[]);
+        let (status, json) =
+            post_json(&app, "/session/list", Some(&list_body), Some(&access_token)).await;
+        assert_eq!(status, StatusCode::OK, "/session/list 应成功: {json}");
+        assert_eq!(json["code"], 200, "/session/list code 应为 200: {json}");
+        assert!(json["data"]["sessions"].as_array().is_some(), "应返回 sessions 数组: {json}");
+        assert!(json["data"]["has_more"].as_bool().is_some(), "应返回 has_more: {json}");
+        info!("任务06 会话列表与控制信息 全部通过");
+
+        // ===== 11. 二次认证因素(auth_factor) =====
+        // 测试环境未配置邮件服务商, 发码接口无法真正投递; 这里直接向 Redis 预置验证码,
+        // 覆盖 create/list/detail/delete 全链路与鉴权/越权/渠道校验等分支。
+        const AUTH_FACTOR_EMAIL: &str = "auth_factor_bind@example.com";
+        let af_code_key =
+            format!("{}{}", AUTH_FACTOR_EMAIL_VERIFY_CODE, AUTH_FACTOR_EMAIL).to_uppercase();
+        let _: () =
+            conn.set_ex(&af_code_key, "123456", 300).await.context("写入二次认证验证码失败")?;
+
+        // 11.1 无 token 访问受保护接口应被鉴权中间件拒绝
+        let result = test::try_call_service(
+            &app,
+            test::TestRequest::post().uri("/auth_factor/list").to_request(),
+        )
+        .await;
+        assert!(result.is_err(), "无 token 访问 /auth_factor/list 应被拒绝");
+
+        // 11.2 绑定前列表为空
+        let (status, json) =
+            post_json(&app, "/auth_factor/list", Some(&json_obj(&[])), Some(&access_token)).await;
+        assert_eq!(status, StatusCode::OK, "因素列表应成功: {json}");
+        assert_eq!(json["data"]["total"], 0, "绑定前因素数应为 0: {json}");
+
+        // 11.3 验证码错误 -> 400
+        let wrong_bind = json_auth_factor(0, AUTH_FACTOR_EMAIL, Some("000000"));
+        let (status, json) =
+            post_json(&app, "/auth_factor/create", Some(&wrong_bind), Some(&access_token)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "验证码错误应 400: {json}");
+
+        // 11.4 正确验证码 -> 绑定成功
+        let bind = json_auth_factor(0, AUTH_FACTOR_EMAIL, Some("123456"));
+        let (status, json) =
+            post_json(&app, "/auth_factor/create", Some(&bind), Some(&access_token)).await;
+        assert_eq!(status, StatusCode::OK, "绑定应成功: {json}");
+        assert_eq!(json["code"], 200, "绑定 code 应为 200: {json}");
+        assert_eq!(json["data"]["factor_type"], AUTH_FACTOR_TYPE_EMAIL, "类型应为 email: {json}");
+        assert_eq!(json["data"]["verified"], true, "绑定后应已验证: {json}");
+        let factor_id = json["data"]["id"].as_i64().context("绑定响应缺少因素 id")?;
+        let factor_body = json_num_id(factor_id);
+
+        // 11.5 列表返回 1 条
+        let (status, json) =
+            post_json(&app, "/auth_factor/list", Some(&json_obj(&[])), Some(&access_token)).await;
+        assert_eq!(status, StatusCode::OK, "因素列表应成功: {json}");
+        assert_eq!(json["data"]["total"], 1, "绑定后因素数应为 1: {json}");
+        assert_eq!(
+            json["data"]["list"][0]["factor_value"], AUTH_FACTOR_EMAIL,
+            "因素值应一致: {json}"
+        );
+
+        // 11.6 重复绑定同类型 -> 400
+        let (status, json) =
+            post_json(&app, "/auth_factor/create", Some(&bind), Some(&access_token)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "重复绑定应 400: {json}");
+
+        // 11.7 已绑定后再发码 -> 400
+        let send_bound = json_auth_factor(0, AUTH_FACTOR_EMAIL, None);
+        let (status, json) =
+            post_json(&app, "/auth_factor/send_code", Some(&send_bound), Some(&access_token)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "已绑定发码应 400: {json}");
+
+        // 11.8 非 email 渠道 -> 400(暂未开放)
+        let send_phone = json_auth_factor(1, "13800000000", None);
+        let (status, json) =
+            post_json(&app, "/auth_factor/send_code", Some(&send_phone), Some(&access_token)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "phone 渠道应 400: {json}");
+
+        // 11.9 邮箱格式非法 -> 400
+        let send_bad = json_auth_factor(0, "not-an-email", None);
+        let (status, json) =
+            post_json(&app, "/auth_factor/send_code", Some(&send_bad), Some(&access_token)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "非法邮箱应 400: {json}");
+
+        // 11.10 详情
+        let (status, json) =
+            post_json(&app, "/auth_factor/detail", Some(&factor_body), Some(&access_token)).await;
+        assert_eq!(status, StatusCode::OK, "因素详情应成功: {json}");
+        assert_eq!(json["data"]["id"], factor_id, "详情 id 应一致: {json}");
+
+        // 11.11 越权: 另一用户不能操作该因素(带解绑验证码仍应被拥有者校验拦截)
+        let af_unbind_key =
+            format!("{}{}", AUTH_FACTOR_UNBIND_EMAIL_VERIFY_CODE, seed_uuid_rbdc).to_uppercase();
+        let _: () =
+            conn.set_ex(&af_unbind_key, "654321", 300).await.context("写入解绑验证码失败")?;
+        let delete_body = json_auth_factor_delete(factor_id, "654321");
+        let delete_body_wrong = json_auth_factor_delete(factor_id, "000000");
+        let other_uuid = Uuid::now_v7();
+        let other_rbdc: RbatisUuid =
+            other_uuid.to_string().parse().context("解析越权用户 UUID 失败")?;
+        BasicUser::insert(
+            &test_rb,
+            &BasicUser {
+                uuid: Some(other_rbdc),
+                username: Some("af_other".to_string()),
+                account: Some("af_other".to_string()),
+                icon: None,
+                info: Some(String::new()),
+                password: Some(hash_password("OtherPass12345678").context("生成越权用户密码失败")?),
+                registration_status: Some(1),
+                user_type: Some(0),
+            },
+        )
+        .await
+        .context("写入越权测试用户失败")?;
+        let other_token = generate_access_token(other_uuid.to_string(), "PC".to_string())
+            .context("生成越权用户 token 失败")?;
+        let (status, json) =
+            post_json(&app, "/auth_factor/delete", Some(&delete_body), Some(&other_token)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "越权删除应 400: {json}");
+
+        // 11.11b 本人 + 错误解绑验证码 -> 400(且不消费正确验证码)
+        let (status, json) =
+            post_json(&app, "/auth_factor/delete", Some(&delete_body_wrong), Some(&access_token))
+                .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "验证码错误应 400: {json}");
+
+        // 11.12 本人 + 正确解绑验证码 -> 物理删除(code 204)
+        let (status, json) =
+            post_json(&app, "/auth_factor/delete", Some(&delete_body), Some(&access_token)).await;
+        assert_eq!(status, StatusCode::OK, "删除应成功: {json}");
+        assert_eq!(json["code"], 204, "删除 code 应为 204: {json}");
+
+        // 11.13 删除后列表为空 + 直接查库确认物理删除
+        let (status, json) =
+            post_json(&app, "/auth_factor/list", Some(&json_obj(&[])), Some(&access_token)).await;
+        assert_eq!(status, StatusCode::OK, "删除后因素列表应成功: {json}");
+        assert_eq!(json["data"]["total"], 0, "删除后因素数应为 0: {json}");
+        let rows = UserAuthFactor::select_by_user_id(&test_rb, &seed_uuid_rbdc)
+            .await
+            .context("查询二次认证因素失败")?;
+        assert!(rows.is_empty(), "物理删除后不应有残留记录");
+        info!("二次认证因素接口全部通过");
+
+        // ===== 12. 修改密码(二次认证验证码) =====
+        // §11 末尾已解绑, 这里重新为种子用户绑定 email 因素作为修改密码的验证渠道
+        let now_pw = get_now_time_stamp_as_millis()?;
+        UserAuthFactor::insert(
+            &test_rb,
+            &UserAuthFactor {
+                id: None,
+                user_id: Some(seed_uuid_rbdc.clone()),
+                factor_type: Some(AUTH_FACTOR_TYPE_EMAIL),
+                factor_value: Some(
+                    live_recipient.clone().unwrap_or_else(|| SEED_EMAIL.to_string()),
+                ),
+                verified: Some(true),
+                enabled: Some(true),
+                is_primary: Some(true),
+                status: Some(1),
+                verified_at: Some(now_pw),
+                last_used_at: None,
+                created_at: Some(now_pw),
+                updated_at: Some(now_pw),
+                deleted_at: None,
+            },
+        )
+        .await
+        .context("写入修改密码用 email 因素失败")?;
+
+        // 12.1 未绑定因素的用户发码 -> 400(在真正发信前即被拦截)
+        let no_factor_uuid = Uuid::now_v7();
+        let no_factor_rbdc: RbatisUuid =
+            no_factor_uuid.to_string().parse().context("解析用户 UUID 失败")?;
+        BasicUser::insert(
+            &test_rb,
+            &BasicUser {
+                uuid: Some(no_factor_rbdc),
+                username: Some("cp_no_factor".to_string()),
+                account: Some("cp_no_factor".to_string()),
+                icon: None,
+                info: Some(String::new()),
+                password: Some(hash_password("NoFactorPass123456").context("生成密码失败")?),
+                registration_status: Some(1),
+                user_type: Some(0),
+            },
+        )
+        .await
+        .context("写入未绑定因素用户失败")?;
+        let no_factor_token = generate_access_token(no_factor_uuid.to_string(), "PC".to_string())
+            .context("生成未绑定因素用户 token 失败")?;
+        let (status, json) = post_json(
+            &app,
+            "/user/change_password/send_code",
+            Some(&json_factor_type(0)),
+            Some(&no_factor_token),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "未绑定因素发码应 400: {json}");
+
+        // 12.2 非 email 渠道 -> 400(暂未开放)
+        let (status, json) = post_json(
+            &app,
+            "/user/change_password/send_code",
+            Some(&json_factor_type(1)),
+            Some(&access_token),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "非 email 渠道应 400: {json}");
+
+        // 12.3 获取验证码: 真实投递(EMAIL_ENABLED)时调用发码接口并从 Redis 读取, 否则预置
+        let pw_code_key =
+            format!("{}{}", AUTH_FACTOR_PASSWORD_VERIFY_CODE, seed_uuid_rbdc).to_uppercase();
+        let pw_code: String = if live_recipient.is_some() {
+            let (status, json) = post_json(
+                &app,
+                "/user/change_password/send_code",
+                Some(&json_factor_type(0)),
+                Some(&access_token),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "真实发码应成功: {json}");
+            assert_eq!(json["code"], 204, "真实发码 code 应为 204: {json}");
+            let stored: Option<String> =
+                conn.get(&pw_code_key).await.context("读取修改密码验证码失败")?;
+            stored.context("真实发码后 Redis 应存在验证码")?
+        } else {
+            let _: () =
+                conn.set_ex(&pw_code_key, "246810", 300).await.context("写入修改密码验证码失败")?;
+            "246810".to_string()
+        };
+
+        // 12.4 验证码错误 -> 400
+        let wrong_code = if pw_code == "000000" { "111111" } else { "000000" };
+        let wrong_pw = json_change_password(0, wrong_code, "NewPassword123456");
+        let (status, json) =
+            post_json(&app, "/user/change_password", Some(&wrong_pw), Some(&access_token)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "验证码错误应 400: {json}");
+
+        // 12.5 正确验证码 -> 修改成功(code 204)
+        let pw_body = json_change_password(0, &pw_code, "NewPassword123456");
+        let (status, json) =
+            post_json(&app, "/user/change_password", Some(&pw_body), Some(&access_token)).await;
+        assert_eq!(status, StatusCode::OK, "修改密码应成功: {json}");
+        assert_eq!(json["code"], 204, "修改密码 code 应为 204: {json}");
+
+        // 12.6 新密码已写入 basic_user 且旧密码失效
+        let updated_user = BasicUser::select_by_uuid(&test_rb, &seed_uuid_rbdc)
+            .await
+            .context("查询种子用户失败")?
+            .context("种子用户不存在")?;
+        let hash = updated_user.password.context("种子用户密码为空")?;
+        assert!(verify_password("NewPassword123456", &hash), "新密码应校验通过");
+        assert!(!verify_password(SEED_PASSWORD, &hash), "旧密码应失效");
+
+        // 12.7 验证码已消费, 重放 -> 400
+        let (status, json) =
+            post_json(&app, "/user/change_password", Some(&pw_body), Some(&access_token)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "验证码重放应 400: {json}");
+        info!("修改密码(二次认证验证码)接口全部通过");
+
+        // ===== 13. 验证码防爆破: 连续 5 次错误后作废该 key =====
+        const BLOCK_EMAIL: &str = "auth_factor_block@example.com";
+        let block_code_key = format!("{}{}", EMAIL_VERIFY_CODE, BLOCK_EMAIL).to_uppercase();
+        let _: () =
+            conn.set_ex(&block_code_key, "123456", 300).await.context("写入防爆破验证码失败")?;
+        for i in 1..=5 {
+            let body = json_obj(&[("email", BLOCK_EMAIL), ("verification_code", "000000")]);
+            let (status, json) = post_json(&app, "/user/sign_up_step1", Some(&body), None).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "第 {i} 次错误验证码应 400: {json}");
+        }
+        // 达到上限后验证码 key 已被删除
+        let after: Option<String> =
+            conn.get(&block_code_key).await.context("读取防爆破验证码失败")?;
+        assert!(after.is_none(), "5 次错误后验证码 key 应被删除");
+        // 即使提交正确验证码也应失败(验证码已作废)
+        let body = json_obj(&[("email", BLOCK_EMAIL), ("verification_code", "123456")]);
+        let (status, json) = post_json(&app, "/user/sign_up_step1", Some(&body), None).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "作废后正确验证码也应 400: {json}");
+        info!("验证码防爆破(5 次错误作废)通过");
+
+        // ===== 14. 忘记密码(未登录): 按账号 + 已绑定邮箱找回并重置 =====
+        let fp_email = live_recipient.clone().unwrap_or_else(|| SEED_EMAIL.to_string());
+
+        // 14.1 非 email 渠道 -> 400(暂未开放)
+        let (status, json) = post_json(
+            &app,
+            "/user/forgot_password/send_code",
+            Some(&json_forgot_send_code(1, SEED_ACCOUNT, &fp_email)),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "非 email 渠道应 400: {json}");
+
+        // 14.2 账号不存在 -> 400
+        let (status, json) = post_json(
+            &app,
+            "/user/forgot_password/send_code",
+            Some(&json_forgot_send_code(0, "no_such_account", &fp_email)),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "账号不存在应 400: {json}");
+
+        // 14.3 账号存在但邮箱与已绑定因素不匹配 -> 400
+        let (status, json) = post_json(
+            &app,
+            "/user/forgot_password/send_code",
+            Some(&json_forgot_send_code(0, SEED_ACCOUNT, "not_bound@example.com")),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "邮箱与账号不匹配应 400: {json}");
+
+        // 14.4 获取验证码: 真实投递时调用发码接口并从 Redis 读取, 否则预置
+        let fp_code_key =
+            format!("{}{}", FORGOT_PASSWORD_VERIFY_CODE, seed_uuid_rbdc).to_uppercase();
+        let fp_code: String = if live_recipient.is_some() {
+            let (status, json) = post_json(
+                &app,
+                "/user/forgot_password/send_code",
+                Some(&json_forgot_send_code(0, SEED_ACCOUNT, &fp_email)),
+                None,
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "忘记密码真实发码应成功: {json}");
+            assert_eq!(json["code"], 204, "忘记密码发码 code 应为 204: {json}");
+            let stored: Option<String> =
+                conn.get(&fp_code_key).await.context("读取找回验证码失败")?;
+            stored.context("真实发码后 Redis 应存在验证码")?
+        } else {
+            let _: () =
+                conn.set_ex(&fp_code_key, "135790", 300).await.context("写入找回验证码失败")?;
+            "135790".to_string()
+        };
+
+        // 14.5 验证码错误 -> 400
+        let fp_wrong = if fp_code == "000000" { "111111" } else { "000000" };
+        let (status, json) = post_json(
+            &app,
+            "/user/forgot_password/reset",
+            Some(&json_forgot_reset(0, SEED_ACCOUNT, &fp_email, fp_wrong, "ForgotNewPass123456")),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "验证码错误应 400: {json}");
+
+        // 14.6 正确验证码 -> 重置成功(无需登录态)
+        let fp_body =
+            json_forgot_reset(0, SEED_ACCOUNT, &fp_email, &fp_code, "ForgotNewPass123456");
+        let (status, json) =
+            post_json(&app, "/user/forgot_password/reset", Some(&fp_body), None).await;
+        assert_eq!(status, StatusCode::OK, "忘记密码重置应成功: {json}");
+        assert_eq!(json["code"], 204, "忘记密码重置 code 应为 204: {json}");
+
+        // 14.7 新密码已写入 basic_user 且旧密码失效
+        let fp_user = BasicUser::select_by_uuid(&test_rb, &seed_uuid_rbdc)
+            .await
+            .context("查询种子用户失败")?
+            .context("种子用户不存在")?;
+        let fp_hash = fp_user.password.context("种子用户密码为空")?;
+        assert!(verify_password("ForgotNewPass123456", &fp_hash), "重置后新密码应校验通过");
+        assert!(!verify_password("NewPassword123456", &fp_hash), "重置前密码应失效");
+
+        // 14.8 验证码已消费, 重放 -> 400
+        let (status, json) =
+            post_json(&app, "/user/forgot_password/reset", Some(&fp_body), None).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "验证码重放应 400: {json}");
+        info!("忘记密码(未登录)接口全部通过");
+
         Ok::<(), anyhow::Error>(())
     })
     .catch_unwind()
@@ -551,12 +2043,308 @@ async fn http_service_user_api_integration() -> Result<()> {
     }
 }
 
+/// 任务04b: 直接写入一个可被好友流程引用的最小用户(basic_user 即满足 is_exist_user_by_uuid)。
+async fn seed_friend_user(rb: &RBatis, tag: &str) -> Result<(Uuid, RbatisUuid)> {
+    let uuid = Uuid::now_v7();
+    let rbdc: RbatisUuid = uuid.to_string().parse().context("解析用户 UUID 失败")?;
+    BasicUser::insert(
+        rb,
+        &BasicUser {
+            uuid: Some(rbdc.clone()),
+            username: Some(format!("friend_{tag}")),
+            account: Some(format!("friend_{tag}")),
+            icon: None,
+            info: Some(String::new()),
+            password: Some("FriendSeedPass123456".to_string()),
+            registration_status: Some(1),
+            user_type: Some(0),
+        },
+    )
+    .await
+    .context("写入好友测试用户失败")?;
+    Ok((uuid, rbdc))
+}
+
+/// 好友流程 DTO 构造(申请与接受共用)。
+fn friend_dto(
+    request_user: &Uuid,
+    accept_user: &Uuid,
+    request_message: Option<&str>,
+    accept_message: Option<&str>,
+    accept_status: Option<u8>,
+) -> FriendRequestInfoDTO {
+    FriendRequestInfoDTO {
+        request_message: request_message.map(str::to_string),
+        accept_message: accept_message.map(str::to_string),
+        request_user: Some(request_user.to_string()),
+        accept_user: Some(accept_user.to_string()),
+        add_type: Some("search".to_string()),
+        version: None,
+        accept_status,
+    }
+}
+
+/// 某会话的全部消息, 按 id 升序(会话内对话顺序)。
+async fn select_session_messages(
+    rb: &RBatis,
+    session_uuid: &RbatisUuid,
+) -> Result<Vec<ChatMessageRecord>> {
+    let mut msgs = ChatMessageRecord::select_by_map(rb, rbs::value! {"session_uuid": session_uuid})
+        .await
+        .context("查询会话消息失败")?;
+    msgs.sort_by_key(|m| m.id.unwrap_or(0));
+    Ok(msgs)
+}
+
+/// 消息 raw 内容(UTF-8)。
+fn msg_text(msg: &ChatMessageRecord) -> Result<String> {
+    Ok(String::from_utf8(msg.raw.clone().into_inner())?)
+}
+
+/// 任务05: 插入一条单聊同步测试消息, 返回会话当前最大 id。
+async fn insert_single_msg(
+    rb: &RBatis,
+    session: &RbatisUuid,
+    nano: &str,
+    ts: i64,
+    send: &RbatisUuid,
+    recv: &RbatisUuid,
+) -> Result<i64> {
+    ChatMessageRecord::insert(
+        rb,
+        &ChatMessageRecord {
+            id: None,
+            session_uuid: session.clone(),
+            nano_id: Some(nano.to_string()),
+            timestamp: Some(ts),
+            raw: b"m".to_vec().into(),
+            text_type: Some(0),
+            send_user: send.clone(),
+            recv_user: recv.clone(),
+        },
+    )
+    .await
+    .context("插入同步测试消息失败")?;
+    ChatMessageRecord::max_id_by_session(rb, session).await.context("取会话最大 id 失败")
+}
+
+/// 任务05: 建/取用户会话行(带指定同步游标)。
+async fn upsert_user_session(
+    rb: &RBatis,
+    me: &RbatisUuid,
+    session: &RbatisUuid,
+    session_type: i16,
+    peer: Option<&RbatisUuid>,
+    synced_id: i64,
+) -> Result<()> {
+    upsert_user_session_ex(rb, me, session, session_type, peer, 0, synced_id, 0, 0).await
+}
+
+/// 任务06: 建/取用户会话行(游标 + 置顶 + 免打扰全量可控)。
+#[allow(clippy::too_many_arguments)]
+async fn upsert_user_session_ex(
+    rb: &RBatis,
+    me: &RbatisUuid,
+    session: &RbatisUuid,
+    session_type: i16,
+    peer: Option<&RbatisUuid>,
+    last_read_id: i64,
+    synced_id: i64,
+    pinned: i16,
+    muted: i16,
+) -> Result<()> {
+    UserSession::upsert(
+        rb,
+        &UserSession {
+            id: None,
+            user_uuid: me.clone(),
+            session_uuid: session.clone(),
+            session_type: Some(session_type),
+            peer_uuid: peer.cloned(),
+            last_read_id: Some(last_read_id),
+            synced_id: Some(synced_id),
+            pinned: Some(pinned),
+            muted: Some(muted),
+            deleted_at: None,
+            created_at: None,
+            updated_at: None,
+        },
+    )
+    .await
+    .context("写入测试 user_session 失败")?;
+    // UserSession::upsert 是懒创建(仅 8 列, 不写 pinned/muted), 这里按需补控制字段
+    if pinned != 0 {
+        UserSession::update_pinned(rb, me, session, pinned).await.context("设置测试置顶失败")?;
+    }
+    if muted != 0 {
+        UserSession::update_muted(rb, me, session, muted).await.context("设置测试免打扰失败")?;
+    }
+    Ok(())
+}
+
+/// 任务06: 建 session 行并设置最后一条消息(列表排序/摘要依赖)。
+async fn upsert_session_row(
+    rb: &RBatis,
+    session: &RbatisUuid,
+    session_type: i16,
+    last_id: i64,
+    last_at: i64,
+    preview: &str,
+) -> Result<()> {
+    Session::upsert(
+        rb,
+        &Session {
+            session_uuid: session.clone(),
+            session_type: Some(session_type),
+            last_message_id: None,
+            last_message_at: None,
+            last_preview: None,
+            created_at: None,
+            updated_at: None,
+        },
+    )
+    .await
+    .context("写入测试 session 失败")?;
+    Session::update_last_message(rb, session, last_id, last_at, Some(preview))
+        .await
+        .context("更新测试 session 摘要失败")?;
+    Ok(())
+}
+
+/// 任务06: 插入一条群聊测试消息, 返回群当前最大 id。
+async fn insert_group_msg(
+    rb: &RBatis,
+    group_uuid: &RbatisUuid,
+    nano: &str,
+    ts: i64,
+    send: &RbatisUuid,
+) -> Result<i64> {
+    GroupMessageRecord::insert(
+        rb,
+        &GroupMessageRecord {
+            id: None,
+            nano_id: Some(nano.to_string()),
+            group_uuid: Some(group_uuid.clone()),
+            send_user: Some(send.clone()),
+            timestamp: Some(ts),
+            raw: b"g".to_vec().into(),
+            msg_type: Some(MSG_TYPE_TEXT),
+            recalled: Some(false),
+        },
+    )
+    .await
+    .context("插入群测试消息失败")?;
+    GroupMessageRecord::max_id_by_group(rb, group_uuid).await.context("取群最大 id 失败")
+}
+
+/// 任务06: 会话列表请求构造。
+fn list_req(cursor: Option<SessionListCursor>, size: Option<u32>) -> SessionListDTO {
+    SessionListDTO { cursor, size }
+}
+
+/// 任务06: 控制信息请求构造。
+fn control_req(session: &RbatisUuid, value: Option<i16>) -> SessionControlDTO {
+    SessionControlDTO { session_uuid: session.to_string(), value }
+}
+
+/// 任务12: 同步请求构造(会话对象化)。
+fn sync_req(sessions: Option<Vec<SyncSessionReq>>, limit: Option<u32>) -> SyncRequestDTO {
+    SyncRequestDTO { sessions, limit }
+}
+
+/// 任务12: 首拉会话项(无 after_id, 服务端视作 0 = 窗口内最早起)。
+fn sync_session_req(session: &RbatisUuid) -> SyncSessionReq {
+    SyncSessionReq { session_uuid: session.to_string(), after_id: None }
+}
+
+/// 任务12: 正向续拉会话项(带 after_id)。
+fn sync_session_req_after(session: &RbatisUuid, after_id: i64) -> SyncSessionReq {
+    SyncSessionReq { session_uuid: session.to_string(), after_id: Some(after_id) }
+}
+
 /// 构造字符串键值对的 JSON 对象（不使用 `serde_json::json!` 宏，因其内部调用 `unwrap` 违反仓库规范）
 fn json_obj(pairs: &[(&str, &str)]) -> JsonValue {
     let mut map = serde_json::Map::new();
     for (k, v) in pairs {
         map.insert(k.to_string(), JsonValue::String(v.to_string()));
     }
+    JsonValue::Object(map)
+}
+
+/// 构造含数字 `id` 字段的 JSON 对象（不使用 `serde_json::json!` 宏）
+fn json_num_id(id: i64) -> JsonValue {
+    let mut map = serde_json::Map::new();
+    map.insert("id".to_string(), JsonValue::from(id));
+    JsonValue::Object(map)
+}
+
+/// 构造二次认证因素请求体（`factor_type` 为数字, 其余为字符串; DTO 字段为 i16 不能传字符串）
+fn json_auth_factor(
+    factor_type: i64,
+    factor_value: &str,
+    verification_code: Option<&str>,
+) -> JsonValue {
+    let mut map = serde_json::Map::new();
+    map.insert("factor_type".to_string(), JsonValue::from(factor_type));
+    map.insert("factor_value".to_string(), JsonValue::String(factor_value.to_string()));
+    if let Some(code) = verification_code {
+        map.insert("verification_code".to_string(), JsonValue::String(code.to_string()));
+    }
+    JsonValue::Object(map)
+}
+
+/// 构造仅含数字 `factor_type` 的 JSON 对象(发送修改密码验证码请求体)
+fn json_factor_type(factor_type: i64) -> JsonValue {
+    let mut map = serde_json::Map::new();
+    map.insert("factor_type".to_string(), JsonValue::from(factor_type));
+    JsonValue::Object(map)
+}
+
+/// 构造解绑(删除)二次认证因素请求体(`factor_type` 数字, `verification_code` 字符串)
+fn json_auth_factor_delete(id: i64, verification_code: &str) -> JsonValue {
+    let mut map = serde_json::Map::new();
+    map.insert("id".to_string(), JsonValue::from(id));
+    map.insert("factor_type".to_string(), JsonValue::from(0));
+    map.insert("verification_code".to_string(), JsonValue::String(verification_code.to_string()));
+    JsonValue::Object(map)
+}
+
+/// 构造修改密码请求体(`factor_type` 为数字, 其余为字符串)
+fn json_change_password(
+    factor_type: i64,
+    verification_code: &str,
+    new_password: &str,
+) -> JsonValue {
+    let mut map = serde_json::Map::new();
+    map.insert("factor_type".to_string(), JsonValue::from(factor_type));
+    map.insert("verification_code".to_string(), JsonValue::String(verification_code.to_string()));
+    map.insert("new_password".to_string(), JsonValue::String(new_password.to_string()));
+    JsonValue::Object(map)
+}
+
+/// 构造忘记密码发码请求体(`factor_type` 为数字, `account`/`factor_value` 为字符串)
+fn json_forgot_send_code(factor_type: i64, account: &str, factor_value: &str) -> JsonValue {
+    let mut map = serde_json::Map::new();
+    map.insert("account".to_string(), JsonValue::String(account.to_string()));
+    map.insert("factor_type".to_string(), JsonValue::from(factor_type));
+    map.insert("factor_value".to_string(), JsonValue::String(factor_value.to_string()));
+    JsonValue::Object(map)
+}
+
+/// 构造忘记密码重置请求体(`factor_type` 为数字, 其余为字符串)
+fn json_forgot_reset(
+    factor_type: i64,
+    account: &str,
+    factor_value: &str,
+    verification_code: &str,
+    new_password: &str,
+) -> JsonValue {
+    let mut map = serde_json::Map::new();
+    map.insert("account".to_string(), JsonValue::String(account.to_string()));
+    map.insert("factor_type".to_string(), JsonValue::from(factor_type));
+    map.insert("factor_value".to_string(), JsonValue::String(factor_value.to_string()));
+    map.insert("verification_code".to_string(), JsonValue::String(verification_code.to_string()));
+    map.insert("new_password".to_string(), JsonValue::String(new_password.to_string()));
     JsonValue::Object(map)
 }
 
@@ -616,6 +2404,61 @@ fn init_tracing() {
     let _ = fmt().with_env_filter(filter).with_writer(std::io::stdout).try_init();
 }
 
+/// 构建测试用邮件管理器。
+///
+/// - 默认(未开启邮件)返回空配置管理器, 任何发送都会失败 —— 测试保持 hermetic, 不触网。
+/// - 当 `.env` 配置 `EMAIL_ENABLED=true` 且凭据齐全时, 使用阿里云提供商构建真实管理器;
+///   此时返回的收件邮箱优先取 `EMAIL_TEST_RECIPIENT`, 回退 `EMAIL_ACCOUNT_NAME`(自发自收),
+///   供"真实发码"用例使用。业务代码从全局 config 读取发件人, 这里同步写入 `email.account_name`。
+fn build_test_email_manager() -> Result<(Arc<EmailManager>, Option<String>)> {
+    let enabled = std::env::var("EMAIL_ENABLED")
+        .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
+        .unwrap_or(false);
+    if !enabled {
+        info!("EMAIL_ENABLED 未开启, 使用空邮件管理器(不发送)");
+        return Ok((Arc::new(EmailManager::new(EmailServiceConfig::default())?), None));
+    }
+
+    let access_key_id = std::env::var("EMAIL_ACCESS_KEY_ID").unwrap_or_default();
+    let access_key_secret = std::env::var("EMAIL_ACCESS_KEY_SECRET").unwrap_or_default();
+    let account_name = std::env::var("EMAIL_ACCOUNT_NAME").unwrap_or_default();
+    if access_key_id.is_empty() || access_key_secret.is_empty() || account_name.is_empty() {
+        info!(
+            "EMAIL_ENABLED=true 但缺少 EMAIL_ACCESS_KEY_ID/SECRET/ACCOUNT_NAME, 回退空邮件管理器"
+        );
+        return Ok((Arc::new(EmailManager::new(EmailServiceConfig::default())?), None));
+    }
+
+    let region_id = std::env::var("EMAIL_REGION_ID").unwrap_or_else(|_| "cn-hangzhou".to_string());
+    common::config_manager::set_config("email.account_name".to_string(), account_name.clone());
+
+    let aliyun = AliyunConfig {
+        enabled: true,
+        priority: 100,
+        access_key_id,
+        access_key_secret,
+        region_id,
+        account_name: account_name.clone(),
+        from_alias: Some("OnlyTalk".to_string()),
+        ..Default::default()
+    };
+    let mut providers = HashMap::new();
+    providers.insert("aliyun".to_string(), ProviderConfig::Aliyun(aliyun));
+    let config = EmailServiceConfig {
+        default_provider: Some("aliyun".to_string()),
+        providers,
+        ..Default::default()
+    };
+    let manager = EmailManager::new(config).context("初始化阿里云邮件管理器失败")?;
+
+    let recipient = std::env::var("EMAIL_TEST_RECIPIENT")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| account_name.clone());
+    info!("已启用真实邮件投递, 测试收件邮箱: {}", recipient);
+    Ok((Arc::new(manager), Some(recipient)))
+}
+
 /// 脱敏打印连接串，避免把密码输出到日志
 fn mask_url(url: &str) -> String {
     match url.split_once('@') {
@@ -634,25 +2477,20 @@ fn test_database_url(admin_url: &str, db_name: &str) -> Result<String> {
     Ok(format!("{}{}/{}", head, &tail[..slash], db_name))
 }
 
-/// 若测试库不存在则创建（仅允许字母数字下划线，防注入）
-async fn ensure_database(admin: &RBatis, db_name: &str) -> Result<()> {
+/// 删除并重建测试库（若不存在则直接创建）。
+///
+/// 每次运行都必须从空库开始：分区表无法由普通表原地转换
+/// （`CREATE TABLE IF NOT EXISTS ... PARTITION BY HASH` 遇到已存在的普通表会静默跳过，
+/// 随后 `CREATE TABLE ... PARTITION OF` 因父表不是分区表而失败）。复用旧库会让 DDL 必失败。
+async fn recreate_database(admin: &RBatis, db_name: &str) -> Result<()> {
     validate_db_name(db_name)?;
-    let check_sql = format!("SELECT 1 FROM pg_database WHERE datname = '{}'", db_name);
-    let result: rbs::Value = admin
-        .query(&check_sql, vec![])
+    drop_test_database(admin, db_name).await?;
+    let create_sql = format!("CREATE DATABASE \"{}\"", db_name);
+    admin
+        .exec(&create_sql, vec![])
         .await
-        .map_err(|e| anyhow!("查询 pg_database 失败: {}", e))?;
-    let exists = result.as_array().map_or(0, |rows| rows.len()) > 0;
-    if !exists {
-        let create_sql = format!("CREATE DATABASE \"{}\"", db_name);
-        admin
-            .exec(&create_sql, vec![])
-            .await
-            .map_err(|e| anyhow!("创建测试库 {} 失败: {}", db_name, e))?;
-        info!("已创建测试库 {}", db_name);
-    } else {
-        info!("测试库 {} 已存在（将复用并重放 DDL）", db_name);
-    }
+        .map_err(|e| anyhow!("创建测试库 {} 失败: {}", db_name, e))?;
+    info!("已创建测试库 {}", db_name);
     Ok(())
 }
 
@@ -700,8 +2538,7 @@ async fn build_db_pool(url: &str) -> Result<RBatis> {
     let rb = RBatis::new();
     let mut opts = PgConnectOptions::new();
     opts.set_uri(url).map_err(|e| anyhow!("设置数据库 URI 失败: {}", e))?;
-    let conn_manager =
-        ConnectionManager::new_arc(Arc::new(Box::new(PgDriver {})), Arc::new(Box::new(opts)));
+    let conn_manager = ConnectionManager::new_options(PgDriver {}, opts);
     let pool = FastPool::new(conn_manager).map_err(|e| anyhow!("创建连接池失败: {}", e))?;
     pool.set_timeout(Some(Duration::from_secs(2))).await;
     rb.pool

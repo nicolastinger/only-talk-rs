@@ -6,13 +6,14 @@ use http_service::utils::http_response::CommonResponseNoDataRef;
 use http_service::{get_uuid_from_header, respond_json_any};
 
 use crate::service::user_integrated_service::{
-    add_user_with_notify, get_quic_server_for_user, process_friend_with_notify,
+    add_user_with_notify, get_nat_udp_ports, get_quic_server_for_user, process_friend_with_notify,
 };
 
 pub fn user_integrated_service(cfg: &mut web::ServiceConfig) {
     cfg.service(add_user_with_notify_api)
         .service(process_friend_with_notify_api)
-        .service(get_quic_server_for_user_api);
+        .service(get_quic_server_for_user_api)
+        .service(get_nat_udp_ports_api);
 }
 
 /// 添加好友并发送通知
@@ -56,5 +57,27 @@ pub async fn get_quic_server_for_user_api(
                 .body(CommonResponseNoDataRef::error_json("Unauthorized"));
         }
     };
-    respond_json_any!(get_quic_server_for_user(state.redis(), &uuid).await)
+    // QUIC 节点未注册/未就绪时返回 503,便于客户端区分"服务未就绪"并退避重试
+    match get_quic_server_for_user(state.redis(), &uuid).await {
+        Ok(t) => HttpResponse::Ok().body(t),
+        Err(t) => {
+            use tracing::error;
+            error!("err_context {:?}", t);
+            HttpResponse::ServiceUnavailable()
+                .body(CommonResponseNoDataRef::error_json(&t.to_string()))
+        }
+    }
+}
+
+/// 获取 NAT UDP 端口配置(需登录)
+#[get("/nat_udp_ports")]
+pub async fn get_nat_udp_ports_api(state: web::Data<AppState>, req: HttpRequest) -> impl Responder {
+    let _uuid = match get_uuid_from_header!(req) {
+        Some(uuid) => uuid,
+        None => {
+            return HttpResponse::Unauthorized()
+                .body(CommonResponseNoDataRef::error_json("Unauthorized"));
+        }
+    };
+    respond_json_any!(get_nat_udp_ports(state.redis()).await)
 }

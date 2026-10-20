@@ -33,6 +33,7 @@ impl SignInBasicUserDTO {
             info: None,
             password: self.password,
             registration_status: None,
+            user_type: None,
         }
     }
 }

@@ -15,9 +15,7 @@ pub struct UserInfoVO {
     pub icon: Option<String>,
     /// 用户性别 (0: 未知, 1: 保密, 2: 男, 3: 女, 4: 机器人, 5: 其他)
     pub gender: Option<u8>,
-    /// 用户年龄
-    pub age: Option<u8>,
-    /// 用户生日 (Unix 时间戳，单位：秒)
+    /// 用户生日 (Unix 时间戳，单位：秒)，年龄由客户端/广场按生日实时计算
     pub birthday: Option<i64>,
     /// 用户简介
     pub info: Option<String>,
@@ -29,6 +27,8 @@ pub struct UserInfoVO {
     pub address: Option<String>,
     /// 用户状态 (0: 正常, 1: 禁用, 2: 注销等)
     pub status: Option<u8>,
+    /// 用户类型 (0: 普通用户, 1: 机器人, 2: 企业用户, 其他待补充)
+    pub user_type: Option<i16>,
 }
 
 impl From<(UserInfo, BasicUser)> for UserInfoVO {
@@ -39,13 +39,13 @@ impl From<(UserInfo, BasicUser)> for UserInfoVO {
             account: sources.1.account,
             icon: sources.1.icon,
             gender: sources.0.gender,
-            age: sources.0.age,
             birthday: sources.0.birthday,
             info: sources.1.info,
             phone: sources.0.phone,
             email: sources.0.email,
             address: sources.0.address,
             status: sources.0.status,
+            user_type: sources.1.user_type,
         }
     }
 }
@@ -64,7 +64,6 @@ mod tests {
         let user_info = UserInfo {
             uuid: Some(uuid.clone()),
             gender: Some(2),
-            age: Some(30),
             birthday: Some(1234567890),
             note: None,
             created_at: Some(1),
@@ -82,6 +81,7 @@ mod tests {
             info: Some("hello".to_string()),
             password: None,
             registration_status: None,
+            user_type: Some(0),
         };
 
         let vo = UserInfoVO::from((user_info, basic_user));
@@ -92,7 +92,6 @@ mod tests {
         assert_eq!(vo.icon.as_deref(), Some("icon-1"));
         assert_eq!(vo.info.as_deref(), Some("hello"));
         assert_eq!(vo.gender, Some(2));
-        assert_eq!(vo.age, Some(30));
         assert_eq!(vo.birthday, Some(1234567890));
         assert_eq!(vo.phone.as_deref(), Some("13800138000"));
         assert_eq!(vo.email.as_deref(), Some("a@b.com"));
@@ -105,7 +104,6 @@ mod tests {
         let user_info = UserInfo {
             uuid: None,
             gender: None,
-            age: None,
             birthday: None,
             note: None,
             created_at: None,
@@ -123,6 +121,7 @@ mod tests {
             info: None,
             password: None,
             registration_status: None,
+            user_type: None,
         };
 
         let vo = UserInfoVO::from((user_info, basic_user));

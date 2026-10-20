@@ -11,7 +11,6 @@ pub struct UpdateUserDTO {
     #[validate(length(max = 200, message = "简介长度不能超过200"))]
     pub info: Option<String>,
     pub gender: Option<u8>,
-    pub age: Option<u8>,
     pub birthday: Option<i64>,
     #[validate(regex(
         path = "crate::http_service::user_service::dto::update_user_dto::CHINA_PHONE_REGEX",
@@ -42,9 +41,6 @@ impl UpdateUserDTO {
     pub fn apply_to_user_info(&self, user_info: &mut UserInfo) -> Result<(), anyhow::Error> {
         if self.gender.is_some() {
             user_info.gender = self.gender;
-        }
-        if self.age.is_some() {
-            user_info.age = self.age;
         }
         if self.birthday.is_some() {
             user_info.birthday = self.birthday;

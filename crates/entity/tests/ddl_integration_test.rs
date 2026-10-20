@@ -3,27 +3,47 @@
 //! 复用仓库根目录 `.env` 中的 `DATABASE_URL`（管理员连接）作为连接信息，
 //! 自动创建测试库（默认 `only_talk_test`，可用 `TEST_DATABASE_NAME` 覆盖）
 //! 并在其中执行全部 DDL，不会触碰 `.env` 指向的开发库。
-//! 测试结束后由 [`drop_test_database`] 删除测试库（见函数注释）。
+//! 测试结束后由 [`common::drop_test_database`] 删除测试库（见函数注释）。
 //!
 //! 运行方式：
 //!   cargo test -p entity --test ddl_integration_test -- --ignored
 //! 前提：本地 PostgreSQL 可用，且仓库根目录存在 `.env`。
-
-use std::sync::Arc;
-use std::time::Duration;
+//!
+//! 建库/连接/删库等共享设施见 `tests/common/mod.rs`。
 
 use anyhow::{Context, Result, anyhow};
-use rbatis::RBatis;
-use rbatis::rbdc::db::ConnectOptions;
-use rbatis::rbdc::pool::{ConnectionManager, Pool};
-use rbdc_pg::PgDriver;
-use rbdc_pg::options::PgConnectOptions;
-use rbdc_pool_fast::FastPool;
 use tracing::info;
-use tracing_subscriber::{EnvFilter, fmt};
 
-/// 独立测试库名（可用环境变量 `TEST_DATABASE_NAME` 覆盖）
-const DEFAULT_TEST_DATABASE: &str = "only_talk_test";
+mod common;
+
+use common::{
+    admin_database_url, build_pool, drop_test_database, init_tracing, recreate_database,
+    should_drop_test_database, test_database_name, test_database_url,
+};
+
+/// 关键表清单：DDL 应用后逐一校验存在性
+const TABLES: &[&str] = &[
+    "basic_user",
+    "user_info",
+    "friend_link",
+    "friend_list",
+    "black_list",
+    "chat_message_record",
+    "file_upload_record",
+    "group_info",
+    "group_member",
+    "system_notification",
+    "user_login_log",
+    "robot_info",
+    "enterprise_info",
+    "session",
+    "user_session",
+    "user_auth_factor",
+];
+
+/// 哈希分区表与其期望的分区数（任务02：两张消息表各 16 个分区）
+const PARTITIONED_TABLES: &[(&str, i64)] =
+    &[("chat_message_record", 16), ("group_message_record", 16)];
 
 #[tokio::test]
 #[ignore = "需要本地 PostgreSQL 与仓库根目录 .env"]
@@ -31,14 +51,14 @@ async fn apply_all_ddl_to_test_database() -> Result<()> {
     init_tracing();
 
     let admin_url = admin_database_url()?;
-    info!("已从 .env 读取 DATABASE_URL（管理员连接，库名将替换为测试库）");
+    info!("已读取测试数据库管理员连接（库名将替换为测试库）");
     let test_db_name = test_database_name();
     info!("测试库名: {}", test_db_name);
 
     let admin = build_pool(&admin_url).await?;
     info!("已连接管理员数据库");
-    ensure_database(&admin, &test_db_name).await?;
-    info!("测试库 {} 已就绪", test_db_name);
+    recreate_database(&admin, &test_db_name).await?;
+    info!("测试库 {} 已重建为空库", test_db_name);
 
     // 执行 DDL 并校验关键表，结果暂存，最后统一交给删除清理
     let result = async {
@@ -49,25 +69,48 @@ async fn apply_all_ddl_to_test_database() -> Result<()> {
         entity::ddl::apply_all_ddl(&test_rb).await.context("应用 DDL 失败")?;
         info!("DDL 应用完成，开始校验关键表");
 
-        for table in [
-            "basic_user",
-            "user_info",
-            "friend_link",
-            "friend_list",
-            "chat_list_link",
-            "chat_message_record",
-            "file_upload_record",
-            "group_info",
-            "group_member",
-            "system_notification",
-            "user_login_log",
-        ] {
+        for table in TABLES {
             if !table_exists(&test_rb, table).await? {
                 return Err(anyhow!("表 {} 未创建", table));
             }
             info!("表 {} 校验通过", table);
         }
-        info!("全部 {} 张关键表校验通过", 11);
+        info!("全部 {} 张关键表校验通过", TABLES.len());
+
+        for (table, expected) in PARTITIONED_TABLES {
+            let actual = partition_count(&test_rb, table).await?;
+            if actual != *expected {
+                return Err(anyhow!("分区表 {} 期望 {} 个分区, 实际 {}", table, expected, actual));
+            }
+            info!("分区表 {} 校验通过: {} 个分区", table, actual);
+        }
+
+        // 任务09 §2.3: 分区表唯一约束必须含分区键(session_uuid / group_uuid)
+        for (table, key_col) in
+            [("chat_message_record", "session_uuid"), ("group_message_record", "group_uuid")]
+        {
+            if !unique_constraint_has_column(&test_rb, table, key_col).await? {
+                return Err(anyhow!("{} 的唯一约束应含分区键 {}", table, key_col));
+            }
+            info!("{} 唯一约束含分区键 {} 校验通过", table, key_col);
+        }
+
+        // 任务11 §7: PK 必须含分区键, 且带 INCLUDE 列(免回表)
+        for (table, key_col, include_col) in [
+            ("chat_message_record", "session_uuid", "timestamp"),
+            ("group_message_record", "group_uuid", "timestamp"),
+        ] {
+            let def = primary_key_def(&test_rb, table)
+                .await?
+                .ok_or_else(|| anyhow!("{} 无主键约束", table))?;
+            if !def.contains(key_col) {
+                return Err(anyhow!("{} PK 应含分区键 {}: {}", table, key_col, def));
+            }
+            if !def.contains("INCLUDE") || !def.contains(include_col) {
+                return Err(anyhow!("{} PK 应带 INCLUDE {}: {}", table, include_col, def));
+            }
+            info!("{} PK 校验通过: {}", table, def);
+        }
         Ok(())
     }
     .await;
@@ -86,98 +129,8 @@ async fn apply_all_ddl_to_test_database() -> Result<()> {
     result
 }
 
-/// 完成测试后执行删库（清理函数，在 `apply_all_ddl_to_test_database` 末尾调用）
-///
-/// 先终止测试库上的所有连接，再执行 `DROP DATABASE`，保证测试结束后不留残留、
-/// 可重复运行。仅作用于 `TEST_DATABASE_NAME`（默认 `only_talk_test`）指定库。
-async fn drop_test_database(admin: &RBatis, db_name: &str) -> Result<()> {
-    validate_db_name(db_name)?;
-    let terminate_sql = format!(
-        "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '{}' AND pid <> pg_backend_pid()",
-        db_name
-    );
-    admin
-        .query(&terminate_sql, vec![])
-        .await
-        .map_err(|e| anyhow!("终止测试库 {} 的连接失败: {}", db_name, e))?;
-    let drop_sql = format!("DROP DATABASE IF EXISTS \"{}\"", db_name);
-    admin
-        .exec(&drop_sql, vec![])
-        .await
-        .map_err(|e| anyhow!("删除测试库 {} 失败: {}", db_name, e))?;
-    info!("测试库 {} 已删除", db_name);
-    Ok(())
-}
-
-/// 是否在测试结束后删除测试库（环境变量 `DROP_TEST_DATABASE`，值为 1/true 时删除）
-fn should_drop_test_database() -> bool {
-    dotenvy::var("DROP_TEST_DATABASE")
-        .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
-        .unwrap_or(false)
-}
-
-/// 初始化 tracing，日志输出到 stdout（默认 info 级别，可用 RUST_LOG 覆盖）
-fn init_tracing() {
-    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
-    let _ = fmt().with_env_filter(filter).with_writer(std::io::stdout).try_init();
-}
-
-/// 读取 `.env` 中的 `DATABASE_URL`（支持 `${VAR}` 占位符展开）
-fn admin_database_url() -> Result<String> {
-    dotenvy::dotenv().ok();
-    let raw = std::env::var("DATABASE_URL")
-        .map_err(|_| anyhow!("未找到 DATABASE_URL，请确认仓库根目录存在 .env 文件"))?;
-    info!("数据库连接信息: {}", mask_database_url(&raw));
-    Ok(expand_env_vars(&raw))
-}
-
-/// 脱敏打印数据库连接串，避免把密码输出到日志（只保留 host:port 与库名）
-fn mask_database_url(url: &str) -> String {
-    match url.split_once('@') {
-        Some((_, tail)) => format!("***@{}", tail),
-        None => "***".to_string(),
-    }
-}
-
-/// 测试库名，默认 `only_talk_test`
-fn test_database_name() -> String {
-    dotenvy::var("TEST_DATABASE_NAME").unwrap_or_else(|_| DEFAULT_TEST_DATABASE.to_string())
-}
-
-/// 将管理员连接 URL 的库名替换为测试库名，其余连接信息保持不变
-fn test_database_url(admin_url: &str, db_name: &str) -> Result<String> {
-    validate_db_name(db_name)?;
-    let at = admin_url.rfind('@').ok_or_else(|| anyhow!("无效的 DATABASE_URL: {}", admin_url))?;
-    let (head, tail) = admin_url.split_at(at + 1);
-    let slash =
-        tail.find('/').ok_or_else(|| anyhow!("DATABASE_URL 缺少数据库名: {}", admin_url))?;
-    Ok(format!("{}{}/{}", head, &tail[..slash], db_name))
-}
-
-/// 若测试库不存在则创建（仅允许字母数字下划线，防注入）
-async fn ensure_database(admin: &RBatis, db_name: &str) -> Result<()> {
-    validate_db_name(db_name)?;
-    let check_sql = format!("SELECT 1 FROM pg_database WHERE datname = '{}'", db_name);
-    let result: rbs::Value = admin
-        .query(&check_sql, vec![])
-        .await
-        .map_err(|e| anyhow!("查询 pg_database 失败: {}", e))?;
-    let exists = result.as_array().map_or(0, |rows| rows.len()) > 0;
-    if !exists {
-        let create_sql = format!("CREATE DATABASE \"{}\"", db_name);
-        admin
-            .exec(&create_sql, vec![])
-            .await
-            .map_err(|e| anyhow!("创建测试库 {} 失败: {}", db_name, e))?;
-        info!("已创建测试库 {}", db_name);
-    } else {
-        info!("测试库 {} 已存在（复用，说明上次运行保留了它）", db_name);
-    }
-    Ok(())
-}
-
 /// 查询表是否存在
-async fn table_exists(rb: &RBatis, table: &str) -> Result<bool> {
+async fn table_exists(rb: &rbatis::RBatis, table: &str) -> Result<bool> {
     let sql = format!(
         "SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = '{}'",
         table
@@ -187,42 +140,56 @@ async fn table_exists(rb: &RBatis, table: &str) -> Result<bool> {
     Ok(result.as_array().map_or(0, |rows| rows.len()) > 0)
 }
 
-/// 校验库名只能包含字母、数字、下划线
-fn validate_db_name(db_name: &str) -> Result<()> {
-    if db_name.is_empty() || !db_name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
-        return Err(anyhow!("非法测试库名: {}", db_name));
-    }
-    Ok(())
+/// 查询父表的分区数（pg_inherits 中该父表的分区子表条数）
+async fn partition_count(rb: &rbatis::RBatis, table: &str) -> Result<i64> {
+    let sql = format!("SELECT count(*) FROM pg_inherits WHERE inhparent = '{}'::regclass", table);
+    let result: rbs::Value =
+        rb.query(&sql, vec![]).await.map_err(|e| anyhow!("查询分区数失败: {}", e))?;
+    let rows = result.as_array().cloned().unwrap_or_default();
+    let count = rows
+        .first()
+        .and_then(|row| row.as_map())
+        .map(|map| map.get(&rbs::Value::from("count")))
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+    Ok(count)
 }
 
-/// 展开字符串中的 `${KEY}` 占位符（来自 dotenvy 已加载的环境变量）
-fn expand_env_vars(s: &str) -> String {
-    let mut result = s.to_string();
-    while let Some(start) = result.find("${") {
-        if let Some(end_rel) = result[start + 2..].find('}') {
-            let end = start + 2 + end_rel;
-            let key = &result[start + 2..end];
-            let value = dotenvy::var(key).unwrap_or_default();
-            result.replace_range(start..=end, &value);
-        } else {
-            break;
-        }
-    }
-    result
+/// 该表是否存在含指定列的唯一约束(任务09 §2.3: 分区表唯一约束必须含分区键)
+async fn unique_constraint_has_column(
+    rb: &rbatis::RBatis,
+    table: &str,
+    column: &str,
+) -> Result<bool> {
+    let defs = constraint_defs(rb, table, "u").await?;
+    Ok(defs.iter().any(|d| d.contains(column)))
 }
 
-/// 构建 rbatis 连接池
-async fn build_pool(url: &str) -> Result<RBatis> {
-    let rb = RBatis::new();
-    let mut opts = PgConnectOptions::new();
-    opts.set_uri(url).map_err(|e| anyhow!("设置数据库 URI 失败: {}", e))?;
-    let conn_manager =
-        ConnectionManager::new_arc(Arc::new(Box::new(PgDriver {})), Arc::new(Box::new(opts)));
-    let pool = FastPool::new(conn_manager).map_err(|e| anyhow!("创建连接池失败: {}", e))?;
-    pool.set_timeout(Some(Duration::from_secs(2))).await;
-    rb.pool
-        .set(Box::new(pool))
-        .map_err(|_e| rbatis::Error::from("pool set fail!"))
-        .map_err(|e| anyhow!("设置连接池失败: {}", e))?;
-    Ok(rb)
+/// 该表主键约束定义(任务11 §7: PK 含分区键 + INCLUDE)
+async fn primary_key_def(rb: &rbatis::RBatis, table: &str) -> Result<Option<String>> {
+    Ok(constraint_defs(rb, table, "p").await?.into_iter().next())
+}
+
+/// 查询某表指定类型(contype: p=主键 / u=唯一)的约束定义
+async fn constraint_defs(rb: &rbatis::RBatis, table: &str, contype: &str) -> Result<Vec<String>> {
+    let sql = format!(
+        "SELECT pg_get_constraintdef(c.oid) AS def FROM pg_constraint c \
+         JOIN pg_class t ON t.oid = c.conrelid \
+         WHERE t.relname = '{}' AND c.contype = '{}'",
+        table, contype
+    );
+    let result: rbs::Value =
+        rb.query(&sql, vec![]).await.map_err(|e| anyhow!("查询约束定义失败: {}", e))?;
+    Ok(result
+        .as_array()
+        .map(|rows| {
+            rows.iter()
+                .filter_map(|row| {
+                    row.as_map()
+                        .map(|m| m.get(&rbs::Value::from("def")))
+                        .and_then(|v| v.as_str().map(str::to_string))
+                })
+                .collect::<Vec<String>>()
+        })
+        .unwrap_or_default())
 }

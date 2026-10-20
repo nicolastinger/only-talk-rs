@@ -1,29 +1,92 @@
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
+use std::time::{Duration, Instant};
 
 use anyhow::{Result, anyhow};
-use common::config_str::USER_READ_MSG;
-use common::models::chat_entity::add_read_chat_record::AddReadChatRecordDTO;
-use common::models::chat_entity::chat_message_read::ChatMessageRecordRead;
-use common::models::chat_entity::chat_message_record::ChatMessageRecord;
-use common::models::group_entity::group_member::GroupMember;
-use common::models::group_entity::group_message_record::GroupMessageRecord;
+use common::config_str::{REDIS_INTERNAL_QUIC_SERVERS, REDIS_QUIC_SERVERS, REDIS_SPLIT, SYSTEM};
 use common::state::CoreState;
-use common::utils::jwt_util::{Claims, verify_token};
+use common::utils::internal_quic_client::send_internal_quic_msg;
+use common::utils::internal_quic_msg::{InternalQuicRequest, RequestSource};
+use common::utils::jwt_util::{Claims, session_id_ms, verify_token};
+use common::utils::mask::mask_addr;
+use common::utils::message_types::MSG_TYPE_FORCE_LOGOUT;
+use common::utils::text_msg::build_force_logout_msg;
 use common::utils::time::get_now_time_stamp_as_millis;
 use dashmap::DashMap;
-use deadpool_redis::redis::AsyncCommands;
-use entity::models::chat_entity::chat_message_read::CHAT_TYPE_GROUP;
+use deadpool_redis::redis::{AsyncCommands, cmd};
 use quinn::{Connection, Endpoint, RecvStream, SendStream};
-use rbatis::dark_std::err;
-use rbs::value;
 use tokio::sync::{Mutex, watch};
+use tokio::time::timeout;
 use tracing::{error, info, warn};
 
 use super::config::ChatNodeConfig;
+use crate::conn_lookup;
 use crate::models::first_quic_msg::FirstQuicMsg;
 use crate::models::quic_connection::{ConnectionType, QuicConnection};
 use crate::msg_service::process_msg_service::process_rec_msg;
+
+/// 单条连接握手超时：超过该时长未完成 TLS 握手则丢弃。
+/// 避免某条“半握手”连接永久阻塞接受循环（head-of-line blocking）。
+const HANDSHAKE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// 接受循环 alive tick 周期(秒)
+const ACCEPT_ALIVE_TICK_SECS: u64 = 15;
+/// 接受循环心跳停滞判定阈值(秒)
+const ACCEPT_ALIVE_STALE_SECS: i64 = 60;
+/// 接受循环看门狗扫描周期(秒)
+const ACCEPT_WATCHDOG_SCAN_SECS: u64 = 15;
+/// 持续告警去重间隔(毫秒)
+const ACCEPT_WATCHDOG_ALERT_GAP_MS: i64 = 60_000;
+/// 单条消息处理耗时超过该值时打慢日志(秒)
+const SLOW_MSG_PROCESS_SECS: u64 = 1;
+
+/// 最近一次接受循环 alive 时间戳(Unix 毫秒),由 accept 循环内的 interval tick 刷新
+static ACCEPT_ALIVE_AT_MS: AtomicI64 = AtomicI64::new(0);
+/// 接受循环心跳停滞的告警时间戳(Unix 毫秒); 0 表示当前未在告警
+static ACCEPT_ALERT_AT_MS: AtomicI64 = AtomicI64::new(0);
+
+fn now_millis() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+/// 独立 OS 线程看门狗: 若 accept 循环心跳停止(疑似单线程 runtime 被卡死)则 error 告警。
+/// 只启动一次。
+fn start_accept_watchdog() {
+    use std::sync::OnceLock;
+    static ONCE: OnceLock<()> = OnceLock::new();
+    let _ = ONCE.get_or_init(|| {
+        let builder = std::thread::Builder::new().name("quic-accept-watchdog".to_string());
+        let spawned = builder.spawn(|| loop {
+            std::thread::sleep(Duration::from_secs(ACCEPT_WATCHDOG_SCAN_SECS));
+            let now = now_millis();
+            let last = ACCEPT_ALIVE_AT_MS.load(Ordering::Relaxed);
+            if last <= 0 {
+                continue;
+            }
+            let stale_ms = now - last;
+            if stale_ms > ACCEPT_ALIVE_STALE_SECS * 1000 {
+                let last_alert = ACCEPT_ALERT_AT_MS.load(Ordering::Relaxed);
+                if now - last_alert > ACCEPT_WATCHDOG_ALERT_GAP_MS {
+                    error!(
+                        "QUIC 接受循环心跳停滞: 距上次 alive 已 {}s(>{})s, 疑似单线程 runtime 被同步操作卡死, 新连接将无法接入",
+                        stale_ms / 1000,
+                        ACCEPT_ALIVE_STALE_SECS
+                    );
+                    ACCEPT_ALERT_AT_MS.store(now, Ordering::Relaxed);
+                }
+            } else if ACCEPT_ALERT_AT_MS.load(Ordering::Relaxed) > 0 {
+                info!("QUIC 接受循环心跳已恢复");
+                ACCEPT_ALERT_AT_MS.store(0, Ordering::Relaxed);
+            }
+        });
+        if let Err(e) = spawned {
+            error!("QUIC 接受循环看门狗启动失败: {}", e);
+        }
+    });
+}
 
 /// 启动并运行 QUIC 服务器，持续监听新连接
 pub(crate) async fn run_server(
@@ -35,42 +98,58 @@ pub(crate) async fn run_server(
 ) {
     info!("QUIC 服务器启动成功，地址: {}", config.bind_address);
 
+    ACCEPT_ALIVE_AT_MS.store(now_millis(), Ordering::Relaxed);
+    start_accept_watchdog();
+
+    let mut alive_interval = tokio::time::interval(Duration::from_secs(ACCEPT_ALIVE_TICK_SECS));
     loop {
-        let incoming_conn = {
-            tokio::select! {
-                _ = shutdown_rx.changed() => {
-                    info!("收到关闭信号，停止接受新连接");
-                    return;
-                }
-                result = endpoint.accept() => {
-                    match result {
-                        Some(conn) => conn,
-                        None => {
-                            error!("接受新连接失败：endpoint 已关闭");
-                            return;
-                        }
+        tokio::select! {
+            _ = shutdown_rx.changed() => {
+                info!("收到关闭信号，停止接受新连接");
+                return;
+            }
+            result = endpoint.accept() => {
+                match result {
+                    Some(conn) => {
+                        info!(
+                            "[server] 收到新连接(进入握手): address={}",
+                            mask_addr(&conn.remote_address().to_string())
+                        );
+                        // 握手移入独立任务并加超时：主循环立即回到 accept()，
+                        // 单条连接握手卡住/被恶意拖住时不再阻塞后续所有新连接接入
+                        let conns = connections.clone();
+                        let cfg = config.clone();
+                        let core_clone = core.clone();
+                        tokio::spawn(async move {
+                            match timeout(HANDSHAKE_TIMEOUT, conn).await {
+                                Ok(Ok(conn)) => {
+                                    info!(
+                                        "[server] 已接受连接: address={}",
+                                        mask_addr(&conn.remote_address().to_string())
+                                    );
+                                    if let Err(e) = handle_connection(conn, conns, cfg, core_clone).await {
+                                        error!("打开双向流失败: {}", e);
+                                    }
+                                }
+                                Ok(Err(e)) => {
+                                    error!("建立连接失败 {}", e);
+                                }
+                                Err(_) => {
+                                    warn!("握手超时（{}s），丢弃该连接", HANDSHAKE_TIMEOUT.as_secs());
+                                }
+                            }
+                        });
+                    }
+                    None => {
+                        error!("接受新连接失败：endpoint 已关闭");
+                        return;
                     }
                 }
             }
-        };
-
-        let conn = match incoming_conn.await {
-            Ok(t) => t,
-            Err(e) => {
-                error!("建立连接失败 {}", e);
-                continue;
+            _ = alive_interval.tick() => {
+                ACCEPT_ALIVE_AT_MS.store(now_millis(), Ordering::Relaxed);
             }
-        };
-
-        info!("[server] 已接受连接: address={}", conn.remote_address());
-        let conns = connections.clone();
-        let cfg = config.clone();
-        let core_clone = core.clone();
-        tokio::spawn(async move {
-            if let Err(e) = handle_connection(conn, conns, cfg, core_clone).await {
-                error!("打开双向流失败: {}", e);
-            }
-        });
+        }
     }
 }
 
@@ -80,7 +159,7 @@ async fn handle_connection(
     config: ChatNodeConfig,
     core: CoreState,
 ) -> Result<(), anyhow::Error> {
-    info!("新连接来源: {:?}", quic_conn.remote_address());
+    info!("新连接来源: {}", mask_addr(&quic_conn.remote_address().to_string()));
 
     loop {
         match quic_conn.accept_bi().await {
@@ -117,7 +196,7 @@ async fn handle_connection(
 async fn process_first_msg(
     send_stream: &mut SendStream,
     recv_stream: &mut RecvStream,
-    address: &String,
+    address: &str,
 ) -> Result<FirstQuicMsg, anyhow::Error> {
     // 接收流元数据，确认消息类型和头部长度
     let mut _first_quic_msg = FirstQuicMsg::new();
@@ -125,7 +204,7 @@ async fn process_first_msg(
     match recv_stream.read(&mut first_buffer).await {
         Ok(Some(length)) => {
             let origin_str = String::from_utf8_lossy(&first_buffer[0..length]);
-            info!("[server] 收到客户端初始化数据，长度: {}, 内容: {}", length, origin_str);
+            info!("[server] 收到客户端初始化数据，长度: {}", length);
             match serde_json::from_str(&origin_str) {
                 Ok(t) => {
                     _first_quic_msg = t;
@@ -135,7 +214,7 @@ async fn process_first_msg(
                     );
                 }
                 Err(e) => {
-                    error!("序列化流元数据失败: {}, 原始数据: {}", e, origin_str);
+                    error!("序列化流元数据失败: {}", e);
                     send_stream.finish().await?;
                     return Err(anyhow!("[server] Client init message format error"));
                 }
@@ -144,13 +223,13 @@ async fn process_first_msg(
         Ok(None) => {
             error!(
                 "[server] 接收客户端初始化消息失败: 客户端在发送初始化消息前已关闭连接，客户端地址: {}",
-                address
+                mask_addr(address)
             );
             send_stream.finish().await?;
             return Err(anyhow!("[server] Client closed connection without sending init message"));
         }
         Err(e) => {
-            error!("[server] 读取初始化元数据失败: {}, 客户端地址: {}", e, address.as_str());
+            error!("[server] 读取初始化元数据失败: {}, 客户端地址: {}", e, mask_addr(address));
             send_stream.finish().await?;
             return Err(anyhow!("[server] Error reading client init message"));
         }
@@ -182,21 +261,6 @@ async fn authenticate_connection(
     Ok(claims)
 }
 
-/// 检查是否达到最大连接数
-async fn verify_max_client(
-    send_stream: &mut SendStream,
-    connections: &Arc<DashMap<String, QuicConnection>>,
-    max_connections: usize,
-) -> Result<(), anyhow::Error> {
-    let server_book_len = connections.len();
-    if server_book_len > max_connections {
-        error!("已达到最大连接数: {}", server_book_len);
-        send_stream.finish().await?;
-        return Err(anyhow!("Maximum connections reached: {}", server_book_len));
-    }
-    Ok(())
-}
-
 /// 记录连接信息
 #[allow(clippy::too_many_arguments)]
 async fn set_conn_info(
@@ -208,7 +272,9 @@ async fn set_conn_info(
     now: i64,
     connections: &Arc<DashMap<String, QuicConnection>>,
     server_index: u32,
+    session_id: String,
 ) -> Result<(), anyhow::Error> {
+    let session_id_clone = session_id.clone();
     let new_connection = QuicConnection {
         is_online: true,
         uuid,
@@ -218,6 +284,7 @@ async fn set_conn_info(
         update_time: now as u64,
         ipv4addr: address,
         ipv6addr: "".to_string(),
+        session_id,
     };
 
     {
@@ -227,6 +294,8 @@ async fn set_conn_info(
         let mut conn = core.redis.get().await?;
         let index_str = server_index.to_string();
         conn.set_ex::<&str, &str, ()>(connection_key, &index_str, 7200).await?;
+        let session_key = conn_lookup::session_key_of(connection_key);
+        conn.set_ex::<&str, &str, ()>(&session_key, &session_id_clone, 7200).await?;
     }
 
     info!("当前在线客户端数: {}", connections.len());
@@ -243,16 +312,25 @@ async fn handle_conn(
     config: ChatNodeConfig,
     core: CoreState,
 ) -> Result<(), anyhow::Error> {
-    info!("[server] 正在处理新连接，客户端地址: {}", address);
+    info!("[server] 正在处理新连接，客户端地址: {}", mask_addr(&address));
 
-    let first_quic_msg =
-        process_first_msg(&mut send_stream, &mut recv_stream, &address.clone()).await?;
+    let first_quic_msg = process_first_msg(&mut send_stream, &mut recv_stream, &address).await?;
     let head_length = first_quic_msg.dyn_header_size;
     let claims = authenticate_connection(&first_quic_msg, &mut send_stream).await?;
     let platform = claims.sub;
     let uuid = claims.uuid;
-    verify_max_client(&mut send_stream, &connections, config.max_connections).await?;
-    user_online(&uuid, &platform).await?;
+    let session_id = claims.jti;
+    let online_lock_token = user_online(
+        &core,
+        &uuid,
+        &platform,
+        &session_id,
+        &conn,
+        &connections,
+        config.server_index,
+        config.max_connections,
+    )
+    .await?;
     let current_uuid = uuid.clone();
 
     let _msg_type = first_quic_msg.msg_type.clone();
@@ -272,78 +350,142 @@ async fn handle_conn(
         now,
         &connections,
         config.server_index,
+        session_id,
     )
     .await?;
+    release_online_lock(&core, &platform, &current_uuid, &online_lock_token).await?;
 
-    // 启动 uni stream 接收循环（客户端通过 open_uni 发送消息）
+    // uni_shutdown 由主循环持有，负责协调后台 uni 接收循环的退出
     let uni_shutdown = Arc::new(AtomicBool::new(false));
-    let uni_shutdown_clone = uni_shutdown.clone();
-    {
-        let conn_for_uni = conn.clone();
-        let conn_key = connection_key.clone();
-        let platform_clone = platform.clone();
-        let conns = connections.clone();
-        let current_uid = current_uuid.clone();
-        let core_clone = core.clone();
-        tokio::spawn(async move {
-            let uni_buffer_msg: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
-            loop {
-                if uni_shutdown_clone.load(Ordering::Relaxed) {
-                    info!("[server] uni 流收到关闭信号，退出循环");
-                    break;
-                }
-                match conn_for_uni.accept_uni().await {
-                    Ok(mut recv) => {
-                        // 大消息会跨多个QUIC包到达，必须读取完整流后统一处理，
-                        // 否则未读余量会触发对端 STOP_SENDING，导致"发送被对端终止"
-                        let mut msg_data: Vec<u8> = Vec::new();
-                        let mut chunk = vec![0u8; 1024 * 10];
-                        loop {
-                            match recv.read(&mut chunk).await {
-                                Ok(Some(n)) => {
-                                    msg_data.extend_from_slice(&chunk[..n]);
-                                }
-                                Ok(None) => break,
-                                Err(e) => {
-                                    warn!("[server] uni 流读取错误: {}", e);
-                                    break;
-                                }
-                            }
-                        }
-                        if !msg_data.is_empty() {
-                            let msg_len = msg_data.len();
-                            let _ = process_rec_msg(
-                                &core_clone,
-                                &mut msg_data,
-                                current_uid.clone(),
-                                msg_len,
-                                &conn_key,
-                                &platform_clone,
-                                uni_buffer_msg.clone(),
-                                head_length,
-                                conns.clone(),
-                                config.server_index,
-                            )
-                            .await;
-                        }
-                    }
-                    Err(e) => {
-                        warn!("[server] uni 流接受错误: {}, 继续等待", e);
-                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                    }
-                }
-            }
-        });
-    }
+    start_uni_receiver(
+        conn.clone(),
+        connection_key.clone(),
+        platform.clone(),
+        current_uuid.clone(),
+        connections.clone(),
+        core.clone(),
+        config.server_index,
+        head_length,
+        uni_shutdown.clone(),
+    );
 
     // 维持原有 bidi 接收循环（处理初始化 + 保持兼容）
+    run_bidi_receive_loop(
+        &mut recv_stream,
+        &core,
+        &current_uuid,
+        &connection_key,
+        &platform,
+        head_length,
+        connections.clone(),
+        config.server_index,
+        config.max_buffer_length,
+    )
+    .await;
+
+    uni_shutdown.store(true, Ordering::Relaxed);
+
+    end_server(&core, &connection_key, &connection_key, now, conn.stable_id(), &connections)
+        .await?;
+    Ok(())
+}
+
+/// 启动 uni 流接收循环：客户端通过 open_uni 发送的消息在此统一接收、拼包、处理。
+/// 退出时机由调用方通过 `uni_shutdown` 标志控制。
+#[allow(clippy::too_many_arguments)]
+fn start_uni_receiver(
+    conn: Connection,
+    connection_key: String,
+    platform: String,
+    current_uuid: String,
+    connections: Arc<DashMap<String, QuicConnection>>,
+    core: CoreState,
+    server_index: u32,
+    head_length: usize,
+    uni_shutdown: Arc<AtomicBool>,
+) {
+    tokio::spawn(async move {
+        let uni_buffer_msg: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
+        loop {
+            if uni_shutdown.load(Ordering::Relaxed) {
+                info!("[server] uni 流收到关闭信号，退出循环");
+                break;
+            }
+            match conn.accept_uni().await {
+                Ok(mut recv) => {
+                    // 大消息会跨多个QUIC包到达，必须读取完整流后统一处理，
+                    // 否则未读余量会触发对端 STOP_SENDING，导致"发送被对端终止"
+                    let mut msg_data: Vec<u8> = Vec::new();
+                    let mut chunk = vec![0u8; 1024 * 10];
+                    loop {
+                        match recv.read(&mut chunk).await {
+                            Ok(Some(n)) => {
+                                msg_data.extend_from_slice(&chunk[..n]);
+                            }
+                            Ok(None) => break,
+                            Err(e) => {
+                                warn!("[server] uni 流读取错误: {}", e);
+                                break;
+                            }
+                        }
+                    }
+                    if !msg_data.is_empty() {
+                        let msg_len = msg_data.len();
+                        let proc_start = Instant::now();
+                        let _ = process_rec_msg(
+                            &core,
+                            &mut msg_data,
+                            current_uuid.clone(),
+                            msg_len,
+                            &connection_key,
+                            &platform,
+                            uni_buffer_msg.clone(),
+                            head_length,
+                            connections.clone(),
+                            server_index,
+                        )
+                        .await;
+                        let cost = proc_start.elapsed();
+                        if cost > Duration::from_secs(SLOW_MSG_PROCESS_SECS) {
+                            warn!(
+                                "[server] uni 消息处理过慢: {}ms len={} key={}",
+                                cost.as_millis(),
+                                msg_len,
+                                connection_key
+                            );
+                        }
+                    }
+                }
+                Err(e) => {
+                    warn!("[server] uni 流接受错误: {}, 继续等待", e);
+                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                }
+            }
+        }
+    });
+}
+
+/// 维持原有 bidi 接收循环（处理初始化 + 保持兼容）：
+/// 流关闭（Ok(None)）/读错误/缓冲超限时退出，由调用方负责收尾。
+#[allow(clippy::too_many_arguments)]
+async fn run_bidi_receive_loop(
+    recv_stream: &mut RecvStream,
+    core: &CoreState,
+    current_uuid: &str,
+    connection_key: &str,
+    platform: &str,
+    head_length: usize,
+    connections: Arc<DashMap<String, QuicConnection>>,
+    server_index: u32,
+    max_buffer_length: usize,
+) {
     let buffer_msg: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
 
     loop {
         // 循环处理流中的数据
         let mut buffer = vec![0u8; 1024 * 10]; // 将缓冲区设置为 10KB
         let buffer_len = buffer_msg.lock().await.len();
-        if buffer_len > config.max_buffer_length {
+        if buffer_len > max_buffer_length {
             error!("分包长度超过限制: {}", buffer.len());
             // TODO: 发送限速消息给客户端进行纠正
             break;
@@ -351,17 +493,18 @@ async fn handle_conn(
         let change_buffer = &mut buffer;
         match recv_stream.read(change_buffer).await {
             Ok(Some(length)) => {
+                let proc_start = Instant::now();
                 match process_rec_msg(
-                    &core,
+                    core,
                     change_buffer,
-                    current_uuid.clone(),
+                    current_uuid.to_string(),
                     length,
-                    &connection_key,
-                    &platform,
+                    connection_key,
+                    platform,
                     buffer_msg.clone(),
                     head_length,
                     connections.clone(),
-                    config.server_index,
+                    server_index,
                 )
                 .await
                 {
@@ -371,6 +514,15 @@ async fn handle_conn(
                     Err(error) => {
                         error!("消息处理失败! {:#}", error.backtrace());
                     }
+                }
+                let cost = proc_start.elapsed();
+                if cost > Duration::from_secs(SLOW_MSG_PROCESS_SECS) {
+                    warn!(
+                        "[server] bidi 消息处理过慢: {}ms len={} key={}",
+                        cost.as_millis(),
+                        length,
+                        connection_key
+                    );
                 }
             }
             Ok(None) => {
@@ -383,11 +535,6 @@ async fn handle_conn(
             }
         }
     }
-
-    uni_shutdown.store(true, Ordering::Relaxed);
-
-    end_server(&core, &connection_key, &connection_key, now, &connections).await?;
-    Ok(())
 }
 
 /// 用户离线
@@ -396,15 +543,17 @@ async fn end_server(
     close_key: &str,
     connection_key: &str,
     close_now: i64,
+    connection_id: usize,
     connections: &Arc<DashMap<String, QuicConnection>>,
 ) -> Result<(), anyhow::Error> {
-    let mut uuid = "".to_string();
+    info!("[server] 断线清理开始: key={}", close_key);
     {
+        // 注意: DashMap guard 不可跨 .await 持有,必须先 drop(book) 再执行任何异步操作,
+        // 否则断线清理与并发推送(同一 shard)会互等造成死锁。
         if let Some(book) = connections.get_mut(close_key) {
             let now = book.update_time;
-            if now == close_now as u64 {
+            if now == close_now as u64 && book.conn.stable_id() == connection_id {
                 info!("用户已断开连接: {}", close_key);
-                uuid = book.uuid.clone();
                 drop(book);
                 connections.remove(close_key);
                 let mut conn = core.redis.get().await?;
@@ -417,131 +566,249 @@ async fn end_server(
 
     info!("[server] 连接 {} 处理完成，当前在线连接数: {}", close_key, connections.len());
 
-    user_offline(core, uuid).await?;
-
     Ok(())
 }
 
-/// 用户离线
-async fn user_offline(core: &CoreState, uuid: String) -> std::result::Result<(), anyhow::Error> {
-    // TODO
-    let mut redis = core.redis.get().await?;
-    let rb = &core.db;
-    // 1. 设置 Redis 分布式锁，防止用户频繁上下线切换
-    // 2. 将 Redis 缓存同步到数据库，记录用户操作
-    // 将已读消息从 Redis 持久化到数据库
-    let read_key = format!("{}{}", USER_READ_MSG, uuid).to_uppercase();
-    let read_record: String = redis.get(&read_key).await?;
-    info!("读取已读消息，来源: {}", read_record);
-    let last_chat_message_read: Vec<AddReadChatRecordDTO> = serde_json::from_str(&read_record)?;
-    info!("读取已读消息，转换后: {:?}", last_chat_message_read);
-    // TODO: 校验已读消息的有效性
+/// 上线时新连接对既有在线连接(同一 platform+uuid)的接管语义
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Takeover {
+    /// 同一次登录重连(相同 jti):静默替换旧连接,不发 FORCE_LOGOUT,避免自己踢自己
+    Same,
+    /// 更新的登录接管:强退旧连接(FORCE_LOGOUT 携带新会话 jti)
+    Newer,
+    /// 更老的登录迟到重连:拒绝本次连接,保住更新的在线会话
+    Stale,
+}
 
-    for item in last_chat_message_read.into_iter() {
-        // 群聊已读消息：校验群消息与群成员，更新群成员已读游标
-        if item.chat_type == Some(CHAT_TYPE_GROUP) {
-            let group_msg = match GroupMessageRecord::select_by_nano_id(
-                rb,
-                item.nano_id.as_deref().unwrap_or(""),
-            )
-            .await
-            {
-                Ok(Some(msg)) => msg,
-                _ => {
-                    err!("群已读消息无效 {:?}", item);
-                    continue;
-                }
-            };
-            let group_uuid = match group_msg.group_uuid {
-                Some(u) => u,
-                None => {
-                    err!("群已读消息缺少群UUID {:?}", item);
-                    continue;
-                }
-            };
-            // 读者必须是群成员，且已读游标只推进不回退
-            let mut member =
-                match GroupMember::select_by_group_and_user(rb, &group_uuid, &item.recv_user)
-                    .await?
-                {
-                    Some(m) => m,
-                    None => {
-                        err!("群已读消息无效，用户不在群中 {:?}", item);
-                        continue;
-                    }
-                };
-            let msg_id = group_msg.id.unwrap_or(0);
-            if member.last_read_msg_id.unwrap_or(0) < msg_id {
-                member.last_read_msg_id = Some(msg_id);
-                GroupMember::update_by_group_and_user(rb, &member, &group_uuid, &item.recv_user)
-                    .await?;
-                info!("群已读消息更新成功 {:?}", item);
-            }
-            continue;
-        }
-
-        // 单聊已读消息：校验后写入 chat_message_record_read 表
-        let record = ChatMessageRecordRead {
-            id: None,
-            nano_id: item.nano_id.clone(),
-            timestamp: item.timestamp,
-            send_user: item.send_user,
-            recv_user: item.recv_user,
-        };
-
-        let is_exist =
-            ChatMessageRecord::select_by_map(rb, value! {"nano_id": &record.nano_id}).await?;
-        if is_exist.is_empty() || is_exist.len() > 1 {
-            continue;
-        }
-        let exit_item = match is_exist.first() {
-            Some(item) => item,
-            None => {
-                error!("已读消息列表异常: is_exist 为空");
-                continue;
-            }
-        };
-        if exit_item.recv_user.to_string() != record.recv_user.to_string()
-            && exit_item.send_user.to_string() != record.recv_user.to_string()
-        {
-            err!("已读消息无效 {:?}", record);
-            continue;
-        }
-
-        let insert_item = async |e| match ChatMessageRecordRead::insert(rb, &record).await {
-            Ok(_) => {}
-            Err(x) => {
-                err!("更新已读消息失败 {} {}", e, x);
-            }
-        };
-        match ChatMessageRecordRead::update_by_map(
-            rb,
-            &record,
-            value! {"send_user": &record.send_user, "recv_user": &record.recv_user},
-        )
-        .await
-        {
-            Ok(d) => {
-                if d.rows_affected < 1u64 {
-                    insert_item(d.to_string()).await;
-                }
-            }
-            Err(e) => {
-                insert_item(e.to_string()).await;
-            }
-        };
+/// 依据 jti 签发先后(uuid v7 的毫秒前缀)判定接管语义。
+/// 存量旧 token(空/非 v7 jti)无法证明先后,退化为"接管"(与历史行为一致)。
+fn classify_takeover(incoming: &str, live: Option<&str>) -> Takeover {
+    let Some(live) = live else {
+        return Takeover::Newer;
+    };
+    if !incoming.is_empty() && incoming == live {
+        return Takeover::Same;
     }
-
-    // 3. 清理 Redis 缓存和锁
-    Ok(())
+    if incoming.is_empty() || live.is_empty() {
+        return Takeover::Newer;
+    }
+    match (session_id_ms(incoming), session_id_ms(live)) {
+        (Some(a), Some(b)) if a < b => Takeover::Stale,
+        _ => Takeover::Newer,
+    }
 }
 
 /// 用户上线
-async fn user_online(uuid: &str, _platform: &str) -> std::result::Result<(), anyhow::Error> {
+#[allow(clippy::too_many_arguments)]
+async fn user_online(
+    core: &CoreState,
+    uuid: &str,
+    platform: &str,
+    session_id: &str,
+    new_conn: &Connection,
+    connections: &Arc<DashMap<String, QuicConnection>>,
+    server_index: u32,
+    max_connections: usize,
+) -> std::result::Result<String, anyhow::Error> {
     info!("用户上线: {}", uuid);
-    // TODO
-    // 1. 设置 Redis 分布式锁，防止用户频繁上下线切换
-    // 2. 将数据库数据同步到 Redis 缓存
-    // 3. 清理 Redis 锁
+
+    let lock_key = format!("QUIC:ONLINE:LOCK:{}:{}", platform, uuid).to_uppercase();
+    let lock_token = format!("{}:{}", server_index, get_now_time_stamp_as_millis().unwrap_or(0));
+    let mut redis = core.redis.get().await?;
+    let acquired: Option<String> = cmd("SET")
+        .arg(&lock_key)
+        .arg(&lock_token)
+        .arg("NX")
+        .arg("EX")
+        .arg(30)
+        .query_async(&mut redis)
+        .await?;
+    if acquired.is_none() {
+        return Err(anyhow!("用户正在处理上线: {}", uuid));
+    }
+    drop(redis);
+
+    let connection_key = format!(
+        "{}:{}{}{}{}",
+        platform,
+        REDIS_QUIC_SERVERS,
+        uuid,
+        REDIS_SPLIT,
+        ConnectionType::Text
+    )
+    .to_uppercase();
+
+    // Redis 中保存旧连接所在节点与最近一次在线会话。没有旧记录时仍检查本机，
+    // 避免 Redis 短暂丢失造成重复连接。
+    let (old_index, live_session) = {
+        let mut redis = core.redis.get().await?;
+        let index: Option<String> = redis.get(&connection_key).await?;
+        let session_key = conn_lookup::session_key_of(&connection_key);
+        let live: Option<String> = redis.get(&session_key).await?;
+        (index.and_then(|value| value.parse::<u32>().ok()), live)
+    };
+
+    let has_old_connection = connections.contains_key(&connection_key) || old_index.is_some();
+    if connections.len() >= max_connections && !has_old_connection {
+        return Err(anyhow!("Maximum connections reached: {}", connections.len()));
+    }
+
+    // 本机 DashMap 中的旧连接比 Redis 会话键更权威(旧版本节点可能未写该键/键已过期)
+    let local_old = {
+        match connections.get(&connection_key) {
+            Some(entry) => Some((entry.conn.clone(), entry.session_id.clone())),
+            None => None,
+        }
+    };
+    let effective_live =
+        local_old.as_ref().map(|(_, session)| session.clone()).or(live_session.clone());
+
+    let takeover = classify_takeover(session_id, effective_live.as_deref());
+    // 仅"更新的登录接管"才发送 FORCE_LOGOUT；同会话重连静默替换；
+    // 过期登录(更老)直接拒绝本次连接(提前 return,不发强退帧到在线连接)。
+    let force_logout = match takeover {
+        Takeover::Newer => true,
+        Takeover::Same => false,
+        Takeover::Stale => {
+            info!(
+                "过期登录重连被拒绝: uuid={} incoming_session={} live_session={:?}",
+                uuid, session_id, effective_live
+            );
+            if let Some(live) = effective_live.as_deref() {
+                let stale_payload = build_force_logout_msg(
+                    "您的账号已在其他设备登录",
+                    live,
+                    uuid.to_string(),
+                    SYSTEM.to_string(),
+                )?;
+                if let Err(error) = conn_lookup::send_uni_frame(new_conn, &stale_payload).await {
+                    warn!("向过期登录的连接发送强制退出消息失败: {}", error);
+                }
+            }
+            new_conn.close(0u32.into(), b"superseded by newer login");
+            release_online_lock(core, platform, uuid, &lock_token).await?;
+            return Err(anyhow!("过期登录重连被拒绝(存在更新的在线会话): uuid={}", uuid));
+        }
+    };
+
+    if let Some((old_conn, _)) = local_old {
+        // 同一次登录(相同 JWT jti)的重复连接视为“本机重连/顶替”：静默关闭旧连接，
+        // 不发送 FORCE_LOGOUT，避免切网重连把自己踢下线。
+        // 仅当更新的登录接管时才发送 FORCE_LOGOUT(客户端收到后置 Idle 停止自动重连)。
+        let payload = if force_logout {
+            build_force_logout_msg(
+                "您的账号已在其他设备登录",
+                session_id,
+                uuid.to_string(),
+                SYSTEM.to_string(),
+            )?
+        } else {
+            Vec::new()
+        };
+        kick_local_connection(core, connections, &connection_key, old_conn, payload, force_logout)
+            .await?;
+    } else if let Some(old_index) = old_index.filter(|index| *index != server_index) {
+        let mut redis = core.redis.get().await?;
+        let node_key = format!("{}{}", REDIS_INTERNAL_QUIC_SERVERS, old_index);
+        let node_addr: Option<String> = redis.get(&node_key).await?;
+        drop(redis);
+
+        let node_addr =
+            node_addr.ok_or_else(|| anyhow!("旧连接所在节点不可用: server_index={}", old_index))?;
+        info!(
+            "[user_online] 开始踢远端旧连接: server_index={} addr={}",
+            old_index,
+            mask_addr(&node_addr)
+        );
+        let payload = if force_logout {
+            build_force_logout_msg(
+                "您的账号已在其他设备登录",
+                session_id,
+                uuid.to_string(),
+                SYSTEM.to_string(),
+            )?
+        } else {
+            Vec::new()
+        };
+        let response = send_internal_quic_msg(
+            node_addr.parse()?,
+            InternalQuicRequest {
+                msg_type: MSG_TYPE_FORCE_LOGOUT,
+                payload,
+                target_user: uuid.to_string(),
+                preferred_index: old_index,
+                platform: platform.to_string(),
+                source: RequestSource::QuicExternal,
+                ttl: 3,
+                close_after_delivery: true,
+                incoming_session: session_id.to_string(),
+                send_force_logout: force_logout,
+            },
+        )
+        .await?;
+        info!(
+            "[user_online] 踢远端旧连接完成: server_index={} delivered={:?}",
+            old_index, response.delivered
+        );
+        if response.delivered != Some(true) {
+            return Err(anyhow!(
+                "远程旧连接踢下线失败: {}",
+                response.message.unwrap_or_else(|| "unknown error".to_string())
+            ));
+        }
+    }
+
+    Ok(lock_token)
+}
+
+async fn release_online_lock(
+    core: &CoreState,
+    platform: &str,
+    uuid: &str,
+    lock_token: &str,
+) -> Result<()> {
+    let lock_key = format!("QUIC:ONLINE:LOCK:{}:{}", platform, uuid).to_uppercase();
+    let mut redis = core.redis.get().await?;
+    let _: i32 = cmd("EVAL")
+        .arg("if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end")
+        .arg(1)
+        .arg(&lock_key)
+        .arg(lock_token)
+        .query_async(&mut redis)
+        .await?;
+    Ok(())
+}
+
+async fn kick_local_connection(
+    core: &CoreState,
+    connections: &Arc<DashMap<String, QuicConnection>>,
+    connection_key: &str,
+    old_conn: Connection,
+    payload: Vec<u8>,
+    force_logout: bool,
+) -> Result<()> {
+    if force_logout {
+        // 仅在不同登录会话抢登时发送 FORCE_LOGOUT（客户端收到后置 Idle 停止自动重连）。
+        // 同会话顶替则静默关闭，避免“自己踢自己”。
+        if let Err(error) = conn_lookup::send_uni_frame(&old_conn, &payload).await {
+            warn!("发送强制退出消息失败: {}", error);
+        }
+    } else {
+        info!("同会话连接顶替(静默): key={}，仅关闭旧连接", connection_key);
+    }
+    old_conn.close(0u32.into(), b"replaced by another login");
+
+    if connections
+        .get(connection_key)
+        .map(|entry| entry.conn.stable_id() == old_conn.stable_id())
+        .unwrap_or(false)
+    {
+        connections.remove(connection_key);
+        let mut redis = core.redis.get().await?;
+        let _: () = redis.del(connection_key).await?;
+        let session_key = conn_lookup::session_key_of(connection_key);
+        let _: () = redis.del(&session_key).await?;
+    }
+
     Ok(())
 }

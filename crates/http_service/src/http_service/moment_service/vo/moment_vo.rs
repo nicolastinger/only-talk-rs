@@ -6,12 +6,15 @@ pub struct MomentVO {
     pub author_uuid: String,
     pub username: Option<String>,
     pub icon: Option<String>,
+    /// 作者用户类型 (0: 普通用户, 1: 机器人, 2: 企业用户, 其他待补充)
+    pub user_type: Option<i16>,
     pub content: String,
     pub visibility: i32,
     pub image_count: i64,
     pub like_count: i64,
     pub comment_count: i64,
     pub liked_by_me: bool,
+    pub followed_by_me: bool,
     pub created_at: i64,
     pub updated_at: i64,
 }
@@ -29,6 +32,8 @@ pub struct MomentCommentVO {
     pub author_uuid: String,
     pub username: Option<String>,
     pub icon: Option<String>,
+    /// 作者用户类型 (0: 普通用户, 1: 机器人, 2: 企业用户, 其他待补充)
+    pub user_type: Option<i16>,
     pub content: String,
     pub created_at: i64,
 }
@@ -37,6 +42,22 @@ pub struct MomentCommentVO {
 pub struct MomentCommentListVO {
     pub total: u32,
     pub list: Vec<MomentCommentVO>,
+}
+
+#[derive(Serialize, Debug)]
+pub struct MomentLikerVO {
+    pub uuid: String,
+    pub username: Option<String>,
+    pub icon: Option<String>,
+    /// 用户类型 (0: 普通用户, 1: 机器人, 2: 企业用户, 其他待补充)
+    pub user_type: Option<i16>,
+    pub created_at: i64,
+}
+
+#[derive(Serialize, Debug)]
+pub struct MomentLikerListVO {
+    pub total: u32,
+    pub list: Vec<MomentLikerVO>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -49,10 +70,12 @@ pub struct MomentRow {
     pub updated_at: Option<i64>,
     pub username: Option<String>,
     pub icon: Option<String>,
+    pub user_type: Option<i16>,
     pub image_count: Option<i64>,
     pub like_count: Option<i64>,
     pub comment_count: Option<i64>,
     pub liked_by_me: Option<i64>,
+    pub followed_by_me: Option<i64>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -64,9 +87,19 @@ pub struct MomentCommentRow {
     pub created_at: Option<i64>,
     pub username: Option<String>,
     pub icon: Option<String>,
+    pub user_type: Option<i16>,
 }
 
 #[derive(Deserialize, Debug)]
 pub struct CountRow {
     pub count: i64,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct MomentLikerRow {
+    pub uuid: Option<String>,
+    pub username: Option<String>,
+    pub icon: Option<String>,
+    pub user_type: Option<i16>,
+    pub created_at: Option<i64>,
 }

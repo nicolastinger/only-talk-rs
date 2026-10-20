@@ -1,13 +1,6 @@
-use std::net::SocketAddr;
-
 use anyhow::{Result, anyhow};
 use common::config_str::GROUP_MEMBERS_CACHE;
-use common::models::notify_entity::system_notification::SystemNotification;
-use common::read_global_config;
-use common::utils::internal_quic_client::send_internal_quic_msg;
-use common::utils::internal_quic_msg::{InternalQuicRequest, RequestSource};
-use common::utils::message_types::NOTIFY_TYPE_MSG;
-use common::utils::server_count_sync::compute_preferred_index;
+use common::models::session_entity::user_session::UserSession;
 use common::utils::time::get_now_time_stamp_as_millis;
 use entity::models::group_entity::group_info::GroupInfo;
 use entity::models::group_entity::group_invitation::{
@@ -31,45 +24,10 @@ use crate::http_service::group_service::group_dto::update_group_dto::UpdateGroup
 use crate::http_service::group_service::group_vo::group_info_vo::{GroupInfoVO, GroupListItemVO};
 use crate::http_service::group_service::group_vo::group_invitation_vo::GroupInvitationVO;
 use crate::http_service::group_service::group_vo::group_member_vo::GroupMemberVO;
-use crate::http_service::group_service::group_vo::group_message_vo::{
-    GroupMessageVO, UnreadCountVO,
-};
+use crate::http_service::group_service::group_vo::group_message_vo::GroupMessageVO;
 use crate::http_service::notify_service::service::system_notification::{
-    send_group_invite_msg, send_group_invite_result_msg,
+    push_notification_via_quic, send_group_invite_msg, send_group_invite_result_msg,
 };
-
-async fn push_notification_via_quic(notification: SystemNotification) -> Result<()> {
-    let target_id = notification
-        .user_id
-        .as_ref()
-        .map(|u| u.to_string())
-        .ok_or_else(|| anyhow!("Notification missing target user ID"))?;
-    let json_str = serde_json::to_string(&notification)?;
-
-    // 包装为 TextQuicMsg 二进制(与其他消息路径保持一致)
-    let payload = common::utils::text_msg::generate_text_msg(
-        NOTIFY_TYPE_MSG,
-        json_str.into_bytes(),
-        target_id.clone(),
-        common::config_str::SYSTEM.to_string(),
-    )?;
-
-    let addr_str = read_global_config!("internal_quic_server", "address");
-    let server_addr: SocketAddr = addr_str.parse()?;
-    let preferred_index = compute_preferred_index(&target_id);
-
-    let request = InternalQuicRequest {
-        msg_type: NOTIFY_TYPE_MSG,
-        payload,
-        target_user: target_id,
-        preferred_index,
-        platform: common::config_str::PC_PLATFORM.to_string(),
-        source: RequestSource::HttpApi,
-        ttl: 3,
-    };
-
-    send_internal_quic_msg(server_addr, request).await.map(|_| ())
-}
 
 pub async fn create_group_service(
     rb: &RBatis,
@@ -103,7 +61,6 @@ pub async fn create_group_service(
         role: Some(ROLE_OWNER),
         nickname: None,
         join_time: Some(now),
-        last_read_msg_id: Some(0),
         muted: Some(false),
         status: Some(STATUS_NORMAL),
     };
@@ -352,7 +309,9 @@ pub async fn invite_group_members_service(
                     Some(dto.group_uuid.clone()),
                 )
                 .await?;
-                let _ = push_notification_via_quic(notification).await;
+                if let Err(e) = push_notification_via_quic(&notification).await {
+                    warn!("群通知实时推送失败: {}", e);
+                }
 
                 invited.push(user_uuid_str.clone());
             }
@@ -394,13 +353,15 @@ pub async fn accept_group_invitation_service(
                 role: Some(ROLE_MEMBER),
                 nickname: None,
                 join_time: Some(now),
-                last_read_msg_id: Some(0),
                 muted: Some(false),
                 status: Some(STATUS_NORMAL),
             };
             GroupMember::insert(rb, &member).await?;
 
             sync_group_members_to_redis(rb, redis, &dto.group_uuid).await?;
+
+            // 入群初始化会话游标(§7.4): 避免新成员把全部群历史视为未读
+            UserSession::init_for_group_join(rb, &u_uuid, &group_uuid).await?;
 
             // 通知邀请者
             let group = GroupInfo::select_by_group_uuid(rb, &group_uuid).await?;
@@ -415,7 +376,9 @@ pub async fn accept_group_invitation_service(
                     Some(dto.group_uuid.clone()),
                 )
                 .await?;
-                let _ = push_notification_via_quic(notification).await;
+                if let Err(e) = push_notification_via_quic(&notification).await {
+                    warn!("群通知实时推送失败: {}", e);
+                }
             }
 
             info!("[群聊] 邀请已接受 group_uuid={} user={}", dto.group_uuid, user_uuid);
@@ -641,14 +604,26 @@ pub async fn get_group_message_history_service(
     }
 
     // 游标模式：按群成员已读游标拉取未读消息（id > last_read_msg_id）
-    let messages: Vec<GroupMessageRecord> = match dto.last_read_msg_id {
-        Some(cursor) => GroupMessageRecord::select_unread(rb, &group_uuid, cursor).await?,
+    // 两分支统一以 size + 1 探测是否还有下一页, has_more 显式返回
+    let dto_size = dto.size.unwrap_or(20);
+    let (mut messages, has_more): (Vec<GroupMessageRecord>, bool) = match dto.last_read_msg_id {
+        Some(cursor) => {
+            let fetched =
+                GroupMessageRecord::select_unread(rb, &group_uuid, cursor, dto_size + 1).await?;
+            let has_more = fetched.len() > dto_size as usize;
+            (fetched, has_more)
+        }
         None => {
             let start = dto.start.unwrap_or(0);
-            let size = dto.size.unwrap_or(20);
-            GroupMessageRecord::select_by_group(rb, &group_uuid, start, size).await?
+            let fetched =
+                GroupMessageRecord::select_by_group(rb, &group_uuid, start, dto_size + 1).await?;
+            let has_more = fetched.len() > dto_size as usize;
+            (fetched, has_more)
         }
     };
+    if has_more {
+        messages.truncate(dto_size as usize);
+    }
 
     Ok(messages
         .into_iter()
@@ -660,35 +635,9 @@ pub async fn get_group_message_history_service(
             raw: m.raw.0.to_vec(),
             msg_type: m.msg_type.unwrap_or(1),
             recalled: m.recalled.unwrap_or(false),
+            has_more: Some(has_more),
         })
         .collect())
-}
-
-pub async fn get_unread_group_messages_service(
-    rb: &RBatis,
-    user_uuid: &str,
-) -> Result<Vec<UnreadCountVO>> {
-    let uuid = user_uuid.parse::<Uuid>()?;
-    let memberships: Vec<GroupMember> = GroupMember::select_groups_by_user(rb, &uuid).await?;
-
-    let mut result = Vec::new();
-    for membership in memberships {
-        if let (Some(g_uuid), Some(last_read_msg_id)) =
-            (membership.group_uuid, membership.last_read_msg_id)
-        {
-            let unread: Vec<GroupMessageRecord> =
-                GroupMessageRecord::select_unread(rb, &g_uuid, last_read_msg_id).await?;
-            if !unread.is_empty() {
-                result.push(UnreadCountVO {
-                    group_uuid: g_uuid.to_string(),
-                    unread_count: unread.len() as i64,
-                    last_read_msg_id,
-                });
-            }
-        }
-    }
-
-    Ok(result)
 }
 
 async fn sync_group_members_to_redis(

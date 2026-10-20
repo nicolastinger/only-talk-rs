@@ -2,6 +2,7 @@
 name = "http_service"
 version = "0.1.0"
 edition = "2024"
+rust-version.workspace = true
 
 [dependencies]
 common = { path = "../common" }
@@ -29,12 +30,17 @@ lazy_static = { workspace = true }
 regex = { workspace = true }
 uuid = { workspace = true }
 sha2 = { workspace = true }
+hex = { workspace = true }
+aes-gcm = { workspace = true }
 actix-multipart = { workspace = true }
 futures-util = { workspace = true }
 image = { workspace = true }
 webp = { workspace = true }
+reqwest = { workspace = true, features = ["json"] }
+urlencoding = { workspace = true }
 tokio = { workspace = true }
 rand = { workspace = true }
+nanoid = { workspace = true }
 
 [dev-dependencies]
 actix-http = { workspace = true }

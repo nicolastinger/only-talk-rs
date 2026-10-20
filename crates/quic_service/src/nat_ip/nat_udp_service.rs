@@ -1,10 +1,11 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use common::config_str::{SYSTEM, USER_UDP_ADDRESS, USER_UDP_ADDRESS_LOCK};
+use common::config_str::{NAT_UDP_PORTS, SYSTEM, USER_UDP_ADDRESS, USER_UDP_ADDRESS_LOCK};
 use common::read_global_config;
 use common::state::CoreState;
 use common::utils::jwt_util::verify_token;
+use common::utils::mask::mask_addr;
 use common::utils::message_types;
 use common::utils::redis_utils::{acquire_lock, release_lock};
 use dashmap::DashMap;
@@ -13,6 +14,7 @@ use tokio::net::UdpSocket;
 use tokio::signal;
 use tracing::{error, info, warn};
 
+use crate::conn_lookup;
 use crate::models::quic_connection::{ConnectionType, QuicConnection};
 use crate::msg_service::get_connection_by_uuid;
 use crate::msg_service::text_msg_service::generate_text_msg;
@@ -26,6 +28,17 @@ pub async fn run_udp_server(
     let v6_port_1: u16 = read_global_config!("nat_udp", "v6_port_1").parse()?;
     let v4_port_2: u16 = read_global_config!("nat_udp", "v4_port_2").parse()?;
     let v6_port_2: u16 = read_global_config!("nat_udp", "v6_port_2").parse()?;
+
+    // 将 NAT UDP 端口缓存到 Redis，供 HTTP API 动态下发（客户端不再写死端口）
+    {
+        let ports_json = format!(
+            r#"{{"v4_port_1":{},"v6_port_1":{},"v4_port_2":{},"v6_port_2":{}}}"#,
+            v4_port_1, v6_port_1, v4_port_2, v6_port_2,
+        );
+        let mut conn = core.redis.get().await?;
+        conn.set::<&str, &str, ()>(NAT_UDP_PORTS, &ports_json).await?;
+        info!("NAT UDP 端口已缓存到 Redis: {}", ports_json);
+    }
 
     tokio::spawn(async move {
         let addr_1 = format!("0.0.0.0:{}", v4_port_1);
@@ -152,7 +165,7 @@ pub async fn get_p2p_udp_socket_with_shutdown(
                         let client_port = src.port();
 
                         let udp_addr = format!("{}:{}", client_ip, client_port);
-                        info!("从 {}:{} 收到消息 size={}", client_ip, client_port, size);
+                        info!("从 {} 收到消息 size={}", mask_addr(&udp_addr), size);
 
                         let res = serde_json::from_slice::<UserAddressInfo>(&buf[..size]);
                         match res {
@@ -165,7 +178,7 @@ pub async fn get_p2p_udp_socket_with_shutdown(
                             })
                            },
                            Err(e) => {
-                            error!("NAT 地址信息解析失败，来源 {}:{},{}", client_ip, client_port, e);
+                            error!("NAT 地址信息解析失败，来源 {},{}", mask_addr(&udp_addr), e);
                             buf[..size].fill(0);
                             continue;
                            }
@@ -214,7 +227,7 @@ pub async fn get_p2p_udp_socket(
                             })
                            },
                            Err(e) => {
-                            error!("NAT 地址信息解析失败，来源 {}:{},{}", client_ip, client_port, e);
+                            error!("NAT 地址信息解析失败，来源 {},{}", mask_addr(&udp_addr), e);
                             buf[..size].fill(0);
                             continue;
                            }
@@ -238,7 +251,7 @@ async fn process_p2p_user_info(
     match verify_token(user_address_info.token.as_ref()) {
         Ok(claims) => {
             let uuid = claims.uuid;
-            info!("从 {} 收到消息，用户 uuid: {}", udp_addr, uuid);
+            info!("从 {} 收到消息，用户 uuid: {}", mask_addr(&udp_addr), uuid);
             let key = format!("{}{}_{}", USER_UDP_ADDRESS, ip_type, uuid);
             let lock_key = format!("{}{}_{}", USER_UDP_ADDRESS_LOCK, ip_type, uuid);
             let lock_key = lock_key.to_uppercase();
@@ -263,7 +276,12 @@ async fn process_p2p_user_info(
                 let result: String = conn.get(&lock_key).await?;
                 let user_addr = result.split('_').skip(1).collect::<Vec<&str>>().join("");
 
-                info!("自身地址: {:?}, 完整信息: {:?}", user_addr, user_address_info);
+                info!(
+                    "自身地址: {}, uuid: {}, nat_type: {}",
+                    mask_addr(&user_addr),
+                    user_address_info.uuid,
+                    user_address_info.nat_type
+                );
                 if user_addr == user_address_info.address {
                     user_address_info.nat_type = 3;
                 } else {
@@ -341,9 +359,7 @@ async fn process_p2p_user_info(
                                 target_user_address_info.uuid.clone(),
                                 SYSTEM.to_string(),
                             )?;
-                            let mut send = conn.open_uni().await?;
-                            send.write_all(&msg_raw).await?;
-                            send.finish().await?;
+                            conn_lookup::send_uni_frame(&conn, &msg_raw).await?;
                         }
 
                         {
@@ -365,9 +381,7 @@ async fn process_p2p_user_info(
                                 user_address_info.uuid.clone(),
                                 SYSTEM.to_string(),
                             )?;
-                            let mut send = conn.open_uni().await?;
-                            send.write_all(&msg_raw).await?;
-                            send.finish().await?;
+                            conn_lookup::send_uni_frame(&conn, &msg_raw).await?;
                         }
                     }
                     info!("P2P 连接信息转发完成");

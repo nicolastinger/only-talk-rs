@@ -1,18 +1,24 @@
+use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
 
 use actix_web::HttpRequest;
 use actix_web::http::header::USER_AGENT;
+use aes_gcm::aead::Aead;
+use aes_gcm::{Aes256Gcm, Key, KeyInit, Nonce};
 use anyhow::anyhow;
 use common::config_str::{
-    EMAIL_VERIFY_CODE, MOBILE_PLATFORM, PC_PLATFORM, REFRESH_TOKEN, REGISTER_SESSION_TOKEN,
+    AUTH_FACTOR_PASSWORD_VERIFY_CODE, EMAIL_VERIFY_CODE, FORGOT_PASSWORD_VERIFY_CODE,
+    MOBILE_PLATFORM, PC_PLATFORM, REFRESH_TOKEN, REGISTER_SESSION_TOKEN,
 };
-use common::models::user_entity::basic_user::BasicUser;
+use common::models::user_entity::basic_user::{BasicUser, USER_TYPE_NORMAL};
 use common::models::user_entity::email_sso::EmailSso;
+use common::models::user_entity::user_auth_factor::{AUTH_FACTOR_TYPE_EMAIL, UserAuthFactor};
 use common::models::user_entity::user_info::UserInfo;
 use common::models::user_entity::user_login_log::{
     LOGIN_EVENT_ACCOUNT_NOT_FOUND, LOGIN_EVENT_PASSWORD_FAIL, LOGIN_EVENT_REFRESH,
     LOGIN_EVENT_SUCCESS, LOGIN_TYPE_ACCOUNT, LOGIN_TYPE_REFRESH, UserLoginLog,
 };
+use common::models::user_entity::user_sqlite_key::UserSqliteKey;
 use common::utils::jwt_util::{generate_access_token, generate_token_with_expiry, verify_token};
 use common::utils::rsa_util::{hash_password, verify_password};
 use common::utils::time::get_now_time_stamp_as_millis;
@@ -20,24 +26,33 @@ use common::utils::validators::normalize_email;
 use deadpool_redis::redis::{AsyncCommands, RedisResult, cmd};
 use email_service::manager::EmailManager;
 use email_service::{Email, EmailAddress};
-use rand::Rng;
+use rand::{Rng, RngCore};
 use rbatis::{RBatis, rbdc};
 use rbs::value;
 use tracing::{error, info};
 use uuid::Uuid;
 
 use crate::http_service::user_service::dto::basic_user_dto::SignInBasicUserDTO;
+use crate::http_service::user_service::dto::change_password_dto::{
+    ChangePasswordDTO, ChangePasswordSendCodeDTO,
+};
 use crate::http_service::user_service::dto::complete_profile_dto::CompleteProfileDTO;
+use crate::http_service::user_service::dto::fetch_sqlite_key_dto::FetchSqliteKeyDTO;
+use crate::http_service::user_service::dto::forgot_password_dto::{
+    ForgotPasswordResetDTO, ForgotPasswordSendCodeDTO,
+};
 use crate::http_service::user_service::dto::refresh_token_dto::RefreshTokenDTO;
 use crate::http_service::user_service::dto::sign_up_step1_dto::SignUpStep1DTO;
 use crate::http_service::user_service::dto::update_user_dto::UpdateUserDTO;
 use crate::http_service::user_service::vo::sign_in_vo::SignInResponseVO;
 use crate::http_service::user_service::vo::sign_up_step1_vo::SignUpStep1ResponseVO;
+use crate::http_service::user_service::vo::sqlite_key_vo::FetchSqliteKeyResponseVO;
 use crate::http_service::user_service::vo::user_info::UserInfoVO;
 use crate::utils::http_response::{CommonResponseNoDataRef, CommonResponseRef};
+use crate::utils::verify_code::{set_verify_code, verify_code};
 
 pub async fn test_sql(rb: &RBatis) -> Vec<BasicUser> {
-    let basic_user_all = match BasicUser::select_all(rb).await {
+    let basic_user_all = match BasicUser::select_by_map(rb, value! {}).await {
         Ok(v) => v,
         Err(e) => {
             error!("select_all 查询错误: {}", e);
@@ -85,7 +100,7 @@ pub async fn send_verify_code_service(
     // 3. 写入 Redis,5 分钟(300 秒)过期
     let mut conn = redis.get().await?;
     let key = format!("{}{}", EMAIL_VERIFY_CODE, email).to_uppercase();
-    conn.set_ex::<&str, &str, ()>(&key, &code, 300).await?;
+    set_verify_code(&mut conn, &key, &code).await?;
     info!("验证码已存储,邮箱: {}", email);
 
     // 4. 通过阿里云邮件发送验证码
@@ -150,19 +165,11 @@ pub async fn sign_up_step1_service(
             None => None,
         };
 
-    // 2. 校验注册验证码(与 Redis 中的一致,校验通过后删除)
+    // 2. 校验注册验证码(与 Redis 中的一致,校验通过后删除; 带防爆破)
     let code = dto.verification_code.as_ref().ok_or(anyhow!("验证码为空"))?;
     let mut conn = redis.get().await?;
     let code_key = format!("{}{}", EMAIL_VERIFY_CODE, email_normalized).to_uppercase();
-    let stored: Option<String> = conn.get(&code_key).await?;
-    match stored {
-        Some(stored) if stored == *code => {
-            let _: Result<(), _> = conn.del(&code_key).await;
-        }
-        _ => {
-            return Err(anyhow!("验证码错误或已过期"));
-        }
-    }
+    verify_code(&mut conn, &code_key, code).await?;
 
     // 3. 复用已有占位用户, 否则创建新占位用户(registration_status=0 未完成,不可登录)
     let uuid: rbdc::Uuid = if let Some(placeholder) = existing_placeholder {
@@ -183,12 +190,12 @@ pub async fn sign_up_step1_service(
                 info: Some("".to_string()),
                 password: Some(placeholder_password),
                 registration_status: Some(0),
+                user_type: Some(USER_TYPE_NORMAL),
             };
 
             let user_info = UserInfo {
                 uuid: Some(new_uuid.clone()),
                 gender: None,
-                age: Some(0),
                 birthday: Some(0),
                 note: Some("这个人很勤快，但什么都没写".to_string()),
                 created_at: Some(now),
@@ -297,12 +304,224 @@ pub async fn complete_profile_service(
     Ok(CommonResponseNoDataRef::success_empty())
 }
 
+/// 修改密码第一步: 向用户已绑定的认证因素(当前仅 email)发送验证码。
+///
+/// 由客户端传入 `factor_type` 决定渠道; 服务端从 `user_auth_factor` 取该用户对应类型的因素值。
+/// 验证码以用户 uuid 为键写入 Redis, 5 分钟有效(与绑定/注册验证码隔离)。
+pub async fn change_password_send_code_service(
+    rb: &RBatis,
+    redis: &deadpool_redis::Pool,
+    email_manager: &EmailManager,
+    my_uuid: Option<String>,
+    dto: ChangePasswordSendCodeDTO,
+) -> Result<String, anyhow::Error> {
+    let uuid_str = my_uuid.ok_or(anyhow!("用户ID为空"))?;
+    let uuid = rbatis::rbdc::Uuid::from_str(&uuid_str)?;
+
+    // 当前仅开放 email 渠道, 后续可扩展 phone
+    if dto.factor_type != AUTH_FACTOR_TYPE_EMAIL {
+        return Err(anyhow!("暂未开放该认证渠道"));
+    }
+
+    // 必须已绑定对应类型的二次认证因素
+    let factor = UserAuthFactor::select_by_user_and_type(rb, &uuid, dto.factor_type)
+        .await?
+        .ok_or_else(|| anyhow!("未绑定邮箱二次认证, 请先绑定"))?;
+    let email = factor.factor_value.ok_or_else(|| anyhow!("认证因素信息缺失"))?;
+
+    // 生成 6 位验证码并写入 Redis(键含用户 uuid, 5 分钟有效)
+    let code = format!("{:06}", rand::thread_rng().gen_range(0..1_000_000));
+    let mut conn = redis.get().await?;
+    let key = format!("{}{}", AUTH_FACTOR_PASSWORD_VERIFY_CODE, uuid).to_uppercase();
+    set_verify_code(&mut conn, &key, &code).await?;
+
+    // 通过阿里云邮件发送验证码
+    let account_name = common::config_manager::get_config("email.account_name").unwrap_or_default();
+    let mail = Email::builder()
+        .from(EmailAddress::new(&account_name).map_err(|e| anyhow!("发件人配置错误: {}", e))?)
+        .to(EmailAddress::new(&email).map_err(|e| anyhow!("收件人邮箱格式错误: {}", e))?)
+        .subject("OnlyTalk 修改密码验证码")
+        .text_body(format!("您的修改密码验证码是: {},5 分钟内有效,请勿泄露给他人。", code))
+        .build()
+        .map_err(|e| anyhow!("构建邮件失败: {}", e))?;
+
+    let result = email_manager.send(&mail).await.map_err(|e| anyhow!("邮件发送失败: {}", e))?;
+    if !result.is_success() {
+        let reason = result.error.as_ref().map(|e| e.message.clone()).unwrap_or_default();
+        return Err(anyhow!("邮件发送失败: {}", reason));
+    }
+
+    Ok(CommonResponseNoDataRef::success_empty())
+}
+
+/// 修改密码第二步: 校验验证码(消费)通过后, 将新密码哈希写入 basic_user。
+pub async fn change_password_service(
+    rb: &RBatis,
+    redis: &deadpool_redis::Pool,
+    my_uuid: Option<String>,
+    dto: ChangePasswordDTO,
+) -> Result<String, anyhow::Error> {
+    let uuid_str = my_uuid.ok_or(anyhow!("用户ID为空"))?;
+    let uuid = rbatis::rbdc::Uuid::from_str(&uuid_str)?;
+
+    // 当前仅开放 email 渠道, 且必须已绑定
+    if dto.factor_type != AUTH_FACTOR_TYPE_EMAIL {
+        return Err(anyhow!("暂未开放该认证渠道"));
+    }
+    if UserAuthFactor::select_by_user_and_type(rb, &uuid, dto.factor_type).await?.is_none() {
+        return Err(anyhow!("未绑定邮箱二次认证, 请先绑定"));
+    }
+
+    // 校验并消费验证码(带防爆破)
+    let code = dto.verification_code.as_ref().ok_or_else(|| anyhow!("验证码为空"))?;
+    let mut conn = redis.get().await?;
+    let key = format!("{}{}", AUTH_FACTOR_PASSWORD_VERIFY_CODE, uuid).to_uppercase();
+    verify_code(&mut conn, &key, code).await?;
+
+    // 更新密码
+    let new_password = dto.new_password.as_ref().ok_or_else(|| anyhow!("新密码为空"))?;
+    let hashed_password = hash_password(new_password)?;
+
+    let mut basic_user =
+        BasicUser::select_by_uuid(rb, &uuid).await?.ok_or(anyhow!("用户不存在"))?;
+    basic_user.password = Some(hashed_password);
+    BasicUser::update_by_uuid(rb, &basic_user, &uuid).await?;
+
+    Ok(CommonResponseNoDataRef::success_empty())
+}
+
+/// 按「账号 + 已绑定认证因素」反查账号 uuid(未登录场景, 如忘记密码)。
+///
+/// 同一因素值(邮箱)可能被多个账号绑定, 故以账号为主键定位用户, 再校验其确已绑定该因素值:
+/// - 账号不存在 / 未完成注册: 拒绝;
+/// - 账号未绑定该因素类型, 或因素值不匹配: 拒绝。
+async fn resolve_uid_by_account_and_factor(
+    rb: &RBatis,
+    account: &str,
+    factor_type: i16,
+    factor_value: &str,
+) -> Result<rbdc::Uuid, anyhow::Error> {
+    let user = BasicUser::select_by_account(rb, account).await?.ok_or(anyhow!("账号不存在"))?;
+    if user.registration_status != Some(1) {
+        return Err(anyhow!("该账号尚未完成注册"));
+    }
+    let uuid = user.uuid.ok_or_else(|| anyhow!("账号id为空"))?;
+
+    let factor = UserAuthFactor::select_by_user_and_type(rb, &uuid, factor_type)
+        .await?
+        .ok_or_else(|| anyhow!("该账号未绑定该邮箱，请确认后重试"))?;
+    if factor.factor_value.as_deref() != Some(factor_value) {
+        return Err(anyhow!("该账号未绑定该邮箱，请确认后重试"));
+    }
+    Ok(uuid)
+}
+
+/// 忘记密码第一步(未登录): 按账号与其已绑定邮箱定位用户并发送找回验证码。
+///
+/// 验证码以用户 uuid 为键写入 Redis, 5 分钟有效(与绑定/改密码验证码隔离)。
+/// 当前仅开放 email 渠道(phone 需短信通道, 暂未接入)。
+pub async fn forgot_password_send_code_service(
+    rb: &RBatis,
+    redis: &deadpool_redis::Pool,
+    email_manager: &EmailManager,
+    dto: ForgotPasswordSendCodeDTO,
+) -> Result<String, anyhow::Error> {
+    // 当前仅开放 email 渠道, 后续可扩展 phone
+    if dto.factor_type != AUTH_FACTOR_TYPE_EMAIL {
+        return Err(anyhow!("暂未开放该认证渠道"));
+    }
+
+    // 按账号 + 已绑定因素值定位用户(规范化邮箱后严格比对)
+    let account = dto.account.as_deref().ok_or_else(|| anyhow!("账号为空"))?;
+    let raw = dto.factor_value.as_deref().ok_or_else(|| anyhow!("因素值不能为空"))?;
+    let email = normalize_email(raw);
+    let uuid =
+        resolve_uid_by_account_and_factor(rb, account, AUTH_FACTOR_TYPE_EMAIL, &email).await?;
+
+    // 生成 6 位验证码并写入 Redis(键含用户 uuid, 5 分钟有效)
+    let code = format!("{:06}", rand::thread_rng().gen_range(0..1_000_000));
+    let mut conn = redis.get().await?;
+    let key = format!("{}{}", FORGOT_PASSWORD_VERIFY_CODE, uuid).to_uppercase();
+    set_verify_code(&mut conn, &key, &code).await?;
+
+    // 通过阿里云邮件发送验证码(发往用户提交且已绑定的邮箱)
+    let account_name = common::config_manager::get_config("email.account_name").unwrap_or_default();
+    let mail = Email::builder()
+        .from(EmailAddress::new(&account_name).map_err(|e| anyhow!("发件人配置错误: {}", e))?)
+        .to(EmailAddress::new(&email).map_err(|e| anyhow!("收件人邮箱格式错误: {}", e))?)
+        .subject("OnlyTalk 重置密码验证码")
+        .text_body(format!("您的重置密码验证码是: {},5 分钟内有效,请勿泄露给他人。", code))
+        .build()
+        .map_err(|e| anyhow!("构建邮件失败: {}", e))?;
+
+    let result = email_manager.send(&mail).await.map_err(|e| anyhow!("邮件发送失败: {}", e))?;
+    if !result.is_success() {
+        let reason = result.error.as_ref().map(|e| e.message.clone()).unwrap_or_default();
+        return Err(anyhow!("邮件发送失败: {}", reason));
+    }
+
+    Ok(CommonResponseNoDataRef::success_empty())
+}
+
+/// 忘记密码第二步(未登录): 校验验证码(消费)通过后重置密码。
+pub async fn forgot_password_reset_service(
+    rb: &RBatis,
+    redis: &deadpool_redis::Pool,
+    dto: ForgotPasswordResetDTO,
+) -> Result<String, anyhow::Error> {
+    // 当前仅开放 email 渠道, 后续可扩展 phone
+    if dto.factor_type != AUTH_FACTOR_TYPE_EMAIL {
+        return Err(anyhow!("暂未开放该认证渠道"));
+    }
+
+    // 重新按账号 + 因素值定位用户(无状态, 不依赖发码步骤的中间态)
+    let account = dto.account.as_deref().ok_or_else(|| anyhow!("账号为空"))?;
+    let raw = dto.factor_value.as_deref().ok_or_else(|| anyhow!("因素值不能为空"))?;
+    let email = normalize_email(raw);
+    let uuid =
+        resolve_uid_by_account_and_factor(rb, account, AUTH_FACTOR_TYPE_EMAIL, &email).await?;
+
+    // 校验并消费验证码(带防爆破)
+    let code = dto.verification_code.as_ref().ok_or_else(|| anyhow!("验证码为空"))?;
+    let mut conn = redis.get().await?;
+    let key = format!("{}{}", FORGOT_PASSWORD_VERIFY_CODE, uuid).to_uppercase();
+    verify_code(&mut conn, &key, code).await?;
+
+    // 更新密码
+    let new_password = dto.new_password.as_ref().ok_or_else(|| anyhow!("新密码为空"))?;
+    let hashed_password = hash_password(new_password)?;
+
+    let mut basic_user =
+        BasicUser::select_by_uuid(rb, &uuid).await?.ok_or(anyhow!("用户不存在"))?;
+    basic_user.password = Some(hashed_password);
+    BasicUser::update_by_uuid(rb, &basic_user, &uuid).await?;
+
+    Ok(CommonResponseNoDataRef::success_empty())
+}
+
 /// 从 HttpRequest 提取客户端 IP(ipv4/ipv6)与 User-Agent
-fn extract_client_info(req: &HttpRequest) -> (Option<String>, Option<String>, Option<String>) {
-    let (ipv4, ipv6) = match req.peer_addr() {
-        Some(addr) if addr.ip().is_ipv4() => (Some(addr.ip().to_string()), None),
-        Some(addr) if addr.ip().is_ipv6() => (None, Some(addr.ip().to_string())),
-        _ => (None, None),
+///
+/// 网关方案: nginx 以 `$remote_addr` **覆写**(非追加) `X-Forwarded-For`,
+/// 故取首个 IP 可信, 客户端伪造的 XFF 头不会透传; 无该头(裸机直连/本地开发)时回退 `peer_addr`。
+pub(crate) fn extract_client_info(
+    req: &HttpRequest,
+) -> (Option<String>, Option<String>, Option<String>) {
+    let forwarded_ip = req
+        .headers()
+        .get("X-Forwarded-For")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.split(',').next())
+        .and_then(|s| s.trim().parse::<IpAddr>().ok())
+        .map(|ip| ip.to_string());
+
+    let (ipv4, ipv6) = match forwarded_ip {
+        Some(ip) if ip.parse::<Ipv4Addr>().is_ok() => (Some(ip), None),
+        Some(ip) => (None, Some(ip)),
+        None => match req.peer_addr() {
+            Some(addr) if addr.ip().is_ipv4() => (Some(addr.ip().to_string()), None),
+            Some(addr) if addr.ip().is_ipv6() => (None, Some(addr.ip().to_string())),
+            _ => (None, None),
+        },
     };
     let user_agent =
         req.headers().get(USER_AGENT).and_then(|v| v.to_str().ok()).map(|s| s.to_string());
@@ -310,7 +529,7 @@ fn extract_client_info(req: &HttpRequest) -> (Option<String>, Option<String>, Op
 }
 
 /// 写入登录审计记录（审计失败仅记录日志，不阻塞登录主流程）
-async fn write_login_log(rb: &RBatis, log: UserLoginLog) {
+pub(crate) async fn write_login_log(rb: &RBatis, log: UserLoginLog) {
     if let Err(e) = UserLoginLog::insert(rb, &log).await {
         error!("写入登录审计记录失败: {}", e);
     }
@@ -659,6 +878,115 @@ pub async fn update_user_info_service(
     }
 
     Ok(CommonResponseNoDataRef::success_empty())
+}
+
+/// 从配置读取本地加密库密钥托管主密钥(64 hex = 32字节)
+fn sqlite_key_master_from_config() -> Result<[u8; 32], anyhow::Error> {
+    let hex_str = common::config_manager::get_config("sqlite_key.master_key")
+        .ok_or(anyhow!("未配置 sqlite_key.master_key"))?;
+    let decoded = hex::decode(hex_str.trim())
+        .map_err(|e| anyhow!("sqlite_key.master_key 不是合法的 hex: {}", e))?;
+    let master: [u8; 32] =
+        decoded.try_into().map_err(|_| anyhow!("sqlite_key.master_key 必须为 32 字节(64位hex)"))?;
+    Ok(master)
+}
+
+/// 生成 n 字节安全随机数(用于下发密钥与 GCM nonce)
+fn random_bytes<const N: usize>() -> [u8; N] {
+    let mut buf = [0u8; N];
+    rand::rngs::OsRng.fill_bytes(&mut buf);
+    buf
+}
+
+/// 用主密钥 AES-256-GCM 加密原始密钥, 返回 hex(nonce(12) + 密文含tag)
+fn encrypt_sqlite_db_key(master: &[u8; 32], raw_key: &[u8]) -> Result<String, anyhow::Error> {
+    let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(master));
+    let nonce_bytes = random_bytes::<12>();
+    let nonce = Nonce::from_slice(&nonce_bytes);
+    let ciphertext =
+        cipher.encrypt(nonce, raw_key).map_err(|e| anyhow!("密钥加密失败: {:?}", e))?;
+    let mut combined = Vec::with_capacity(nonce_bytes.len() + ciphertext.len());
+    combined.extend_from_slice(&nonce_bytes);
+    combined.extend_from_slice(&ciphertext);
+    Ok(hex::encode(combined))
+}
+
+/// 解密被主密钥加密的数据库密钥, 返回原始 32 字节密钥
+fn decrypt_sqlite_db_key(master: &[u8; 32], stored_hex: &str) -> Result<Vec<u8>, anyhow::Error> {
+    let decoded = hex::decode(stored_hex).map_err(|e| anyhow!("密钥密文非法 hex: {}", e))?;
+    if decoded.len() <= 12 {
+        return Err(anyhow!("密钥密文格式非法"));
+    }
+    let nonce = Nonce::from_slice(&decoded[..12]);
+    let ciphertext = &decoded[12..];
+    let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(master));
+    let plain = cipher
+        .decrypt(nonce, ciphertext)
+        .map_err(|e| anyhow!("密钥解密失败(主密钥是否变更?): {:?}", e))?;
+    Ok(plain)
+}
+
+/// 将 32 字节明文密钥转为定长数组(长度校验)
+fn sqlite_db_key_bytes(plain: &[u8]) -> Result<[u8; 32], anyhow::Error> {
+    plain.try_into().map_err(|_| anyhow!("密钥长度非法, 期望 32 字节"))
+}
+
+/// 获取/创建用户本地加密库密钥。
+///
+/// 按 (user_id, device_fingerprint) 唯一确认下发。**同一用户复用同一把底层密钥**：
+/// - 本设备/指纹已签发 → 直接解密返回；
+/// - 用户已有任何密钥(其它设备/历史指纹) → 本设备沿用该密钥(新指纹再加密落一行)，
+///   保证设备指纹漂移或换机后仍能打开既有本地库；
+/// - 用户首次签发 → 生成随机 256-bit 密钥落库并返回。
+pub async fn fetch_or_create_sqlite_db_key(
+    rb: &RBatis,
+    uuid: Option<String>,
+    dto: FetchSqliteKeyDTO,
+) -> Result<String, anyhow::Error> {
+    let uuid_str = uuid.ok_or(anyhow!("用户ID为空"))?;
+    let uuid = rbatis::rbdc::Uuid::from_str(&uuid_str)?;
+    let device_fingerprint = dto.device_fingerprint;
+    let master = sqlite_key_master_from_config()?;
+
+    if let Some(record) =
+        UserSqliteKey::select_by_user_device(rb, &uuid, &device_fingerprint).await?
+    {
+        let stored = record.encrypted_key.as_deref().ok_or(anyhow!("密钥记录损坏"))?;
+        let plain = decrypt_sqlite_db_key(&master, stored)?;
+        let vo = FetchSqliteKeyResponseVO {
+            db_key: hex::encode(&plain),
+            key_version: record.key_version.unwrap_or(1),
+            provisioned: false,
+        };
+        return Ok(CommonResponseRef::<FetchSqliteKeyResponseVO>::success_json(&vo)?);
+    }
+
+    // 用户已有密钥(其它设备/历史指纹) → 复用同一把 key, 新指纹也能打开本地库
+    let (raw_key, key_version, provisioned) =
+        match UserSqliteKey::select_one_by_user(rb, &uuid).await? {
+            Some(existing) => {
+                let stored = existing.encrypted_key.as_deref().ok_or(anyhow!("密钥记录损坏"))?;
+                let plain = decrypt_sqlite_db_key(&master, stored)?;
+                (sqlite_db_key_bytes(&plain)?, existing.key_version.unwrap_or(1), false)
+            }
+            None => (random_bytes::<32>(), 1, true),
+        };
+
+    let encrypted_key = encrypt_sqlite_db_key(&master, &raw_key)?;
+    let now = get_now_time_stamp_as_millis()?;
+    let record = UserSqliteKey {
+        id: None,
+        user_id: Some(uuid),
+        device_fingerprint: Some(device_fingerprint.clone()),
+        key_version: Some(key_version),
+        encrypted_key: Some(encrypted_key),
+        created_at: Some(now),
+        updated_at: Some(now),
+    };
+    UserSqliteKey::insert(rb, &record).await?;
+
+    let vo = FetchSqliteKeyResponseVO { db_key: hex::encode(raw_key), key_version, provisioned };
+    Ok(CommonResponseRef::<FetchSqliteKeyResponseVO>::success_json(&vo)?)
 }
 
 /// 校验 refresh_token 绑定的设备指纹是否与请求携带的一致

@@ -557,7 +557,7 @@
 | `group_uuid` | String | ✅ | - | 群 UUID |
 | `start` | Option\<u32\> | ❌ | ≥ 0，默认 0 | 起始偏移量 |
 | `size` | Option\<u32\> | ❌ | 1-100，默认 20 | 每页数量 |
-| `last_read_msg_id` | Option\<i64\> | ❌ | ≥ 0 | 群成员已读游标（`group_member.last_read_msg_id`），传入后按游标拉取未读消息 |
+| `last_read_msg_id` | Option\<i64\> | ❌ | ≥ 0 | 群会话已读游标（任务04 起值来源为 `user_session.last_read_id`，字段名保留为客户端契约），传入后按游标拉取未读消息 |
 
 ### 业务逻辑
 
@@ -632,7 +632,7 @@
 |---|---|---|
 | `group_uuid` | String | 群组 UUID |
 | `unread_count` | i64 | 未读消息数 |
-| `last_read_msg_id` | i64 | 群成员已读游标，用于按游标拉取未读消息 |
+| `last_read_msg_id` | i64 | 群会话已读游标（任务04 起值来源为 `user_session.last_read_id`），用于按游标拉取未读消息 |
 
 ---
 

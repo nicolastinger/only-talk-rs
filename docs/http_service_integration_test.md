@@ -2,7 +2,7 @@
 
 文件：`crates/http_service/tests/http_service_integration_test.rs`
 
-该测试在**独立的测试数据库 + 测试 Redis** 上启动真实的 Actix HTTP 服务（包含 `TraceIdMiddleware` 与全局 JWT 鉴权中间件 `error_record_middleware`），通过 `actix_web::test` 直接调用 HTTP 接口，覆盖用户模块的**注册 / 登录 / 查询 / 刷新 token** 等核心流程。
+该测试在**独立的测试数据库 + 测试 Redis** 上启动真实的 Actix HTTP 服务（包含 `TraceIdMiddleware` 与全局 JWT 鉴权中间件 `auth_middleware`），通过 `actix_web::test` 直接调用 HTTP 接口，覆盖用户模块的**注册 / 登录 / 查询 / 刷新 token** 等核心流程。
 
 测试结束后自动执行清理：**删除测试数据库**、**清空测试 Redis 的所有 key**。
 

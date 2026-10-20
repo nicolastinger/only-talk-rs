@@ -1,5 +1,6 @@
+use rbatis::crud;
+use rbatis::executor::Executor;
 use rbatis::rbdc::Uuid;
-use rbatis::{crud, impl_select, impl_update};
 use serde::{Deserialize, Serialize};
 
 /// 群成员角色
@@ -27,8 +28,6 @@ pub struct GroupMember {
     pub nickname: Option<String>,
     /// 入群时间 (Unix 时间戳，单位：毫秒)
     pub join_time: Option<i64>,
-    /// 已读消息 ID
-    pub last_read_msg_id: Option<i64>,
     /// 是否禁言
     pub muted: Option<bool>,
     /// 成员状态 (1: 正常, 2: 已退出, 3: 被踢出)
@@ -37,9 +36,45 @@ pub struct GroupMember {
 
 crud!(GroupMember {});
 
-impl_select!(GroupMember{select_by_group_and_user(group_uuid: &Uuid, user_uuid: &Uuid) -> Option => "`where group_uuid = #{group_uuid} and user_uuid = #{user_uuid} limit 1`"});
-impl_update!(GroupMember{update_by_group_and_user(group_uuid: &Uuid, user_uuid: &Uuid) => "`where group_uuid = #{group_uuid} and user_uuid = #{user_uuid}`"});
+impl GroupMember {
+    #[rbatis::py_sql(
+        "select * from group_member where group_uuid = #{group_uuid} and user_uuid = #{user_uuid} limit 1"
+    )]
+    async fn select_by_group_and_user_inner(
+        rb: &dyn Executor,
+        group_uuid: &Uuid,
+        user_uuid: &Uuid,
+    ) -> Vec<GroupMember> {
+    }
 
-impl_select!(GroupMember{select_members_by_group(group_uuid: &Uuid) => "`where group_uuid = #{group_uuid} and status = 1`"});
+    pub async fn select_by_group_and_user(
+        rb: &dyn Executor,
+        group_uuid: &Uuid,
+        user_uuid: &Uuid,
+    ) -> rbatis::Result<Option<GroupMember>> {
+        Ok(Self::select_by_group_and_user_inner(rb, group_uuid, user_uuid)
+            .await?
+            .into_iter()
+            .next())
+    }
 
-impl_select!(GroupMember{select_groups_by_user(user_uuid: &Uuid) => "`where user_uuid = #{user_uuid} and status = 1`"});
+    pub async fn update_by_group_and_user(
+        rb: &dyn Executor,
+        table: &GroupMember,
+        group_uuid: &Uuid,
+        user_uuid: &Uuid,
+    ) -> Result<rbatis::rbdc::db::ExecResult, rbatis::rbdc::Error> {
+        GroupMember::update_by_map(
+            rb,
+            table,
+            rbs::value! {"group_uuid": group_uuid, "user_uuid": user_uuid},
+        )
+        .await
+    }
+
+    #[rbatis::py_sql("select * from group_member where group_uuid = #{group_uuid} and status = 1")]
+    async fn select_members_by_group(rb: &dyn Executor, group_uuid: &Uuid) -> Vec<GroupMember> {}
+
+    #[rbatis::py_sql("select * from group_member where user_uuid = #{user_uuid} and status = 1")]
+    async fn select_groups_by_user(rb: &dyn Executor, user_uuid: &Uuid) -> Vec<GroupMember> {}
+}

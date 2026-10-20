@@ -1,6 +1,6 @@
-//! Multipart upload operations module
+//! 分片上传操作模块
 //!
-//! Provides multipart upload functionality for large files.
+//! 提供大文件的分片上传功能。
 
 use aws_sdk_s3::primitives::DateTime;
 use aws_sdk_s3::types::MultipartUpload;
@@ -9,32 +9,32 @@ use crate::client::S3Client;
 use crate::error::S3Error;
 use crate::storage::StorageInfo;
 
-/// Multipart upload large file
+/// 分片上传大文件
 ///
-/// Split large files into multiple parts for parallel upload, improving upload efficiency.
+/// 将大文件拆分为多个分片并行上传，提高上传效率。
 ///
-/// # Parameters
+/// # 参数
 ///
-/// - `client`: S3 client instance
-/// - `bucket`: Storage bucket name
-/// - `key`: Object key name
-/// - `data`: File data
-/// - `size`: File size (bytes)
-/// - `content_type`: MIME type
+/// - `client`: S3 客户端实例
+/// - `bucket`: 存储桶名称
+/// - `key`: 对象键名
+/// - `data`: 文件数据
+/// - `size`: 文件大小（字节）
+/// - `content_type`: MIME 类型
 ///
-/// # Workflow
+/// # 工作流程
 ///
-/// 1. Call CreateMultipartUpload to initialize upload
-/// 2. Split file into parts and upload each individually (UploadPart)
-/// 3. After all parts are uploaded, call CompleteMultipartUpload
+/// 1. 调用 CreateMultipartUpload 初始化上传
+/// 2. 将文件拆分为多个分片并逐个上传（UploadPart）
+/// 3. 所有分片上传完成后，调用 CompleteMultipartUpload
 ///
-/// # Chunk Size
+/// # 分片大小
 ///
-/// Uses multipart_chunk_size from config, default 5MB
+/// 使用配置中的 multipart_chunk_size，默认为 5MB
 ///
-/// # Error Handling
+/// # 错误处理
 ///
-/// On upload failure, should call abort_multipart_upload to clean up
+/// 上传失败时，应调用 abort_multipart_upload 进行清理
 pub async fn multipart_upload(
     client: &S3Client,
     bucket: &str,
@@ -122,20 +122,20 @@ pub async fn multipart_upload(
     })
 }
 
-/// Abort multipart upload
+/// 中止分片上传
 ///
-/// Cancel an ongoing multipart upload, clean up uploaded parts.
+/// 取消进行中的分片上传，清理已上传的分片。
 ///
-/// # Parameters
+/// # 参数
 ///
-/// - `client`: S3 client instance
-/// - `bucket`: Storage bucket name
-/// - `key`: Object key name
-/// - `upload_id`: Multipart upload ID
+/// - `client`: S3 客户端实例
+/// - `bucket`: 存储桶名称
+/// - `key`: 对象键名
+/// - `upload_id`: 分片上传 ID
 ///
-/// # Use Cases
+/// # 使用场景
 ///
-/// Should call this function to clean up resources when upload fails or is interrupted
+/// 上传失败或中断时，应调用此函数清理资源
 pub async fn abort_multipart_upload(
     client: &S3Client,
     bucket: &str,
@@ -154,24 +154,24 @@ pub async fn abort_multipart_upload(
     Ok(())
 }
 
-/// List incomplete multipart uploads
+/// 列出未完成的分片上传
 ///
-/// List all incomplete multipart upload tasks in a bucket.
+/// 列出桶中的所有未完成分片上传任务。
 ///
-/// # Parameters
+/// # 参数
 ///
-/// - `client`: S3 client instance
-/// - `bucket`: Storage bucket name
-/// - `prefix`: Optional object key prefix filter
+/// - `client`: S3 客户端实例
+/// - `bucket`: 存储桶名称
+/// - `prefix`: 可选的对象键前缀过滤器
 ///
-/// # Returns
+/// # 返回值
 ///
-/// List of incomplete multipart upload information
+/// 未完成分片上传信息的列表
 ///
-/// # Use Cases
+/// # 使用场景
 ///
-/// - Monitor upload progress
-/// - Clean up long-running incomplete uploads
+/// - 监控上传进度
+/// - 清理长期未完成的上传
 pub async fn list_multipart_uploads(
     client: &S3Client,
     bucket: &str,
@@ -204,17 +204,17 @@ pub async fn list_multipart_uploads(
     Ok(uploads)
 }
 
-/// Multipart upload information
+/// 分片上传信息
 ///
-/// Records information about incomplete multipart upload tasks
+/// 记录未完成分片上传任务的信息
 #[derive(Debug)]
 pub struct MultipartUploadInfo {
-    /// Object key name
+    /// 对象键名
     pub key: String,
 
-    /// Multipart upload ID
+    /// 分片上传 ID
     pub upload_id: String,
 
-    /// Initialization time
+    /// 初始化时间
     pub initiated: Option<String>,
 }

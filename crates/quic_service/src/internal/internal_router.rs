@@ -11,6 +11,7 @@ use dashmap::DashMap;
 use deadpool_redis::redis::AsyncCommands;
 use tracing::{error, info, warn};
 
+use crate::conn_lookup;
 use crate::models::quic_connection::{ConnectionType, QuicConnection};
 use crate::msg_service::group_msg_service::process_group_broadcast;
 
@@ -54,7 +55,7 @@ async fn try_deliver_local(
     );
     let connection_key = connection_key.to_uppercase();
 
-    let conn = connections.get(&connection_key).map(|entry| entry.conn.clone());
+    let conn = conn_lookup::get_conn_by_key(connections, &connection_key);
 
     match conn {
         Some(conn) => {
@@ -62,11 +63,8 @@ async fn try_deliver_local(
                 "[单聊] 本地投递成功 target={} platform={} msg_type={}",
                 request.target_user, request.platform, request.msg_type
             );
-            let mut send = conn.open_uni().await?;
-
             // payload 已是 TextQuicMsg 二进制,直接透传
-            send.write_all(&request.payload).await?;
-            send.finish().await?;
+            conn_lookup::send_uni_frame(&conn, &request.payload).await?;
             Ok(Some(InternalQuicResponse::ok()))
         }
         None => {

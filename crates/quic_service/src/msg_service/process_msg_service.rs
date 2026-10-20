@@ -9,17 +9,19 @@ use common::state::CoreState;
 use common::utils::group_msg::GroupQuicMsg;
 use common::utils::internal_quic_client::send_internal_quic_msg;
 use common::utils::internal_quic_msg::{InternalQuicRequest, RequestSource};
+use common::utils::jwt_util::verify_token;
 use common::utils::message_types;
 use common::utils::server_count_sync::compute_preferred_index;
+use common::utils::session_uuid::single_session_uuid;
 use common::utils::time::get_now_time_stamp_as_millis;
 use dashmap::DashMap;
 use deadpool_redis::redis::AsyncCommands;
 use nanoid::nanoid;
-use quinn::Connection;
 use rbatis::rbdc::{Bytes, Uuid};
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
 
+use crate::conn_lookup;
 use crate::models::quic_connection::{ConnectionType, QuicConnection};
 use crate::models::text_msg::TextQuicMsg;
 use crate::msg_service::group_msg_service::handle_group_msg_from_client;
@@ -41,7 +43,7 @@ pub async fn process_rec_msg(
     server_index: u32,
 ) -> anyhow::Result<()> {
     let text_vec = get_text_msg(buffer, length, buffer_msg, head_length).await?;
-    info!("[单聊] 收到客户端消息 {:?}", text_vec);
+    debug!("[单聊] 收到客户端消息 {:?}", text_vec);
     process_text_msg(core, text_vec, uuid, platform, connection_key, &connections, server_index)
         .await?;
 
@@ -57,7 +59,7 @@ async fn process_text_msg(
     connections: &Arc<DashMap<String, QuicConnection>>,
     server_index: u32,
 ) -> anyhow::Result<()> {
-    for mut text_msg in text_quic_msg.into_iter() {
+    for text_msg in text_quic_msg.into_iter() {
         if uuid != text_msg.send_user {
             error!("[单聊] 发送者不匹配 {},{}", uuid, text_msg.send_user);
             continue;
@@ -68,116 +70,151 @@ async fn process_text_msg(
             continue;
         }
 
-        // 群聊消息:路由到群聊处理流程(保存到数据库 -> Redis 查询成员 -> 本地投递 + 内部广播)
-        if matches!(
-            text_msg.text_type,
-            message_types::MSG_TYPE_GROUP_TEXT
-                | message_types::MSG_TYPE_GROUP_IMAGE
-                | message_types::MSG_TYPE_GROUP_FILE
-                | message_types::MSG_TYPE_GROUP_NOTIFICATION
-        ) {
-            debug!(
-                "[群聊] 收到群聊消息 type={} group={} sender={} raw_len={}",
-                text_msg.text_type,
-                text_msg.recv_user,
-                text_msg.send_user,
-                text_msg.raw.len()
-            );
-            let nano_id = nanoid!();
-            let ack_raw_id = text_msg.nano_id.clone();
-            let ack_nano_id = nano_id.clone();
-            let now = get_now_time_stamp_as_millis()?;
-            let group_msg = GroupQuicMsg {
-                nano_id: nano_id.clone(),
-                msg_type: text_msg.text_type,
-                group_uuid: text_msg.recv_user.clone(),
-                send_user: text_msg.send_user.clone(),
-                raw: text_msg.raw.clone(),
-                timestamp: now,
-            };
-
-            let conns = connections.clone();
-            let conn_key = connection_key.to_string();
-            let current_user = text_msg.send_user.clone();
-            let core_clone = core.clone();
-            tokio::spawn(async move {
-                debug!(
-                    "[群聊] 处理群聊消息 nano_id={} group={} sender={}",
-                    nano_id, group_msg.group_uuid, group_msg.send_user
-                );
-                if let Err(e) =
-                    handle_group_msg_from_client(&core_clone, group_msg, server_index, &conns).await
-                {
-                    error!("[群聊] 处理群聊消息失败: {}", e);
-                    return;
-                }
-                let now = get_now_time_stamp_as_millis().unwrap_or(0);
-                if let Err(e) = send_msg_record_success(
-                    ack_nano_id,
-                    &conn_key,
-                    current_user,
-                    ack_raw_id,
-                    now,
-                    &conns,
-                    message_types::MSG_TYPE_GROUP_ACK,
-                )
-                .await
-                {
-                    error!("[群聊] 发送 ACK 失败: {}", e);
-                }
-            });
+        // TTL 续期需求消息: 客户端每 2 分钟携带短效 token 发送, 校验通过后续期路由 key
+        if text_msg.text_type == message_types::MSG_TYPE_TTL {
+            handle_ttl_demand(core, text_msg, platform, connection_key, server_index).await?;
             continue;
         }
 
-        let nano_id = nanoid!();
-        let ack_raw_id = text_msg.nano_id.clone();
-        let ack_nano_id = nano_id.clone();
-        text_msg.nano_id = nano_id;
-        let now = get_now_time_stamp_as_millis()?;
-        text_msg.timestamp = now;
+        // 单聊消息(先匹配): 除群聊/心跳外的类型(纯文本、信令、回执等)均走单聊流程
+        if !is_group_chat_type(text_msg.text_type) {
+            process_single_chat_msg(core, text_msg, platform, connection_key, connections).await?;
+            continue;
+        }
 
-        let text_msg_clone = text_msg.clone();
-        let conn_key = connection_key.to_string();
-        let conns = connections.clone();
-        let core_clone = core.clone();
-        tokio::spawn(async move {
-            let current_user = text_msg_clone.send_user.clone();
-            // WebRTC 信令(100)与视频通话控制消息(12-15)是呼叫建立期的瞬态消息：
-            // 服务端仅转发、不持久化；信令(100)不回 ACK（前端独立发送命令不依赖发送/回执表），
-            // 控制消息(12-15)仍回 ACK，因为它们仍走 send_text_msg 发送流程。
-            let should_ack = text_msg_clone.text_type != message_types::MSG_TYPE_WEBRTC_SIGNAL;
-            match text_msg_clone.text_type {
-                message_types::MSG_TYPE_WEBRTC_SIGNAL
+        // 群聊消息(后匹配): 保存到数据库 -> Redis 查询成员 -> 本地投递 + 内部广播
+        process_group_chat_msg(core, text_msg, connection_key, connections, server_index).await?;
+    }
+
+    debug!("[单聊] 处理完成");
+    Ok(())
+}
+
+/// 是否为群聊消息类型
+fn is_group_chat_type(text_type: u16) -> bool {
+    matches!(
+        text_type,
+        message_types::MSG_TYPE_GROUP_TEXT
+            | message_types::MSG_TYPE_GROUP_IMAGE
+            | message_types::MSG_TYPE_GROUP_FILE
+            | message_types::MSG_TYPE_GROUP_VOICE
+            | message_types::MSG_TYPE_GROUP_NOTIFICATION
+    )
+}
+
+/// 单聊消息处理: 持久化 + 投递 + 回执
+async fn process_single_chat_msg(
+    core: &CoreState,
+    mut text_msg: TextQuicMsg,
+    platform: &str,
+    connection_key: &str,
+    connections: &Arc<DashMap<String, QuicConnection>>,
+) -> anyhow::Result<()> {
+    let nano_id = nanoid!();
+    let ack_raw_id = text_msg.nano_id.clone();
+    let ack_nano_id = nano_id.clone();
+    text_msg.nano_id = nano_id;
+    let now = get_now_time_stamp_as_millis()?;
+    text_msg.timestamp = now;
+
+    let text_msg_clone = text_msg.clone();
+    let conn_key = connection_key.to_string();
+    let conns = connections.clone();
+    let core_clone = core.clone();
+    tokio::spawn(async move {
+        let current_user = text_msg_clone.send_user.clone();
+        // WebRTC 信令(100)、视频通话控制消息(12-15)与 P2P 隐私握手(4)是瞬态信号：
+        // 服务端仅转发、不持久化、不回 ACK（它们不经过前端 send/回执表，无异步重发语义）。
+        let is_transient = matches!(
+            text_msg_clone.text_type,
+            message_types::MSG_TYPE_WEBRTC_SIGNAL
                 | message_types::MSG_TYPE_P2P_VIDEO_CALL_INVITE
                 | message_types::MSG_TYPE_P2P_VIDEO_CALL_ACCEPT
                 | message_types::MSG_TYPE_P2P_VIDEO_CALL_REJECT
-                | message_types::MSG_TYPE_P2P_VIDEO_CALL_END => {}
-                _ => {
-                    if let Err(e) = add_user_chat_record(&core_clone, text_msg_clone).await {
-                        error!("[单聊] 插入消息失败: {}", e);
-                    }
-                }
-            }
-            // 发送 ACK 消息（信令不回执，其余类型仍回执）
-            if should_ack
-                && let Err(e) = send_msg_record_success(
-                    ack_nano_id,
-                    &conn_key,
-                    current_user,
-                    ack_raw_id,
-                    now,
-                    &conns,
-                    message_types::MSG_TYPE_RECALL_SUCCESS,
-                )
-                .await
-            {
-                error!("[单聊] 发送 ACK 失败: {}", e);
-            }
-        });
-        send_msg_to_user(core, text_msg, platform, connections).await?;
-    }
+                | message_types::MSG_TYPE_P2P_VIDEO_CALL_END
+                | message_types::MSG_TYPE_P2P
+        );
+        if !is_transient && let Err(e) = add_user_chat_record(&core_clone, text_msg_clone).await {
+            error!("[单聊] 插入消息失败: {}", e);
+        }
+        // 发送 ACK 消息（信令不回执，其余类型仍回执）
+        if !is_transient
+            && let Err(e) = send_msg_record_success(
+                ack_nano_id,
+                &conn_key,
+                current_user,
+                ack_raw_id,
+                now,
+                &conns,
+                message_types::MSG_TYPE_RECALL_SUCCESS,
+            )
+            .await
+        {
+            error!("[单聊] 发送 ACK 失败: {}", e);
+        }
+    });
+    send_msg_to_user(core, text_msg, platform, connections).await?;
+    Ok(())
+}
 
-    info!("[单聊] 处理完成");
+/// 群聊消息处理: 保存到数据库 -> Redis 查询成员 -> 本地投递 + 内部广播, 完成后回群 ACK
+async fn process_group_chat_msg(
+    core: &CoreState,
+    text_msg: TextQuicMsg,
+    connection_key: &str,
+    connections: &Arc<DashMap<String, QuicConnection>>,
+    server_index: u32,
+) -> anyhow::Result<()> {
+    debug!(
+        "[群聊] 收到群聊消息 type={} group={} sender={} raw_len={}",
+        text_msg.text_type,
+        text_msg.recv_user,
+        text_msg.send_user,
+        text_msg.raw.len()
+    );
+    let nano_id = nanoid!();
+    let ack_raw_id = text_msg.nano_id.clone();
+    let ack_nano_id = nano_id.clone();
+    let now = get_now_time_stamp_as_millis()?;
+    let group_msg = GroupQuicMsg {
+        nano_id: nano_id.clone(),
+        msg_type: text_msg.text_type,
+        group_uuid: text_msg.recv_user.clone(),
+        send_user: text_msg.send_user.clone(),
+        raw: text_msg.raw.clone(),
+        timestamp: now,
+    };
+
+    let conns = connections.clone();
+    let conn_key = connection_key.to_string();
+    let current_user = text_msg.send_user.clone();
+    let core_clone = core.clone();
+    tokio::spawn(async move {
+        debug!(
+            "[群聊] 处理群聊消息 nano_id={} group={} sender={}",
+            nano_id, group_msg.group_uuid, group_msg.send_user
+        );
+        if let Err(e) =
+            handle_group_msg_from_client(&core_clone, group_msg, server_index, &conns).await
+        {
+            error!("[群聊] 处理群聊消息失败: {}", e);
+            return;
+        }
+        let now = get_now_time_stamp_as_millis().unwrap_or(0);
+        if let Err(e) = send_msg_record_success(
+            ack_nano_id,
+            &conn_key,
+            current_user,
+            ack_raw_id,
+            now,
+            &conns,
+            message_types::MSG_TYPE_GROUP_ACK,
+        )
+        .await
+        {
+            error!("[群聊] 发送 ACK 失败: {}", e);
+        }
+    });
     Ok(())
 }
 
@@ -189,6 +226,7 @@ async fn send_msg_to_user(
 ) -> anyhow::Result<()> {
     let recv_user = text_msg.recv_user.clone();
     let send_user = text_msg.send_user.clone();
+    let text_type = text_msg.text_type;
 
     let res = generate_text_msg_with_time(
         text_msg.nano_id,
@@ -212,6 +250,20 @@ async fn send_msg_to_user(
             preferred_index,
         )
         .await?;
+    }
+
+    // 瞬态信令(12-15 通话控制 / 100 WebRTC 信令)不回推给自己另一台设备：
+    // 跨端同步的只是聊天历史文本记录(type=1)，信令是每次会话的实时信号，回推会
+    // 导致发送端收到自己发起的邀请/offer/answer，形成本端自连回环。
+    if matches!(
+        text_type,
+        message_types::MSG_TYPE_WEBRTC_SIGNAL
+            | message_types::MSG_TYPE_P2P_VIDEO_CALL_INVITE
+            | message_types::MSG_TYPE_P2P_VIDEO_CALL_ACCEPT
+            | message_types::MSG_TYPE_P2P_VIDEO_CALL_REJECT
+            | message_types::MSG_TYPE_P2P_VIDEO_CALL_END
+    ) {
+        return Ok(());
     }
 
     // 同步到自己的另一个设备
@@ -258,18 +310,11 @@ async fn send_msg_to_user_by_platform(
     );
     let user_key = user_key.to_uppercase();
 
-    // 尝试本地投递
-    let conn: Option<Connection> = {
-        match connections.get(&user_key) {
-            Some(s) => Some(s.conn.clone()),
-            None => None,
-        }
-    };
+    // 尝试本地投递(get_conn_by_key 返回后 guard 已释放,不会跨 await 持锁)
+    let conn = conn_lookup::get_conn_by_key(connections, &user_key);
 
     if let Some(conn) = conn {
-        let mut send = conn.open_uni().await?;
-        send.write_all(res).await?;
-        send.finish().await?;
+        conn_lookup::send_uni_frame(&conn, res).await?;
     } else {
         warn!("[单聊] 用户不在本机: {},首选节点索引: {}", user_key, preferred_index);
         // 本地未找到 -> 转发到内部 QUIC 进行两阶段路由
@@ -284,6 +329,9 @@ async fn send_msg_to_user_by_platform(
             platform: platform.to_string(),
             source: RequestSource::QuicExternal,
             ttl: 3,
+            close_after_delivery: false,
+            incoming_session: String::new(),
+            send_force_logout: false,
         };
 
         // 根据 preferred_index 从 Redis 获取目标节点的内网 QUIC 地址
@@ -314,11 +362,52 @@ async fn send_ping(
         SYSTEM.to_string(),
     )?;
 
-    if let Some(entry) = connections.get(connection_key) {
-        let mut send = entry.conn.open_uni().await?;
-        send.write_all(ping_msg.as_ref()).await?;
-        send.finish().await?;
+    if let Some(conn) = conn_lookup::get_conn_by_key(connections, connection_key) {
+        conn_lookup::send_uni_frame(&conn, ping_msg.as_ref()).await?;
     }
+    Ok(())
+}
+
+/// TTL 续期需求消息 raw 的 JSON 结构
+#[derive(serde::Deserialize)]
+struct TtlDemandPayload {
+    token: String,
+}
+
+/// 处理客户端 TTL 续期需求: 校验短效 token(签名+过期+归属), 通过后续期用户路由 key。
+/// 校验失败仅告警不续期, 路由 key 到期后自然下线, 不强制踢连接。
+async fn handle_ttl_demand(
+    core: &CoreState,
+    text_msg: TextQuicMsg,
+    platform: &str,
+    connection_key: &str,
+    server_index: u32,
+) -> anyhow::Result<()> {
+    let payload: TtlDemandPayload = match serde_json::from_slice(&text_msg.raw) {
+        Ok(p) => p,
+        Err(e) => {
+            warn!("[server] TTL 续期消息解析失败: {} (uuid={})", e, text_msg.send_user);
+            return Ok(());
+        }
+    };
+    let claims = match verify_token(&payload.token) {
+        Ok(c) => c,
+        Err(e) => {
+            warn!("[server] TTL 续期 token 校验失败: {} (uuid={})", e, text_msg.send_user);
+            return Ok(());
+        }
+    };
+    if claims.uuid != text_msg.send_user || claims.sub != platform {
+        warn!(
+            "[server] TTL 续期 token 与连接不匹配: uuid={} claims.uuid={} platform={} claims.sub={}",
+            text_msg.send_user, claims.uuid, platform, claims.sub
+        );
+        return Ok(());
+    }
+    let mut conn = core.redis.get().await?;
+    let index_str = server_index.to_string();
+    conn.set_ex::<&str, &str, ()>(connection_key, &index_str, 7200).await?;
+    info!("[server] 用户路由 key 续期成功(客户端 TTL 消息): key={}", connection_key);
     Ok(())
 }
 
@@ -341,10 +430,8 @@ async fn send_msg_record_success(
         timestamp,
     )?;
 
-    if let Some(entry) = connections.get(connection_key) {
-        let mut send = entry.conn.open_uni().await?;
-        send.write_all(&res).await?;
-        send.finish().await?;
+    if let Some(conn) = conn_lookup::get_conn_by_key(connections, connection_key) {
+        conn_lookup::send_uni_frame(&conn, &res).await?;
     }
     Ok(())
 }
@@ -364,10 +451,8 @@ async fn send_msg_record_failure(
         SYSTEM.to_string(),
     )?;
 
-    if let Some(entry) = connections.get(connection_key) {
-        let mut send = entry.conn.open_uni().await?;
-        send.write_all(&res).await?;
-        send.finish().await?;
+    if let Some(conn) = conn_lookup::get_conn_by_key(connections, connection_key) {
+        conn_lookup::send_uni_frame(&conn, &res).await?;
     }
     Ok(())
 }
@@ -379,14 +464,22 @@ pub async fn add_user_chat_record(
 ) -> Result<(), anyhow::Error> {
     // TODO kafka转发消息ck批量写入
     let rb = &core.db;
+    let send_user = text_quic_msg.send_user.parse::<Uuid>()?;
+    let recv_user = text_quic_msg.recv_user.parse::<Uuid>()?;
+    // rbdc::Uuid 与 uuid::Uuid 是不同类型, 此处做边界转换后派生会话标识(双向对称)
+    let session_uuid = single_session_uuid(
+        &uuid::Uuid::parse_str(&send_user.to_string())?,
+        &uuid::Uuid::parse_str(&recv_user.to_string())?,
+    );
     let chat_msg = ChatMessageRecord {
         id: None,
+        session_uuid: session_uuid.to_string().parse()?,
         nano_id: Some(text_quic_msg.nano_id),
         timestamp: Some(text_quic_msg.timestamp),
         raw: Bytes::from(text_quic_msg.raw),
         text_type: Some(text_quic_msg.text_type as u32),
-        send_user: text_quic_msg.send_user.parse::<Uuid>()?,
-        recv_user: text_quic_msg.recv_user.parse::<Uuid>()?,
+        send_user,
+        recv_user,
     };
     ChatMessageRecord::insert(rb, &chat_msg).await?;
     Ok(())

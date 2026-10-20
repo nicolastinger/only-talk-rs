@@ -3,11 +3,15 @@
 //! 启动一个真实 ChatNode（自签名证书 + 测试 Redis），用 QUIC 客户端模拟用户设备，覆盖：
 //! 1. 连接握手 + `FirstQuicMsg` JWT 鉴权 + 连接注册（内存 `connections` 映射 + Redis key）
 //! 2. 心跳：客户端通过 uni 流发送 PING，服务器回推 PONG
-//! 3. 非法 token 被拒绝（服务器直接关闭流）
-//! 4. 客户端断开后连接清理（`connections` 映射移除）
+//! 3. 登录接管三态(依据 JWT jti 的 uuid v7 签发时间):
+//!    3a. 同一次登录重连(相同 jti)静默关闭旧连接,不发 FORCE_LOGOUT
+//!    3b. 新登录(更新的 jti)强退旧连接,FORCE_LOGOUT 携带发起接管的新会话 jti
+//!    3c. 过期登录(更老的 jti)重连被拒绝,在线会话保持不变
+//! 4. 非法 token 被拒绝（服务器直接关闭流）
+//! 5. 客户端断开后连接清理（`connections` 映射移除）
 //!
 //! 依赖：本地 Redis（`TEST_REDIS_URL`，建议独立 DB index）与仓库根目录 `.env`；
-//! 不依赖 PostgreSQL（该链路不触达数据库）。
+//! 需要 PostgreSQL（使用 `DATABASE_URL`，仅写入随机 UUID 测试数据）。
 //!
 //! 运行方式：
 //!   cargo test -p quic_service --test external_server_integration_test -- --ignored
@@ -17,25 +21,47 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow};
-use common::config_str::{PC_PLATFORM, PONG, SYSTEM, USER_READ_MSG};
+use common::config_str::{PC_PLATFORM, PONG, SYSTEM};
+use common::models::chat_entity::chat_message_record::ChatMessageRecord;
 use common::state::CoreState;
 use common::utils::internal_quic_client::make_internal_client_config;
-use common::utils::jwt_util::generate_access_token;
-use common::utils::message_types::MSG_TYPE_PING;
-use common::utils::text_msg::HeadMsg;
+use common::utils::jwt_util::{generate_access_token, generate_token_with_expiry, verify_token};
+use common::utils::message_types::{
+    MSG_TYPE_FORCE_LOGOUT, MSG_TYPE_PING, MSG_TYPE_TEXT, MSG_TYPE_TTL,
+};
+use common::utils::session_uuid::single_session_uuid;
+use common::utils::text_msg::{HeadMsg, generate_text_msg_with_id};
 use deadpool_redis::redis::AsyncCommands;
 use deadpool_redis::{Config as RedisConfig, Pool, Runtime};
 use futures_util::FutureExt;
 use quic_service::models::first_quic_msg::FirstQuicMsg;
 use quic_service::models::quic_connection::ConnectionType;
-use quic_service::msg_service::text_msg_service::get_text_msg;
+use quic_service::msg_service::text_msg_service::{generate_text_msg, get_text_msg};
 use quic_service::{ChatNode, ChatNodeConfig, ServiceLifecycle};
 use quinn::{Connection, Endpoint};
+use rbatis::RBatis;
+use rbatis::rbdc::Uuid as RbatisUuid;
+use rbatis::rbdc::db::ConnectOptions;
+use rbatis::rbdc::pool::{ConnectionManager, Pool as RbatisPool};
+use rbdc_pg::PgDriver;
+use rbdc_pg::options::PgConnectOptions;
+use rbdc_pool_fast::FastPool;
 use rsa::pkcs1::EncodeRsaPublicKey;
 use rsa::pkcs8::EncodePrivateKey;
 use tokio::sync::Mutex;
 use tracing::info;
 use uuid::Uuid;
+
+/// 同文件内集成测试的串行锁。
+///
+/// 这些用例共用同一个 Redis（都会 FLUSHALL）与同一个开发库（都会迁移表结构），
+/// 并行执行会互相清空 Redis 状态、破坏表结构，导致偶发失败。
+static TEST_SERIAL: std::sync::OnceLock<tokio::sync::Mutex<()>> = std::sync::OnceLock::new();
+
+/// 获取串行锁（首个调用者初始化）
+fn test_serial() -> &'static tokio::sync::Mutex<()> {
+    TEST_SERIAL.get_or_init(|| tokio::sync::Mutex::new(()))
+}
 
 /// 初始化日志输出，默认 info 级别，可用 RUST_LOG 覆盖
 fn init_logging() {
@@ -87,8 +113,90 @@ fn setup_jwt_keys() -> Result<()> {
 }
 
 /// 构造仅用于测试的 CoreState（DB 不连接；本测试链路不触达数据库）
-fn make_core(redis_pool: Pool) -> CoreState {
-    CoreState { db: rbatis::RBatis::new(), redis: redis_pool }
+fn make_core(db: RBatis, redis_pool: Pool) -> CoreState {
+    CoreState { db, redis: redis_pool }
+}
+
+async fn build_db_pool(url: &str) -> Result<RBatis> {
+    let rb = RBatis::new();
+    let mut options = PgConnectOptions::new();
+    options.set_uri(url).context("设置 PostgreSQL URI 失败")?;
+    let manager = ConnectionManager::new_options(PgDriver {}, options);
+    let pool = FastPool::new(manager).context("创建 PostgreSQL 连接池失败")?;
+    pool.set_timeout(Some(Duration::from_secs(5))).await;
+    rb.pool.set(Box::new(pool)).map_err(|_| anyhow!("设置 PostgreSQL 连接池失败"))?;
+    Ok(rb)
+}
+
+/// 判断表是否为分区父表（存在分区子表）
+async fn is_partitioned(db: &RBatis, table: &str) -> Result<bool> {
+    let sql =
+        format!("SELECT count(*) AS c FROM pg_inherits WHERE inhparent = '{}'::regclass", table);
+    let result: rbs::Value =
+        db.query(&sql, vec![]).await.map_err(|e| anyhow!("查询分区信息失败: {}", e))?;
+    let rows = result.as_array().cloned().unwrap_or_default();
+    let count = rows
+        .first()
+        .and_then(|row| row.as_map())
+        .map(|map| map.get(&rbs::Value::from("c")))
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+    Ok(count > 0)
+}
+
+/// 确保目标库的消息表为分区版本（任务02）。
+///
+/// 分区表无法由普通表原地转换（`CREATE TABLE IF NOT EXISTS ... PARTITION BY HASH`
+/// 遇到已存在的普通表会静默跳过，随后创建分区子表失败），因此检测到旧的非分区
+/// 消息表时先 DROP 再重放 DDL；已是分区表则直接返回，不重复销毁数据。
+async fn ensure_partitioned_message_tables(db: &RBatis) -> Result<()> {
+    if is_partitioned(db, "chat_message_record").await? {
+        return Ok(());
+    }
+    for table in ["chat_message_record", "group_message_record", "chat_message_record_fail"] {
+        db.exec(&format!("DROP TABLE IF EXISTS {} CASCADE", table), vec![])
+            .await
+            .map_err(|e| anyhow!("DROP TABLE {} 失败: {}", table, e))?;
+        info!("已删除旧的非分区表 {}", table);
+    }
+    entity::ddl::apply_all_ddl(db).await.context("重放 DDL 失败")?;
+    info!("消息表已迁移为分区版本");
+    Ok(())
+}
+
+/// 确保目标库完成"任务04 游标归一"迁移：
+/// - `chat_message_record_read` 表已废弃，直接删除（不再重建，DDL 文件已移除）
+/// - `group_member` 若仍含 `last_read_msg_id` 列，删表并重放 DDL（游标已归一）
+///
+/// 幂等：迁移完成后再次调用为空操作。
+async fn ensure_task04_dev_db(db: &RBatis) -> Result<()> {
+    db.exec("DROP TABLE IF EXISTS chat_message_record_read CASCADE", vec![])
+        .await
+        .map_err(|e| anyhow!("DROP chat_message_record_read 失败: {}", e))?;
+
+    let has_col_sql = "SELECT count(*) AS c FROM information_schema.columns \
+         WHERE table_schema = 'public' AND table_name = 'group_member' \
+         AND column_name = 'last_read_msg_id'";
+    let result: rbs::Value = db
+        .query(has_col_sql, vec![])
+        .await
+        .map_err(|e| anyhow!("查询 group_member 列失败: {}", e))?;
+    let has_col = result
+        .as_array()
+        .and_then(|rows| rows.first())
+        .and_then(|row| row.as_map())
+        .map(|map| map.get(&rbs::Value::from("c")))
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0)
+        > 0;
+    if has_col {
+        db.exec("DROP TABLE IF EXISTS group_member CASCADE", vec![])
+            .await
+            .map_err(|e| anyhow!("DROP group_member 失败: {}", e))?;
+        entity::ddl::apply_all_ddl(db).await.context("重放 DDL 失败")?;
+        info!("group_member 已重建(移除 last_read_msg_id 列)");
+    }
+    Ok(())
 }
 
 /// 构建 Redis 连接池
@@ -183,19 +291,80 @@ async fn wait_connection_removed(node: &ChatNode, key: &str, timeout: Duration) 
     }
 }
 
+/// 轮询等待连接映射离开指定 QUIC 连接
+async fn wait_connection_changed(
+    node: &ChatNode,
+    key: &str,
+    old_stable_id: usize,
+    timeout: Duration,
+) -> Result<()> {
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        if let Some(entry) = node.connections().get(key)
+            && entry.conn.stable_id() != old_stable_id
+        {
+            return Ok(());
+        }
+        if std::time::Instant::now() > deadline {
+            return Err(anyhow!("连接未在 {} 内切换到新连接: {}", timeout.as_secs(), key));
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+/// 从连接上读取一枚服务端 uni 帧(返回完整帧字节);若连接在收到任何帧前被静默关闭则返回 None。
+/// 用于区分"同会话静默顶替(无帧)"与"新登录强退(FORCE_LOGOUT 帧)"。
+async fn recv_server_uni_or_closed(
+    conn: &Connection,
+    timeout: Duration,
+) -> Result<Option<Vec<u8>>> {
+    let result = tokio::time::timeout(timeout, async {
+        tokio::select! {
+            _ = conn.closed() => None,
+            uni = conn.accept_uni() => match uni {
+                Ok(mut recv) => {
+                    let mut buf = Vec::new();
+                    let mut chunk = [0u8; 4096];
+                    while let Ok(Some(n)) = recv.read(&mut chunk).await {
+                        buf.extend_from_slice(&chunk[..n]);
+                    }
+                    Some(buf)
+                }
+                Err(_) => None,
+            }
+        }
+    })
+    .await
+    .map_err(|_| anyhow!("等待服务端 uni 帧/连接关闭超时"))?;
+    Ok(result)
+}
+
+/// 从 FORCE_LOGOUT 帧的 raw(JSON)中提取发起强退的会话 jti
+fn kick_session(raw: &[u8]) -> Option<String> {
+    serde_json::from_slice::<serde_json::Value>(raw)
+        .ok()
+        .and_then(|value| value.get("session").and_then(|s| s.as_str()).map(|s| s.to_string()))
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "需要本地 Redis 与仓库根目录 .env"]
 async fn external_chat_node_connection_lifecycle() -> Result<()> {
     init_logging();
+    let _serial = test_serial().lock().await;
     dotenvy::dotenv().ok();
     let _ = dotenvy::from_path(concat!(env!("CARGO_MANIFEST_DIR"), "/../../.env"));
 
     let redis_url = std::env::var("TEST_REDIS_URL").map_err(|_| {
         anyhow!("未找到 TEST_REDIS_URL，请在仓库根目录 .env 中配置（建议独立 DB index，如 redis://127.0.0.1:6379/15）")
     })?;
+    let database_url = std::env::var("DATABASE_URL")
+        .map_err(|_| anyhow!("未找到 DATABASE_URL，请在仓库根目录 .env 中配置 PostgreSQL"))?;
     info!("测试 Redis: {}", redis_url);
     let redis_pool = build_redis_pool(&redis_url)?;
     flush_redis(&redis_pool).await?;
+    let db = build_db_pool(&database_url).await?;
+    ensure_partitioned_message_tables(&db).await?;
+    ensure_task04_dev_db(&db).await?;
 
     // JWT 密钥：注入 config_manager，确保客户端签名与服务器校验一致
     setup_jwt_keys()?;
@@ -214,7 +383,7 @@ async fn external_chat_node_connection_lifecycle() -> Result<()> {
         config.server_name = "localhost".to_string();
         config.node_address = addr.to_string();
 
-        let core = make_core(redis_pool.clone());
+        let core = make_core(db.clone(), redis_pool.clone());
         let mut node = ChatNode::new(config, core);
         node.init().await.context("ChatNode 初始化失败")?;
         node.start().await.context("ChatNode 启动失败")?;
@@ -227,12 +396,8 @@ async fn external_chat_node_connection_lifecycle() -> Result<()> {
             .context("生成 access_token 失败")?;
         let key = conn_key(PC_PLATFORM, &user_uuid);
 
-        // 预置已读消息键为空列表，保证断开时 user_offline 正常走空分支（不触达 DB）
-        let read_key = format!("{}{}", USER_READ_MSG, user_uuid).to_uppercase();
-        {
-            let mut conn = redis_pool.get().await.context("获取 Redis 连接失败")?;
-            conn.set::<&str, &str, ()>(&read_key, "[]").await.context("预置已读消息失败")?;
-        }
+        // 注: 旧的"Redis 已读 → 上线同步"场景随 sync_read_messages 删除(任务04),
+        // 已读游标直写改由 http_service 集成测试覆盖。
 
         // ===== 1. 正常连接：握手 + 鉴权 + 注册 =====
         let head_len = head_size();
@@ -293,7 +458,104 @@ async fn external_chat_node_connection_lifecycle() -> Result<()> {
         assert_eq!(msgs[0].raw, PONG.as_bytes(), "PONG 的 raw 应为 {}", PONG);
         info!("心跳 PING/PONG 通过");
 
-        // ===== 3. 非法 token 被拒绝 =====
+        // ===== 3a. 同一次登录重连(相同 jti):静默关闭旧连接,不发送 FORCE_LOGOUT =====
+        let old_server_stable_id = node
+            .connections()
+            .get(&key)
+            .map(|entry| entry.conn.stable_id())
+            .ok_or_else(|| anyhow!("获取旧连接服务端 stable_id 失败"))?;
+        let (second_endpoint, second_conn) = connect_client(node_addr).await?;
+        let (_second_send, _second_recv) =
+            send_first_msg(&second_conn, &user_uuid, &access_token, head_len).await?;
+        let same_session_frame =
+            recv_server_uni_or_closed(&client_conn, Duration::from_secs(5)).await?;
+        assert!(
+            same_session_frame.is_none(),
+            "相同 token(相同 jti)重连属于同一次登录,应静默关闭旧连接而非强退"
+        );
+        wait_connection_changed(&node, &key, old_server_stable_id, Duration::from_secs(5)).await?;
+        info!("同一次登录重连:旧连接已静默关闭并被新连接替换");
+
+        let online_lock_key =
+            format!("QUIC:ONLINE:LOCK:{}:{}", PC_PLATFORM, user_uuid).to_uppercase();
+        let mut redis = redis_pool.get().await.context("获取 Redis 连接失败")?;
+        let lock_value: Option<String> = redis.get(&online_lock_key).await?;
+        assert!(lock_value.is_none(), "上线成功后应释放分布式锁");
+        drop(redis);
+
+        // 确保新 token 的 jti 严格晚于旧 token(避免同一毫秒内签发导致无法比较先后)
+        tokio::time::sleep(Duration::from_millis(5)).await;
+
+        // ===== 3b. 新登录(更新的 jti)接管:强退旧连接,FORCE_LOGOUT 携带发起会话 jti =====
+        let access_token_newer = generate_access_token(user_uuid.clone(), PC_PLATFORM.to_string())
+            .context("生成更新的 access_token 失败")?;
+        let newer_jti = verify_token(&access_token_newer).context("解析新 token 失败")?.jti;
+        let old_stable_before_takeover = node
+            .connections()
+            .get(&key)
+            .map(|entry| entry.conn.stable_id())
+            .ok_or_else(|| anyhow!("获取接管前连接 stable_id 失败"))?;
+        let (third_endpoint, third_conn) = connect_client(node_addr).await?;
+        let (_third_send, _third_recv) =
+            send_first_msg(&third_conn, &user_uuid, &access_token_newer, head_len).await?;
+        let kick_frame = recv_server_uni_or_closed(&second_conn, Duration::from_secs(5))
+            .await?
+            .ok_or_else(|| anyhow!("新登录接管应发送 FORCE_LOGOUT 强退旧连接"))?;
+        let kick_len = kick_frame.len();
+        let mut kick_buf = kick_frame;
+        let kick_messages =
+            get_text_msg(&mut kick_buf, kick_len, Arc::new(Mutex::new(Vec::new())), head_len)
+                .await?;
+        assert_eq!(kick_messages.len(), 1, "应解析出 1 条 FORCE_LOGOUT");
+        assert_eq!(kick_messages[0].text_type, MSG_TYPE_FORCE_LOGOUT);
+        assert_eq!(
+            kick_session(&kick_messages[0].raw).as_deref(),
+            Some(newer_jti.as_str()),
+            "FORCE_LOGOUT 应携带发起接管的新会话 jti,便于客户端识别本机顶替而忽略"
+        );
+        wait_connection_changed(&node, &key, old_stable_before_takeover, Duration::from_secs(5))
+            .await?;
+        info!("新登录已强退旧连接并接管会话");
+
+        // ===== 3c. 过期登录重连(更老的 jti):拒绝本次连接,保住更新的在线会话 =====
+        let live_stable_id = node
+            .connections()
+            .get(&key)
+            .map(|entry| entry.conn.stable_id())
+            .ok_or_else(|| anyhow!("获取在线连接 stable_id 失败"))?;
+        let live_session_id = node
+            .connections()
+            .get(&key)
+            .map(|entry| entry.session_id.clone())
+            .ok_or_else(|| anyhow!("获取在线会话 jti 失败"))?;
+        let (stale_endpoint, stale_conn) = connect_client(node_addr).await?;
+        // 复用最早的 access_token(其 jti 早于当前在线会话),模拟旧登录复活
+        let (_stale_send, _stale_recv) =
+            send_first_msg(&stale_conn, &user_uuid, &access_token, head_len).await?;
+        let stale_frame = recv_server_uni_or_closed(&stale_conn, Duration::from_secs(5))
+            .await?
+            .ok_or_else(|| anyhow!("过期登录重连应收到 FORCE_LOGOUT 并被拒绝"))?;
+        let stale_len = stale_frame.len();
+        let mut stale_buf = stale_frame;
+        let stale_messages =
+            get_text_msg(&mut stale_buf, stale_len, Arc::new(Mutex::new(Vec::new())), head_len)
+                .await?;
+        assert_eq!(stale_messages.len(), 1, "过期登录应收到 1 条 FORCE_LOGOUT");
+        assert_eq!(stale_messages[0].text_type, MSG_TYPE_FORCE_LOGOUT);
+        assert_eq!(
+            kick_session(&stale_messages[0].raw).as_deref(),
+            Some(live_session_id.as_str()),
+            "拒绝过期登录的 FORCE_LOGOUT 应携带在线会话 jti"
+        );
+        let still_live =
+            node.connections().get(&key).map(|entry| entry.conn.stable_id()).unwrap_or(0);
+        assert_eq!(still_live, live_stable_id, "过期登录不应顶掉更新的在线会话");
+        let still_live_session =
+            node.connections().get(&key).map(|entry| entry.session_id.clone()).unwrap_or_default();
+        assert_eq!(still_live_session, live_session_id, "在线会话 jti 不应被过期登录改写");
+        info!("过期登录重连已被拒绝,更新的在线会话保持不变");
+
+        // ===== 4. 非法 token 被拒绝 =====
         let (bad_endpoint, bad_conn) = connect_client(node_addr).await?;
         let (_bad_send, mut bad_recv) =
             send_first_msg(&bad_conn, &user_uuid, "invalid-token", head_len)
@@ -308,8 +570,8 @@ async fn external_chat_node_connection_lifecycle() -> Result<()> {
         );
         info!("非法 token 已被拒绝");
 
-        // ===== 4. 客户端断开后连接清理 =====
-        client_conn.close(0u32.into(), b"test done");
+        // ===== 5. 客户端断开后连接清理 =====
+        third_conn.close(0u32.into(), b"test done");
         wait_connection_removed(&node, &key, Duration::from_secs(5)).await?;
         info!("断开后连接已从内存映射清理");
 
@@ -322,6 +584,14 @@ async fn external_chat_node_connection_lifecycle() -> Result<()> {
         bad_conn.close(0u32.into(), b"test done");
         bad_endpoint.wait_idle().await;
         drop(bad_endpoint);
+        second_conn.close(0u32.into(), b"test done");
+        second_endpoint.wait_idle().await;
+        drop(second_endpoint);
+        stale_conn.close(0u32.into(), b"test done");
+        stale_endpoint.wait_idle().await;
+        drop(stale_endpoint);
+        third_endpoint.wait_idle().await;
+        drop(third_endpoint);
         client_endpoint.wait_idle().await;
         drop(client_endpoint);
 
@@ -335,6 +605,318 @@ async fn external_chat_node_connection_lifecycle() -> Result<()> {
     .await;
 
     // 清理：无论测试成功与否，清空测试 Redis 并删除临时证书
+    if let Err(e) = flush_redis(&redis_pool).await {
+        info!("清空测试 Redis 失败（不影响测试结果）: {}", e);
+    }
+    let _ = std::fs::remove_dir_all(&temp_dir);
+
+    match outcome {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(e)) => Err(e),
+        Err(panic) => std::panic::resume_unwind(panic),
+    }
+}
+
+/// 通过 uni 流发送一条 TTL 需求消息（raw 为 {"token": "..."}）
+async fn send_ttl_demand(conn: &Connection, send_user: &str, token: &str) -> Result<()> {
+    let mut map = serde_json::Map::new();
+    map.insert("token".to_string(), serde_json::Value::String(token.to_string()));
+    let payload = serde_json::to_vec(&map).context("序列化 TTL 载荷失败")?;
+    let msg = generate_text_msg(MSG_TYPE_TTL, payload, SYSTEM.to_string(), send_user.to_string())
+        .context("构造 TTL 需求消息失败")?;
+    let mut uni = conn.open_uni().await.context("打开 uni 流失败")?;
+    uni.write_all(&msg).await.context("发送 TTL 需求消息失败")?;
+    uni.finish().await.context("结束 uni 流失败")?;
+    Ok(())
+}
+
+/// 发送一条单聊文本消息（复用生产同款封帧: head + bincode 正文 + CRC）
+async fn send_single_chat(
+    conn: &Connection,
+    text_type: u16,
+    recv_user: &str,
+    send_user: &str,
+) -> Result<()> {
+    let bytes = generate_text_msg_with_id(
+        format!("session-uuid-{}", Uuid::new_v4()),
+        text_type,
+        b"session-uuid-test".to_vec(),
+        recv_user.to_string(),
+        send_user.to_string(),
+    )
+    .context("构造单聊消息失败")?;
+    let mut uni = conn.open_uni().await.context("打开 uni 流失败")?;
+    uni.write_all(&bytes).await.context("发送单聊消息失败")?;
+    uni.finish().await.context("结束 uni 流失败")?;
+    Ok(())
+}
+
+/// 轮询数据库, 返回涉及 uuid 的最新一条落库消息(按 id 降序)。
+///
+/// 任务11 起不再有 `select_last_by_column`(死函数), 测试本地实现, 不新增生产代码。
+async fn latest_chat_involving(db: &RBatis, uuid: &str) -> Result<Option<ChatMessageRecord>> {
+    let rbdc: RbatisUuid = uuid.to_string().parse().context("解析查询 UUID 失败")?;
+    let sql = "select * from chat_message_record \
+               where recv_user = $1 or send_user = $1 order by id desc limit 1";
+    let result = db.query(sql, vec![rbs::value!(&rbdc)]).await.context("查询最新消息失败")?;
+    match result.as_array().and_then(|rows| rows.first()).cloned() {
+        Some(v) => Ok(Some(rbs::from_value(v).map_err(|e| anyhow!("反序列化消息失败: {}", e))?)),
+        None => Ok(None),
+    }
+}
+
+/// 轮询数据库, 返回涉及 uuid 的最新一条落库消息
+async fn wait_last_chat(db: &RBatis, uuid: &str, timeout: Duration) -> Result<ChatMessageRecord> {
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        if let Some(msg) = latest_chat_involving(db, uuid).await? {
+            return Ok(msg);
+        }
+        if std::time::Instant::now() >= deadline {
+            return Err(anyhow!("等待用户 {} 的落库消息超时", uuid));
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+/// 轮询数据库, 返回涉及 uuid 的最新一条落库消息, 且其 id 不等于 last_id（等待新消息落地）
+async fn wait_next_chat(
+    db: &RBatis,
+    uuid: &str,
+    last_id: Option<i64>,
+    timeout: Duration,
+) -> Result<ChatMessageRecord> {
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        if let Some(msg) = latest_chat_involving(db, uuid).await?
+            && msg.id != last_id
+        {
+            return Ok(msg);
+        }
+        if std::time::Instant::now() >= deadline {
+            return Err(anyhow!("等待用户 {} 的新落库消息超时", uuid));
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+/// 任务02 落库会话标识校验: 走 QUIC 发单聊消息, 库内 session_uuid 必须等于派生值且双向对称
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "需要本地 Redis/PostgreSQL 与仓库根目录 .env"]
+async fn single_chat_message_persists_session_uuid() -> Result<()> {
+    init_logging();
+    let _serial = test_serial().lock().await;
+    dotenvy::dotenv().ok();
+    let _ = dotenvy::from_path(concat!(env!("CARGO_MANIFEST_DIR"), "/../../.env"));
+
+    let redis_url = std::env::var("TEST_REDIS_URL").map_err(|_| {
+        anyhow!("未找到 TEST_REDIS_URL，请在仓库根目录 .env 中配置（建议独立 DB index，如 redis://127.0.0.1:6379/15）")
+    })?;
+    let database_url = std::env::var("DATABASE_URL")
+        .map_err(|_| anyhow!("未找到 DATABASE_URL，请在仓库根目录 .env 中配置 PostgreSQL"))?;
+    let redis_pool = build_redis_pool(&redis_url)?;
+    flush_redis(&redis_pool).await?;
+    let db = build_db_pool(&database_url).await?;
+    ensure_partitioned_message_tables(&db).await?;
+    ensure_task04_dev_db(&db).await?;
+
+    setup_jwt_keys()?;
+
+    let temp_dir = std::env::temp_dir().join(format!("quic_session_test_{}", Uuid::new_v4()));
+    std::fs::create_dir_all(&temp_dir).context("创建临时证书目录失败")?;
+    let (cert_path, key_path) = make_cert_files(&temp_dir);
+
+    let outcome = std::panic::AssertUnwindSafe(async {
+        let addr = free_udp_addr();
+        let mut config = ChatNodeConfig::new(addr);
+        config.cert_path = cert_path;
+        config.key_path = key_path;
+        config.server_name = "localhost".to_string();
+
+        let core = make_core(db.clone(), redis_pool.clone());
+        let mut node = ChatNode::new(config, core);
+        node.init().await.context("ChatNode 初始化失败")?;
+        node.start().await.context("ChatNode 启动失败")?;
+        let node_addr = node.config().bind_address;
+        info!("ChatNode 已启动，监听: {}", node_addr);
+
+        // 两个随机用户 A/B, 期望会话标识由用户对 v5 派生
+        let user_a = Uuid::new_v4().to_string();
+        let user_b = Uuid::new_v4().to_string();
+        let expected = single_session_uuid(
+            &Uuid::parse_str(&user_a).context("解析 A 失败")?,
+            &Uuid::parse_str(&user_b).context("解析 B 失败")?,
+        );
+        let expected_rbdc: RbatisUuid =
+            expected.to_string().parse().context("解析期望会话标识失败")?;
+        info!("期望会话标识: {}", expected);
+
+        let token_a = generate_access_token(user_a.clone(), PC_PLATFORM.to_string())
+            .context("生成 A token 失败")?;
+        let token_b = generate_access_token(user_b.clone(), PC_PLATFORM.to_string())
+            .context("生成 B token 失败")?;
+        let head_len = head_size();
+
+        let (endpoint_a, conn_a) = connect_client(node_addr).await?;
+        let (_sa, _ra) = send_first_msg(&conn_a, &user_a, &token_a, head_len).await?;
+        let (endpoint_b, conn_b) = connect_client(node_addr).await?;
+        let (_sb, _rb) = send_first_msg(&conn_b, &user_b, &token_b, head_len).await?;
+
+        wait_connection_registered(&node, &conn_key(PC_PLATFORM, &user_a), Duration::from_secs(5))
+            .await?;
+        wait_connection_registered(&node, &conn_key(PC_PLATFORM, &user_b), Duration::from_secs(5))
+            .await?;
+
+        // A -> B
+        send_single_chat(&conn_a, MSG_TYPE_TEXT, &user_b, &user_a).await?;
+        let m_ab = wait_last_chat(&db, &user_a, Duration::from_secs(5)).await?;
+        assert_eq!(
+            m_ab.session_uuid, expected_rbdc,
+            "A->B 落库 session_uuid 应与派生值一致, 实际: {}",
+            m_ab.session_uuid
+        );
+        info!("A->B 落库会话标识校验通过: {}", m_ab.session_uuid);
+
+        // B -> A (反向)
+        send_single_chat(&conn_b, MSG_TYPE_TEXT, &user_a, &user_b).await?;
+        let m_ba = wait_next_chat(&db, &user_b, m_ab.id, Duration::from_secs(5)).await?;
+        assert_eq!(
+            m_ba.session_uuid, expected_rbdc,
+            "B->A 落库 session_uuid 应与派生值一致(双向对称), 实际: {}",
+            m_ba.session_uuid
+        );
+        assert_eq!(m_ab.session_uuid, m_ba.session_uuid, "双向落库会话标识应相同");
+        info!("B->A 落库会话标识校验通过: {}", m_ba.session_uuid);
+
+        conn_a.close(0u32.into(), b"done");
+        conn_b.close(0u32.into(), b"done");
+        endpoint_a.wait_idle().await;
+        endpoint_b.wait_idle().await;
+        node.stop().await.context("ChatNode 停止失败")?;
+        info!("ChatNode 已停止");
+
+        Ok::<(), anyhow::Error>(())
+    })
+    .catch_unwind()
+    .await;
+
+    if let Err(e) = flush_redis(&redis_pool).await {
+        info!("清空测试 Redis 失败（不影响测试结果）: {}", e);
+    }
+    let _ = std::fs::remove_dir_all(&temp_dir);
+
+    match outcome {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(e)) => Err(e),
+        Err(panic) => std::panic::resume_unwind(panic),
+    }
+}
+
+/// 客户端 TTL 续期: 携带短效 token 的 TTL 需求消息通过校验后重置路由 key TTL(7200s),
+/// 过期 token 的 TTL 需求消息被拒绝续期(路由 key 自然衰减)。
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "需要本地 Redis/PostgreSQL 与仓库根目录 .env"]
+async fn ttl_demand_renews_route_key() -> Result<()> {
+    init_logging();
+    let _serial = test_serial().lock().await;
+    dotenvy::dotenv().ok();
+    let _ = dotenvy::from_path(concat!(env!("CARGO_MANIFEST_DIR"), "/../../.env"));
+
+    let redis_url = std::env::var("TEST_REDIS_URL").map_err(|_| {
+        anyhow!("未找到 TEST_REDIS_URL，请在仓库根目录 .env 中配置（建议独立 DB index，如 redis://127.0.0.1:6379/15）")
+    })?;
+    let database_url = std::env::var("DATABASE_URL")
+        .map_err(|_| anyhow!("未找到 DATABASE_URL，请在仓库根目录 .env 中配置 PostgreSQL"))?;
+    let redis_pool = build_redis_pool(&redis_url)?;
+    flush_redis(&redis_pool).await?;
+    let db = build_db_pool(&database_url).await?;
+    ensure_partitioned_message_tables(&db).await?;
+    ensure_task04_dev_db(&db).await?;
+
+    setup_jwt_keys()?;
+
+    let temp_dir = std::env::temp_dir().join(format!("quic_ttl_test_{}", Uuid::new_v4()));
+    std::fs::create_dir_all(&temp_dir).context("创建临时证书目录失败")?;
+    let (cert_path, key_path) = make_cert_files(&temp_dir);
+
+    let outcome = std::panic::AssertUnwindSafe(async {
+        let addr = free_udp_addr();
+        let mut config = ChatNodeConfig::new(addr);
+        config.cert_path = cert_path;
+        config.key_path = key_path;
+        config.server_name = "localhost".to_string();
+
+        let core = make_core(db.clone(), redis_pool.clone());
+        let mut node = ChatNode::new(config, core);
+        node.init().await.context("ChatNode 初始化失败")?;
+        node.start().await.context("ChatNode 启动失败")?;
+        let node_addr = node.config().bind_address;
+        info!("ChatNode 已启动，监听: {}", node_addr);
+
+        let user_uuid = Uuid::new_v4().to_string();
+        let access_token = generate_access_token(user_uuid.clone(), PC_PLATFORM.to_string())
+            .context("生成 access_token 失败")?;
+        let key = conn_key(PC_PLATFORM, &user_uuid);
+        let head_len = head_size();
+
+        let (endpoint, conn) = connect_client(node_addr).await?;
+        let (_send, _recv) = send_first_msg(&conn, &user_uuid, &access_token, head_len).await?;
+        wait_connection_registered(&node, &key, Duration::from_secs(5)).await?;
+
+        // 发送一条 TTL 需求消息(uni 流, raw 为 {"token": "..."})
+        // ===== 有效 token: 缩短 TTL 后发送, 应被续期回 7200s =====
+        {
+            let mut redis = redis_pool.get().await.context("获取 Redis 连接失败")?;
+            let _: () = redis.expire(&key, 60).await.context("缩短路由 key TTL 失败")?;
+            drop(redis);
+        }
+        send_ttl_demand(&conn, &user_uuid, &access_token).await?;
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let renewed_ttl = loop {
+            let mut redis = redis_pool.get().await.context("获取 Redis 连接失败")?;
+            let ttl: i64 = redis.ttl(&key).await.context("读取路由 key TTL 失败")?;
+            drop(redis);
+            if ttl > 7000 {
+                break ttl;
+            }
+            if std::time::Instant::now() > deadline {
+                return Err(anyhow!("有效 token 的 TTL 需求消息未续期路由 key: TTL={}", ttl));
+            }
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        };
+        info!("有效 token 续期成功: TTL={}", renewed_ttl);
+
+        // ===== 过期 token: 缩短 TTL 后发送, 不应续期(保持短 TTL) =====
+        {
+            let mut redis = redis_pool.get().await.context("获取 Redis 连接失败")?;
+            let _: () = redis.expire(&key, 60).await.context("缩短路由 key TTL 失败")?;
+            drop(redis);
+        }
+        let expired_token =
+            generate_token_with_expiry(user_uuid.clone(), PC_PLATFORM.to_string(), -3600)
+                .context("生成过期 token 失败")?;
+        send_ttl_demand(&conn, &user_uuid, &expired_token).await?;
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        let mut redis = redis_pool.get().await.context("获取 Redis 连接失败")?;
+        let stale_ttl: i64 = redis.ttl(&key).await.context("读取路由 key TTL 失败")?;
+        drop(redis);
+        assert!(
+            stale_ttl <= 60,
+            "过期 token 的 TTL 需求消息不应续期路由 key, 实际 TTL={}",
+            stale_ttl
+        );
+        info!("过期 token 未被续期: TTL={}", stale_ttl);
+
+        conn.close(0u32.into(), b"done");
+        endpoint.wait_idle().await;
+        node.stop().await.context("ChatNode 停止失败")?;
+        info!("ChatNode 已停止");
+
+        Ok::<(), anyhow::Error>(())
+    })
+    .catch_unwind()
+    .await;
+
     if let Err(e) = flush_redis(&redis_pool).await {
         info!("清空测试 Redis 失败（不影响测试结果）: {}", e);
     }

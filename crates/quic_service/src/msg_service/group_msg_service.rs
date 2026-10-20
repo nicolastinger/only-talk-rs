@@ -1,16 +1,14 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
-use common::config_str::{
-    GROUP_MEMBERS_CACHE, MOBILE_PLATFORM, PC_PLATFORM, REDIS_INTERNAL_QUIC_SERVERS,
-    REDIS_QUIC_SERVERS, REDIS_SPLIT,
-};
+use common::config_str::{GROUP_MEMBERS_CACHE, REDIS_INTERNAL_QUIC_SERVERS};
 use common::state::CoreState;
 use common::utils::group_msg::{
     BroadcastType, GroupQuicMsg, InternalGroupBroadcast, InternalGroupBroadcastResponse,
 };
 use common::utils::internal_quic_client::make_internal_client_config;
+use common::utils::message_types::MSG_TYPE_GROUP_ACK;
 use common::utils::text_msg::{HeadMsg, TextQuicMsg, X25, build_text_msg};
 use common::utils::time::get_now_time_stamp_as_millis;
 use dashmap::DashSet;
@@ -18,12 +16,12 @@ use deadpool_redis::redis::AsyncCommands;
 use entity::models::group_entity::group_message_record::GroupMessageRecord;
 use nanoid::nanoid;
 use once_cell::sync::Lazy;
+use parking_lot::Mutex;
 use quinn::Connection;
 use rbatis::rbdc::{Bytes, Uuid};
 use tracing::{debug, error, info, warn};
 
-use crate::ConnectionsMap;
-use crate::models::quic_connection::ConnectionType;
+use crate::{ConnectionsMap, conn_lookup};
 
 static DEDUP: Lazy<BroadcastDedup> = Lazy::new(BroadcastDedup::new);
 
@@ -81,6 +79,35 @@ pub fn serialize_group_msg(group_msg: &GroupQuicMsg) -> Result<Vec<u8>> {
         message_type: group_msg.msg_type,
     };
 
+    build_text_msg(&head_msg, &text_msg)
+}
+
+/// 构造回推发送者的群消息 ack(2201)。
+/// 客户端 process_group_ack_type 以 raw 作为 local_nano_id 匹配待确认记录，
+/// 故 nano_id 与 raw 都复用客户端本地的 nano_id，保证发送者本地入库的
+/// group_chat_record 与其他成员收到的广播记录 nano_id 一致。
+fn build_group_ack_bytes(
+    nano_id: &str,
+    group_uuid: &str,
+    send_user: &str,
+    timestamp: i64,
+) -> Result<Vec<u8>> {
+    let text_msg = TextQuicMsg {
+        nano_id: nano_id.to_string(),
+        text_type: MSG_TYPE_GROUP_ACK,
+        raw: nano_id.as_bytes().to_vec(),
+        recv_user: group_uuid.to_string(),
+        send_user: send_user.to_string(),
+        timestamp,
+    };
+    let meta_data = bincode::serialize(&text_msg)?;
+    let crc = X25.checksum(&meta_data);
+    let head_msg = HeadMsg {
+        version: 1,
+        crc,
+        body_len: meta_data.len() as u32,
+        message_type: MSG_TYPE_GROUP_ACK,
+    };
     build_text_msg(&head_msg, &text_msg)
 }
 
@@ -174,6 +201,23 @@ pub async fn handle_group_msg_from_client(
         }
     });
 
+    // 向发送者回推群消息 ack(2201)，客户端据此把本地临时消息标记为已送达并入库
+    if let Some(conn) = find_online_connection(&broadcast.sender, connections) {
+        match build_group_ack_bytes(
+            &broadcast.broadcast_id,
+            &broadcast.group_uuid,
+            &broadcast.sender,
+            broadcast.timestamp,
+        ) {
+            Ok(ack_bytes) => {
+                if let Err(e) = conn_lookup::send_uni_frame(&conn, &ack_bytes).await {
+                    warn!("[群聊] 群消息 ack 回执发送失败 sender={} error={}", broadcast.sender, e);
+                }
+            }
+            Err(e) => error!("[群聊] 构造群消息 ack 失败: {}", e),
+        }
+    }
+
     let core_clone = core.clone();
     tokio::spawn(async move {
         match get_all_internal_node_addresses(&core_clone).await {
@@ -197,12 +241,12 @@ pub async fn handle_group_msg_from_client(
 async fn get_all_internal_node_addresses(
     core: &CoreState,
 ) -> Result<Vec<(u32, std::net::SocketAddr)>> {
-    // 若缓存可用则直接返回
+    // 若缓存可用则直接返回。
+    //
+    // 锁纪律: 用 `parking_lot::Mutex`(无中毒概念) —— 临界区仅 clone 取值, 不存在 panic 路径;
+    // 禁止任何 `unwrap` / `process::exit`(节点级退出与「5s TTL 缓存」的爆炸半径完全不成比例)。
     {
-        let cache_read = NODE_CACHE.lock().unwrap_or_else(|e| {
-            error!("NODE_CACHE 锁中毒: {}", e);
-            std::process::exit(1);
-        });
+        let cache_read = NODE_CACHE.lock();
         if let Some((ts, nodes)) = cache_read.as_ref()
             && ts.elapsed() < Duration::from_secs(5)
         {
@@ -241,12 +285,7 @@ async fn get_all_internal_node_addresses(
         }
     }
 
-    let mut cache_write = NODE_CACHE.lock().unwrap_or_else(|e| {
-        error!("NODE_CACHE 写锁中毒: {}", e);
-        std::process::exit(1);
-    });
-    *cache_write = Some((Instant::now(), nodes.clone()));
-    drop(cache_write);
+    *NODE_CACHE.lock() = Some((Instant::now(), nodes.clone()));
     Ok(nodes)
 }
 
@@ -288,19 +327,9 @@ pub async fn process_group_broadcast_local(
         }
 
         if let Some(conn) = find_online_connection(member, connections) {
-            match conn.open_uni().await {
-                Ok(mut send) => {
-                    if let Err(e) = send.write_all(&broadcast.msg_bytes).await {
-                        warn!("[群聊] 消息投递失败 member={} error={}", member, e);
-                    } else if let Err(e) = send.finish().await {
-                        warn!("[群聊] 结束发送失败 member={} error={}", member, e);
-                    } else {
-                        info!("[群聊] 消息投递成功 member={}", member);
-                    }
-                }
-                Err(e) => {
-                    warn!("[群聊] 打开 uni 流失败 member={} error={}", member, e);
-                }
+            match conn_lookup::send_uni_frame(&conn, &broadcast.msg_bytes).await {
+                Ok(_) => info!("[群聊] 消息投递成功 member={}", member),
+                Err(e) => warn!("[群聊] 消息投递失败 member={} error={}", member, e),
             }
         }
     }
@@ -321,10 +350,10 @@ pub async fn process_group_broadcast(
             continue;
         }
 
-        if let Some(conn) = find_online_connection(member, connections) {
-            let mut send = conn.open_uni().await?;
-            send.write_all(&broadcast.msg_bytes).await?;
-            send.finish().await?;
+        if let Some(conn) = find_online_connection(member, connections)
+            && let Err(e) = conn_lookup::send_uni_frame(&conn, &broadcast.msg_bytes).await
+        {
+            warn!("[群聊] 广播投递失败 member={} error={}", member, e);
         }
     }
 
@@ -332,22 +361,7 @@ pub async fn process_group_broadcast(
 }
 
 pub fn find_online_connection(user_uuid: &str, connections: &ConnectionsMap) -> Option<Connection> {
-    for platform in [PC_PLATFORM, MOBILE_PLATFORM] {
-        let key = format!(
-            "{}:{}{}{}{}",
-            platform,
-            REDIS_QUIC_SERVERS,
-            user_uuid,
-            REDIS_SPLIT,
-            ConnectionType::Text,
-        )
-        .to_uppercase();
-
-        if let Some(entry) = connections.get(&key) {
-            return Some(entry.conn.clone());
-        }
-    }
-    None
+    conn_lookup::get_conn_any_platform(connections, user_uuid)
 }
 
 async fn save_group_message_to_db(rb: &rbatis::RBatis, group_msg: &GroupQuicMsg) -> Result<()> {
@@ -364,52 +378,6 @@ async fn save_group_message_to_db(rb: &rbatis::RBatis, group_msg: &GroupQuicMsg)
 
     GroupMessageRecord::insert(rb, &record).await?;
     info!("[群聊] 消息已持久化 nano_id={}", group_msg.nano_id);
-
-    Ok(())
-}
-
-pub async fn sync_offline_group_messages(
-    core: &CoreState,
-    user_uuid: &str,
-    connections: &ConnectionsMap,
-) -> Result<()> {
-    let rb = &core.db;
-    use entity::models::group_entity::group_member::GroupMember;
-
-    let uuid = user_uuid.parse::<Uuid>()?;
-    let groups: Vec<GroupMember> = GroupMember::select_groups_by_user(rb, &uuid).await?;
-
-    for group_member in groups {
-        if let (Some(g_uuid), Some(last_read_msg_id)) =
-            (group_member.group_uuid, group_member.last_read_msg_id)
-        {
-            let unread: Vec<GroupMessageRecord> =
-                GroupMessageRecord::select_unread(rb, &g_uuid, last_read_msg_id).await?;
-
-            for msg in unread {
-                if let (Some(nano_id), Some(send_user), Some(timestamp), Some(msg_type)) =
-                    (msg.nano_id, msg.send_user, msg.timestamp, msg.msg_type)
-                {
-                    let group_msg = GroupQuicMsg {
-                        nano_id,
-                        msg_type: msg_type as u16,
-                        group_uuid: g_uuid.to_string(),
-                        send_user: send_user.to_string(),
-                        raw: msg.raw.0.to_vec(),
-                        timestamp,
-                    };
-
-                    if let Ok(msg_bytes) = serialize_group_msg(&group_msg)
-                        && let Some(conn) = find_online_connection(user_uuid, connections)
-                        && let Ok(mut send) = conn.open_uni().await
-                        && send.write_all(&msg_bytes).await.is_ok()
-                    {
-                        let _ = send.finish().await;
-                    }
-                }
-            }
-        }
-    }
 
     Ok(())
 }

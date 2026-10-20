@@ -3,6 +3,12 @@ use std::net::SocketAddr;
 
 use super::state::ServiceError;
 
+/// 默认最大并发连接数(未在 `app_config.toml` 的 `[quic_server]` 配置时生效)。
+///
+/// 仅作为新建连接的准入上限, 不做内存预分配; 已存在的连接重连不受此限。
+/// 实际承载量仍受机器内存约束(单连接约 50~150KB), 2C4G 下需自行评估。
+pub const DEFAULT_MAX_CONNECTIONS: usize = 10000;
+
 /// QUIC ChatNode 配置
 #[derive(Debug, Clone)]
 pub struct ChatNodeConfig {
@@ -28,7 +34,7 @@ impl ChatNodeConfig {
             bind_address,
             cert_path: "./config/ssl/fullchain.pem".to_string(),
             key_path: "./config/ssl/privkey.pem".to_string(),
-            max_connections: 1000,
+            max_connections: DEFAULT_MAX_CONNECTIONS,
             max_buffer_length: 10 * 1024 * 1024,
             idle_timeout_secs: 190,
             max_concurrent_uni_streams: 0,
@@ -89,6 +95,15 @@ impl ChatNodeConfig {
             .unwrap_or("127.0.0.1:4433")
             .to_string();
 
+        // 最大并发连接数: 未配置/非法(<=0)时回退默认值。
+        // `as_integer()` 返回 i64, 负数直接 as usize 会回绕成天文数字(等于关掉准入检查), 故 filter > 0。
+        let max_connections = quic
+            .get("max_connections")
+            .and_then(|v| v.as_integer())
+            .filter(|v| *v > 0)
+            .map(|v| v as usize)
+            .unwrap_or(DEFAULT_MAX_CONNECTIONS);
+
         let server_index = config_map
             .get("cluster")
             .and_then(|c| c.get("server_index"))
@@ -100,6 +115,7 @@ impl ChatNodeConfig {
             key_path,
             server_name,
             node_address,
+            max_connections,
             server_index,
             ..Self::new(bind_address)
         })
@@ -128,7 +144,7 @@ node_address = "10.0.0.1:4433"
     fn test_new_defaults() {
         let config = ChatNodeConfig::new("127.0.0.1:4433".parse().expect("解析地址失败"));
         assert_eq!(config.bind_address, "127.0.0.1:4433".parse().expect("解析地址失败"));
-        assert_eq!(config.max_connections, 1000);
+        assert_eq!(config.max_connections, DEFAULT_MAX_CONNECTIONS);
         assert_eq!(config.max_buffer_length, 10 * 1024 * 1024);
         assert_eq!(config.idle_timeout_secs, 190);
         assert_eq!(config.max_concurrent_uni_streams, 0);
@@ -150,8 +166,34 @@ node_address = "10.0.0.1:4433"
         assert_eq!(config.node_address, "10.0.0.1:4433");
         assert_eq!(config.server_index, 3);
         // 未配置字段使用默认值
-        assert_eq!(config.max_connections, 1000);
+        assert_eq!(config.max_connections, DEFAULT_MAX_CONNECTIONS);
         assert_eq!(config.idle_timeout_secs, 190);
+    }
+
+    #[test]
+    fn test_from_toml_str_max_connections() {
+        // 显式配置时取配置值
+        let toml = r#"
+[quic_server]
+address = "0.0.0.0:4433"
+max_connections = 25000
+"#;
+        let config = ChatNodeConfig::from_toml_str(toml).expect("解析 TOML 配置失败");
+        assert_eq!(config.max_connections, 25000);
+
+        // 非法值(0/负数)回退默认值, 避免 usize 回绕成超大上限
+        for invalid in ["0", "-5"] {
+            let toml = format!(
+                "[quic_server]\naddress = \"0.0.0.0:4433\"\nmax_connections = {}\n",
+                invalid
+            );
+            let config = ChatNodeConfig::from_toml_str(&toml).expect("解析 TOML 配置失败");
+            assert_eq!(
+                config.max_connections, DEFAULT_MAX_CONNECTIONS,
+                "非法值 {} 应回退默认",
+                invalid
+            );
+        }
     }
 
     #[test]

@@ -1,93 +1,19 @@
 use std::collections::HashMap;
-use std::fs::File;
-use std::io::{BufReader, Seek, SeekFrom};
 use std::sync::Arc;
 
 use actix_web::middleware::from_fn;
 use actix_web::{App, HttpServer, middleware, web};
+use common::config_str::DEFAULT_MAX_FILE_SIZE;
 use common::{init_app_config, init_redis, init_sql_pool, read_global_config, verify_redis};
 use email_service::config::{AliyunConfig, EmailServiceConfig, ProviderConfig};
 use http_service;
 use http_service::middleware::TraceIdMiddleware;
-use http_service::utils::record_bad_http::error_record_middleware;
-use rustls::{Certificate, PrivateKey, ServerConfig};
-use rustls_pemfile::{certs, ec_private_keys, pkcs8_private_keys, rsa_private_keys};
+use http_service::utils::auth_middleware::auth_middleware;
 use s3_service::client::GlobalS3Client;
 use s3_service::config::S3Config;
 use tracing::{error, info};
 
 use crate::controller::configure_api_routes;
-
-fn read_key_file(path: &str, label: &str) -> anyhow::Result<File> {
-    File::open(path).map_err(|e| anyhow::anyhow!("{} not found: {}", label, e))
-}
-
-fn reset_file(file: &mut impl Seek) -> anyhow::Result<()> {
-    file.seek(SeekFrom::Start(0)).map(|_| ())?;
-    Ok(())
-}
-
-fn init_cert_file() -> anyhow::Result<(Vec<Certificate>, PrivateKey)> {
-    let cert_file =
-        &mut BufReader::new(read_key_file("./config/ssl/fullchain.pem", "TLS certificate")?);
-    let key_file =
-        &mut BufReader::new(read_key_file("./config/ssl/privkey.pem", "TLS certificate key")?);
-
-    let cert_chain = certs(cert_file)
-        .map_err(|e| anyhow::anyhow!("Failed to read certificate chain: {}", e))?
-        .into_iter()
-        .map(Certificate)
-        .collect::<Vec<_>>();
-    info!("已加载 {} 个证书", cert_chain.len());
-
-    // 尝试读取不同类型的私钥
-    let mut keys = {
-        reset_file(key_file)?;
-        if let Ok(keys) = rsa_private_keys(key_file) {
-            if !keys.is_empty() {
-                keys
-            } else {
-                reset_file(key_file)?;
-                if let Ok(keys) = ec_private_keys(key_file) {
-                    if !keys.is_empty() {
-                        keys
-                    } else {
-                        reset_file(key_file)?;
-                        pkcs8_private_keys(key_file).map_err(|e| {
-                            anyhow::anyhow!("Unable to read PKCS8 private key: {}", e)
-                        })?
-                    }
-                } else {
-                    reset_file(key_file)?;
-                    pkcs8_private_keys(key_file)
-                        .map_err(|e| anyhow::anyhow!("Unable to read PKCS8 private key: {}", e))?
-                }
-            }
-        } else {
-            reset_file(key_file)?;
-            if let Ok(keys) = ec_private_keys(key_file) {
-                if !keys.is_empty() {
-                    keys
-                } else {
-                    reset_file(key_file)?;
-                    pkcs8_private_keys(key_file)
-                        .map_err(|e| anyhow::anyhow!("Unable to read PKCS8 private key: {}", e))?
-                }
-            } else {
-                reset_file(key_file)?;
-                pkcs8_private_keys(key_file)
-                    .map_err(|e| anyhow::anyhow!("Unable to read PKCS8 private key: {}", e))?
-            }
-        }
-    };
-
-    if keys.is_empty() {
-        return Err(anyhow::anyhow!("No valid private key found in key file"));
-    }
-
-    let key = PrivateKey(keys.remove(0));
-    Ok((cert_chain, key))
-}
 
 /// 初始化 S3 客户端。
 ///
@@ -159,18 +85,6 @@ pub async fn start_server() -> anyhow::Result<()> {
 
     let pool = init_sql_pool(&url).await?;
 
-    let (cert_chain, key) = init_cert_file()?;
-
-    // 配置 TLS
-    let config = ServerConfig::builder()
-        .with_safe_defaults()
-        .with_no_client_auth()
-        .with_single_cert(cert_chain, key)
-        .map_err(|e| {
-            error!("设置证书和私钥失败: {}", e);
-            std::io::Error::other("Failed to set certificate and private key")
-        })?;
-
     let redis_url = read_global_config!("redis", "url");
     let redis_pool = init_redis(&redis_url)?;
     verify_redis(&redis_pool).await;
@@ -189,17 +103,53 @@ pub async fn start_server() -> anyhow::Result<()> {
 
     let address = read_global_config!("server", "address");
 
+    // 任务09 §3.3: 每日清理窗口外消息(启动即跑一轮, 之后每 24h; 分批 10000 循环至清空)
+    {
+        let db = state.core.db.clone();
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(std::time::Duration::from_secs(24 * 3600));
+            tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            loop {
+                tick.tick().await;
+                let Ok(now) = common::utils::time::get_now_time_stamp_as_millis() else {
+                    error!("[cleanup] 获取时间戳失败, 跳过本轮清理");
+                    continue;
+                };
+                let boundary = now - common::config_str::SYNC_WINDOW_DAYS * 24 * 3600 * 1000;
+                let mut total = 0u64;
+                loop {
+                    match common::models::session_entity::cleanup::delete_messages_before(
+                        &db, boundary, 10_000,
+                    )
+                    .await
+                    {
+                        Ok(n) if n > 0 => total += n,
+                        Ok(_) => break,
+                        Err(e) => {
+                            error!("[cleanup] 清理批次失败: {}", e);
+                            break;
+                        }
+                    }
+                }
+                info!("[cleanup] 窗口外消息清理完成: {} 行, boundary={}", total, boundary);
+            }
+        });
+    }
+
     HttpServer::new(move || {
         App::new()
             .wrap(TraceIdMiddleware)
-            .wrap(from_fn(error_record_middleware))
+            .wrap(from_fn(auth_middleware))
             .app_data(web::Data::new(state.clone()))
+            // 放开请求体大小限制: 单文件上限 DEFAULT_MAX_FILE_SIZE(100MB), 再留 multipart 边界/字段头开销余量
+            .app_data(web::PayloadConfig::new(DEFAULT_MAX_FILE_SIZE as usize + 20 * 1024 * 1024))
             .wrap(middleware::Logger::default())
             .configure(http_service::http_service::configure_routes)
             .configure(configure_api_routes)
     })
-    .bind_rustls_021(address, config)? // 绑定 HTTPS 端口
-    // .bind(address)?
+    // 网关方案: HTTP 面 TLS 终止外移到 nginx(443), actix 只监听明文 HTTP,
+    // 仅 compose 内网可达(compose 不再发布 8443)。裸机部署须把 [server] address 改 127.0.0.1:8443。
+    .bind(address)?
     .run()
     .await?;
     Ok(())

@@ -11,7 +11,7 @@ use common::config_str::{
     REDIS_INTERNAL_QUIC_SERVERS, REDIS_QUIC_SERVERS, REDIS_SPLIT, REFRESH_TOKEN,
     S3_CHAT_FILE_ORIGIN_BUCKET, S3_CHAT_FILE_PREVIEW_BUCKET, S3_DEFAULT_BUCKET,
     S3_PROVIDER_ALIYUN_OSS, S3_PROVIDER_AWS_S3, S3_PROVIDER_MINIO, S3_USER_AVATAR_BUCKET, SYSTEM,
-    USER_ADD_FRIEND, USER_PROCESS_FRIEND, USER_READ_MSG, USER_UDP_ADDRESS, USER_UDP_ADDRESS_LOCK,
+    USER_ADD_FRIEND, USER_PROCESS_FRIEND, USER_UDP_ADDRESS, USER_UDP_ADDRESS_LOCK,
 };
 use common::substitute_env_vars;
 use common::utils::group_msg::{
@@ -21,11 +21,10 @@ use common::utils::internal_quic_client::make_internal_client_config;
 use common::utils::internal_quic_msg::{InternalQuicRequest, InternalQuicResponse, RequestSource};
 use common::utils::jwt_util::{generate_access_token, generate_token_with_expiry, verify_token};
 use common::utils::message_types::{
-    INTERNAL_FRIEND_NOTIFY, MSG_TYPE_FILE, MSG_TYPE_GROUP_ACK, MSG_TYPE_GROUP_FILE,
-    MSG_TYPE_GROUP_IMAGE, MSG_TYPE_GROUP_NOTIFICATION, MSG_TYPE_GROUP_TEXT, MSG_TYPE_IMAGE,
+    INTERNAL_FRIEND_NOTIFY, MSG_TYPE_GROUP_ACK, MSG_TYPE_GROUP_NOTIFICATION, MSG_TYPE_GROUP_TEXT,
     MSG_TYPE_P2P, MSG_TYPE_P2P_USER_CLIENT, MSG_TYPE_P2P_USER_SERVER, MSG_TYPE_P2P_VIDEO_CALL,
     MSG_TYPE_P2P_VIDEO_CONFIG, MSG_TYPE_P2P_VIDEO_DATA, MSG_TYPE_PING, MSG_TYPE_RECALL_FAILURE,
-    MSG_TYPE_RECALL_SUCCESS, MSG_TYPE_SYSTEM, MSG_TYPE_TEXT, NOTIFY_TYPE_MSG,
+    MSG_TYPE_RECALL_SUCCESS, MSG_TYPE_SYSTEM, MSG_TYPE_TEXT, MSG_TYPE_TTL, NOTIFY_TYPE_MSG,
 };
 use common::utils::rsa_util::{
     generate_random_string, get_rsa_keys, hash_password, verify_password,
@@ -142,7 +141,6 @@ mod config_str {
         assert_eq!(REDIS_QUIC_SERVERS, "QUIC:SERVER:");
         assert_eq!(REDIS_EXTERNAL_QUIC_SERVERS, "QUIC:SERVER:EXTERNAL:");
         assert_eq!(REDIS_INTERNAL_QUIC_SERVERS, "INTERNAL:QUIC:SERVER:");
-        assert_eq!(USER_READ_MSG, "USER:READ:MSG:");
         assert_eq!(USER_ADD_FRIEND, "USER_ADD_FRIEND_REQUEST");
         assert_eq!(USER_PROCESS_FRIEND, "USER_PROCESS_FRIEND_REQUEST");
         assert_eq!(USER_UDP_ADDRESS, "USER_UDP_ADDRESS_");
@@ -163,7 +161,7 @@ mod config_str {
     #[test]
     fn limits_and_s3_constants() {
         assert_eq!(MAX_QUIC_BUFFER_LEN, 1024 * 1024 * 10);
-        assert_eq!(DEFAULT_MAX_FILE_SIZE, 20 * 1024 * 1024);
+        assert_eq!(DEFAULT_MAX_FILE_SIZE, 100 * 1024 * 1024);
         assert_eq!(OSS_TYPE_MINIO, 0);
         assert_eq!(OSS_TYPE_ALIYUN, 1);
         assert_eq!(OSS_TYPE_AWS, 2);
@@ -184,8 +182,6 @@ mod message_types {
     #[test]
     fn constants_values() {
         assert_eq!(MSG_TYPE_TEXT, 1);
-        assert_eq!(MSG_TYPE_IMAGE, 2);
-        assert_eq!(MSG_TYPE_FILE, 3);
         assert_eq!(MSG_TYPE_P2P, 4);
         assert_eq!(MSG_TYPE_P2P_VIDEO_CALL, 5);
         assert_eq!(MSG_TYPE_P2P_VIDEO_DATA, 6);
@@ -199,8 +195,6 @@ mod message_types {
         assert_eq!(MSG_TYPE_SYSTEM, 10001);
         assert_eq!(INTERNAL_FRIEND_NOTIFY, 20001);
         assert_eq!(MSG_TYPE_GROUP_TEXT, 2001);
-        assert_eq!(MSG_TYPE_GROUP_IMAGE, 2002);
-        assert_eq!(MSG_TYPE_GROUP_FILE, 2003);
         assert_eq!(MSG_TYPE_GROUP_NOTIFICATION, 2004);
         assert_eq!(MSG_TYPE_GROUP_ACK, 2201);
     }
@@ -262,8 +256,6 @@ mod text_msg {
     #[test]
     fn message_type_variants_match_constants() {
         assert_eq!(MessageType::Text as u16, MSG_TYPE_TEXT);
-        assert_eq!(MessageType::Image as u16, MSG_TYPE_IMAGE);
-        assert_eq!(MessageType::File as u16, MSG_TYPE_FILE);
         assert_eq!(MessageType::P2P as u16, MSG_TYPE_P2P);
         assert_eq!(MessageType::P2PVideoCall as u16, MSG_TYPE_P2P_VIDEO_CALL);
         assert_eq!(MessageType::P2pVideoData as u16, MSG_TYPE_P2P_VIDEO_DATA);
@@ -274,6 +266,7 @@ mod text_msg {
         assert_eq!(MessageType::P2pUserServer as u16, MSG_TYPE_P2P_USER_SERVER);
         assert_eq!(MessageType::P2pUserClient as u16, MSG_TYPE_P2P_USER_CLIENT);
         assert_eq!(MessageType::System as u16, MSG_TYPE_SYSTEM);
+        assert_eq!(MessageType::TtlRenew as u16, MSG_TYPE_TTL);
     }
 
     #[test]
@@ -465,6 +458,9 @@ mod internal_quic_msg {
             platform: PC_PLATFORM.to_string(),
             source: RequestSource::QuicExternal,
             ttl: 3,
+            close_after_delivery: false,
+            incoming_session: String::new(),
+            send_force_logout: false,
         }
     }
 
@@ -651,11 +647,20 @@ mod jwt_util {
 }
 
 /// utils::server_count_sync 集群节点数 / 哈希取模
+///
+/// 注意: SERVER_COUNT 是进程级全局原子变量, 测试默认并行执行, 两个会改写它的用例
+/// 必须通过 SERVER_COUNT_LOCK 串行化, 否则并发改写会让 compute_preferred_index 读到
+/// 其它用例写入的中间值(如 7), 导致按"当前 server_count=5"断言的越界误报。
 mod server_count_sync {
+    use std::sync::Mutex;
+
     use super::*;
+
+    static SERVER_COUNT_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn get_server_count_reflects_global() {
+        let _guard = SERVER_COUNT_LOCK.lock().expect("SERVER_COUNT_LOCK 中毒");
         SERVER_COUNT.store(1, Ordering::Relaxed);
         assert_eq!(get_server_count(), 1);
 
@@ -668,6 +673,7 @@ mod server_count_sync {
 
     #[test]
     fn compute_preferred_index_is_deterministic_and_bounded() {
+        let _guard = SERVER_COUNT_LOCK.lock().expect("SERVER_COUNT_LOCK 中毒");
         // 单节点时恒为 0
         SERVER_COUNT.store(1, Ordering::Relaxed);
         assert_eq!(compute_preferred_index("uuid-1"), 0);

@@ -16,6 +16,7 @@ use crate::http_service::file_service::model::file_type_config::get_file_type_co
 use crate::http_service::file_service::service::biz_service::get_pub_file_record_by_biz_id;
 use crate::http_service::file_service::service::chat_biz_service::get_chat_file_record_by_biz_id;
 use crate::http_service::file_service::service::chat_s3_service::download_chat_file_s3;
+use crate::http_service::file_service::vo::biz_file_download_link_vo::BizFileDownloadLinkVO;
 use crate::utils::http_response::CommonResponseRef;
 
 /**
@@ -33,6 +34,7 @@ pub fn validate_file_type(file_name: &str, mime_type: Option<&str>) -> Result<()
         config.archive.extensions.iter(),
         config.audio.extensions.iter(),
         config.video.extensions.iter(),
+        config.application.extensions.iter(),
     ]
     .into_iter()
     .flatten()
@@ -51,19 +53,27 @@ pub fn validate_file_type(file_name: &str, mime_type: Option<&str>) -> Result<()
 
     // 检查MIME类型
     if let Some(mime) = mime_type {
-        let all_mime_types: Vec<&String> = vec![
-            config.image.mime_types.iter(),
-            config.document.mime_types.iter(),
-            config.archive.mime_types.iter(),
-            config.audio.mime_types.iter(),
-            config.video.mime_types.iter(),
-        ]
-        .into_iter()
-        .flatten()
-        .collect();
+        // 通用二进制流(application/octet-stream): 客户端对未知/可执行扩展统一上报此 MIME,
+        // 扩展名已过白名单则放行(如 exe/msi/apk 等)
+        if mime != "application/octet-stream" {
+            let all_mime_types: Vec<&String> = vec![
+                config.image.mime_types.iter(),
+                config.document.mime_types.iter(),
+                config.archive.mime_types.iter(),
+                config.audio.mime_types.iter(),
+                config.video.mime_types.iter(),
+                config.application.mime_types.iter(),
+            ]
+            .into_iter()
+            .flatten()
+            .collect();
 
-        if !all_mime_types.iter().any(|mt| mt.as_str() == mime) {
-            return Err(format!("不支持的MIME类型: {}. 支持的类型: {:?}", mime, all_mime_types));
+            if !all_mime_types.iter().any(|mt| mt.as_str() == mime) {
+                return Err(format!(
+                    "不支持的MIME类型: {}. 支持的类型: {:?}",
+                    mime, all_mime_types
+                ));
+            }
         }
     }
 
@@ -204,7 +214,7 @@ pub async fn download_link_pub_biz(
     }
 
     // 2. 组建下载链接 - 公开桶返回直接URL，其他桶返回预签名URL
-    let mut download_link_vec: Vec<String> = vec![];
+    let mut download_link_vec: Vec<BizFileDownloadLinkVO> = vec![];
 
     for file_id in file_ids.iter() {
         // 获取文件记录
@@ -255,10 +265,21 @@ pub async fn download_link_pub_biz(
                 .await
                 .map_err(|e| anyhow!("生成预签名URL失败: {}", e))?
         };
-        download_link_vec.push(url);
+
+        let file_name = file_record
+            .original_name
+            .clone()
+            .filter(|n| !n.trim().is_empty())
+            .or_else(|| file_path.rsplit('/').next().map(|s| s.to_string()))
+            .unwrap_or_default();
+        download_link_vec.push(BizFileDownloadLinkVO {
+            url,
+            file_name,
+            mime_type: file_record.mime_type.clone(),
+        });
     }
 
-    let res = CommonResponseRef::<Vec<String>>::success_json(&download_link_vec)?;
+    let res = CommonResponseRef::<Vec<BizFileDownloadLinkVO>>::success_json(&download_link_vec)?;
     Ok(res)
 }
 
@@ -301,7 +322,7 @@ pub async fn download_link_chat_biz(
     }
 
     // 3. 组建下载链接 - S3 文件返回预签名 URL
-    let mut download_link_vec: Vec<String> = vec![];
+    let mut download_link_vec: Vec<BizFileDownloadLinkVO> = vec![];
 
     for file_id in file_ids.iter() {
         // 获取文件记录
@@ -312,13 +333,15 @@ pub async fn download_link_chat_biz(
             return Err(anyhow!("文件不是S3存储，无法生成下载链接"));
         }
 
+        let file_path = file_record.file_path.as_ref().ok_or(anyhow!("文件路径为空"))?;
+
         // 生成预签名 URL
         let presigned_url = if let Some(ref bucket) = file_record.bucket {
             let storage =
                 s3_service::storage::S3Storage::with_bucket(s3_client.clone(), bucket.clone());
             storage
                 .presigned_url(
-                    &file_record.file_path.ok_or(anyhow!("文件路径为空"))?,
+                    file_path,
                     std::time::Duration::from_secs(s3_client.config.presign_expire_seconds),
                     s3_service::storage::PresignedMethod::Get,
                 )
@@ -331,17 +354,28 @@ pub async fn download_link_chat_biz(
             );
             storage
                 .presigned_url(
-                    &file_record.file_path.ok_or(anyhow!("文件路径为空"))?,
+                    file_path,
                     std::time::Duration::from_secs(s3_client.config.presign_expire_seconds),
                     s3_service::storage::PresignedMethod::Get,
                 )
                 .await
                 .map_err(|e| anyhow!("生成预签名URL失败: {}", e))?
         };
-        download_link_vec.push(presigned_url);
+
+        let file_name = file_record
+            .original_name
+            .clone()
+            .filter(|n| !n.trim().is_empty())
+            .or_else(|| file_path.rsplit('/').next().map(|s| s.to_string()))
+            .unwrap_or_default();
+        download_link_vec.push(BizFileDownloadLinkVO {
+            url: presigned_url,
+            file_name,
+            mime_type: file_record.mime_type.clone(),
+        });
     }
 
-    let res = CommonResponseRef::<Vec<String>>::success_json(&download_link_vec)?;
+    let res = CommonResponseRef::<Vec<BizFileDownloadLinkVO>>::success_json(&download_link_vec)?;
     Ok(res)
 }
 

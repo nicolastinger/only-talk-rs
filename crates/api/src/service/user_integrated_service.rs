@@ -1,13 +1,7 @@
-use std::net::SocketAddr;
-
 use anyhow::anyhow;
-use common::read_global_config;
-use common::utils::internal_quic_client::send_internal_quic_msg;
-use common::utils::internal_quic_msg::{InternalQuicRequest, RequestSource};
-use common::utils::message_types::NOTIFY_TYPE_MSG;
 use common::utils::server_count_sync::compute_preferred_index;
 use http_service::http_service::notify_service::service::system_notification::{
-    send_process_friend_msg, send_request_friend_msg,
+    push_notification_via_quic, send_process_friend_msg, send_request_friend_msg,
 };
 use http_service::http_service::user_service::dto::friend_request_info_dto::FriendRequestInfoDTO;
 use http_service::http_service::user_service::service::friend_service::{
@@ -56,54 +50,10 @@ pub async fn add_user_with_notify(
         friend_request.request_message
     );
 
-    let json_str: String = serde_json::to_string(&quic_msg)?;
-    let target_id_str =
-        quic_msg.user_id.ok_or(anyhow!("Notification missing target user ID"))?.to_string();
-    tracing::debug!(
-        "通知 JSON 序列化完成: target_id={}, payload_length={}",
-        target_id_str,
-        json_str.len()
-    );
-
-    // 包装为 TextQuicMsg 二进制(与其他消息路径保持一致)
-    let payload = common::utils::text_msg::generate_text_msg(
-        NOTIFY_TYPE_MSG,
-        json_str.into_bytes(),
-        target_id_str.clone(),
-        common::config_str::SYSTEM.to_string(),
-    )?;
-
-    // 3. Forward notification via internal QUIC service
-    let addr_str = read_global_config!("internal_quic_server", "address");
-    let server_addr: SocketAddr = addr_str.parse()?;
-    let preferred_index = compute_preferred_index(&target_id_str);
-    tracing::debug!(
-        "QUIC 服务配置: address={}, server_addr={}, preferred_index={}",
-        addr_str,
-        server_addr,
-        preferred_index
-    );
-
-    let request = InternalQuicRequest {
-        msg_type: NOTIFY_TYPE_MSG,
-        payload,
-        target_user: target_id_str.clone(),
-        preferred_index,
-        platform: common::config_str::PC_PLATFORM.to_string(),
-        source: RequestSource::HttpApi,
-        ttl: 3,
-    };
-    tracing::debug!(
-        "准备发送 QUIC 消息: msg_type={}, target_user={}, platform={}, source={:?}, ttl={}",
-        request.msg_type,
-        request.target_user,
-        request.platform,
-        request.source,
-        request.ttl
-    );
-
-    send_internal_quic_msg(server_addr, request).await?;
-    tracing::debug!("QUIC 消息发送成功: target_user={}", target_id_str);
+    // 3. Forward notification via internal QUIC service (非致命: 推送失败不影响好友请求本身)
+    if let Err(e) = push_notification_via_quic(&quic_msg).await {
+        tracing::warn!("好友请求通知实时推送失败: {}", e);
+    }
 
     Ok(CommonResponseNoDataRef::success_empty())
 }
@@ -126,32 +76,11 @@ pub async fn process_friend_with_notify(
         .filter(|m| !m.is_empty())
         .unwrap_or_else(|| "对方已处理您的好友申请".to_string());
     let quic_msg = send_process_friend_msg(rb, target_uuid, accept_msg, Some(biz_id)).await?;
-    let json_str: String = serde_json::to_string(&quic_msg)?;
-    let target_id_str =
-        quic_msg.user_id.ok_or(anyhow!("Notification missing target user ID"))?.to_string();
 
-    // 包装为 TextQuicMsg 二进制(与其他消息路径保持一致)
-    let payload = common::utils::text_msg::generate_text_msg(
-        NOTIFY_TYPE_MSG,
-        json_str.into_bytes(),
-        target_id_str.clone(),
-        common::config_str::SYSTEM.to_string(),
-    )?;
-
-    // 3. Forward notification via internal QUIC service
-    let addr_str = read_global_config!("internal_quic_server", "address");
-    let server_addr: SocketAddr = addr_str.parse()?;
-    let preferred_index = compute_preferred_index(&target_id_str);
-    let request = InternalQuicRequest {
-        msg_type: NOTIFY_TYPE_MSG,
-        payload,
-        target_user: target_id_str,
-        preferred_index,
-        platform: common::config_str::PC_PLATFORM.to_string(),
-        source: RequestSource::HttpApi,
-        ttl: 3,
-    };
-    send_internal_quic_msg(server_addr, request).await?;
+    // 3. Forward notification via internal QUIC service (非致命)
+    if let Err(e) = push_notification_via_quic(&quic_msg).await {
+        tracing::warn!("好友处理通知实时推送失败: {}", e);
+    }
 
     Ok(CommonResponseNoDataRef::success_empty())
 }
@@ -166,7 +95,7 @@ pub async fn get_quic_server_for_user(
     use deadpool_redis::redis::AsyncCommands;
     use http_service::utils::http_response::CommonResponseRef;
     use serde::Serialize;
-    use tracing::info;
+    use tracing::{info, warn};
 
     #[derive(Serialize)]
     struct QuicServerInfo {
@@ -181,8 +110,49 @@ pub async fn get_quic_server_for_user(
     let mut conn = redis.get().await?;
 
     let key = format!("{}{}", REDIS_EXTERNAL_QUIC_SERVERS, index);
-    let address: String = conn.get(&key).await?;
+    let address: Option<String> = conn.get(&key).await?;
+    let address = match address {
+        Some(address) => address,
+        None => {
+            warn!(
+                "外网 QUIC 节点不可用: redis key={} 不存在(节点未启动/未注册/注册已过期), server_count={} index={}",
+                key, sc, index
+            );
+            return Err(anyhow!("无可用 QUIC 节点, 请稍后重试"));
+        }
+    };
 
     let info = QuicServerInfo { index, address };
     CommonResponseRef::success_json(&info).map_err(|e| anyhow!("Serialization failed: {}", e))
+}
+
+/// 获取 NAT UDP 端口配置(优先 Redis, 缺失时回退配置文件)
+pub async fn get_nat_udp_ports(redis: &deadpool_redis::Pool) -> Result<String, anyhow::Error> {
+    use common::config_str::NAT_UDP_PORTS;
+    use common::read_global_config;
+    use deadpool_redis::redis::AsyncCommands;
+    use http_service::utils::http_response::CommonResponseRef;
+    use serde::{Deserialize, Serialize};
+
+    #[derive(Serialize, Deserialize, Clone)]
+    struct NatUdpPorts {
+        v4_port_1: u16,
+        v6_port_1: u16,
+        v4_port_2: u16,
+        v6_port_2: u16,
+    }
+
+    let mut conn = redis.get().await?;
+    let raw: String = conn.get(NAT_UDP_PORTS).await.unwrap_or_default();
+    let ports = if raw.trim().is_empty() {
+        NatUdpPorts {
+            v4_port_1: read_global_config!("nat_udp", "v4_port_1").parse()?,
+            v6_port_1: read_global_config!("nat_udp", "v6_port_1").parse()?,
+            v4_port_2: read_global_config!("nat_udp", "v4_port_2").parse()?,
+            v6_port_2: read_global_config!("nat_udp", "v6_port_2").parse()?,
+        }
+    } else {
+        serde_json::from_str(&raw)?
+    };
+    CommonResponseRef::success_json(&ports).map_err(|e| anyhow!("Serialization failed: {}", e))
 }

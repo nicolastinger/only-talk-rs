@@ -1,17 +1,33 @@
 use actix_web::{HttpRequest, HttpResponse, Responder, get, post, web};
+use rand::Rng;
 use tracing::info;
 
 use crate::common::dto::base_dto::AuthAccount;
 use crate::http_service::user_service::dto::basic_user_dto::SignInBasicUserDTO;
+use crate::http_service::user_service::dto::change_password_dto::{
+    ChangePasswordDTO, ChangePasswordSendCodeDTO,
+};
 use crate::http_service::user_service::dto::complete_profile_dto::CompleteProfileDTO;
+use crate::http_service::user_service::dto::fetch_sqlite_key_dto::FetchSqliteKeyDTO;
+use crate::http_service::user_service::dto::forgot_password_dto::{
+    ForgotPasswordResetDTO, ForgotPasswordSendCodeDTO,
+};
+use crate::http_service::user_service::dto::github_oauth_dto::{
+    GithubAuthorizeDTO, GithubOAuthCallbackDTO,
+};
 use crate::http_service::user_service::dto::refresh_token_dto::RefreshTokenDTO;
 use crate::http_service::user_service::dto::send_verify_code_dto::SendVerifyCodeDTO;
 use crate::http_service::user_service::dto::sign_up_step1_dto::SignUpStep1DTO;
 use crate::http_service::user_service::dto::update_user_dto::UpdateUserDTO;
+use crate::http_service::user_service::service::github_oauth_service::{
+    github_authorize_url_service, github_oauth_callback_service,
+};
 use crate::http_service::user_service::service::user_service::{
-    complete_profile_service, get_exit_user, get_user_info_by_account, get_user_info_by_uuid,
-    get_user_uuid_by_account_service, refresh_access_token, send_verify_code_service,
-    sign_up_step1_service, update_user_info_service, user_sign_in,
+    change_password_send_code_service, change_password_service, complete_profile_service,
+    fetch_or_create_sqlite_db_key, forgot_password_reset_service,
+    forgot_password_send_code_service, get_exit_user, get_user_info_by_account,
+    get_user_info_by_uuid, get_user_uuid_by_account_service, refresh_access_token,
+    send_verify_code_service, sign_up_step1_service, update_user_info_service, user_sign_in,
 };
 use crate::state::AppState;
 use crate::utils::http_response::{CommonResponse, CommonResponseNoDataRef};
@@ -24,11 +40,29 @@ pub fn user_service(cfg: &mut web::ServiceConfig) {
         .service(complete_profile)
         .service(send_verify_code)
         .service(refresh_token)
+        .service(github_authorize_url)
+        .service(github_oauth_callback)
         .service(me_api)
         .service(query_user_api)
         .service(get_user_by_uuid_api)
         .service(get_user_uuid_by_account_api)
-        .service(update_user_info_api);
+        .service(fetch_sqlite_db_key_api)
+        .service(update_user_info_api)
+        .service(change_password_send_code)
+        .service(change_password)
+        .service(forgot_password_send_code)
+        .service(forgot_password_reset);
+}
+
+/// 登录/发码端点的人为延迟(tarpit): 无条件随机 3-5s, 抬高爆破/刷码的每尝试成本。
+///
+/// 红线:
+/// - 必须 `tokio::time::sleep`(async 挂起 task), 绝不可 `std::thread::sleep`(会阻塞 actix worker)
+/// - `rand::thread_rng()` 是 `!Send`, 必须先取值后 await, 不可跨 await 持有
+/// - 放在 handler 最前且无条件: 账号存在与否的 Argon2 时延差被随机量淹没, 防止账号枚举
+async fn apply_auth_tarpit() {
+    let delay_ms = rand::thread_rng().gen_range(3000..=5000);
+    tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
 }
 
 #[post("/get_exit_user_flag/is_exit")]
@@ -63,6 +97,7 @@ pub async fn send_verify_code(
     state: web::Data<AppState>,
     dto: web::Json<SendVerifyCodeDTO>,
 ) -> impl Responder {
+    apply_auth_tarpit().await;
     let dto = validate_and_respond!(dto);
     let email = dto.email.unwrap_or_default();
     let res = send_verify_code_service(state.db(), state.redis(), &state.email, &email).await;
@@ -75,6 +110,7 @@ pub async fn sign_in(
     req: HttpRequest,
     basic_user_dto: web::Json<SignInBasicUserDTO>,
 ) -> impl Responder {
+    apply_auth_tarpit().await;
     let basic_user_dto: SignInBasicUserDTO = validate_and_respond!(basic_user_dto);
     let res = user_sign_in(state.db(), state.redis(), basic_user_dto, &req).await;
     respond_json_any!(res)
@@ -88,6 +124,30 @@ pub async fn refresh_token(
 ) -> impl Responder {
     let dto: RefreshTokenDTO = validate_and_respond!(dto);
     let res = refresh_access_token(state.db(), state.redis(), dto, &req).await;
+    respond_json_any!(res)
+}
+
+/// GitHub OAuth 第一步: 生成 state 并返回授权地址（免密登录）
+#[post("/github/authorize_url")]
+pub async fn github_authorize_url(
+    state: web::Data<AppState>,
+    dto: web::Json<GithubAuthorizeDTO>,
+) -> impl Responder {
+    let dto = validate_and_respond!(dto);
+    let res = github_authorize_url_service(state.redis(), dto).await;
+    respond_json_any!(res)
+}
+
+/// GitHub OAuth 第二步: 回环回调 code 换登录态（免密，首次自动注册）
+#[post("/github/callback")]
+pub async fn github_oauth_callback(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+    dto: web::Json<GithubOAuthCallbackDTO>,
+) -> impl Responder {
+    apply_auth_tarpit().await;
+    let dto = validate_and_respond!(dto);
+    let res = github_oauth_callback_service(state.db(), state.redis(), dto, &req).await;
     respond_json_any!(res)
 }
 
@@ -129,6 +189,19 @@ pub async fn get_user_uuid_by_account_api(
     respond_json_any!(res)
 }
 
+/// 获取/创建用户本地加密库密钥(用户+设备指纹唯一)
+#[post("/sqlite_key/fetch")]
+pub async fn fetch_sqlite_db_key_api(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+    dto: web::Json<FetchSqliteKeyDTO>,
+) -> impl Responder {
+    let dto = validate_and_respond!(dto);
+    let uuid = get_uuid_from_header!(req);
+    let res = fetch_or_create_sqlite_db_key(state.db(), uuid, dto).await;
+    respond_json_any!(res)
+}
+
 #[post("/update")]
 pub async fn update_user_info_api(
     state: web::Data<AppState>,
@@ -138,5 +211,55 @@ pub async fn update_user_info_api(
     let update_dto = validate_and_respond!(update_dto);
     let uuid = get_uuid_from_header!(req);
     let res = update_user_info_service(state.db(), uuid, update_dto).await;
+    respond_json_any!(res)
+}
+
+/// 修改密码第一步: 向已绑定二次认证因素(当前仅 email)发送验证码
+#[post("/change_password/send_code")]
+pub async fn change_password_send_code(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+    dto: web::Json<ChangePasswordSendCodeDTO>,
+) -> impl Responder {
+    let dto = validate_and_respond!(dto);
+    let uuid = get_uuid_from_header!(req);
+    let res =
+        change_password_send_code_service(state.db(), state.redis(), &state.email, uuid, dto).await;
+    respond_json_any!(res)
+}
+
+/// 修改密码第二步: 校验验证码并更新密码
+#[post("/change_password")]
+pub async fn change_password(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+    dto: web::Json<ChangePasswordDTO>,
+) -> impl Responder {
+    let dto = validate_and_respond!(dto);
+    let uuid = get_uuid_from_header!(req);
+    let res = change_password_service(state.db(), state.redis(), uuid, dto).await;
+    respond_json_any!(res)
+}
+
+/// 忘记密码第一步(未登录): 向已绑定的二次认证因素(当前仅 email)发送找回验证码
+#[post("/forgot_password/send_code")]
+pub async fn forgot_password_send_code(
+    state: web::Data<AppState>,
+    dto: web::Json<ForgotPasswordSendCodeDTO>,
+) -> impl Responder {
+    apply_auth_tarpit().await;
+    let dto = validate_and_respond!(dto);
+    let res = forgot_password_send_code_service(state.db(), state.redis(), &state.email, dto).await;
+    respond_json_any!(res)
+}
+
+/// 忘记密码第二步(未登录): 校验验证码并重置密码
+#[post("/forgot_password/reset")]
+pub async fn forgot_password_reset(
+    state: web::Data<AppState>,
+    dto: web::Json<ForgotPasswordResetDTO>,
+) -> impl Responder {
+    let dto = validate_and_respond!(dto);
+    let res = forgot_password_reset_service(state.db(), state.redis(), dto).await;
     respond_json_any!(res)
 }

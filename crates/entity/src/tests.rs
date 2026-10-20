@@ -8,11 +8,6 @@ use std::str::FromStr;
 use rbatis::rbdc::{Bytes, Uuid};
 use validator::Validate;
 
-use crate::models::chat_entity::add_read_chat_record::AddReadChatRecordDTO;
-use crate::models::chat_entity::chat_list_link::ChatListLink;
-use crate::models::chat_entity::chat_message_read::{
-    CHAT_TYPE_GROUP, CHAT_TYPE_SINGLE, ChatMessageRecordRead,
-};
 use crate::models::chat_entity::chat_message_record::ChatMessageRecord;
 use crate::models::file_entity::biz_file_link::BizFileLink;
 use crate::models::file_entity::biz_record::BizRecord;
@@ -26,20 +21,25 @@ use crate::models::group_entity::group_invitation::{
 use crate::models::group_entity::group_member::{
     GroupMember, ROLE_ADMIN, ROLE_MEMBER, ROLE_OWNER, STATUS_KICKED, STATUS_NORMAL, STATUS_QUIT,
 };
-use crate::models::group_entity::group_message_read::GroupMessageRecordRead;
-use crate::models::group_entity::group_message_record::{
-    GroupMessageRecord, MSG_TYPE_FILE, MSG_TYPE_IMAGE, MSG_TYPE_TEXT,
-};
+use crate::models::group_entity::group_message_record::{GroupMessageRecord, MSG_TYPE_TEXT};
 use crate::models::moment_entity::moment::Moment;
 use crate::models::moment_entity::moment_comment::MomentComment;
 use crate::models::moment_entity::moment_like::MomentLike;
 use crate::models::notify_entity::system_notification::SystemNotification;
+use crate::models::plaza_entity::plaza_like::PlazaLike;
 use crate::models::plaza_entity::plaza_user_info::PlazaUserInfo;
 use crate::models::plaza_entity::plaza_user_tag::PlazaUserTag;
 use crate::models::user_entity::basic_user::BasicUser;
+use crate::models::user_entity::black_list::BlackList;
 use crate::models::user_entity::email_sso::EmailSso;
+use crate::models::user_entity::enterprise_info::EnterpriseInfo;
 use crate::models::user_entity::friend_link::FriendLink;
 use crate::models::user_entity::friend_request_info::FriendRequestInfo;
+use crate::models::user_entity::robot_info::RobotInfo;
+use crate::models::user_entity::user_auth_factor::{
+    AUTH_FACTOR_STATUS_DISABLED, AUTH_FACTOR_STATUS_NORMAL, AUTH_FACTOR_STATUS_UNBOUND,
+    AUTH_FACTOR_TYPE_EMAIL, AUTH_FACTOR_TYPE_OTHER, AUTH_FACTOR_TYPE_PHONE, UserAuthFactor,
+};
 use crate::models::user_entity::user_info::UserInfo;
 use crate::models::user_entity::user_login_log::UserLoginLog;
 
@@ -61,12 +61,6 @@ where
 /// 常量定义
 mod constants {
     use super::*;
-
-    #[test]
-    fn chat_type_constants() {
-        assert_eq!(CHAT_TYPE_SINGLE, 1);
-        assert_eq!(CHAT_TYPE_GROUP, 2);
-    }
 
     #[test]
     fn group_invitation_constants() {
@@ -92,8 +86,6 @@ mod constants {
     #[test]
     fn group_message_type_constants() {
         assert_eq!(MSG_TYPE_TEXT, 1);
-        assert_eq!(MSG_TYPE_IMAGE, 2);
-        assert_eq!(MSG_TYPE_FILE, 3);
     }
 }
 
@@ -111,6 +103,7 @@ mod user_entity {
             info: Some("hello".to_string()),
             password: Some("secret".to_string()),
             registration_status: Some(1),
+            user_type: Some(0),
         };
         assert_roundtrip(&user);
     }
@@ -123,6 +116,7 @@ mod user_entity {
         assert!(user.account.is_none());
         assert!(user.password.is_none());
         assert!(user.registration_status.is_none());
+        assert!(user.user_type.is_none());
     }
 
     #[test]
@@ -135,6 +129,7 @@ mod user_entity {
             info: None,
             password: Some("secret".to_string()),
             registration_status: Some(1),
+            user_type: Some(0),
         };
         assert!(user.validate().is_ok());
     }
@@ -163,11 +158,40 @@ mod user_entity {
     }
 
     #[test]
+    fn user_auth_factor_roundtrip() {
+        let factor = UserAuthFactor {
+            id: Some(1),
+            user_id: Some(uuid("00000000-0000-0000-0000-000000000001")),
+            factor_type: Some(AUTH_FACTOR_TYPE_EMAIL),
+            factor_value: Some("alice@example.com".to_string()),
+            verified: Some(true),
+            enabled: Some(true),
+            is_primary: Some(true),
+            status: Some(AUTH_FACTOR_STATUS_NORMAL),
+            verified_at: Some(1_700_000_000),
+            last_used_at: None,
+            created_at: Some(1_700_000_000),
+            updated_at: Some(1_700_000_001),
+            deleted_at: None,
+        };
+        assert_roundtrip(&factor);
+    }
+
+    #[test]
+    fn user_auth_factor_constants() {
+        assert_eq!(AUTH_FACTOR_TYPE_EMAIL, 0);
+        assert_eq!(AUTH_FACTOR_TYPE_PHONE, 1);
+        assert_eq!(AUTH_FACTOR_TYPE_OTHER, 2);
+        assert_eq!(AUTH_FACTOR_STATUS_DISABLED, 0);
+        assert_eq!(AUTH_FACTOR_STATUS_NORMAL, 1);
+        assert_eq!(AUTH_FACTOR_STATUS_UNBOUND, 2);
+    }
+
+    #[test]
     fn user_info_roundtrip() {
         let info = UserInfo {
             uuid: Some(uuid("00000000-0000-0000-0000-000000000002")),
             gender: Some(1),
-            age: Some(28),
             birthday: Some(946684800),
             note: Some("note".to_string()),
             created_at: Some(1_700_000_000),
@@ -176,6 +200,42 @@ mod user_entity {
             email: Some("u@example.com".to_string()),
             address: Some("addr".to_string()),
             status: Some(0),
+        };
+        assert_roundtrip(&info);
+    }
+
+    #[test]
+    fn robot_info_roundtrip() {
+        let info = RobotInfo {
+            uuid: Some(uuid("00000000-0000-0000-0000-000000000010")),
+            owner_uuid: Some(uuid("00000000-0000-0000-0000-000000000001")),
+            model: Some("gpt-4".to_string()),
+            prompt: Some("你是助手".to_string()),
+            enabled: Some(1),
+            status: Some(0),
+            note: Some("note".to_string()),
+            created_at: Some(1_700_000_000),
+            updated_at: Some(1_700_000_001),
+        };
+        assert_roundtrip(&info);
+    }
+
+    #[test]
+    fn enterprise_info_roundtrip() {
+        let info = EnterpriseInfo {
+            uuid: Some(uuid("00000000-0000-0000-0000-000000000020")),
+            company_name: Some("示例科技".to_string()),
+            credit_code: Some("91310000MA1FL0XXXX".to_string()),
+            legal_person: Some("张三".to_string()),
+            contact_name: Some("李四".to_string()),
+            contact_phone: Some("13800000000".to_string()),
+            contact_email: Some("hr@example.com".to_string()),
+            address: Some("上海市".to_string()),
+            verified: Some(1),
+            status: Some(0),
+            note: Some("note".to_string()),
+            created_at: Some(1_700_000_000),
+            updated_at: Some(1_700_000_001),
         };
         assert_roundtrip(&info);
     }
@@ -197,6 +257,18 @@ mod user_entity {
             result: None,
         };
         assert_roundtrip(&log);
+    }
+
+    #[test]
+    fn black_list_roundtrip() {
+        let list = BlackList {
+            uuid: Some(uuid("00000000-0000-0000-0000-000000000005")),
+            me_user: Some(uuid("00000000-0000-0000-0000-000000000001")),
+            block_user: Some(uuid("00000000-0000-0000-0000-000000000002")),
+            created_at: Some(1_700_000_000),
+            version: Some(0),
+        };
+        assert_roundtrip(&list);
     }
 
     #[test]
@@ -237,33 +309,10 @@ mod chat_entity {
     use super::*;
 
     #[test]
-    fn chat_list_link_roundtrip() {
-        let link = ChatListLink {
-            id: Some(1),
-            uuid: uuid("00000000-0000-0000-0000-000000000010"),
-            friend_uuid: uuid("00000000-0000-0000-0000-000000000011"),
-            created_at: Some(1_700_000_000),
-            enable: Some(true),
-        };
-        assert_roundtrip(&link);
-    }
-
-    #[test]
-    fn chat_message_read_roundtrip() {
-        let record = ChatMessageRecordRead {
-            id: Some(1),
-            nano_id: Some("nano-1".to_string()),
-            timestamp: Some(1_700_000_000),
-            send_user: uuid("00000000-0000-0000-0000-000000000001"),
-            recv_user: uuid("00000000-0000-0000-0000-000000000002"),
-        };
-        assert_roundtrip(&record);
-    }
-
-    #[test]
     fn chat_message_record_roundtrip_and_raw_bytes_serialize_as_array() {
         let record = ChatMessageRecord {
             id: Some(1),
+            session_uuid: uuid("00000000-0000-0000-0000-0000000000aa"),
             nano_id: Some("nano-1".to_string()),
             timestamp: Some(1_700_000_000),
             raw: Bytes::from(vec![0x48, 0x69]),
@@ -281,24 +330,51 @@ mod chat_entity {
     }
 
     #[test]
-    fn add_read_chat_record_dto_chat_type_defaults_to_none() {
-        let json: serde_json::Value = serde_json::from_str(
-            r#"{"nano_id":"nano-1","timestamp":1700000000000,"send_user":"00000000-0000-0000-0000-000000000001","recv_user":"00000000-0000-0000-0000-000000000002"}"#,
-        )
-        .expect("解析 JSON 失败");
-        let dto: AddReadChatRecordDTO = serde_json::from_value(json).expect("反序列化失败");
-        assert_eq!(dto.nano_id.as_deref(), Some("nano-1"));
-        assert_eq!(dto.chat_type, None);
+    fn latest_by_session_sql_text() {
+        // 聚合回归: 单聊聚合已从 distinct on 跨分区全扫改为 user_session 驱动的
+        // 逐会话点查 —— 必须带 session_uuid 等值(分区剪枝) + id 降序取首行
+        let src = include_str!("models/chat_entity/chat_message_record.rs");
+        assert!(
+            src.contains("where session_uuid = #{session_uuid}"),
+            "latest_by_session 必须带 session_uuid 等值条件(分区剪枝), 实际 SQL 文本被改"
+        );
+        assert!(
+            src.contains("order by id desc limit 1"),
+            "latest_by_session 必须 order by id desc limit 1, 实际 SQL 文本被改"
+        );
     }
 
     #[test]
-    fn add_read_chat_record_dto_with_chat_type() {
-        let json: serde_json::Value = serde_json::from_str(
-            r#"{"send_user":"00000000-0000-0000-0000-000000000001","recv_user":"00000000-0000-0000-0000-000000000002","chat_type":2}"#,
-        )
-        .expect("解析 JSON 失败");
-        let dto: AddReadChatRecordDTO = serde_json::from_value(json).expect("反序列化失败");
-        assert_eq!(dto.chat_type, Some(2));
+    fn select_by_session_paged_sql_text() {
+        // 任务08 回归: 历史查询必须按 session_uuid 等值 + id 排序(分区剪枝)
+        let src = include_str!("models/chat_entity/chat_message_record.rs");
+        assert!(
+            src.contains("where session_uuid = #{session_uuid}"),
+            "select_by_session_paged 必须带 session_uuid 等值条件, 实际 SQL 文本被改"
+        );
+        assert!(
+            src.contains("order by id limit #{size} offset #{start}"),
+            "select_by_session_paged 必须 order by id + 参数化分页, 实际 SQL 文本被改"
+        );
+    }
+
+    #[test]
+    fn select_window_after_sql_text() {
+        // 任务12 正向追平回归: 离线同步必须带 session_uuid 等值(分区剪枝) + 窗口过滤 +
+        // `id > after` 正向升序(取代旧 `select_window_before` 的向后翻页)
+        let src = include_str!("models/chat_entity/chat_message_record.rs");
+        assert!(
+            src.contains("where session_uuid = #{session_uuid} and id > #{after}"),
+            "select_window_after 必须 id > after 正向取, 实际 SQL 文本被改"
+        );
+        assert!(
+            src.contains("order by id asc limit #{size}"),
+            "select_window_after 必须 order by id asc, 实际 SQL 文本被改"
+        );
+        assert!(
+            src.contains("\\\"timestamp\\\" > #{boundary}"),
+            "select_window_after 必须带 7 天窗口过滤, 实际 SQL 文本被改"
+        );
     }
 }
 
@@ -465,24 +541,10 @@ mod group_entity {
             role: Some(ROLE_OWNER),
             nickname: Some("alice".to_string()),
             join_time: Some(1_700_000_000),
-            last_read_msg_id: Some(0),
             muted: Some(false),
             status: Some(STATUS_NORMAL),
         };
         assert_roundtrip(&member);
-    }
-
-    #[test]
-    fn group_message_read_roundtrip() {
-        let record = GroupMessageRecordRead {
-            id: Some(1),
-            nano_id: Some("nano-1".to_string()),
-            timestamp: Some(1_700_000_000),
-            send_user: uuid("00000000-0000-0000-0000-000000000001"),
-            group_uuid: uuid("00000000-0000-0000-0000-000000000030"),
-            read_user: uuid("00000000-0000-0000-0000-000000000002"),
-        };
-        assert_roundtrip(&record);
     }
 
     #[test]
@@ -498,6 +560,72 @@ mod group_entity {
             recalled: Some(false),
         };
         assert_roundtrip(&record);
+    }
+
+    #[test]
+    fn select_unread_orders_by_id_and_parametrizes_limit() {
+        // 任务02 缺陷 O 回归: 游标列(id)与排序列必须同列, limit 参数化
+        // 任务04: 游标参数改名为 cursor
+        // 直接断言 py_sql 宏内 SQL 文本, 防止未来把排序改回 timestamp / 把 limit 硬编码
+        let src = include_str!("models/group_entity/group_message_record.rs");
+        assert!(
+            src.contains(
+                "group_uuid = #{group_uuid} and id > #{cursor} order by id asc limit #{size}"
+            ),
+            "select_unread 必须是 id > 游标 + order by id asc + 参数化 limit, 实际 SQL 文本被改"
+        );
+    }
+}
+
+/// 会话模块
+mod session_entity {
+    use super::*;
+    use crate::models::session_entity::aggregate::AggregateReport;
+    use crate::models::session_entity::session::{
+        SESSION_TYPE_GROUP, SESSION_TYPE_SINGLE, Session,
+    };
+    use crate::models::session_entity::user_session::UserSession;
+
+    #[test]
+    fn aggregate_report_default() {
+        // 防误删 derive(Default): 聚合主函数依赖它初始化报告
+        let report = AggregateReport::default();
+        assert_eq!(report.single_sessions, 0);
+        assert_eq!(report.group_sessions, 0);
+        assert_eq!(report.user_session_upserted, 0);
+    }
+
+    #[test]
+    fn session_roundtrip() {
+        let s = Session {
+            session_uuid: uuid("00000000-0000-0000-0000-0000000000a0"),
+            session_type: Some(SESSION_TYPE_SINGLE),
+            last_message_id: Some(100),
+            last_message_at: Some(1_700_000_000),
+            last_preview: Some("你好".to_string()),
+            created_at: Some(1_700_000_000),
+            updated_at: Some(1_700_000_000),
+        };
+        assert_roundtrip(&s);
+    }
+
+    #[test]
+    fn user_session_roundtrip() {
+        let u = UserSession {
+            id: Some(1),
+            user_uuid: uuid("00000000-0000-0000-0000-000000000001"),
+            session_uuid: uuid("00000000-0000-0000-0000-0000000000a0"),
+            session_type: Some(SESSION_TYPE_GROUP),
+            peer_uuid: None,
+            last_read_id: Some(0),
+            synced_id: Some(0),
+            pinned: Some(0),
+            muted: Some(0),
+            deleted_at: None,
+            created_at: Some(1_700_000_000),
+            updated_at: Some(1_700_000_000),
+        };
+        assert_roundtrip(&u);
     }
 }
 
@@ -524,6 +652,25 @@ mod notify_entity {
             priority: Some(1),
         };
         assert_roundtrip(&notification);
+    }
+
+    #[test]
+    fn select_page_keyset_orders_by_created_at_desc_id_desc() {
+        // 任务13 通知中心: 列表排序键 (created_at desc, id desc) 与游标同源,
+        // 防止将来把排序改回升序导致 keyset 游标失效。
+        let src = include_str!("models/notify_entity/system_notification.rs");
+        assert!(
+            src.contains("(created_at, id) < (#{q.cursor_at}::int8, #{q.cursor_id}::uuid)"),
+            "select_page 必须是 keyset 游标 (created_at, id), 实际 SQL 文本被改"
+        );
+        assert!(
+            src.contains("order by created_at desc, id desc"),
+            "select_page 必须按 (created_at desc, id desc) 排序, 实际 SQL 文本被改"
+        );
+        assert!(
+            src.contains("limit #{q.size}"),
+            "select_page 的 limit 必须参数化, 实际 SQL 文本被改"
+        );
     }
 }
 
@@ -575,6 +722,28 @@ mod plaza_entity {
         assert!(tag.tag.is_none());
         assert!(tag.sort.is_none());
         assert!(tag.created_at.is_none());
+    }
+
+    #[test]
+    fn plaza_like_roundtrip() {
+        let like = PlazaLike {
+            id: Some(uuid("00000000-0000-0000-0000-000000000063")),
+            target_uuid: Some(uuid("00000000-0000-0000-0000-000000000050")),
+            user_uuid: Some(uuid("00000000-0000-0000-0000-000000000001")),
+            is_del: Some(false),
+            created_at: Some(1_700_000_000),
+        };
+        assert_roundtrip(&like);
+    }
+
+    #[test]
+    fn plaza_like_empty_has_all_fields_none() {
+        let like: PlazaLike = serde_json::from_str("{}").expect("反序列化失败");
+        assert!(like.id.is_none());
+        assert!(like.target_uuid.is_none());
+        assert!(like.user_uuid.is_none());
+        assert!(like.is_del.is_none());
+        assert!(like.created_at.is_none());
     }
 }
 

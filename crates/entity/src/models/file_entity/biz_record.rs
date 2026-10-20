@@ -1,5 +1,6 @@
+use rbatis::crud;
+use rbatis::executor::Executor;
 use rbatis::rbdc::Uuid;
-use rbatis::{crud, impl_select};
 use serde::{Deserialize, Serialize};
 
 /// 公开文件上传业务表
@@ -30,4 +31,15 @@ pub struct BizRecord {
 }
 
 crud!(BizRecord {});
-impl_select!(BizRecord{select_by_uuid(uuid:&Uuid) -> Option => "`where uuid = #{uuid} limit 1`"});
+
+impl BizRecord {
+    #[rbatis::py_sql("select * from biz_record where uuid = #{uuid} limit 1")]
+    async fn select_by_uuid_inner(rb: &dyn Executor, uuid: &Uuid) -> Vec<BizRecord> {}
+
+    pub async fn select_by_uuid(
+        rb: &dyn Executor,
+        uuid: &Uuid,
+    ) -> rbatis::Result<Option<BizRecord>> {
+        Ok(Self::select_by_uuid_inner(rb, uuid).await?.into_iter().next())
+    }
+}

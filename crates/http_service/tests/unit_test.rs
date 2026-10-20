@@ -6,6 +6,7 @@ use common::models::user_entity::basic_user::BasicUser;
 use common::models::user_entity::user_info::UserInfo;
 use http_service::common::dto::base_dto::ReqList;
 use http_service::common::dto::base_page_dto::BasePageDTO;
+use http_service::http_service::chat_service::service::text_msg_service::page_range;
 use http_service::http_service::file_service::vo::biz_file_link_vo::BizFileLinkVO;
 use http_service::http_service::file_service::vo::biz_record_vo::BizRecordVO;
 use http_service::http_service::group_service::group_dto::add_member_dto::AddMemberDTO;
@@ -17,15 +18,14 @@ use http_service::http_service::group_service::group_dto::update_group_dto::Upda
 use http_service::http_service::group_service::group_vo::group_info_vo::GroupInfoVO;
 use http_service::http_service::group_service::group_vo::group_invitation_vo::GroupInvitationVO;
 use http_service::http_service::group_service::group_vo::group_member_vo::GroupMemberVO;
-use http_service::http_service::group_service::group_vo::group_message_vo::{
-    GroupMessageVO, UnreadCountVO,
-};
+use http_service::http_service::group_service::group_vo::group_message_vo::GroupMessageVO;
 use http_service::http_service::moment_service::dto::moment_dto::{
-    AddCommentDTO, CommentListQuery, CreateMomentDTO, LikeToggleDTO,
+    AddCommentDTO, CommentListQuery, CreateMomentDTO, DeleteMomentDTO, LikeToggleDTO,
 };
 use http_service::http_service::moment_service::vo::moment_vo::{
     MomentCommentListVO, MomentCommentVO, MomentListVO, MomentVO,
 };
+use http_service::http_service::report_service::dto::report_dto::CreateReportDTO;
 use http_service::http_service::user_service::dto::basic_user_dto::SignInBasicUserDTO;
 use http_service::http_service::user_service::dto::complete_profile_dto::CompleteProfileDTO;
 use http_service::http_service::user_service::dto::refresh_token_dto::RefreshTokenDTO;
@@ -410,7 +410,6 @@ mod user_dto {
             username: Some("nick".to_string()),
             info: Some("hello".to_string()),
             gender: Some(2),
-            age: Some(30),
             birthday: Some(1234567890),
             phone: Some("13800138000".to_string()),
             email: Some("a@b.com".to_string()),
@@ -455,7 +454,6 @@ mod user_dto {
             username: Some("newname".to_string()),
             info: None,
             gender: Some(2),
-            age: Some(30),
             birthday: None,
             phone: None,
             email: None,
@@ -469,6 +467,7 @@ mod user_dto {
             info: Some("oldinfo".to_string()),
             password: None,
             registration_status: Some(1),
+            user_type: Some(0),
         };
         dto.apply_to_basic_user(&mut user);
         assert_eq!(user.username.as_deref(), Some("newname"));
@@ -482,7 +481,6 @@ mod user_dto {
         let mut info = UserInfo {
             uuid: None,
             gender: None,
-            age: None,
             birthday: None,
             note: None,
             created_at: Some(1),
@@ -494,7 +492,6 @@ mod user_dto {
         };
         dto.apply_to_user_info(&mut info).expect("更新 user_info 失败");
         assert_eq!(info.gender, Some(2));
-        assert_eq!(info.age, Some(30));
         assert_eq!(info.birthday, Some(1234567890));
         assert_eq!(info.phone.as_deref(), Some("13800138000"));
         assert_eq!(info.email.as_deref(), Some("a@b.com"));
@@ -655,8 +652,18 @@ mod serde_roundtrip {
 
     #[test]
     fn base_dto_roundtrip() {
-        assert_roundtrip(&BasePageDTO { page_num: Some(1), page_size: Some(20), total: Some(99) });
-        assert_roundtrip(&BasePageDTO { page_num: None, page_size: None, total: None });
+        assert_roundtrip(&BasePageDTO {
+            page_num: Some(1),
+            page_size: Some(20),
+            total: Some(99),
+            session_uuid: None,
+        });
+        assert_roundtrip(&BasePageDTO {
+            page_num: None,
+            page_size: None,
+            total: None,
+            session_uuid: None,
+        });
     }
 
     #[test]
@@ -709,11 +716,7 @@ mod serde_roundtrip {
             raw: b"hello".to_vec(),
             msg_type: 2001,
             recalled: false,
-        });
-        assert_roundtrip(&UnreadCountVO {
-            group_uuid: "g1".to_string(),
-            unread_count: 3,
-            last_read_msg_id: 9,
+            has_more: Some(false),
         });
     }
 
@@ -748,6 +751,7 @@ mod moment {
             file_ids: vec!["f1".to_string(), "f2".to_string()],
         });
         assert_roundtrip(&LikeToggleDTO { moment_uuid: "m1".to_string() });
+        assert_roundtrip(&DeleteMomentDTO { moment_uuid: "m1".to_string() });
         assert_roundtrip(&AddCommentDTO {
             moment_uuid: "m1".to_string(),
             content: "写得好".to_string(),
@@ -762,12 +766,14 @@ mod moment {
             author_uuid: "u1".to_string(),
             username: Some("Alice".to_string()),
             icon: Some("icon-1".to_string()),
+            user_type: Some(0),
             content: "内容".to_string(),
             visibility: 0,
             image_count: 3,
             like_count: 3,
             comment_count: 2,
             liked_by_me: true,
+            followed_by_me: false,
             created_at: 1_700_000_000,
             updated_at: 1_700_000_001,
         });
@@ -782,12 +788,14 @@ mod moment {
                 author_uuid: "u1".to_string(),
                 username: None,
                 icon: None,
+                user_type: None,
                 content: "内容".to_string(),
                 visibility: 1,
                 image_count: 2,
                 like_count: 0,
                 comment_count: 0,
                 liked_by_me: false,
+                followed_by_me: false,
                 created_at: 1,
                 updated_at: 1,
             }],
@@ -808,6 +816,7 @@ mod moment {
             author_uuid: "u2".to_string(),
             username: Some("Bob".to_string()),
             icon: None,
+            user_type: Some(1),
             content: "哈哈".to_string(),
             created_at: 1_700_000_000,
         });
@@ -823,6 +832,7 @@ mod moment {
                 author_uuid: "u2".to_string(),
                 username: None,
                 icon: Some("icon-2".to_string()),
+                user_type: None,
                 content: "哈哈".to_string(),
                 created_at: 1,
             }],
@@ -831,6 +841,57 @@ mod moment {
         assert_eq!(value["total"], 1);
         assert_eq!(value["list"][0]["id"], "c1");
         assert_eq!(value["list"][0]["icon"], "icon-2");
+    }
+}
+
+/// 举报 DTO
+mod report {
+    use super::*;
+
+    #[test]
+    fn create_report_dto_roundtrip() {
+        assert_roundtrip(&CreateReportDTO {
+            target_type: 1,
+            target_uuid: "u1".to_string(),
+            reason: "涉嫌诈骗".to_string(),
+        });
+        assert_roundtrip(&CreateReportDTO {
+            target_type: 5,
+            target_uuid: "c1".to_string(),
+            reason: "辱骂".to_string(),
+        });
+    }
+
+    #[test]
+    fn create_report_dto_serializes_fields() {
+        let dto = CreateReportDTO {
+            target_type: 3,
+            target_uuid: "m1".to_string(),
+            reason: "广告".to_string(),
+        };
+        let value = serde_json::to_value(&dto).expect("序列化失败");
+        assert_eq!(value["target_type"], 3);
+        assert_eq!(value["target_uuid"], "m1");
+        assert_eq!(value["reason"], "广告");
+    }
+}
+
+/// 聊天记录分页参数(任务02 缺陷 I 回归)
+mod chat_page_range {
+    use super::*;
+
+    #[test]
+    fn size_takes_page_size_not_page_num() {
+        // 历史缺陷: start 与 size 都读 page_num, page_size 被忽略
+        let dto =
+            BasePageDTO { page_num: Some(2), page_size: Some(30), total: None, session_uuid: None };
+        assert_eq!(page_range(&dto), (2, 30));
+    }
+
+    #[test]
+    fn defaults_when_absent() {
+        let dto = BasePageDTO { page_num: None, page_size: None, total: None, session_uuid: None };
+        assert_eq!(page_range(&dto), (0, 10));
     }
 }
 

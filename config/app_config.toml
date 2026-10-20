@@ -1,10 +1,12 @@
 [database]
 url = "${DATABASE_URL}"
 
+[sqlite_key]
+# 本地加密库密钥托管主密钥(64 hex = 32字节), 用于 AES-256-GCM 加密下发密钥
+master_key = "${SQLITE_KEY_MASTER}"
+
 [redis]
 url = "${REDIS_URL}"
-# 测试用 Redis（http_service 集成测试使用，建议指向独立的 DB index/实例，测试结束会清空所有 key）
-test_url = "${TEST_REDIS_URL}"
 
 [cluster]
 server_index = 0
@@ -13,36 +15,45 @@ server_index = 0
 domain = "${APP_DOMAIN}"
 
 [server]
+# 网关方案: HTTP 面 TLS 终止在 nginx(443), actix 只监听明文 HTTP。
+# compose 部署: 8443 不再对外发布, 容器网络内可达即可;
+# 裸机部署(systemd 单体/拆分): 必须改 127.0.0.1:8443, 防止明文端口暴露公网。
 address="0.0.0.0:8443"
 locales="zh-CN"
 log_level="info"
 
 [quic_server]
-address="0.0.0.0:4433"
+address="${QUIC_SERVER_ADDRESS}"
 cert_path="./config/ssl/fullchain.pem"
 key_path="./config/ssl/privkey.pem"
-server_name="127.0.0.1:4433"
-node_address="127.0.0.1:4433"
+server_name="${QUIC_SERVER_NAME}"
+node_address="${QUIC_NODE_ADDRESS}"
+# 最大并发连接数(新建连接准入上限, 已存在连接的重连不受限); 未配置/非法(<=0)默认 10000
+max_connections=10000
 
 [internal_quic_server]
-address="127.0.0.1:4434"
-server_name="INTERNAL_SERVER_1"
-node_address="127.0.0.1:4434"
+address="${INTERNAL_QUIC_SERVER_ADDRESS}"
+server_name="${INTERNAL_QUIC_SERVER_NAME}"
+node_address="${INTERNAL_QUIC_NODE_ADDRESS}"
 
 [file_upload]
-max_file_size = 20485760  # 20MB in bytes
+max_file_size = 104857600  # 100MB in bytes
 
 [file_types.image]
 extensions = ["jpg", "jpeg", "png", "gif", "webp", "bmp"]
 mime_types = ["image/jpeg", "image/jpg", "image/png", "image/gif", "image/webp"]
 
 [file_types.document]
-extensions = ["txt", "pdf", "doc", "docx", "xls", "xlsx", "json", "xml", "md"]
-mime_types = ["application/json", "application/xml", "text/markdown"]
+extensions = ["txt", "pdf", "doc", "docx", "xls", "xlsx", "json", "xml", "md", "csv", "rtf", "epub", "log", "js", "jsx", "py", "java", "c", "h", "cpp", "hpp", "go", "rs", "css", "scss", "less", "yml", "yaml", "toml", "ini", "cfg", "sql"]
+mime_types = ["application/json", "application/xml", "text/markdown", "text/plain", "text/csv", "application/rtf", "application/epub+zip", "application/javascript", "text/javascript", "text/x-python", "text/x-java-source", "text/x-c", "text/x-c++", "text/x-go", "text/x-rust", "text/css", "text/x-scss", "text/x-less", "application/x-yaml", "text/yaml", "application/toml", "text/x-ini", "text/x-sql", "application/sql", "text/x-log"]
 
 [file_types.archive]
-extensions = ["zip", "rar", "7z"]
-mime_types = ["application/zip"]
+extensions = ["zip", "rar", "7z", "tar", "gz", "bz2", "xz", "iso", "cab"]
+mime_types = ["application/zip", "application/x-rar-compressed", "application/x-7z-compressed", "application/x-tar", "application/gzip", "application/x-bzip2", "application/x-xz", "application/x-iso9660-image", "application/vnd.ms-cab-compressed"]
+
+[file_types.application]
+extensions = ["exe", "msi", "msix", "appx", "apk", "xapk", "dmg", "pkg", "deb", "rpm", "ipa", "appimage", "jar", "bat", "cmd", "sh", "ps1", "bin"]
+mime_types = ["application/octet-stream", "application/x-msdownload", "application/vnd.android.package-archive", "application/x-apple-diskimage", "application/x-debian-package", "application/x-redhat-package-manager", "application/x-executable", "application/x-sh", "text/x-sh", "application/java-archive", "application/x-msdos-program", "application/x-apple-installer"]
 
 [file_types.audio]
 extensions = ["mp3", "wav", "flac", "aac", "ogg", "m4a"]
@@ -91,6 +102,12 @@ multipart_threshold = 10485760
 multipart_chunk_size = 5242880
 # 最大并发上传数
 max_concurrent_uploads = 10
+
+[github_oauth]
+# GitHub OAuth 登录（PC 桌面端，回调为本机回环地址）
+client_id = "${GITHUB_CLIENT_ID}"
+client_secret = "${GITHUB_CLIENT_SECRET}"
+redirect_uri = "http://127.0.0.1:9527/callback"
 
 [email]
 # 邮件服务开关（注册邮箱验证码依赖此服务）

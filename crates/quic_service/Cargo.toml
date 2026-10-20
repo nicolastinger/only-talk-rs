@@ -2,6 +2,7 @@
 name = "quic_service"
 version = "0.1.0"
 edition = "2024"
+rust-version.workspace = true
 
 [dependencies]
 common = { path = "../common" }
@@ -35,6 +36,8 @@ rcgen = { workspace = true }
 dotenvy = { workspace = true }
 thiserror = { workspace = true }
 once_cell = { workspace = true }
+parking_lot = { workspace = true }
+uuid = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
@@ -51,7 +54,8 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 rsa = { workspace = true }
 rand = { workspace = true }
-uuid = { workspace = true }
+rbdc-pg = { workspace = true }
+rbdc-pool-fast = { workspace = true }
 
 [[bench]]
 name = "text_msg_bench"

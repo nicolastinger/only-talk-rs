@@ -7,17 +7,24 @@ use common::config_str::{REDIS_INTERNAL_QUIC_SERVERS, REDIS_QUIC_SERVERS, REDIS_
 use common::state::CoreState;
 use common::utils::group_msg::{InternalGroupBroadcast, InternalGroupBroadcastResponse};
 use common::utils::internal_quic_msg::{InternalQuicRequest, InternalQuicResponse};
+use common::utils::mask::mask_addr;
 use dashmap::DashMap;
 use deadpool_redis::redis::AsyncCommands;
 use quinn::{Endpoint, RecvStream, SendStream, ServerConfig};
 use rcgen::KeyPair;
 use rustls::{Certificate, PrivateKey};
 use tokio::sync::watch;
+use tokio::time::timeout;
 use tracing::{debug, error, info, warn};
 
 use super::internal_config::InternalQuicConfig;
+use crate::conn_lookup;
 use crate::models::quic_connection::{ConnectionType, QuicConnection};
 use crate::msg_service::group_msg_service::process_group_broadcast;
+
+/// 单条连接握手超时：超过该时长未完成 TLS 握手则丢弃。
+/// 避免某条“半握手”连接永久阻塞接受循环（head-of-line blocking）。
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 
 fn generate_self_signed_cert() -> Result<(Vec<Certificate>, PrivateKey), Box<dyn std::error::Error>>
 {
@@ -42,7 +49,7 @@ fn make_internal_endpoint(bind_addr: SocketAddr) -> Result<Endpoint, Box<dyn std
 }
 
 async fn handle_internal_request(
-    _core: &CoreState,
+    core: &CoreState,
     mut send_stream: SendStream,
     mut recv_stream: RecvStream,
     connections: Arc<DashMap<String, QuicConnection>>,
@@ -99,15 +106,28 @@ async fn handle_internal_request(
                 let connection_key = connection_key.to_uppercase();
                 debug!("[内部 QUIC 服务器] [单聊] 正在查找本地连接 key={}", connection_key);
 
-                let response = match connections.get(&connection_key) {
-                    Some(entry) => {
+                // get_conn_by_key 返回后 guard 已释放,后续 await 不会持有 DashMap 锁
+                let local_conn = conn_lookup::get_conn_by_key(&connections, &connection_key);
+                let response = match local_conn {
+                    Some(conn) => {
                         info!(
                             "[内部 QUIC 服务器] [单聊] 在本机找到目标用户 {},正在投递...",
                             request.target_user
                         );
-                        let conn = entry.conn.clone();
 
-                        if let Err(e) = deliver_to_local_conn(conn, &request).await {
+                        let result = if request.close_after_delivery {
+                            kick_local_connection(
+                                core,
+                                &connections,
+                                &connection_key,
+                                conn,
+                                &request,
+                            )
+                            .await
+                        } else {
+                            deliver_to_local_conn(conn, &request).await
+                        };
+                        if let Err(e) = result {
                             error!("[内部 QUIC 服务器] [单聊] 投递失败: {}", e);
                             InternalQuicResponse::error(format!("Delivery failed: {}", e))
                         } else {
@@ -164,13 +184,44 @@ async fn deliver_to_local_conn(
         request.payload.len()
     );
 
-    let mut send = conn.open_uni().await?;
-    debug!("[内部 QUIC 服务器] [单聊] 单向流已打开");
-
-    // payload 已经是 bincode 序列化的 TextQuicMsg 二进制，直接透传给客户端
-    send.write_all(&request.payload).await?;
-    send.finish().await?;
+    conn_lookup::send_uni_frame(&conn, &request.payload).await?;
     info!("[内部 QUIC 服务器] [单聊] 投递完成,透传 {} 字节", request.payload.len());
+    Ok(())
+}
+
+async fn kick_local_connection(
+    core: &CoreState,
+    connections: &Arc<DashMap<String, QuicConnection>>,
+    connection_key: &str,
+    conn: quinn::Connection,
+    request: &InternalQuicRequest,
+) -> Result<()> {
+    if request.send_force_logout {
+        // 更新的登录接管,需通知旧客户端置 Idle。
+        // 即使向旧连接发送强制退出失败,也必须关闭旧连接并清理路由,避免僵尸连接占位
+        if let Err(e) = conn_lookup::send_uni_frame(&conn, &request.payload).await {
+            warn!(
+                "[内部 QUIC 服务器] [单聊] 向旧连接发送强制退出消息失败: {}，仍强制关闭旧连接",
+                e
+            );
+        }
+    } else {
+        // 同会话(相同 jti)重连顶替,静默关闭即可,避免切网重连把自己踢下线
+        info!("[内部 QUIC 服务器] 同会话连接顶替(静默): key={},仅关闭旧连接", connection_key);
+    }
+    conn.close(0u32.into(), b"replaced by another login");
+
+    if connections
+        .get(connection_key)
+        .map(|entry| entry.conn.stable_id() == conn.stable_id())
+        .unwrap_or(false)
+    {
+        connections.remove(connection_key);
+        let mut redis = core.redis.get().await?;
+        let _: () = redis.del(connection_key).await?;
+        let session_key = conn_lookup::session_key_of(connection_key);
+        let _: () = redis.del(&session_key).await?;
+    }
     Ok(())
 }
 
@@ -179,7 +230,7 @@ async fn register_to_redis(core: &CoreState, config: &InternalQuicConfig) -> Res
     let key = format!("{}{}", REDIS_INTERNAL_QUIC_SERVERS, config.server_index);
     let value = config.node_address.clone();
     conn.set_ex::<&str, &str, ()>(&key, &value, 7200).await?;
-    info!("[内部 QUIC 服务器] 已注册到 Redis key={} value={} (TTL=7200s)", key, value);
+    info!("[内部 QUIC 服务器] 已注册到 Redis key={} value={} (TTL=7200s)", key, mask_addr(&value));
     Ok(())
 }
 
@@ -199,7 +250,9 @@ pub async fn run_internal_server(
 ) {
     info!(
         "[内部 QUIC 服务器] 正在初始化... bind_address={} server_index={} node_address={}",
-        config.bind_address, config.server_index, config.node_address
+        config.bind_address,
+        config.server_index,
+        mask_addr(&config.node_address)
     );
 
     let endpoint = match make_internal_endpoint(config.bind_address) {
@@ -216,6 +269,9 @@ pub async fn run_internal_server(
 
     let server_index = config.server_index;
     info!("[内部 QUIC 服务器] 服务已启动,监听地址: {},索引: {}", config.bind_address, server_index);
+
+    // 注意: 内网节点注册 key 的周期续期由独立保活线程 common::utils::server_count_sync::start_node_key_keeper 负责,
+    // 已从本 accept 主循环移除,避免主循环异常时节点 key 过期失联。
 
     loop {
         let incoming_conn = {
@@ -239,31 +295,39 @@ pub async fn run_internal_server(
             }
         };
 
-        let conn = match incoming_conn.await {
-            Ok(c) => {
-                info!("[内部 QUIC 服务器] 新连接已建立 remote_addr={}", c.remote_address());
-                c
-            }
-            Err(e) => {
-                error!("[内部 QUIC 服务器] 建立连接失败: {}", e);
-                continue;
-            }
-        };
-
+        // 握手移入独立任务并加超时：主循环立即回到 accept()，
+        // 单条连接握手卡住/被恶意拖住时不再阻塞后续所有新连接接入
         let conns = connections.clone();
         let core_clone = core.clone();
+        let idx = server_index;
         tokio::spawn(async move {
+            let conn = match timeout(HANDSHAKE_TIMEOUT, incoming_conn).await {
+                Ok(Ok(c)) => {
+                    info!(
+                        "[内部 QUIC 服务器] 新连接已建立 remote_addr={}",
+                        mask_addr(&c.remote_address().to_string())
+                    );
+                    c
+                }
+                Ok(Err(e)) => {
+                    error!("[内部 QUIC 服务器] 建立连接失败: {}", e);
+                    return;
+                }
+                Err(_) => {
+                    warn!(
+                        "[内部 QUIC 服务器] 握手超时（{}s），丢弃该连接",
+                        HANDSHAKE_TIMEOUT.as_secs()
+                    );
+                    return;
+                }
+            };
+
             match conn.accept_bi().await {
                 Ok((send_stream, recv_stream)) => {
                     info!("[内部 QUIC 服务器] 双向流已打开");
-                    if let Err(e) = handle_internal_request(
-                        &core_clone,
-                        send_stream,
-                        recv_stream,
-                        conns,
-                        server_index,
-                    )
-                    .await
+                    if let Err(e) =
+                        handle_internal_request(&core_clone, send_stream, recv_stream, conns, idx)
+                            .await
                     {
                         error!("[内部 QUIC 服务器] 请求处理异常: {}", e);
                     }

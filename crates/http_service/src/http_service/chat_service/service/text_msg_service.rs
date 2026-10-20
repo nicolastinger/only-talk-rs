@@ -1,130 +1,52 @@
 use anyhow::anyhow;
-use common::config_str::USER_READ_MSG;
-use common::models::chat_entity::add_read_chat_record::AddReadChatRecordDTO;
-use common::models::chat_entity::chat_message_read::ChatMessageRecordRead;
 use common::models::chat_entity::chat_message_record::ChatMessageRecord;
-use deadpool_redis::redis::AsyncCommands;
+use common::utils::session_uuid::single_session_uuid;
 use rbatis::RBatis;
 use rbatis::rbdc::Uuid;
-use rbs::value;
 use tracing::info;
 
 use crate::common::dto::base_page_dto::BasePageDTO;
-use crate::utils::http_response::{CommonResponseNoDataRef, CommonResponseRef};
+use crate::utils::http_response::CommonResponseRef;
 
-/// 获取聊天记录
+/// 计算分页参数: start 取 page_num, size 取 page_size。
+/// 历史缺陷: 两参数都读 page_num, page_size 被忽略(任务02 修复 I)。
+pub fn page_range(base_page: &BasePageDTO) -> (u32, u32) {
+    let start = base_page.page_num.unwrap_or(0);
+    let size = base_page.page_size.unwrap_or(10);
+    (start, size)
+}
+
+/// 获取聊天记录。
+///
+/// 任务08: Body 可选 `session_uuid` 直达会话(分区剪枝 + 索引扫描);
+/// 缺省时由 path 的 `friend_uuid` 派生(零契约破坏, 旧客户端不受影响)。
 pub async fn get_chat_by_limit(
     rb: &RBatis,
     uuid: Option<String>,
     friend_uuid: String,
     base_page: BasePageDTO,
 ) -> Result<String, anyhow::Error> {
-    let uuid = uuid.ok_or(anyhow!("账号序列化失败"))?.parse::<Uuid>()?;
-    let friend_uuid = friend_uuid.parse::<Uuid>()?;
-    let start = base_page.page_num.unwrap_or(0);
-    let size = base_page.page_num.unwrap_or(10);
-    let res = ChatMessageRecord::select_chat_by_limit(rb, uuid, friend_uuid, start, size).await?;
+    let me: Uuid = uuid.ok_or(anyhow!("账号序列化失败"))?.parse()?;
+    let (start, size) = page_range(&base_page);
+
+    let session_uuid: Uuid = match base_page.session_uuid.as_deref() {
+        Some(s) => s.parse()?,
+        None => {
+            let friend: Uuid = friend_uuid.parse()?;
+            single_session_uuid(
+                &uuid::Uuid::parse_str(&me.to_string())?,
+                &uuid::Uuid::parse_str(&friend.to_string())?,
+            )
+            .to_string()
+            .parse()?
+        }
+    };
+
+    let res = ChatMessageRecord::select_by_session_paged(rb, &session_uuid, start, size).await?;
 
     let chat = res.first().ok_or(anyhow!("没有数据"))?;
     let vec = chat.raw.clone();
     let str = String::from_utf8(vec.into_inner())?;
     info!("查询结果: {}", str);
     Ok(CommonResponseRef::<Vec<ChatMessageRecord>>::success_json(&res)?)
-}
-
-/// 获取未读消息
-pub async fn get_unread_chat_record(
-    rb: &RBatis,
-    uuid: Option<String>,
-) -> Result<String, anyhow::Error> {
-    info!("收到请求");
-    let uuid = uuid.ok_or(anyhow!("账号获取失败"))?.parse::<Uuid>()?;
-
-    let empty_vec = CommonResponseNoDataRef::success_empty();
-    // 1、获取最新消息id
-    let last_msg = ChatMessageRecord::select_last_by_column(rb, &uuid).await?;
-    if last_msg.is_none() {
-        return Ok(empty_vec);
-    }
-    // 2、获取已读消息列表
-    let read_msg = ChatMessageRecordRead::select_all_read_by_column(rb, &uuid, 200).await?;
-    if read_msg.is_empty() {
-        // 3、返回最新消息，最大9999
-        let last_read = 0;
-        let unread_msg = ChatMessageRecord::select_unread_by_time(rb, &uuid, last_read).await?;
-        info!("未读消息数量 {}", unread_msg.len());
-        return Ok(CommonResponseRef::<Vec<ChatMessageRecord>>::success_json(&unread_msg)?);
-    }
-    // 4、查找已读消息有没有最新消息
-    let last_msg_ref = last_msg.as_ref().ok_or(anyhow!("获取最新消息失败"))?;
-    let res = read_msg.iter().find(|x| x.nano_id == last_msg_ref.nano_id);
-    if res.is_some() {
-        info!("请求处理完成");
-        return Ok(empty_vec);
-    }
-    // 5、获取未读消息
-    let last_read = read_msg
-        .first()
-        .ok_or(anyhow!("failed to get read messages"))?
-        .nano_id
-        .clone()
-        .ok_or(anyhow!("failed to get read message timestamp"))?;
-    let last_record = ChatMessageRecord::select_by_map(rb, value! {"nano_id": &last_read}).await?;
-    if !last_record.is_empty() {
-        let last_read = last_record
-            .last()
-            .ok_or(anyhow!("failed to get read message"))?
-            .timestamp
-            .ok_or(anyhow!("failed to get read message timestamp"))?;
-        let unread_msg = ChatMessageRecord::select_unread_by_time(rb, &uuid, last_read).await?;
-        let unread_msg: Vec<ChatMessageRecord> = unread_msg
-            .into_iter()
-            .map(|mut x| {
-                x.id = None;
-                x
-            })
-            .collect();
-        info!("请求处理完成");
-        return Ok(CommonResponseRef::<Vec<ChatMessageRecord>>::success_json(&unread_msg)?);
-    }
-    info!("请求处理完成");
-    Ok(empty_vec)
-}
-
-// 用户新增已读消息
-pub async fn add_user_chat_read(
-    redis: &deadpool_redis::Pool,
-    uuid: Option<String>,
-    chat_message_read: Vec<AddReadChatRecordDTO>,
-) -> Result<String, anyhow::Error> {
-    let uuid = uuid.ok_or(anyhow!("账号获取失败"))?;
-    let chat_message_read_str = serde_json::to_string(&chat_message_read)?;
-    // 写入到redis
-    let key = format!("{}{}", USER_READ_MSG, uuid).to_uppercase();
-    let mut redis = redis.get().await?;
-    let res: Result<String, _> = redis.get(&key).await;
-
-    if res.is_err() {
-        let _: () = redis.set_ex(&key, chat_message_read_str, 60 * 60 * 24).await?;
-    } else {
-        let mut last_chat_message_read: Vec<AddReadChatRecordDTO> = serde_json::from_str(&res?)?;
-        for item in chat_message_read.into_iter() {
-            let new_item =
-                last_chat_message_read.iter_mut().find(|x| x.send_user == item.send_user);
-            if let Some(new_item) = new_item {
-                new_item.timestamp = item.timestamp;
-                new_item.nano_id = item.nano_id.clone();
-                new_item.chat_type = item.chat_type;
-                info!("更新 last_chat_message_read: {:?}", new_item);
-            } else {
-                last_chat_message_read.push(item)
-            }
-        }
-
-        let _: () = redis
-            .set_ex(&key, serde_json::to_string(&last_chat_message_read)?, 60 * 60 * 24)
-            .await?;
-    }
-
-    Ok(CommonResponseNoDataRef::success_empty())
 }

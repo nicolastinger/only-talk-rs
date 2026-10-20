@@ -2,7 +2,7 @@
 
 ## 概述
 
-本文档说明 `ddl/` 目录下的建表脚本（共 24 个 `.sql`：根目录 22 个 + `migrations/` 2 个）及其执行方式。
+本文档说明 `ddl/` 目录下的建表脚本（共 38 个 `.sql`）及其执行方式。
 
 **执行顺序**：由文件名（`00_` / `01_` 前缀 + 字母序）决定，与「外键依赖」无关——除群表外，其余表之间**没有任何外键约束**（全目录仅 `01_group_tables.sql` 2 处、`group_invitation.sql` 1 处 `REFERENCES` 指向 `group_info`）。
 
@@ -16,11 +16,13 @@
 
 **说明**：仅显式创建建表时通过 `nextval(...)` 引用的序列；使用 `serial4/bigserial` 的表由 PostgreSQL 自动创建同名序列，无需在此定义。
 
-**显式创建的序列（2 个）：**
-- `chat_message_record_read_status_id_seq`
-- `group_message_record_read_id_seq`
+**显式创建的序列（0 个）：**
 
-（其余如 `chat_list_link_id_seq`、`chat_message_record_id_seq`、`friend_request_info_id_seq` 等由 `serial4`/`bigserial` 隐式创建。）
+当前无显式序列。原先为 `chat_message_record_read` 定义的 `chat_message_record_read_status_id_seq` 已随该表删除（任务 04：已读三处存储归一）。
+
+（其余如 `chat_message_record_id_seq`、`friend_request_info_id_seq` 等由 `serial4`/`bigserial` 隐式创建。）
+
+> 分区表上的 `bigserial` 序列：分区表本体仍是普通表结构，`id BIGSERIAL` 正常隐式建序列并分配，无需特殊处理。
 
 ---
 
@@ -36,6 +38,7 @@
 - `info` - 用户信息
 - `icon` - 头像
 - `registration_status` - 注册状态（0=占位未完成，1=已完成）
+- `user_type` - 用户类型（0=普通用户，1=机器人，2=企业用户，其他待补充；默认 0）
 
 （无 `created_at` / `updated_at` 列。邮箱登录渠道已迁移至独立的 `email_sso` 表。）
 
@@ -76,6 +79,39 @@
 - `device` - 设备指纹/名称（预留）
 - `result` - 结果补充（如刷新失败原因）
 - 索引：`(uuid, login_at DESC)`、`(account, login_at DESC)`、`(login_at DESC)`
+
+#### 4. 机器人扩展信息表 `robot_info.sql`
+- `uuid` - 主键（逻辑关联 basic_user.uuid，user_type=1）
+- `owner_uuid` - 归属用户（谁创建的机器人）
+- `model` - 模型标识（如 gpt-4）
+- `prompt` - 人设/系统提示词
+- `enabled` - 是否启用（0=禁用，1=启用）
+- `status` - 状态（0=正常，1=禁用，2=注销等）
+- `note` - 备注
+- `created_at` / `updated_at` - 创建/更新时间
+
+#### 5. 企业扩展信息表 `enterprise_info.sql`
+- `uuid` - 主键（逻辑关联 basic_user.uuid，user_type=2）
+- `company_name` - 企业名称
+- `credit_code` - 统一社会信用代码
+- `legal_person` - 法人代表
+- `contact_name` / `contact_phone` / `contact_email` - 联系人/联系电话/联系邮箱
+- `address` - 企业地址
+- `verified` - 是否认证（0=未认证，1=已认证）
+- `status` - 状态（0=正常，1=禁用，2=注销等）
+- `note` - 备注
+- `created_at` / `updated_at` - 创建/更新时间
+
+#### 6. 二次认证因素表 `user_auth_factor.sql`
+- `id` - 主键（`bigserial`）
+- `user_id` - 关联 `basic_user.uuid`（外键 `ON DELETE CASCADE`）
+- `factor_type` - 因素类型：0=email，1=phone，2=other（当前仅 email 接入）
+- `factor_value` - 因素值（邮箱/手机号/其他标识）
+- `verified` / `enabled` / `is_primary` - 是否已验证/启用/主因素
+- `status` - 因素状态（0=禁用，1=正常，2=已解绑）
+- `verified_at` / `last_used_at` / `deleted_at` - 时间戳（毫秒）
+- `created_at` / `updated_at` - 创建/更新时间（毫秒）
+- `UNIQUE(user_id, factor_type)` - 同一用户同类型至多一条
 
 ---
 
@@ -151,36 +187,32 @@
 
 ### 6. 聊天相关表
 
-#### 1. 聊天列表表 `chat_list_link.sql`
-- `id` - 自增主键（`serial4`）
-- `uuid` - 用户id（逻辑关联 basic_user.uuid）
-- `friend_uuid` - 朋友id（逻辑关联 basic_user.uuid）
-- `enable` - 是否显示
-- `created_at` - 创建时间
-
-#### 2. 聊天消息记录表 `chat_message_record.sql`
-- `id` - 自增id
-- `nano_id` - 消息主键
+#### 1. 聊天消息记录表 `chat_message_record.sql`
+- `id` - 自增id（`bigserial`，按会话哈希分区，16 个分区）
+- `session_uuid` - 会话标识（单聊由用户对 v5 派生，双向对称）
+- `nano_id` - 消息主键（会话内唯一）
 - `send_user` - 发送人id（逻辑关联 basic_user.uuid）
 - `recv_user` - 接收用户id（逻辑关联 basic_user.uuid）
 - `text_type` - 消息类型
 - `timestamp` - 创建时间
 - `raw` - 二进制数据
 
-#### 3. 聊天消息失败记录表 `chat_message_record_fail.sql`
-- `id` - 自增主键
-- `send_user` - 发送者id（逻辑关联 basic_user.uuid）
-- `recv_user` - 接收者id（逻辑关联 basic_user.uuid）
-- `reason` - 失败原因
-- `created_at`（varchar）- 创建时间
-- `nano_id` - 消息ID
+#### 2. 会话本体表 `session.sql`
+- `session_uuid` - 会话标识（单聊由用户对 v5 派生，群聊即 group_uuid）
+- `session_type` - 1-单聊 2-群聊 3-系统 4-公众号
+- `last_message_id` / `last_message_at` / `last_preview` - 最后一条消息聚合信息（后台任务维护）
+- `created_at` / `updated_at` - 创建/更新时间
 
-#### 4. 聊天消息已读状态表 `chat_message_record_read.sql`
-- `id` - 自增id
-- `send_user` - 发送人id（逻辑关联 basic_user.uuid）
-- `recv_user` - 接收人id（逻辑关联 basic_user.uuid）
-- `timestamp` - 创建时间
-- `nano_id` - 消息ID
+#### 3. 用户会话状态表 `user_session.sql`
+- `id` - 自增主键（`bigserial`）
+- `user_uuid` - 谁的会话列表
+- `session_uuid` - 关联 session
+- `session_type` - 冗余会话类型，免 join
+- `peer_uuid` - 单聊：对方；群聊：NULL
+- `last_read_id` - 已读游标（角标口径，只前进）
+- `synced_id` - 同步游标（拉取起点，只前进，恒 >= last_read_id）
+- `pinned` / `muted` / `deleted_at` - 控制信息
+- `created_at` / `updated_at` - 创建/更新时间
 
 ---
 
@@ -205,16 +237,6 @@
 **文件：** `01_group_tables.sql`（包含 `group_info`、`group_member`、`group_message_record` 三张表；其中 `group_member`、`group_message_record` 有 `REFERENCES group_info(group_uuid)` 外键）
 
 **文件：** `group_invitation.sql`（群邀请表；`group_uuid` 有 `REFERENCES group_info(group_uuid)` 外键）
-
-**文件：** `group_message_record_read.sql`（群消息已读状态表）
-
-**`group_message_record_read` 主要字段：**
-- `id` - 自增id
-- `nano_id` - 消息主键
-- `send_user` - 发送人id
-- `group_uuid` - 群组id
-- `read_user` - 已读用户id
-- `timestamp` - 消息创建时间
 
 ---
 
@@ -250,6 +272,7 @@ psql -U username -d database_name -f basic_user.sql
 psql -U username -d database_name -f user_info.sql
 psql -U username -d database_name -f user_cache.sql
 psql -U username -d database_name -f user_login_log.sql
+psql -U username -d database_name -f user_auth_factor.sql
 
 # 4. 文件上传相关表
 psql -U username -d database_name -f file_upload_record.sql
@@ -264,17 +287,15 @@ psql -U username -d database_name -f friend_list.sql
 psql -U username -d database_name -f friend_request_info.sql
 
 # 6. 聊天相关表
-psql -U username -d database_name -f chat_list_link.sql
 psql -U username -d database_name -f chat_message_record.sql
-psql -U username -d database_name -f chat_message_record_fail.sql
-psql -U username -d database_name -f chat_message_record_read.sql
+psql -U username -d database_name -f session.sql
+psql -U username -d database_name -f user_session.sql
 
 # 7. 系统通知表
 psql -U username -d database_name -f system_notification.sql
 
 # 8. 群聊相关表
 psql -U username -d database_name -f group_invitation.sql
-psql -U username -d database_name -f group_message_record_read.sql
 ```
 
 （数据修复与迁移脚本 `fix_file_path_stored_name_inconsistency.sql`、`migrations/*.sql` 按需执行；修复脚本有 SELECT 确认语句，迁移脚本幂等。）
@@ -376,6 +397,7 @@ basic_user.sql (基础用户表)
     ├─→ user_info.sql (用户详细信息表)
     ├─→ user_cache.sql (用户缓存表)
     ├─→ user_login_log.sql (用户登录记录表)
+    ├─→ user_auth_factor.sql (二次认证因素表)
     ├─→ file_upload_record.sql (文件上传记录表)
     ├─→ biz_record.sql (文件上传业务表)
     ├─→ chat_biz_record.sql (聊天文件上传业务表)
@@ -384,13 +406,12 @@ basic_user.sql (基础用户表)
     ├─→ friend_link.sql (好友关系表)
     ├─→ friend_list.sql (好友列表缓存表)
     ├─→ friend_request_info.sql (好友请求表)
-    ├─→ chat_list_link.sql (聊天列表表)
-    ├─→ chat_message_record.sql (聊天消息记录表)
-    ├─→ chat_message_record_fail.sql (聊天消息失败记录表)
-    ├─→ chat_message_record_read.sql (聊天消息已读状态表)
+    ├─→ chat_message_record.sql (聊天消息记录表, 按会话哈希分区)
+    ├─→ session.sql (会话本体表)
+    ├─→ user_session.sql (用户会话状态表)
     ├─→ system_notification.sql (系统通知表)
     ├─→ group_invitation.sql (群邀请表，REFERENCES group_info)
-    └─→ group_message_record_read.sql (群消息已读状态表)
+    └─→ (群消息表见 01_group_tables.sql)
 ```
 
 > 注：除 `01_group_tables.sql` 与 `group_invitation.sql` 指向 `group_info` 的 3 处外键外，所有「用户/文件/聊天/通知」表的 `uuid` 关联均为**逻辑关联（无外键约束）**。实际执行顺序由文件名字典序决定（`migrations/*.sql` 最后）。

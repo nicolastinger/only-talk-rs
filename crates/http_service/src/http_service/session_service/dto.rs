@@ -1,0 +1,141 @@
+use serde::{Deserialize, Serialize};
+
+/// 已读上报(新契约): 客户端只上报已读水位的 nano_id, 服务端反查自己的消息 id 推进游标。
+///
+/// 客户端本地 `server_id` 靠同步回填、在线消息为 NULL, 数值游标不可靠;
+/// 上报值统一为 nano_id(消息唯一标识), 由服务端经 `nano_id` 反查推进。
+#[derive(Debug, Deserialize, Serialize)]
+pub struct SessionReadItem {
+    pub session_uuid: String,
+    /// 1-单聊 2-群聊(决定反查表)
+    pub session_type: i16,
+    /// 已读水位对应消息的 nano_id(客户端直接上报, 不做本地数值换算)
+    pub last_read_nano_id: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct SessionReadDTO {
+    pub reads: Vec<SessionReadItem>,
+}
+
+/// 同步游标回报(§7.3): 客户端落库成功后推进
+#[derive(Debug, Deserialize, Serialize)]
+pub struct SessionSyncedItem {
+    pub session_uuid: String,
+    pub synced_id: i64,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct SessionSyncedDTO {
+    pub sessions: Vec<SessionSyncedItem>,
+}
+
+// ===== 任务12: 离线同步 /session/sync(无状态窗口查询) =====
+
+/// 单个待拉取会话(任务12 正向追平): 客户端显式携带本地已同步的最新 id。
+#[derive(Debug, Deserialize, Serialize)]
+pub struct SyncSessionReq {
+    pub session_uuid: String,
+    /// 正向起点: 返回窗口内 `id > after_id` 的消息(升序); 缺省 = 0(从窗口内最早起)
+    #[serde(default)]
+    pub after_id: Option<i64>,
+}
+
+/// 同步请求(任务12): 删除 `mode`(客户端游标驱动), `sessions` 元素对象化。
+///
+/// 旧客户端的 `mode` 字段因 serde 默认忽略未知字段而被静默兼容。
+#[derive(Debug, Deserialize, Serialize)]
+pub struct SyncRequestDTO {
+    /// 要拉的会话(客户端缺口检测的产物); 空/缺省 → 空响应
+    #[serde(default)]
+    pub sessions: Option<Vec<SyncSessionReq>>,
+    /// 单会话上限, 服务端 clamp [1, SYNC_MAX_LIMIT]
+    pub limit: Option<u32>,
+}
+
+/// 同步消息 VO(单/群同形态, 字段名与 `TextQuicMsg` 对齐, 供客户端直接入库)
+#[derive(Debug, Deserialize, Serialize)]
+pub struct SyncMessageVO {
+    pub id: i64,
+    pub nano_id: String,
+    pub session_uuid: String,
+    /// 1-单聊 2-群聊: 客户端分流依据(与 text_type 值域解释联动)
+    pub session_type: i16,
+    pub send_user: String,
+    /// 单聊: 接收方; 群聊: 即 group_uuid
+    pub recv_user: String,
+    /// 单聊: text_type; 群聊: msg_type
+    pub text_type: u16,
+    pub timestamp: i64,
+    /// 消息内容(与现有接口同形态: 字节数组)
+    pub raw: Vec<u8>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct SyncSessionVO {
+    pub session_uuid: String,
+    pub session_type: i16,
+    /// 服务端已读游标(user_session.last_read_id): 跨端同步时客户端据此不把
+    /// 其他端已读的消息计入未读(角标口径, id <= last_read_id 视为已读)
+    pub last_read_id: i64,
+    /// 会话内按 id 升序
+    pub messages: Vec<SyncMessageVO>,
+    /// 本批最大消息 id(= 末条 id; 空批 = 请求的 after_id); 客户端以此续拉并回报 /session/synced
+    pub next_cursor: i64,
+    /// 窗口内是否还有更多(limit+1 探测); false = 已追平服务端最新 id 或 7 天窗口尽头
+    pub has_more: bool,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct SyncResponseVO {
+    pub server_time: i64,
+    pub sessions: Vec<SyncSessionVO>,
+}
+
+// ===== 任务06: 会话列表与控制信息 =====
+
+/// keyset 游标(首页整体省略)
+#[derive(Debug, Deserialize, Serialize)]
+pub struct SessionListCursor {
+    pub pinned: i16,
+    pub last_message_at: i64,
+    pub session_uuid: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct SessionListDTO {
+    pub cursor: Option<SessionListCursor>,
+    /// 每页条数, 服务端 clamp [1, 100], 默认 50
+    pub size: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct SessionVO {
+    pub session_uuid: String,
+    pub session_type: i16,
+    /// 单聊: 对方; 群聊: None —— 客户端据此补齐资料
+    pub peer_uuid: Option<String>,
+    pub last_message_id: i64,
+    pub last_message_at: i64,
+    pub last_preview: String,
+    pub pinned: i16,
+    pub muted: i16,
+    pub unread: i64,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct SessionListResponseVO {
+    pub sessions: Vec<SessionVO>,
+    pub has_more: bool,
+    /// 下一页游标(客户端原样回传)
+    pub next_cursor: Option<SessionListCursor>,
+}
+
+/// 控制信息通用 DTO(pin/mute/delete 共用)
+#[derive(Debug, Deserialize, Serialize)]
+pub struct SessionControlDTO {
+    pub session_uuid: String,
+    /// pin/mute: 目标值(0/1); delete 忽略
+    #[serde(default)]
+    pub value: Option<i16>,
+}
