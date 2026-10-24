@@ -47,6 +47,10 @@ pub static NAT_UDP_PORTS: &str = "NAT:UDP:PORTS:";
 pub static GROUP_MEMBERS_CACHE: &str = "GROUP:MEMBERS:";
 // 刷新令牌映射(值:绑定设备指纹)
 pub static REFRESH_TOKEN: &str = "REFRESH_TOKEN:";
+// 用户手动状态(值: JSON {mode,text,updated_at,expires_at}, 不落库)
+pub static REDIS_USER_PRESENCE: &str = "USER:PRESENCE:";
+// 用户手动状态有效期(秒): 48 小时, 到期自动回到"无状态"
+pub const USER_PRESENCE_TTL_SECS: u64 = 48 * 60 * 60;
 // 邮箱注册验证码
 pub static EMAIL_VERIFY_CODE: &str = "EMAIL:VERIFY:CODE:";
 // 二次认证邮箱绑定验证码

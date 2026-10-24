@@ -25,7 +25,7 @@ http_service/src/
 ├── utils/                # http_response.rs（统一响应）、http_macros.rs（validate/respond 宏）、file_utils.rs
 ├── common/dto/           # 跨模块 DTO（AuthAccount、BasePageDTO、ReqList）
 └── http_service/
-    ├── user_service/     # 用户：注册/登录/token/资料；好友：申请/列表/删除
+    ├── user_service/     # 用户：注册/登录/token/资料；好友：申请/列表/删除；手动状态(presence)
     ├── chat_service/     # 单聊：聊天记录、未读、已读回执（Redis）
     ├── group_service/    # 群聊：建群/成员/邀请/消息历史/未读/解散，成员缓存到 Redis
     ├── notify_service/   # 系统通知: 中心列表(keyset 分页+分类过滤)、未读数汇总、批量/全部已读、QUIC 双端实时推送
@@ -39,6 +39,7 @@ http_service/src/
 - 鉴权：除 `sign_up`/`sign_in`/`refresh_token` 外所有端点经中间件校验 Bearer JWT，用户 UUID 注入 `AuthAccount` 扩展。
 - service 函数统一返回 `Result<String, anyhow::Error>`（已是 JSON 字符串），controller 用 `respond_json_any!` 宏包装。
 - `s3_controller`（`/s3/*`）是通用 S3 管理端点；S3 为启动强制要求（`s3.enabled` 为 false 时 `api::init_server` 拒绝启动），`state.s3` 始终可用。
+- **用户手动状态（presence）**：`user_service/presence_*`，`/user/presence/{set,mine,batch}` 三个端点。语义是「手动状态/签名」（忙碌/离开/学习中/奋斗中/自定义），**与在线离线无关**，不落库：只存 Redis `USER:PRESENCE:{UUID}`（JSON，48 小时 TTL，`common::config_str::USER_PRESENCE_TTL_SECS`），到期自动回到无状态；批量查询前会校验好友关系，非好友 uuid 一律忽略；无实时推送，好友侧在拉取时读取最新值。
 - 集成测试：`tests/http_service_integration_test.rs`（`#[ignore]`，需本地 PG/Redis，见 [http_service 集成测试说明](./http_service_integration_test.md)）。
 
 ## 部署形态

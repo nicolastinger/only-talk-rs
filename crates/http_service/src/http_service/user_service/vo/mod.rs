@@ -1,5 +1,6 @@
 pub mod friend_vo;
 pub mod github_oauth_vo;
+pub mod presence_vo;
 pub mod sign_in_vo;
 pub mod sign_up_step1_vo;
 pub mod sqlite_key_vo;
