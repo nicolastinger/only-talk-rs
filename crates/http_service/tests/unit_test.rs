@@ -876,6 +876,49 @@ mod report {
     }
 }
 
+/// 聊天文件转发"重新发牌" DTO/VO
+mod forward_chat_biz {
+    use http_service::http_service::file_service::dto::forward_chat_biz_dto::ForwardChatBizDTO;
+    use http_service::http_service::file_service::vo::forward_chat_biz_vo::ForwardChatBizVO;
+
+    use super::*;
+
+    #[test]
+    fn dto_roundtrip() {
+        assert_roundtrip(&ForwardChatBizDTO {
+            biz_ids: vec!["b1".to_string(), "b2".to_string()],
+            receiver: "u2".to_string(),
+            is_group: false,
+        });
+        assert_roundtrip(&ForwardChatBizDTO {
+            biz_ids: vec!["b1".to_string()],
+            receiver: "g1".to_string(),
+            is_group: true,
+        });
+    }
+
+    #[test]
+    fn dto_deserializes_client_payload() {
+        let dto: ForwardChatBizDTO =
+            serde_json::from_str(r#"{"biz_ids":["b1"],"receiver":"u2","is_group":true}"#)
+                .expect("反序列化失败");
+        assert_eq!(dto.biz_ids, vec!["b1".to_string()]);
+        assert_eq!(dto.receiver, "u2");
+        assert!(dto.is_group);
+    }
+
+    #[test]
+    fn vo_serializes_source_to_new_biz_mapping() {
+        let value = serde_json::to_value(ForwardChatBizVO {
+            source_biz_id: "old".to_string(),
+            biz_id: "new".to_string(),
+        })
+        .expect("序列化失败");
+        assert_eq!(value["source_biz_id"], "old");
+        assert_eq!(value["biz_id"], "new");
+    }
+}
+
 /// 聊天记录分页参数(任务02 缺陷 I 回归)
 mod chat_page_range {
     use super::*;

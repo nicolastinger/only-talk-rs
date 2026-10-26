@@ -4,6 +4,7 @@ use crate::http_service::file_service::controller::file_controller::file_service
 use crate::http_service::file_service::controller::s3_controller::s3_service_routes;
 
 pub mod controller;
+pub mod dto;
 pub mod model;
 pub mod service;
 pub mod vo;

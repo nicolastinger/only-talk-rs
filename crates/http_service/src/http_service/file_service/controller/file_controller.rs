@@ -3,7 +3,9 @@ use actix_web::{HttpRequest, HttpResponse, Responder, get, post, web};
 use tracing::error;
 
 use crate::common::dto::base_dto::AuthAccount;
+use crate::http_service::file_service::dto::forward_chat_biz_dto::ForwardChatBizDTO;
 use crate::http_service::file_service::service::biz_service::upload_original_file_by_biz_id;
+use crate::http_service::file_service::service::chat_biz_service::forward_chat_biz;
 use crate::http_service::file_service::service::file_service::{
     download_chat_file_by_id, download_link_chat_biz, download_link_pub_biz,
     download_pub_file_by_id,
@@ -18,7 +20,8 @@ pub fn file_service(cfg: &mut web::ServiceConfig) {
         .service(download_chat_file_api)
         .service(download_pub_biz_api)
         .service(upload_origin_file_by_biz_api)
-        .service(download_private_file_api);
+        .service(download_private_file_api)
+        .service(forward_chat_biz_api);
 }
 
 /**
@@ -137,4 +140,21 @@ async fn upload_origin_file_by_biz_api(
     )
     .await;
     respond_json_any!(res)
+}
+
+/**
+ * 转发文件前为本次转发目标重新签发业务 id
+ *
+ * 复用原 biz 的文件关联（不重新上传），把接收者写成新目标，
+ * 返回 `[{ source_biz_id, biz_id }]`，客户端据此改写转发消息 raw 中的 biz_id。
+ */
+#[post("/forward/chat_biz")]
+async fn forward_chat_biz_api(
+    req: HttpRequest,
+    state: web::Data<AppState>,
+    body: web::Json<ForwardChatBizDTO>,
+) -> impl Responder {
+    let uuid = get_uuid_from_header!(req);
+    let dto = body.into_inner();
+    respond_json_any!(forward_chat_biz(state.db(), uuid, dto).await)
 }

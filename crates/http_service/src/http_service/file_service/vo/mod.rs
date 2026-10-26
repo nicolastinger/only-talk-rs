@@ -3,3 +3,4 @@
 pub mod biz_file_download_link_vo;
 pub mod biz_file_link_vo;
 pub mod biz_record_vo;
+pub mod forward_chat_biz_vo;
