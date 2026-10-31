@@ -1,3 +1,4 @@
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -164,7 +165,7 @@ pub async fn get_p2p_udp_socket_with_shutdown(
                         let client_ip = src.ip();
                         let client_port = src.port();
 
-                        let udp_addr = format!("{}:{}", client_ip, client_port);
+                        let udp_addr = format_udp_addr(client_ip, client_port);
                         info!("从 {} 收到消息 size={}", mask_addr(&udp_addr), size);
 
                         let res = serde_json::from_slice::<UserAddressInfo>(&buf[..size]);
@@ -215,7 +216,7 @@ pub async fn get_p2p_udp_socket(
                         let client_ip = src.ip();
                         let client_port = src.port();
 
-                        let udp_addr = format!("{}:{}", client_ip, client_port);
+                        let udp_addr = format_udp_addr(client_ip, client_port);
 
                         match serde_json::from_slice::<UserAddressInfo>(&buf[..size]){
                            Ok(msg) => {
@@ -239,6 +240,11 @@ pub async fn get_p2p_udp_socket(
             }
         }
     }
+}
+
+/// 统一 UDP 地址格式：IPv6 必须带方括号(`[addr]:port`)，否则客户端无法解析
+fn format_udp_addr(ip: IpAddr, port: u16) -> String {
+    SocketAddr::new(ip, port).to_string()
 }
 
 async fn process_p2p_user_info(
@@ -427,4 +433,29 @@ async fn get_target_user_address_info(
     let mut target_user_address_info: UserAddressInfo = serde_json::from_str(&result)?;
     target_user_address_info.token = String::new();
     Ok(target_user_address_info)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::net::{Ipv4Addr, Ipv6Addr};
+
+    use super::*;
+
+    #[test]
+    fn format_udp_addr_keeps_ipv4_port() {
+        assert_eq!(
+            format_udp_addr(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 10)), 19562),
+            "192.168.1.10:19562"
+        );
+    }
+
+    #[test]
+    fn format_udp_addr_brackets_ipv6() {
+        // 客户端按 SocketAddrV6 / SocketAddr 解析，IPv6 必须带方括号
+        assert_eq!(format_udp_addr(IpAddr::V6(Ipv6Addr::LOCALHOST), 19563), "[::1]:19563");
+        assert_eq!(
+            format_udp_addr("2001:db8::1".parse().expect("解析 IPv6 失败"), 19565),
+            "[2001:db8::1]:19565"
+        );
+    }
 }
